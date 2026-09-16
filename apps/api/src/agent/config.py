@@ -51,6 +51,11 @@ class Settings(BaseSettings):
     session_ttl_days: int = 30
     cookie_secure: bool = False
 
+    # --- public URLs --------------------------------------------------------
+    # Where a browser reaches this installation. Invite links are built from it,
+    # so an unset value in production produces links that resolve to localhost.
+    app_base_url: str = "http://localhost:3000"
+
     # --- bootstrap admin (consumed in P0b) ---------------------------------
     bootstrap_admin_email: str | None = None
     bootstrap_admin_password: SecretStr | None = None
@@ -142,6 +147,11 @@ class Settings(BaseSettings):
         if url.startswith("postgres://"):
             return "postgresql+asyncpg://" + url[len("postgres://") :]
         return url
+
+    @field_validator("app_base_url")
+    @classmethod
+    def _strip_trailing_slash(cls, value: str) -> str:
+        return value.rstrip("/")
 
     @property
     def smtp_configured(self) -> bool:

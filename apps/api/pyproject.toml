@@ -17,6 +17,8 @@ dependencies = [
     "httpx>=0.28.1",             # outbound HTTP (OpenRouter, connectors)
     "structlog>=24.4.0",         # structured logging
     "pgvector>=0.3.6",           # SQLAlchemy Vector column type
+    "email-validator>=2.2.0",    # pydantic EmailStr; invites are addressed by email (PRD §6.1.6)
+    "aiosmtplib>=3.0.2",         # async SMTP; invite delivery when SMTP_HOST is set (PRD §19.1.12)
 ]
 
 [dependency-groups]
@@ -65,3 +67,8 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+# One event loop for the whole session. The engine and the Redis pool are
+# process-level caches, so per-test loops would leave every connection bound to
+# a loop that has already closed.
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

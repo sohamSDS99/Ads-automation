@@ -1,0 +1,15 @@
+{
+  "description": "The double-submit token. Also set as the `csrf` cookie on this response.",
+  "properties": {
+    "csrf_token": {
+      "title": "Csrf Token",
+      "type": "string"
+    }
+  },
+  "required": [
+    "csrf_token"
+  ],
+  "title": "CsrfResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

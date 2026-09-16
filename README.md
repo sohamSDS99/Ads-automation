@@ -7,9 +7,10 @@ sources and emits a versioned, citation-backed Research Report.
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
 for the full specification.
 
-> **Status: Phase P0 (Foundation).** Schema and scaffold only. Authentication,
-> the orchestrator, connectors, nodes, report and exports arrive in later
-> phases — the phase table lives in PRD §17.
+> **Status: Phase P0b (Auth & workspace).** Schema, scaffold, and the whole
+> sign-in surface: Argon2id passwords, Redis sessions, four roles, invites,
+> CSRF, and the audit trail. The orchestrator, connectors, nodes, report and
+> exports arrive in later phases — the phase table lives in PRD §17.
 
 ## Setup
 
@@ -18,11 +19,16 @@ git clone git@github.com:sohamSDS99/Ads-automation.git && cd Ads-automation
 cp .env.example .env            # optional; Compose has working dev defaults
 make up                         # builds, starts five services, runs migrations
 make health                     # {"status":"ok","db":"ok","redis":"ok",…}
-open http://localhost:3000
+open http://localhost:3000      # sign in as BOOTSTRAP_ADMIN_EMAIL
 ```
 
 That is the whole setup. `make up` is idempotent; `make clean` destroys the
 local volumes.
+
+The first boot against an empty database creates the workspace and its only
+admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`. After that
+there is no path to an account except an invite — change the dev password from
+the account menu, and set a real one before deploying anywhere.
 
 ## What runs where
 
@@ -43,7 +49,11 @@ there.
 ```bash
 make up            # start everything and migrate
 make health        # health through the web rewrite, as a browser sees it
-make test          # pytest + mypy + tsc
+make test          # unit + integration + route guards + mypy + tsc
+make test-integration  # the DB+Redis suite, inside the compose network
+make guards        # fail if any route lacks its require(Permission)
+make verify        # PRD §19.1's acceptance list against the running stack
+make browser       # render the auth screens in Chromium and assert on them
 make lint          # ruff + eslint
 make migrate       # alembic upgrade head
 make psql          # psql shell
@@ -78,6 +88,18 @@ railway/      provisioning runbook + the full env-var table
   process refuses to start.
 - **Migrations never run at startup** — only as Railway's `preDeployCommand`,
   because `api` and `worker` boot concurrently.
+- **Every route declares a permission.** `require(Permission)` is the only way
+  a route is reachable; `scripts/check_route_guards.py` walks the router modules
+  and fails the build on any route that declares neither a permission nor a
+  place on the six-entry public allowlist.
+- **Authorization is never cached in the session.** The `user` row is read on
+  every request, so a demotion or a disable takes effect on the next call
+  rather than whenever a session happens to be rebuilt.
+- **Every mutating action writes an `AuditLog` row in the same transaction** as
+  the change it describes, so the two cannot come apart.
+- **Secrets never reach a log.** A structlog processor redacts any field whose
+  name mentions a password, secret, token, authorization, ciphertext or cookie,
+  ahead of the renderer.
 - **No `if RAILWAY` branch anywhere.** Environments differ by variable values.
 
 ## Known limits of P0

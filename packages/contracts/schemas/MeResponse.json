@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "Permission": {
+      "description": "What a caller is allowed to do. One per PRD \u00a74.1 row group.",
+      "enum": [
+        "read",
+        "project_write",
+        "run_execute",
+        "credential_write",
+        "settings_write",
+        "approval_decide",
+        "user_manage",
+        "audit_read"
+      ],
+      "title": "Permission",
+      "type": "string"
+    },
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "description": "The signed-in caller plus the permissions the UI should render against.\n\n`permissions` is advisory for the client. The server checks it again on\nevery route; hiding a button is cosmetic (PRD \u00a718 law 6).",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "email": {
+      "title": "Email",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/UserRole"
+    },
+    "permissions": {
+      "items": {
+        "$ref": "#/$defs/Permission"
+      },
+      "title": "Permissions",
+      "type": "array"
+    },
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    },
+    "workspace_name": {
+      "title": "Workspace Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "email",
+    "name",
+    "role",
+    "permissions",
+    "workspace_id",
+    "workspace_name"
+  ],
+  "title": "MeResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

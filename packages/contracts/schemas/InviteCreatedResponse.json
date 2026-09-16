@@ -1,0 +1,53 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "description": "The invite, plus the one and only time its link is ever visible.\n\n`link` is returned so an admin can copy it when SMTP is not configured or\nthe send failed. The token behind it is not stored anywhere in plaintext.",
+  "properties": {
+    "invite_id": {
+      "format": "uuid",
+      "title": "Invite Id",
+      "type": "string"
+    },
+    "email": {
+      "title": "Email",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/UserRole"
+    },
+    "expires_at": {
+      "format": "date-time",
+      "title": "Expires At",
+      "type": "string"
+    },
+    "link": {
+      "title": "Link",
+      "type": "string"
+    },
+    "email_delivered": {
+      "title": "Email Delivered",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "invite_id",
+    "email",
+    "role",
+    "expires_at",
+    "link",
+    "email_delivered"
+  ],
+  "title": "InviteCreatedResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

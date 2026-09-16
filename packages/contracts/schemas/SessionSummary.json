@@ -1,0 +1,62 @@
+{
+  "description": "One signed-in browser.\n\n`id` is a digest of the session id, not the session id. Returning the real\none would make this endpoint an XSS-to-account-takeover primitive; the\ndigest is enough to name a session for revocation and useless as a cookie.",
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "last_seen_at": {
+      "format": "date-time",
+      "title": "Last Seen At",
+      "type": "string"
+    },
+    "absolute_expires_at": {
+      "format": "date-time",
+      "title": "Absolute Expires At",
+      "type": "string"
+    },
+    "ip": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ip"
+    },
+    "user_agent": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "User Agent"
+    },
+    "current": {
+      "title": "Current",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "created_at",
+    "last_seen_at",
+    "absolute_expires_at",
+    "current"
+  ],
+  "title": "SessionSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

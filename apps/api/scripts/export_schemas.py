@@ -21,7 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from pydantic import BaseModel  # noqa: E402
 
 #: Modules scanned for models. Grows with each phase.
-SOURCE_MODULES: tuple[str, ...] = ("agent.api.schemas",)
+SOURCE_MODULES: tuple[str, ...] = ("agent.api.schemas", "agent.api.schemas_auth")
 
 
 def collect_models() -> dict[str, type[BaseModel]]:

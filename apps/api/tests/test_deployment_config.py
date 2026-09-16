@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import pytest
@@ -71,3 +72,28 @@ def test_no_absolute_api_url_reaches_the_browser() -> None:
         and "NEXT_PUBLIC_API_URL" in path.read_text(encoding="utf-8", errors="ignore")
     ]
     assert not offences, f"NEXT_PUBLIC_API_URL found in {offences}"
+
+
+def test_production_is_the_last_dockerfile_stage() -> None:
+    """Railway builds with no `--target`, so the last stage is what ships.
+
+    The `dev` stage exists for the integration suite and carries pytest and
+    mypy. If it ever ends up last, those reach production.
+    """
+    stages = re.findall(
+        r"^FROM\s+\S+\s+AS\s+(\S+)",
+        (API_DIR / "Dockerfile").read_text(encoding="utf-8"),
+        re.MULTILINE,
+    )
+    assert stages[-1] != "dev", f"`dev` must not be the final stage; stages are {stages}"
+    assert "dev" in stages, "the integration suite's image stage is missing"
+
+
+def test_the_test_service_is_profiled_and_uses_its_own_database() -> None:
+    """`make up` must never start it, and it must never point at the dev database."""
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    service = compose["services"]["test"]
+    assert service["profiles"] == ["test"]
+    assert service["build"]["target"] == "dev"
+    assert service["environment"]["DATABASE_URL"].endswith("/agent_test")
+    assert service["environment"]["REDIS_URL"].endswith("/15")

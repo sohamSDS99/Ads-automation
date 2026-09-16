@@ -29,3 +29,17 @@ EXPOSE 8000
 # Shell form on purpose: $PORT is injected by Railway at runtime and must be
 # expanded. Bind `::` — Railway's private network is IPv6-only (PRD §5.2).
 CMD uvicorn agent.main:app --host :: --port ${PORT:-8000}
+
+# ---------------------------------------------------------------------------
+# dev — the integration suite's image. Adds pytest and mypy to `base`, and is
+# built only by the profiled `test` service in docker-compose.yml.
+# ---------------------------------------------------------------------------
+FROM base AS dev
+RUN uv sync --frozen
+
+# ---------------------------------------------------------------------------
+# runtime — production, and deliberately the LAST stage. Railway builds this
+# Dockerfile with no `--target`, so whatever ends up last is what ships; keeping
+# `dev` above this line is what stops pytest reaching production.
+# ---------------------------------------------------------------------------
+FROM base AS runtime

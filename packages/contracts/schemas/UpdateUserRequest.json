@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    },
+    "UserStatus": {
+      "enum": [
+        "invited",
+        "active",
+        "disabled"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    }
+  },
+  "description": "Both fields optional; at least one must be present.",
+  "properties": {
+    "role": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UserRole"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UserStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "UpdateUserRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
