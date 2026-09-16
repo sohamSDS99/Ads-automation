@@ -63,6 +63,50 @@ class Settings(BaseSettings):
     # --- llm ----------------------------------------------------------------
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
 
+    # --- embeddings ---------------------------------------------------------
+    # OpenRouter serves no embedding model (its catalogue is chat-only), so the
+    # vectors are produced locally. `EMBEDDING_DIM` in `db.models` is the schema
+    # and must equal the provider's width — `tests/test_embedding.py` asserts it.
+    #
+    # `hash` is a deterministic, dependency-free provider. It exists so unit
+    # tests and an offline CI never reach for the ONNX model, and it is not a
+    # sensible production choice: it captures token overlap, not meaning.
+    embedding_provider: Literal["fastembed", "hash"] = "fastembed"
+    embedding_model: str = "BAAI/bge-small-en-v1.5"
+    embedding_batch_size: int = 64
+
+    # --- connectors ---------------------------------------------------------
+    # One identity for every outbound connector request. A crawler that does not
+    # say who it is gets blocked, and deserves to be.
+    connector_user_agent: str = (
+        "AdsResearchAgent/0.1 (+https://github.com/sohamSDS99/Ads-automation)"
+    )
+    connector_timeout_s: float = 30.0
+    connector_max_retries: int = 3
+
+    # google_ads: the REST surface, not the gRPC SDK. See `connectors/google_ads.py`.
+    google_ads_api_version: str = "v18"
+    google_ads_base_url: str = "https://googleads.googleapis.com"
+    google_ads_lookback_months: int = 24
+
+    dataforseo_base_url: str = "https://api.dataforseo.com/v3"
+
+    # web_crawler: PRD §9.4 caps — 500 URLs, depth 3.
+    crawl_max_urls: int = 500
+    crawl_max_depth: int = 3
+    crawl_concurrency: int = 4
+    crawl_delay_s: float = 0.2
+
+    # transparency: PRD §9.2 — one page at a time, randomised 2–5s between actions.
+    transparency_base_url: str = "https://adstransparency.google.com"
+    transparency_min_delay_s: float = 2.0
+    transparency_max_delay_s: float = 5.0
+    transparency_max_ads: int = 300
+
+    # csv_ingest: a guard against a 2GB upload, not a product limit.
+    csv_max_bytes: int = 32 * 1024 * 1024
+    csv_max_rows: int = 200_000
+
     # --- storage ------------------------------------------------------------
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "/data"

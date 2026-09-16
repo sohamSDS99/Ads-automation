@@ -97,3 +97,34 @@ def test_the_test_service_is_profiled_and_uses_its_own_database() -> None:
     assert service["build"]["target"] == "dev"
     assert service["environment"]["DATABASE_URL"].endswith("/agent_test")
     assert service["environment"]["REDIS_URL"].endswith("/15")
+
+
+# --- P2: the embedding model ---------------------------------------------
+
+
+def test_both_images_bake_the_embedding_model() -> None:
+    """fastembed must not download 130MB on the first search request.
+
+    Its default cache is under `tempfile.gettempdir()`, and a Railway container
+    filesystem is wiped on every deploy (PRD §5.2). Without a build-time
+    download and a cache path outside the default, the first request that
+    touches search after each deploy pays a cold download — and fails outright
+    if HuggingFace is unreachable.
+    """
+    for name in ("Dockerfile", "Dockerfile.worker"):
+        dockerfile = (API_DIR / name).read_text(encoding="utf-8")
+        assert "FASTEMBED_CACHE_PATH" in dockerfile, f"{name} does not pin the model cache"
+        assert "TextEmbedding(" in dockerfile, f"{name} does not pre-download the model"
+
+
+def test_the_baked_model_is_the_one_the_schema_was_sized_for() -> None:
+    """The image, the default setting and the column width are one decision."""
+    from agent.config import Settings
+    from agent.db.models import EMBEDDING_DIM
+
+    settings = Settings(app_encryption_key="dW5pdC10ZXN0LWtleS0zMi1ieXRlcy1leGFjdGx5ISE=")
+    assert settings.embedding_model == "BAAI/bge-small-en-v1.5"
+    assert EMBEDDING_DIM == 384
+    for name in ("Dockerfile", "Dockerfile.worker"):
+        dockerfile = (API_DIR / name).read_text(encoding="utf-8")
+        assert settings.embedding_model in dockerfile, f"{name} bakes a different model"

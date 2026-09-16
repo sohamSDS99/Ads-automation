@@ -24,6 +24,19 @@ RUN uv sync --frozen --no-dev
 ENV PATH="/app/.venv/bin:$PATH" \
     PORT=8000
 
+# Bake the embedding model into the image.
+#
+# `fastembed` downloads BAAI/bge-small-en-v1.5 (~130MB) on first use. Container
+# filesystems are ephemeral (PRD §5.2 / Law 10), so without this every deploy
+# would re-download it on the first request that touches search — a cold start
+# measured in tens of seconds, and an outage if HuggingFace is unreachable.
+# Downloading it at build time makes the image bigger once and startup
+# predictable forever.
+ENV FASTEMBED_CACHE_PATH=/opt/fastembed
+RUN mkdir -p $FASTEMBED_CACHE_PATH && \
+    python -c "from fastembed import TextEmbedding; \
+TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='$FASTEMBED_CACHE_PATH')"
+
 EXPOSE 8000
 
 # Shell form on purpose: $PORT is injected by Railway at runtime and must be
