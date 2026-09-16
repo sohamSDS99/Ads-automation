@@ -1,0 +1,13 @@
+{
+  "name": "@ads-research-agent/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JSON Schema emitted from the API's Pydantic models, plus generated zod schemas.",
+  "scripts": {
+    "generate": "rm -rf zod && mkdir -p zod && for f in schemas/*.json; do n=$(basename \"$f\" .json); json-schema-to-zod -i \"$f\" -n \"${n}Schema\" -o \"zod/${n}.ts\"; done",
+    "clean": "rm -rf zod"
+  },
+  "devDependencies": {
+    "json-schema-to-zod": "^2.6.1"
+  }
+}

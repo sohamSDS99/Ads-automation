@@ -1,0 +1,80 @@
+/* ---------------------------------------------------------------------------
+ * Design tokens — PRD §13.2.
+ * Neutral base (zinc), one accent, and the exact status palette of the stage
+ * diagram. Light and dark are both defined here; next-themes flips
+ * `data-theme` on <html>.
+ * ------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+
+  /* surfaces */
+  --bg: #ffffff;
+  --surface: #fafafa;
+  --surface-raised: #ffffff;
+  --surface-hover: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+
+  /* text */
+  --fg: #18181b;
+  --fg-muted: #52525b;
+  --fg-subtle: #a1a1aa;
+
+  /* accent */
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: #eff6ff;
+
+  /* run status — running / success / gate / failed / skipped */
+  --status-running: #3b82f6;
+  --status-success: #10b981;
+  --status-gate: #f59e0b;
+  --status-failed: #f43f5e;
+  --status-skipped: #a1a1aa;
+
+  /* type scale: 12 / 14 / 16 / 20 / 28 / 36 */
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-md: 1rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.75rem;
+  --text-2xl: 2.25rem;
+
+  /* 8px spacing grid */
+  --space-1: 0.5rem;
+  --space-2: 1rem;
+  --space-3: 1.5rem;
+  --space-4: 2rem;
+  --space-6: 3rem;
+
+  --radius: 10px;
+  /* Shadow is for overlays only — never for inline surfaces. */
+  --shadow-overlay: 0 10px 30px -10px rgb(24 24 27 / 0.25);
+
+  --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #09090b;
+  --surface: #111113;
+  --surface-raised: #18181b;
+  --surface-hover: #1f1f23;
+  --border: #27272a;
+  --border-strong: #3f3f46;
+
+  --fg: #fafafa;
+  --fg-muted: #a1a1aa;
+  --fg-subtle: #71717a;
+
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-fg: #ffffff;
+  --accent-soft: #172554;
+
+  --shadow-overlay: 0 10px 30px -10px rgb(0 0 0 / 0.6);
+}
