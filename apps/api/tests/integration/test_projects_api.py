@@ -213,10 +213,10 @@ async def test_an_operator_may_assign_a_gate(admin: ApiClient, signed_in_as: Any
 
     response = await operator.patch(
         f"/projects/{body['id']}",
-        json={"approvals": {"compliance_guardrails": {"assignee_id": None, "sla_hours": 24}}},
+        json={"approvals": {"1.1.5": {"assignee_id": None, "sla_hours": 24}}},
     )
     assert response.status_code == 200, response.text
-    gate = next(g for g in response.json()["gates"] if g["node_id"] == "compliance_guardrails")
+    gate = next(g for g in response.json()["gates"] if g["node_id"] == "1.1.5")
     assert gate["sla_hours"] == 24
     assert gate["assignee_id"] is None, "unassigned means any approver may claim it"
 
@@ -224,10 +224,12 @@ async def test_an_operator_may_assign_a_gate(admin: ApiClient, signed_in_as: Any
 async def test_an_assigned_gate_survives_a_reload_with_the_assignee_named(
     admin: ApiClient, signed_in_as: Any, db: AsyncSession
 ) -> None:
-    """The write has to land in `settings` and come back with a name attached.
+    """The write has to land where the gate machinery reads it.
 
-    Both halves matter: the wizard shows who a gate is pointed at, and the only
-    place that name can come from is a second read of the row.
+    Three halves, really: the wizard shows who a gate is pointed at, the only
+    place that name can come from is a second read of the row, and the row has
+    to be shaped the way `orchestrator.approvals` parses it — otherwise the
+    screen is right and the run still halts on nobody.
     """
     body = await create(admin)
     approver = await signed_in_as("approver")
@@ -235,12 +237,12 @@ async def test_an_assigned_gate_survives_a_reload_with_the_assignee_named(
 
     written = await admin.patch(
         f"/projects/{body['id']}",
-        json={"approvals": {"compliance_guardrails": {"assignee_id": me["id"], "sla_hours": 8}}},
+        json={"approvals": {"1.1.5": {"assignee_id": me["id"], "sla_hours": 8}}},
     )
     assert written.status_code == 200, written.text
 
     reread = (await admin.get(f"/projects/{body['id']}")).json()
-    gate = next(g for g in reread["gates"] if g["node_id"] == "compliance_guardrails")
+    gate = next(g for g in reread["gates"] if g["node_id"] == "1.1.5")
     assert gate["assignee_id"] == me["id"]
     assert gate["assignee_name"] == me["name"]
     assert gate["sla_hours"] == 8
@@ -248,11 +250,31 @@ async def test_an_assigned_gate_survives_a_reload_with_the_assignee_named(
     stored = (
         await db.execute(sa.select(Project.settings).where(Project.id == uuid.UUID(body["id"])))
     ).scalar_one()
-    assert stored["approvals"]["compliance_guardrails"]["assignee_id"] == me["id"]
+    # The key and shape `orchestrator.approvals.assignee_for` reads. Getting
+    # this wrong is invisible from the API: the gate reads back fine and the run
+    # halts on nobody.
+    assert stored["gate_assignees"]["1.1.5"] == me["id"]
+    assert stored["gate_sla_hours"]["1.1.5"] == 8
 
-    # The other two gates stay unassigned rather than inheriting this one.
-    others = [g for g in reread["gates"] if g["node_id"] != "compliance_guardrails"]
+    # Other gates stay unassigned rather than inheriting this one.
+    others = [g for g in reread["gates"] if g["node_id"] != "1.1.5"]
     assert all(g["assignee_id"] is None for g in others)
+
+
+async def test_the_gate_list_comes_from_the_registered_dag(admin: ApiClient) -> None:
+    """Not from a list in the wizard.
+
+    A gate node added to the DAG has to appear here without anyone remembering
+    to add it twice — which is the failure this replaced.
+    """
+    from agent.orchestrator.registry import get_registry
+
+    body = await create(admin)
+    registered = {spec.id for spec in get_registry().specs() if spec.gate}
+
+    assert registered, "the DAG has no gate nodes; this test would prove nothing"
+    assert {gate["node_id"] for gate in body["gates"]} == registered
+    assert all(gate["required_role"] for gate in body["gates"])
 
 
 async def test_a_gate_cannot_be_assigned_to_someone_who_could_not_decide_it(
@@ -267,7 +289,7 @@ async def test_a_gate_cannot_be_assigned_to_someone_who_could_not_decide_it(
 
     response = await admin.patch(
         f"/projects/{body['id']}",
-        json={"approvals": {"compliance_guardrails": {"assignee_id": str(viewer_id)}}},
+        json={"approvals": {"1.1.5": {"assignee_id": str(viewer_id)}}},
     )
     assert response.status_code == 422
     assert "active approver or admin" in response.json()["detail"]

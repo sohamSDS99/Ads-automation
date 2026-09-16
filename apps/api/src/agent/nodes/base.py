@@ -127,6 +127,12 @@ class RunContext:
     outputs: dict[str, dict[str, Any]] = field(default_factory=dict)
     telemetry: NodeTelemetry = field(default_factory=NodeTelemetry)
     node_id: str = ""
+    #: Per-**run** scratch space, owned by the executor and shared by every
+    #: node in the run. A new `RunContext` is built for each node attempt, so
+    #: anything that has to outlive one node — `gather` remembering that a
+    #: connector is unconfigured, for instance — belongs here rather than on
+    #: the context itself. Nothing in it is persisted or resumed.
+    scratch: dict[str, Any] = field(default_factory=dict)
     _progress: Callable[[str, str], Awaitable[None]] | None = None
 
     def output_of(self, node_id: str) -> dict[str, Any]:

@@ -23,6 +23,7 @@ dependencies = [
     "selectolax>=0.3.21", # HTML parsing for the site crawler (PRD §9.4)
     "playwright>=1.49.0", # Transparency Center connector (PRD §9.2); browsers ship in the worker image
     "python-multipart>=0.0.20",  # FastAPI multipart parsing for the CSV upload (PRD §14)
+    "pandas>=2.2.3",             # PRD §18 law 3: every CPA/ROAS/P&L figure is computed here, never by a model
 ]
 
 [dependency-groups]
@@ -34,6 +35,7 @@ dev = [
     "pyyaml>=6.0.2",   # docker-compose assertions in tests/test_deployment_config.py
     "types-pyyaml>=6.0.12",
     "vcrpy>=6.0.2",    # connector cassettes (PRD §9); replayed with record_mode=none
+    "pandas-stubs>=2.2.3",  # mypy strict has no types for pandas otherwise, and `frames.py` is where the arithmetic lives
 ]
 
 [build-system]

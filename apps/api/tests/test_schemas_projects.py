@@ -64,9 +64,9 @@ def test_an_unknown_gate_is_refused_by_name() -> None:
 
 
 def test_a_known_gate_is_accepted() -> None:
-    body = UpdateProjectRequest(approvals={"compliance_guardrails": {"sla_hours": 24}})
+    body = UpdateProjectRequest(approvals={"1.1.5": {"sla_hours": 24}})
     assert body.approvals is not None
-    assert body.approvals["compliance_guardrails"].sla_hours == 24
+    assert body.approvals["1.1.5"].sla_hours == 24
 
 
 def test_an_unknown_field_is_refused_rather_than_silently_ignored() -> None:

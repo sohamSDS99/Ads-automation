@@ -10,8 +10,20 @@ import uuid
 from datetime import UTC, datetime
 
 import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import AuditLog, Invite, Project, Run, User, UserRole, UserStatus
+from agent.db.models import (
+    Approval,
+    ApprovalRequiredRole,
+    ApprovalStatus,
+    AuditLog,
+    Invite,
+    Project,
+    Run,
+    User,
+    UserRole,
+    UserStatus,
+)
 from agent.db.repo import WorkspaceScopedRepo
 
 
@@ -109,6 +121,78 @@ class RunRepo(WorkspaceScopedRepo[Run]):
             .where(Run.project_id == project_id)
             .order_by(Run.started_at.desc().nullslast(), Run.id.desc())
             .limit(limit)
+        )
+        return list(result.scalars().all())
+
+
+class ApprovalRepo:
+    """Approvals, scoped to a workspace through the run that owns them.
+
+    `Approval` has no `workspace_id` of its own — it hangs off `Run` — so this
+    deliberately does not subclass `WorkspaceScopedRepo`, which refuses models
+    it cannot scope directly. Every query below joins `Run` instead, and there
+    is no constructor that lets a caller skip that join.
+    """
+
+    def __init__(self, session: AsyncSession, workspace_id: uuid.UUID) -> None:
+        self.session = session
+        self.workspace_id = workspace_id
+
+    def _scoped(self) -> sa.Select[tuple[Approval]]:
+        return (
+            sa.select(Approval)
+            .join(Run, Run.id == Approval.run_id)
+            .where(Run.workspace_id == self.workspace_id)
+        )
+
+    async def get(self, approval_id: uuid.UUID) -> Approval | None:
+        result = await self.session.execute(self._scoped().where(Approval.id == approval_id))
+        return result.scalar_one_or_none()
+
+    async def run_for(self, approval: Approval) -> Run | None:
+        result = await self.session.execute(
+            sa.select(Run).where(Run.id == approval.run_id, Run.workspace_id == self.workspace_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def page(
+        self,
+        *,
+        run_id: uuid.UUID | None = None,
+        status: ApprovalStatus | None = None,
+        decidable_by: User | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Approval]:
+        """One page of the inbox, oldest first — a gate that has waited longest is first.
+
+        `decidable_by` is `?mine=true`: the approvals this user may actually act
+        on, which is not "assigned to me". It is every gate whose `required_role`
+        they hold and which is either unassigned or assigned to them, because
+        `assignee_id IS NULL` means "any holder of the role may decide" (PRD §6).
+        """
+        stmt = self._scoped()
+        if run_id is not None:
+            stmt = stmt.where(Approval.run_id == run_id)
+        if status is not None:
+            stmt = stmt.where(Approval.status == status)
+        if decidable_by is not None:
+            if decidable_by.role is UserRole.ADMIN:
+                pass  # an admin may decide any gate (PRD §6.1 Authorization 3)
+            elif decidable_by.role is UserRole.APPROVER:
+                stmt = stmt.where(
+                    Approval.required_role == ApprovalRequiredRole.APPROVER,
+                    sa.or_(
+                        Approval.assignee_id.is_(None),
+                        Approval.assignee_id == decidable_by.id,
+                    ),
+                )
+            else:
+                # An operator or a viewer can decide nothing. Returning an empty
+                # page is the honest answer to "what is in my inbox".
+                stmt = stmt.where(sa.false())
+        result = await self.session.execute(
+            stmt.order_by(Approval.created_at.asc(), Approval.id.asc()).limit(limit).offset(offset)
         )
         return list(result.scalars().all())
 

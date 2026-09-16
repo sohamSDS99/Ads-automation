@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agent import __version__
 from agent.api.middleware import SecurityHeadersMiddleware, SessionMiddleware
 from agent.api.problems import install_problem_handlers
+from agent.api.routes_approvals import router as approvals_router
 from agent.api.routes_audit import router as audit_router
 from agent.api.routes_auth import router as auth_router
 from agent.api.routes_credentials import router as credentials_router
@@ -96,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         credentials_router,
         models_router,
         runs_router,
+        approvals_router,
         evidence_router,
         sources_router,
     ):

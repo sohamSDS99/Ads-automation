@@ -7,12 +7,14 @@ import types
 import pytest
 from pydantic import BaseModel
 
+from agent.db.models import ApprovalRequiredRole
 from agent.llm.router import TaskClass
 from agent.nodes.base import LLMNode, NodeSpec
 from agent.orchestrator.registry import (
     NodeRegistry,
     RegistryError,
     _nodes_in,
+    _sort_key,
     discover,
     get_registry,
 )
@@ -38,9 +40,33 @@ def make_node(node_id: str, *, stage: str | None = None, **kwargs: object) -> LL
 
 
 def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
+    """Every stage module contributes, nothing is listed by hand, ids are unique.
+
+    The census itself belongs to `test_dag.py`, which checks it against PRD §10.
+    Repeating it here only guaranteed that shipping a phase broke a test about
+    discovery.
+    """
     registry = discover()
-    assert registry.ids == ("0.1", "0.2")
-    assert registry.spec("0.2").depends_on == ("0.1",)
+    stages = {node_id.rsplit(".", 1)[0] for node_id in registry.ids}
+    modules = {
+        name.removeprefix("stage_").replace("_", ".")
+        for name in _node_module_names()
+        if name.startswith("stage_")
+    }
+    assert modules, "there are no stage modules to discover"
+    assert stages == modules, "a stage module exists whose nodes never registered"
+    assert len(set(registry.ids)) == len(registry.ids)
+    assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
+    assert registry.spec("1.1.4").depends_on == ("1.1.2",)
+
+
+def _node_module_names() -> set[str]:
+    """The modules under `agent.nodes`, found the way the registry finds them."""
+    import pkgutil
+
+    import agent.nodes
+
+    return {info.name for info in pkgutil.iter_modules(agent.nodes.__path__)}
 
 
 def test_the_registry_is_cached_per_process() -> None:
@@ -57,9 +83,22 @@ def test_a_duplicate_node_id_is_refused() -> None:
         NodeRegistry.of([make_node("1.1"), make_node("1.1")])
 
 
-def test_a_gate_node_is_refused_until_p3_can_resume_it() -> None:
-    with pytest.raises(RegistryError, match="P3"):
-        NodeRegistry.of([make_node("1.5", gate=True, required_role="approver")])
+def test_a_gate_node_registers_now_that_approvals_exist() -> None:
+    registry = NodeRegistry.of([make_node("1.5", gate=True, required_role="approver")])
+    assert registry.spec("1.5").gate is True
+    assert registry.spec("1.5").required_role is not None
+
+
+def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
+    """PRD §10 marks three gates; 1.5.3 lands in P5, so two are registered.
+
+    The census is deliberate here rather than derived: a node quietly gaining
+    `gate=True` would stop runs dead, and a node quietly losing it would skip a
+    human. Both should fail this test and be argued in the pull request.
+    """
+    gates = [item for item in discover().specs() if item.gate]
+    assert [item.id for item in gates] == ["1.1.5", "1.3.4"]
+    assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
 
 def test_a_stage_that_is_not_the_id_prefix_is_refused() -> None:

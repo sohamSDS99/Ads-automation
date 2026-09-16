@@ -1,0 +1,21 @@
+{
+  "description": "`PATCH /approvals/{id}/assignee` \u2014 null hands it back to the whole role.",
+  "properties": {
+    "assignee_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assignee Id"
+    }
+  },
+  "title": "ReassignRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

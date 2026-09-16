@@ -6,11 +6,89 @@ import pytest
 
 from agent.orchestrator.dag import Dag, DagError, get_dag
 
+#: PRD §10's edge list for stages 1.1-1.4, transcribed rather than derived.
+#: Deriving it from the registry would make this test assert that the code
+#: agrees with itself; the point is that it agrees with the document.
+PRD_EDGES: tuple[tuple[str, str], ...] = (
+    ("1.1.1", "1.1.5"),
+    ("1.1.2", "1.1.4"),
+    ("1.1.2", "1.3.1"),
+    ("1.2.2", "1.3.1"),
+    ("1.3.1", "1.3.2"),
+    ("1.3.2", "1.3.3"),
+    ("1.3.2", "1.3.4"),
+    ("1.1.1", "1.3.4"),
+    ("1.1.5", "1.3.4"),
+    ("1.1.1", "1.4.1"),
+    ("1.2.2", "1.4.1"),
+    ("1.3.2", "1.4.1"),
+    ("1.4.1", "1.4.2"),
+    ("1.4.1", "1.4.3"),
+    ("1.4.2", "1.4.4"),
+    ("1.1.3", "1.4.4"),
+    ("1.2.2", "1.4.4"),
+    ("1.4.2", "1.4.5"),
+    ("1.4.3", "1.4.5"),
+)
 
-def test_the_dummy_dag_is_two_waves_of_one() -> None:
+#: One documented deviation, argued in `stage_1_3.py`: 1.3.3 names 1.3.1 as well
+#: as 1.3.2, because it reads 1.3.1's output directly. 1.3.1 already precedes
+#: 1.3.2, so the extra edge changes no execution order.
+EXTRA_EDGES: tuple[tuple[str, str], ...] = (("1.3.1", "1.3.3"),)
+
+
+def test_the_real_dag_matches_the_prd_edge_list() -> None:
+    """PRD §10, stages 1.1 through 1.4."""
     dag = get_dag()
-    assert dag.waves() == [("0.1",), ("0.2",)]
-    assert [(edge.source, edge.target) for edge in dag.edges] == [("0.1", "0.2")]
+    assert set(dag.node_ids) == {
+        "1.1.1",
+        "1.1.2",
+        "1.1.3",
+        "1.1.4",
+        "1.1.5",
+        "1.2.1",
+        "1.2.2",
+        "1.2.3",
+        "1.3.1",
+        "1.3.2",
+        "1.3.3",
+        "1.3.4",
+        "1.4.1",
+        "1.4.2",
+        "1.4.3",
+        "1.4.4",
+        "1.4.5",
+    }
+    assert sorted((edge.source, edge.target) for edge in dag.edges) == sorted(
+        PRD_EDGES + EXTRA_EDGES
+    )
+    assert dag.waves() == [
+        ("1.1.1", "1.1.2", "1.1.3", "1.2.1", "1.2.2", "1.2.3"),
+        ("1.1.4", "1.1.5", "1.3.1"),
+        ("1.3.2",),
+        ("1.3.3", "1.3.4", "1.4.1"),
+        ("1.4.2", "1.4.3"),
+        ("1.4.4", "1.4.5"),
+    ]
+
+
+def test_selecting_the_last_node_pulls_in_the_whole_chain_behind_it() -> None:
+    """A partial run is widened to something executable, never rejected."""
+    assert get_dag().closure(["1.4.5"]) == {
+        "1.1.1",
+        "1.1.2",
+        "1.2.2",
+        "1.3.1",
+        "1.3.2",
+        "1.4.1",
+        "1.4.2",
+        "1.4.3",
+        "1.4.5",
+    }
+
+
+def test_selecting_the_gate_pulls_in_the_node_it_reads() -> None:
+    assert get_dag().closure(["1.1.5"]) == {"1.1.1", "1.1.5"}
 
 
 def test_independent_nodes_share_a_wave() -> None:

@@ -4,14 +4,14 @@
 # ---------------------------------------------------------------------------
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
-        test-integration guards verify verify-p2 verify-p6 browser browser-p6 typecheck lint \
-        fmt contracts health clean
+        test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p6 browser \
+        browser-p6 typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
 
 help: ## Show this help
-	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
+	@grep -E '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
 		| awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 up: ## Start the whole stack (postgres, redis, api, worker, web) and migrate
@@ -69,6 +69,12 @@ verify: ## Run PRD §19.1's acceptance list against the running stack
 
 verify-p2: ## Run P2's exit criteria against the running stack
 	./scripts/verify-p2.sh
+
+verify-p3: ## Run P3's exit criteria against the running stack (needs a live OpenRouter key)
+	./scripts/verify-p3.sh
+
+verify-p4: ## Run P4's exit criteria against the running stack (needs a live OpenRouter key)
+	./scripts/verify-p4.sh
 
 verify-p6: ## Run P6's exit criteria against the running stack
 	./scripts/verify-p6.sh

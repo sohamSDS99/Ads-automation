@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "ApprovalItem": {
+      "description": "One gate, as the inbox and the run console show it.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "node_name": {
+          "title": "Node Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/ApprovalStatus"
+        },
+        "required_role": {
+          "$ref": "#/$defs/ApprovalRequiredRole"
+        },
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Assignee Id"
+        },
+        "assignee_email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignee Email"
+        },
+        "proposal": {
+          "additionalProperties": true,
+          "title": "Proposal",
+          "type": "object"
+        },
+        "edited_proposal": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Edited Proposal"
+        },
+        "decision_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decision Note"
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By"
+        },
+        "decided_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "run_status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "can_decide": {
+          "description": "Whether the caller may decide this gate. Server-computed and advisory \u2014 the route enforces it independently (PRD \u00a718 law 6).",
+          "title": "Can Decide",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "run_id",
+        "project_id",
+        "node_id",
+        "node_name",
+        "status",
+        "required_role",
+        "assignee_id",
+        "proposal",
+        "created_at",
+        "run_status",
+        "can_decide"
+      ],
+      "title": "ApprovalItem",
+      "type": "object"
+    },
+    "ApprovalRequiredRole": {
+      "description": "Who may decide a gate. A strict subset of `UserRole` (PRD \u00a76).",
+      "enum": [
+        "admin",
+        "approver"
+      ],
+      "title": "ApprovalRequiredRole",
+      "type": "string"
+    },
+    "ApprovalStatus": {
+      "enum": [
+        "pending",
+        "approved",
+        "rejected",
+        "expired"
+      ],
+      "title": "ApprovalStatus",
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "description": "What the decider gets back, including whether the run picked up again.",
+  "properties": {
+    "approval": {
+      "$ref": "#/$defs/ApprovalItem"
+    },
+    "run_status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "resumed": {
+      "description": "True when the decision re-queued the run.",
+      "title": "Resumed",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "approval",
+    "run_status",
+    "resumed"
+  ],
+  "title": "ApprovalDecisionResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

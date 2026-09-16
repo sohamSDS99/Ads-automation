@@ -37,7 +37,6 @@ from sqlalchemy.orm import aliased
 from agent.api import problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_projects import (
-    SETTINGS_APPROVALS,
     SETTINGS_MODELS,
     CreateProjectRequest,
     GateAssignment,
@@ -67,7 +66,7 @@ from agent.db.models import (
 )
 from agent.db.repos import ProjectRepo, RunRepo
 from agent.db.session import get_session
-from agent.gates import GATES, GateSpec
+from agent.gates import SETTINGS_ASSIGNEES, SETTINGS_SLA, GateSpec, gates
 from agent.orchestrator.state import TERMINAL_STATUSES
 
 log = structlog.get_logger(__name__)
@@ -217,9 +216,20 @@ async def update_project(
             # §4.1 gives "create / edit project" to operators, and the wizard's
             # approver step is not one of the two admin-only steps (§13.4).
             await _assert_assignees_exist(db, me, body.approvals)
-            settings[SETTINGS_APPROVALS] = {
-                node_id: assignment.model_dump(mode="json")
-                for node_id, assignment in body.approvals.items()
+            # Two flat maps rather than one nested object, because the assignee
+            # half has a reader: `orchestrator.approvals.assignee_for` expects
+            # `{node_id: "<user id>"}` at exactly this key. The SLA has no
+            # reader yet — reminders are P8 — so it is kept beside it rather
+            # than folded in where it would change a shape P3 parses.
+            settings[SETTINGS_ASSIGNEES] = {
+                node_id: str(item.assignee_id)
+                for node_id, item in body.approvals.items()
+                if item.assignee_id is not None
+            }
+            settings[SETTINGS_SLA] = {
+                node_id: item.sla_hours
+                for node_id, item in body.approvals.items()
+                if item.sla_hours is not None
             }
             changed["approvals"] = sorted(body.approvals)
         project.settings = settings
@@ -435,7 +445,7 @@ async def _detail(
         product_context=ProductContext.model_validate(project.product_context or {}),
         markets=[Market.model_validate(market) for market in project.markets or []],
         models=ModelRouting.from_settings(project.settings),
-        gates=[_gate_info(gate, assignments[gate.node_id], names) for gate in GATES],
+        gates=[_gate_info(gate, assignments[gate.node_id], names) for gate in gates()],
         requirements=await _requirements(db, me, project),
     )
 
@@ -457,17 +467,43 @@ def _gate_info(gate: GateSpec, assignment: GateAssignment, names: dict[uuid.UUID
 
 
 def _assignments(project: Project) -> dict[str, GateAssignment]:
-    """Stored gate assignments, with an empty one for every gate that has none."""
-    raw = (project.settings or {}).get(SETTINGS_APPROVALS)
-    stored: dict[str, GateAssignment] = {}
-    if isinstance(raw, dict):
-        for node_id, value in raw.items():
-            if isinstance(value, dict):
-                try:
-                    stored[node_id] = GateAssignment.model_validate(value)
-                except ValueError:  # pragma: no cover — tolerate a stale shape
-                    log.warning("project.gate_assignment_unreadable", node_id=node_id)
-    return {gate.node_id: stored.get(gate.node_id, GateAssignment()) for gate in GATES}
+    """Stored gate assignments, with an empty one for every gate that has none.
+
+    Reads the two flat maps the write path above produces, and tolerates either
+    being absent or holding something unparseable — an unreadable setting means
+    "any approver", which is what an unassigned gate means anyway.
+    """
+    settings = project.settings or {}
+    assignees = settings.get(SETTINGS_ASSIGNEES)
+    slas = settings.get(SETTINGS_SLA)
+
+    def _assignee(node_id: str) -> uuid.UUID | None:
+        if not isinstance(assignees, dict):
+            return None
+        raw = assignees.get(node_id)
+        if not raw:
+            return None
+        try:
+            return uuid.UUID(str(raw))
+        except ValueError:
+            log.warning("project.bad_gate_assignee", node_id=node_id, value=str(raw))
+            return None
+
+    def _sla(node_id: str) -> int | None:
+        if not isinstance(slas, dict):
+            return None
+        raw = slas.get(node_id)
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        gate.node_id: GateAssignment(
+            assignee_id=_assignee(gate.node_id), sla_hours=_sla(gate.node_id)
+        )
+        for gate in gates()
+    }
 
 
 async def _requirements(

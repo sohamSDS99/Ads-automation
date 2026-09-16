@@ -17,7 +17,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from agent.db.models import ApprovalRequiredRole, RunMode, RunStatus, RunTrigger
-from agent.gates import GATES
+from agent.gates import gate_ids
 from agent.llm.router import TaskClass
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=120, strip_whitespace=True)]
@@ -27,7 +27,6 @@ Domain = Annotated[str, StringConstraints(min_length=3, max_length=253, strip_wh
 #: — the router reads it at run time, so renaming it here would silently strip
 #: every override.
 SETTINGS_MODELS = "models"
-SETTINGS_APPROVALS = "approvals"
 
 
 def normalise_domain(value: str) -> str:
@@ -198,7 +197,7 @@ class UpdateProjectRequest(BaseModel):
     ) -> dict[str, GateAssignment] | None:
         if value is None:
             return None
-        known = {gate.node_id for gate in GATES}
+        known = gate_ids()
         unknown = sorted(set(value) - known)
         if unknown:
             raise ValueError(

@@ -118,12 +118,12 @@ chk "step 3 — model routing" \
     "$(send_code "$A" PATCH "/projects/$PROJECT" '{"models":{"synthesize":"anthropic/claude-opus-4.6"}}')" "200"
 APPROVER=$(get "$A" "/users" | jq_ "([u['id'] for u in d['users'] if u['role']=='approver'] or [''])[0]")
 [ -n "$APPROVER" ] && ok "there is an approver to assign" || no "there is an approver to assign" "none found"
-GATE=$(send "$A" PATCH "/projects/$PROJECT" "{\"approvals\":{\"compliance_guardrails\":{\"assignee_id\":\"$APPROVER\",\"sla_hours\":24}}}")
+GATE=$(send "$A" PATCH "/projects/$PROJECT" "{\"approvals\":{\"1.1.5\":{\"assignee_id\":\"$APPROVER\",\"sla_hours\":24}}}")
 chk "step 4 — a gate assigned to a real approver" \
-    "$(printf '%s' "$GATE" | jq_ "[g['assignee_id'] for g in d['gates'] if g['node_id']=='compliance_guardrails'][0]")" "$APPROVER"
+    "$(printf '%s' "$GATE" | jq_ "[g['assignee_id'] for g in d['gates'] if g['node_id']=='1.1.5'][0]")" "$APPROVER"
 BODY=$(get "$A" "/projects/$PROJECT")
 chk "…and it reads back with their name" \
-    "$(printf '%s' "$BODY" | jq_ "[g['assignee_name'] for g in d['gates'] if g['node_id']=='compliance_guardrails'][0]")" \
+    "$(printf '%s' "$BODY" | jq_ "[g['assignee_name'] for g in d['gates'] if g['node_id']=='1.1.5'][0]")" \
     "$(get "$A" "/users" | jq_ "[u['name'] for u in d['users'] if u['id']=='$APPROVER'][0]")"
 chk "step 5 — nothing blocking is left" \
     "$(printf '%s' "$BODY" | jq_ "str(any(r['blocking'] for r in d['requirements'])).lower()")" "false"
