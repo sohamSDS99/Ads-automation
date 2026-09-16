@@ -111,6 +111,13 @@ class Settings(BaseSettings):
     storage_backend: Literal["local", "s3"] = "local"
     storage_dir: str = "/data"
     worker_internal_url: str = "http://worker:8081"
+    #: The port `fileserver.py` binds inside the worker. It must agree with the
+    #: port in WORKER_INTERNAL_URL — that URL is how `api` reaches this port.
+    file_server_port: int = 8081
+    #: Signs the one-object download capabilities of `export/tokens.py`. Unset is
+    #: safe: the secret is then derived from APP_ENCRYPTION_KEY rather than
+    #: authentication being skipped. Set it to rotate download tokens on their
+    #: own schedule.
     file_token_secret: SecretStr = SecretStr("")
 
     # --- budget -------------------------------------------------------------

@@ -2,6 +2,12 @@
 
 `CMD arq agent.worker.WorkerSettings`. The worker owns the storage Volume and
 executes the research DAG; `api` never runs a node.
+
+It also carries the internal file server (`fileserver.py`). That is not a second
+service: the Volume attaches to exactly one container, so the process that owns
+the disk has to be the process that serves it. It starts and stops with the
+worker rather than alongside it, so there is one lifecycle, not two that can
+disagree about whether the Volume is mounted.
 """
 
 from __future__ import annotations
@@ -14,6 +20,7 @@ from arq.connections import RedisSettings
 
 from agent.config import get_settings
 from agent.db.session import dispose_engine, get_sessionmaker
+from agent.fileserver import FileServer
 from agent.logging_setup import configure_logging
 from agent.orchestrator.executor import RunExecutor
 from agent.redis_client import close_redis, get_redis
@@ -51,10 +58,23 @@ async def startup(ctx: dict[str, Any]) -> None:
     from agent.orchestrator.dag import get_dag
 
     dag = get_dag()
-    log.info("worker.startup", storage_dir=settings.storage_dir, nodes=len(dag.node_ids))
+
+    file_server = FileServer(settings)
+    await file_server.start()
+    ctx["file_server"] = file_server
+
+    log.info(
+        "worker.startup",
+        storage_dir=settings.storage_dir,
+        nodes=len(dag.node_ids),
+        file_server_port=settings.file_server_port,
+    )
 
 
 async def shutdown(ctx: dict[str, Any]) -> None:
+    file_server: FileServer | None = ctx.get("file_server")
+    if file_server is not None:
+        await file_server.stop()
     await close_redis()
     await dispose_engine()
     log.info("worker.shutdown")

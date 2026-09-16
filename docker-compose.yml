@@ -101,7 +101,12 @@ services:
       redis:
         condition: service_healthy
     networks: [internal]
-    # No `ports:` — worker has no public ingress here, exactly as on Railway.
+    # `expose`, not `ports`: 8081 is the internal file server (PRD §5.1), which
+    # `api` reaches over the compose network at WORKER_INTERNAL_URL. Publishing
+    # it to the host would break the "only web publishes a port" rule that makes
+    # this file a faithful mirror of Railway.
+    expose:
+      - "8081"
 
   # `docker compose run --rm test` — the integration suite, on the same private
   # network as everything else. Profiled, so `make up` never starts it, and
