@@ -14,6 +14,7 @@ from agent.orchestrator.registry import (
     NodeRegistry,
     RegistryError,
     _nodes_in,
+    _sort_key,
     discover,
     get_registry,
 )
@@ -39,18 +40,33 @@ def make_node(node_id: str, *, stage: str | None = None, **kwargs: object) -> LL
 
 
 def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
+    """Every stage module contributes, nothing is listed by hand, ids are unique.
+
+    The census itself belongs to `test_dag.py`, which checks it against PRD §10.
+    Repeating it here only guaranteed that shipping a phase broke a test about
+    discovery.
+    """
     registry = discover()
-    assert registry.ids == (
-        "1.1.1",
-        "1.1.2",
-        "1.1.3",
-        "1.1.4",
-        "1.1.5",
-        "1.2.1",
-        "1.2.2",
-        "1.2.3",
-    )
+    stages = {node_id.rsplit(".", 1)[0] for node_id in registry.ids}
+    modules = {
+        name.removeprefix("stage_").replace("_", ".")
+        for name in _node_module_names()
+        if name.startswith("stage_")
+    }
+    assert modules, "there are no stage modules to discover"
+    assert stages == modules, "a stage module exists whose nodes never registered"
+    assert len(set(registry.ids)) == len(registry.ids)
+    assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
     assert registry.spec("1.1.4").depends_on == ("1.1.2",)
+
+
+def _node_module_names() -> set[str]:
+    """The modules under `agent.nodes`, found the way the registry finds them."""
+    import pkgutil
+
+    import agent.nodes
+
+    return {info.name for info in pkgutil.iter_modules(agent.nodes.__path__)}
 
 
 def test_the_registry_is_cached_per_process() -> None:
@@ -73,11 +89,16 @@ def test_a_gate_node_registers_now_that_approvals_exist() -> None:
     assert registry.spec("1.5").required_role is not None
 
 
-def test_the_only_gate_in_the_real_dag_routes_to_an_approver() -> None:
-    """PRD §10: 1.1.5 compliance_guardrails is the stage-1.1 gate, decided by legal."""
+def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
+    """PRD §10 marks three gates; 1.5.3 lands in P5, so two are registered.
+
+    The census is deliberate here rather than derived: a node quietly gaining
+    `gate=True` would stop runs dead, and a node quietly losing it would skip a
+    human. Both should fail this test and be argued in the pull request.
+    """
     gates = [item for item in discover().specs() if item.gate]
-    assert [item.id for item in gates] == ["1.1.5"]
-    assert gates[0].required_role is ApprovalRequiredRole.APPROVER
+    assert [item.id for item in gates] == ["1.1.5", "1.3.4"]
+    assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
 
 def test_a_stage_that_is_not_the_id_prefix_is_refused() -> None:

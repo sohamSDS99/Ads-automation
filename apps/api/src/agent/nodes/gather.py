@@ -68,6 +68,20 @@ class Need:
     connector: str | None = None
     params: dict[str, object] = field(default_factory=dict)
     limit: int = DEFAULT_LIMIT
+    #: Overrides the once-per-run pull key. The default — `connector:kind` — is
+    #: right when a kind has one meaning, and wrong when it has two: nodes 1.4.1
+    #: and 1.4.3 both write `keyword_metrics` through `dataforseo`, one
+    #: discovering a universe and one pricing it, and the second must not be
+    #: silently skipped because the first already ran.
+    pull_key: str | None = None
+    #: Pull even when the store already holds rows of this kind. The default is
+    #: right for a source that answers one question — a second node wanting
+    #: `campaign_perf` wants the same rows the first pulled. It is wrong for a
+    #: *parameterised* pull: node 1.4.3 asks the keyword vendor to price a
+    #: specific list of terms, and stopping because some other node once stored
+    #: a `keyword_metrics` row would return metrics for the wrong keywords and
+    #: look like success.
+    refresh: bool = False
 
 
 @dataclass(slots=True)
@@ -111,11 +125,14 @@ async def collect(ctx: RunContext, *needs: Need) -> Gathered:
     result = Gathered()
     for need in needs:
         rows = await _stored(ctx, need)
-        if not rows and need.connector:
+        if need.connector and (not rows or need.refresh):
             pulled = await _pull(ctx, need)
             if pulled:
                 rows = await _stored(ctx, need)
             elif pulled is False:
+                # A refresh that failed still leaves the stored rows in play —
+                # stale evidence is worth more than none — but the run is told
+                # that is what it is looking at.
                 result.degraded[need.kind] = f"{need.connector} could not be reached"
         if rows:
             result.evidence.extend(rows)
@@ -146,7 +163,7 @@ async def _pull(ctx: RunContext, need: Need) -> bool | None:
     if need.connector is None:  # pragma: no cover — callers check before calling
         return None
     attempted: set[str] = ctx.scratch.setdefault(PULLED_KEY, set())
-    token = f"{need.connector}:{need.kind}"
+    token = need.pull_key or f"{need.connector}:{need.kind}"
     if token in attempted:
         return None
 

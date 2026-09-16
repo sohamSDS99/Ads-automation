@@ -17,6 +17,7 @@ means an unseeded run would consume none of the scripted completions.
 
 from __future__ import annotations
 
+import json
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -385,9 +386,7 @@ def by_output_model(fake: FakeOpenRouter, answers: dict[str, Any] | None = None)
     table = answers if answers is not None else BY_OUTPUT_MODEL
 
     def respond(request: Any) -> Any:
-        import json as _json
-
-        body = _json.loads(request.content or b"{}")
+        body = json.loads(request.content or b"{}")
         name = (
             body.get("response_format", {}).get("json_schema", {}).get("name")
             or (body.get("tools") or [{}])[0].get("function", {}).get("name")
@@ -463,3 +462,376 @@ async def launch_gate(admin: Any, project_id: uuid.UUID, **body: Any) -> dict[st
 
 def utcnow() -> datetime:
     return datetime.now(UTC)
+
+
+# ---------------------------------------------------------------------------
+# P4: the competitive and demand evidence stages 1.3 and 1.4 read
+#
+# Seeded directly rather than pulled, for the same reason `seed_google_ads`
+# exists: there is no DataForSEO login and no Chromium in this suite, and a
+# connector that cannot reach its source degrades to empty — which would make
+# every assertion below pass for the wrong reason.
+# ---------------------------------------------------------------------------
+
+#: The domains the keyword vendor reports as competing for our paid clicks, and
+#: the names the Transparency Center scrape ran under. Two spellings of three
+#: companies, which is the join node 1.3.3 has to get right.
+COMPETITORS: tuple[tuple[str, str, int, float], ...] = (
+    ("chemwatch.net", "Chemwatch", 240, 18_000.0),
+    ("sdsbinder.com", "SDS Binder", 120, 4_500.0),
+    ("msdsonline.com", "MSDSonline", 60, 0.0),
+)
+
+#: Keyword families, sized so the universe clears PRD §10 1.4.1's 2,000 target
+#: on evidence alone rather than on anything a model contributed.
+KEYWORD_FAMILIES: tuple[tuple[str, int], ...] = (
+    ("sds software", 800),
+    ("ghs labeling", 800),
+    ("chemical inventory", 600),
+    ("free sds template", 200),
+    # Nothing on the site mentions respirators, so this family has to come back
+    # as a content gap rather than be mapped to the nearest page that exists.
+    ("respirator fit testing", 200),
+)
+
+#: Our own pages. Two answer a keyword family well, one answers none of them —
+#: so the page map has a good fit, a weak fit and a gap to find.
+OUR_PAGES: tuple[dict[str, Any], ...] = (
+    {
+        "url": "https://sdsmanager.com/sds-software",
+        "title": "SDS software for chemical manufacturers",
+        "h1": "SDS software that keeps your library current",
+        "h2": ["Why SDS software", "SDS software pricing"],
+        "meta_description": "Manage safety data sheets in one place.",
+        "text_excerpt": "software for managing safety data sheets",
+    },
+    {
+        "url": "https://sdsmanager.com/ghs-labeling",
+        "title": "GHS labeling software",
+        "h1": "GHS labeling made simple",
+        "h2": ["GHS labeling rules"],
+        "meta_description": "Print compliant GHS labels.",
+        "text_excerpt": "labeling for hazardous chemicals",
+    },
+    {
+        "url": "https://sdsmanager.com/about",
+        "title": "About us",
+        "h1": "Our story",
+        "h2": [],
+        "meta_description": "Who we are.",
+        "text_excerpt": "a company founded in Norway",
+    },
+)
+
+
+def keyword_terms() -> list[str]:
+    """Every seeded term, in the order the families declare them."""
+    return [f"{family} {index}" for family, count in KEYWORD_FAMILIES for index in range(count)]
+
+
+def _monthly(volume: int) -> list[dict[str, Any]]:
+    """Twelve months with an autumn peak, so `seasonality_index` has something to find."""
+    return [
+        {"year": 2025, "month": month, "search_volume": volume * (2 if month in (9, 10) else 1)}
+        for month in range(1, 13)
+    ]
+
+
+async def seed_competitive(project_id: uuid.UUID, *, ads_per_advertiser: int = 40) -> None:
+    """Competitor domains, SERPs, creatives and landing pages for stage 1.3."""
+    from agent.db.models import Project
+    from agent.db.session import get_sessionmaker
+    from agent.evidence.normalize import EvidenceDraft
+    from agent.evidence.store import EvidenceStore
+
+    drafts = [
+        EvidenceDraft(
+            source="dataforseo",
+            kind="domain_competitor",
+            payload={
+                "competitor_domain": domain,
+                "for_domain": "sdsmanager.com",
+                "avg_position": 2.4,
+                "intersections": intersections,
+                "paid_keyword_count": intersections * 3,
+                "paid_estimated_traffic_cost": cost,
+            },
+        )
+        for domain, _, intersections, cost in COMPETITORS
+    ]
+    drafts += [
+        EvidenceDraft(
+            source="dataforseo",
+            kind="serp_snapshot",
+            payload={
+                "keyword": term,
+                "results": [
+                    {"rank": rank, "domain": domain, "url": f"https://{domain}/{term}"}
+                    for rank, (domain, _, _, _) in enumerate(COMPETITORS, start=1)
+                ],
+            },
+        )
+        for term in ("sds management software", "free sds template")
+    ]
+    for _, advertiser, _, _ in COMPETITORS:
+        for index in range(ads_per_advertiser):
+            drafts.append(
+                EvidenceDraft(
+                    source="transparency",
+                    kind="competitor_creative",
+                    payload={
+                        "advertiser": advertiser,
+                        "ad_id": f"CR-{advertiser.replace(' ', '')}-{index}",
+                        "format": "text",
+                        "first_shown": "2025-01-05",
+                        "last_shown": "2025-10-18",
+                        "creative_text": (
+                            f"{advertiser}: compliance without the binders. "
+                            f"Start a free trial today. Offer {index}."
+                        ),
+                        "destination_url": f"https://{advertiser.replace(' ', '').lower()}.com/sds",
+                        "regions": ["US"],
+                        "screenshot_path": f"creatives/seed/{advertiser.replace(' ', '')}.png",
+                    },
+                )
+            )
+    drafts += [
+        EvidenceDraft(
+            source="transparency",
+            kind="competitor_landing_page",
+            payload={
+                "url": f"https://{domain}/sds",
+                "title": f"{name} — SDS management",
+                "h1": "Compliance without the binders",
+                "competitor_domain": domain,
+                "text_excerpt": "trusted by 10,000 teams",
+            },
+        )
+        for domain, name, _, _ in COMPETITORS
+    ]
+
+    async with get_sessionmaker()() as session:
+        project = await session.get(Project, project_id)
+        assert project is not None
+        store = EvidenceStore(session, project.workspace_id)
+        await store.write(drafts, project_id=project_id, embed=False)
+        await session.commit()
+
+
+async def seed_demand(project_id: uuid.UUID) -> None:
+    """Priced keywords and our own pages, for stage 1.4."""
+    from agent.db.models import Project
+    from agent.db.session import get_sessionmaker
+    from agent.evidence.normalize import EvidenceDraft
+    from agent.evidence.store import EvidenceStore
+
+    drafts: list[EvidenceDraft] = []
+    for position, term in enumerate(keyword_terms()):
+        volume = 10 + (position % 90)
+        drafts.append(
+            EvidenceDraft(
+                source="dataforseo",
+                kind="keyword_metrics",
+                payload={
+                    "keyword": term,
+                    "search_volume": volume,
+                    "cpc": 4.5,
+                    "low_top_of_page_bid": 3.2,
+                    "high_top_of_page_bid": 9.8,
+                    "competition": "HIGH" if position % 2 else 0.2,
+                    "competition_index": 70,
+                    # Monthly history on a slice only: `with_seasonality` has to
+                    # be able to differ from `terms_priced`, or the totals prove
+                    # nothing about the join.
+                    "monthly_searches": _monthly(volume) if position % 4 == 0 else [],
+                    "origin": "site",
+                    "domain": "sdsmanager.com",
+                },
+            )
+        )
+    drafts += [EvidenceDraft(source="web", kind="page", payload=dict(page)) for page in OUR_PAGES]
+
+    async with get_sessionmaker()() as session:
+        project = await session.get(Project, project_id)
+        assert project is not None
+        store = EvidenceStore(session, project.workspace_id)
+        await store.write(drafts, project_id=project_id, embed=False)
+        await session.commit()
+
+
+# --- the scripted provider for stages 1.3 and 1.4 --------------------------
+
+
+def _computed(user: str, fragment: str) -> Any:
+    """The JSON of the COMPUTED block whose title contains `fragment`.
+
+    The point of answering this way rather than from a static table: a batched
+    node that dropped a term would be handed back exactly the terms it sent, so
+    a hole in the fan-out shows up as a missing row instead of being papered
+    over by a fixture that always returns the full list.
+    """
+    marker = "COMPUTED — "
+    cursor = 0
+    while True:
+        found = user.find(marker, cursor)
+        if found == -1:
+            raise AssertionError(f"no COMPUTED block whose title contains {fragment!r}")
+        line_end = user.index("\n", found)
+        if fragment in user[found + len(marker) : line_end]:
+            value, _ = json.JSONDecoder().raw_decode(user[line_end + 1 :])
+            return value
+        cursor = line_end
+
+
+def _intent_of(term: str) -> tuple[str, str]:
+    """A deterministic rubric, so the classification is checkable by hand."""
+    if "free" in term or "template" in term:
+        return "irrelevant", "none"
+    if "software" in term:
+        return "transactional", "decision"
+    if "labeling" in term:
+        return "commercial_investigation", "consideration"
+    return "informational", "awareness"
+
+
+P4_STATIC: dict[str, Any] = {
+    "SeedTopics": {
+        "topics": [
+            "safety data sheet management",
+            "chemical compliance software",
+            "sds authoring tool",
+        ]
+    },
+    "DifferentiationClaim": {
+        "whitespace": [
+            {
+                "claim": "Every sheet is re-checked against the supplier each quarter.",
+                "why_unsaid": "Competitors sell storage, not currency.",
+                "our_proof": "Our own pages describe the re-check cycle.",
+                "risk": "We must be able to evidence the cadence.",
+                "evidence_ids": [],
+            }
+        ],
+        "recommended_claim": "Your library is never out of date.",
+        "recommended_rationale": "Nobody in the corpus claims currency.",
+        "substantiation_required": ["A measured re-check interval"],
+        "rejected_claims": ["100% compliance guaranteed — prohibited by 1.1.5"],
+        "confidence": 0.55,
+        "reviewer_notes": "Check the cadence claim against operations.",
+        "coverage": [],
+    },
+}
+
+
+def stage_1_3_and_1_4(fake: FakeOpenRouter) -> None:
+    """Answer every completion from the batch it was actually sent."""
+
+    def respond(request: Any) -> Any:
+        body = json.loads(request.content or b"{}")
+        name = (
+            body.get("response_format", {}).get("json_schema", {}).get("name")
+            or (body.get("tools") or [{}])[0].get("function", {}).get("name")
+            or ""
+        )
+        user = next(
+            (item["content"] for item in reversed(body.get("messages", [])) if item["content"]),
+            "",
+        )
+
+        if name == "CompetitorLabels":
+            rows = _computed(user, "measured overlap")
+            return completion(
+                {
+                    "competitors": [
+                        {
+                            "domain": row["domain"],
+                            "name": next(
+                                (
+                                    label
+                                    for domain, label, _, _ in COMPETITORS
+                                    if domain == row["domain"]
+                                ),
+                                row["domain"],
+                            ),
+                            "positioning": "Sells SDS storage.",
+                            "threat": "direct",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name == "ExtractedAds":
+            rows = _computed(user, "ads to read")
+            return completion(
+                {
+                    "ads": [
+                        {
+                            "key": row["key"],
+                            "headline": "Compliance without the binders",
+                            "description": "Keep every sheet current.",
+                            "offer": "Free trial",
+                            "angle": "Reduce audit risk",
+                            "proof_type": "free_trial",
+                            "cta": "Start free",
+                            "theme": "free trial",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name == "EstimateNotes":
+            rows = _computed(user, "estimates (final")
+            return completion(
+                {
+                    "notes": [
+                        {
+                            "competitor": row["competitor"],
+                            "caveat": "The vendor's traffic model may be stale.",
+                            "how_to_verify": "Run an auction-insights export by hand.",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name == "TermIntents":
+            terms = _computed(user, "terms to label")
+            items = []
+            for term in terms:
+                intent, stage = _intent_of(term)
+                items.append(
+                    {
+                        "term": term,
+                        "intent": intent,
+                        "funnel_stage": stage,
+                        "confidence": 0.8,
+                        "note": "Seeker, not a buyer." if intent == "irrelevant" else "",
+                    }
+                )
+            return completion({"items": items})
+
+        if name == "ContentGaps":
+            rows = _computed(user, "themes with no good page")
+            return completion(
+                {
+                    "gaps": [
+                        {
+                            "cluster": row["cluster"],
+                            "required_page_type": "comparison page",
+                            "why": "Nothing on the site answers this theme.",
+                            "priority": "high",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name in P4_STATIC:
+            return completion(P4_STATIC[name])
+        if name in BY_OUTPUT_MODEL:
+            return completion(BY_OUTPUT_MODEL[name])
+        raise AssertionError(f"no scripted answer for output model {name!r}")
+
+    fake.dispatch(respond)
