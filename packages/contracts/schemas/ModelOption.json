@@ -1,0 +1,73 @@
+{
+  "description": "One row of the searchable model combobox.",
+  "properties": {
+    "id": {
+      "description": "The OpenRouter model id, e.g. anthropic/claude-haiku-4.5",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "context_length": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Context Length"
+    },
+    "prompt_per_million": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "USD per million prompt tokens",
+      "title": "Prompt Per Million"
+    },
+    "completion_per_million": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "USD per million completion tokens",
+      "title": "Completion Per Million"
+    },
+    "supports_structured_output": {
+      "description": "PRD \u00a78: a model without it can only ever be a fallback",
+      "title": "Supports Structured Output",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "supports_structured_output"
+  ],
+  "title": "ModelOption",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

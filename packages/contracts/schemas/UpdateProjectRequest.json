@@ -1,0 +1,264 @@
+{
+  "$defs": {
+    "GateAssignment": {
+      "description": "Who decides one gate, and how long they have.",
+      "properties": {
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unassigned means any approver may claim it",
+          "title": "Assignee Id"
+        },
+        "sla_hours": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sla Hours"
+        }
+      },
+      "title": "GateAssignment",
+      "type": "object"
+    },
+    "Market": {
+      "description": "One country the campaign will run in. PRD \u00a76: `[{country, language, currency}]`.",
+      "properties": {
+        "country": {
+          "description": "ISO 3166-1 alpha-2, e.g. NO",
+          "maxLength": 2,
+          "minLength": 2,
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "description": "ISO 639-1, e.g. nb",
+          "maxLength": 5,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217, e.g. NOK",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "country",
+        "language",
+        "currency"
+      ],
+      "title": "Market",
+      "type": "object"
+    },
+    "ModelRouting": {
+      "additionalProperties": false,
+      "description": "Per-task-class model overrides. Absent classes fall back to the seeds.",
+      "properties": {
+        "extract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extract"
+        },
+        "classify": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classify"
+        },
+        "synthesize": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synthesize"
+        },
+        "critique": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critique"
+        }
+      },
+      "title": "ModelRouting",
+      "type": "object"
+    },
+    "ProductContext": {
+      "description": "What we sell, in the words a research node will be grounded on.\n\nFree text plus the structured fields the nodes actually index on. Everything\nis optional at the model level and required at the *readiness* level \u2014 a\nhalf-filled project is a legitimate thing to save and a bad thing to run.",
+      "properties": {
+        "summary": {
+          "default": "",
+          "maxLength": 8000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "products": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "title": "Products",
+          "type": "array"
+        },
+        "pricing": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Pricing",
+          "type": "string"
+        },
+        "icp": {
+          "default": "",
+          "description": "Who we are trying to reach",
+          "maxLength": 4000,
+          "title": "Icp",
+          "type": "string"
+        },
+        "differentiators": {
+          "items": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "title": "Differentiators",
+          "type": "array"
+        },
+        "site_url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Site Url",
+          "type": "string"
+        }
+      },
+      "title": "ProductContext",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A partial update. Only the fields present are written.",
+  "properties": {
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "domain": {
+      "anyOf": [
+        {
+          "maxLength": 253,
+          "minLength": 3,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Domain"
+    },
+    "product_context": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ProductContext"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "markets": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/Market"
+          },
+          "maxItems": 25,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Markets"
+    },
+    "models": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ModelRouting"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "approvals": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "$ref": "#/$defs/GateAssignment"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approvals"
+    }
+  },
+  "title": "UpdateProjectRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -14,9 +14,12 @@ from agent.api.middleware import SecurityHeadersMiddleware, SessionMiddleware
 from agent.api.problems import install_problem_handlers
 from agent.api.routes_audit import router as audit_router
 from agent.api.routes_auth import router as auth_router
+from agent.api.routes_credentials import router as credentials_router
 from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
+from agent.api.routes_models import router as models_router
+from agent.api.routes_projects import router as projects_router
 from agent.api.routes_runs import router as runs_router
 from agent.api.routes_sources import router as sources_router
 from agent.api.routes_users import router as users_router
@@ -89,6 +92,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         users_router,
         audit_router,
         workspace_router,
+        projects_router,
+        credentials_router,
+        models_router,
         runs_router,
         evidence_router,
         sources_router,

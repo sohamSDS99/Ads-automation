@@ -1,0 +1,174 @@
+{
+  "$defs": {
+    "ModelOption": {
+      "description": "One row of the searchable model combobox.",
+      "properties": {
+        "id": {
+          "description": "The OpenRouter model id, e.g. anthropic/claude-haiku-4.5",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "context_length": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Context Length"
+        },
+        "prompt_per_million": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "USD per million prompt tokens",
+          "title": "Prompt Per Million"
+        },
+        "completion_per_million": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "USD per million completion tokens",
+          "title": "Completion Per Million"
+        },
+        "supports_structured_output": {
+          "description": "PRD \u00a78: a model without it can only ever be a fallback",
+          "title": "Supports Structured Output",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "supports_structured_output"
+      ],
+      "title": "ModelOption",
+      "type": "object"
+    },
+    "TaskClass": {
+      "description": "What a node asks of a model. The only thing a node declares.",
+      "enum": [
+        "extract",
+        "classify",
+        "synthesize",
+        "critique"
+      ],
+      "title": "TaskClass",
+      "type": "string"
+    },
+    "TaskClassRouting": {
+      "description": "What one task class is for, what it defaults to, and what it consumes.",
+      "properties": {
+        "task_class": {
+          "$ref": "#/$defs/TaskClass"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        },
+        "default_model": {
+          "description": "The seed model, used when nothing is chosen",
+          "title": "Default Model",
+          "type": "string"
+        },
+        "fallbacks": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fallbacks",
+          "type": "array"
+        },
+        "calls_per_run": {
+          "title": "Calls Per Run",
+          "type": "integer"
+        },
+        "token_in_per_run": {
+          "title": "Token In Per Run",
+          "type": "integer"
+        },
+        "token_out_per_run": {
+          "title": "Token Out Per Run",
+          "type": "integer"
+        },
+        "usage_source": {
+          "description": "`measured` from completed runs, or `assumed` until there are enough",
+          "title": "Usage Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_class",
+        "label",
+        "purpose",
+        "default_model",
+        "fallbacks",
+        "calls_per_run",
+        "token_in_per_run",
+        "token_out_per_run",
+        "usage_source"
+      ],
+      "title": "TaskClassRouting",
+      "type": "object"
+    }
+  },
+  "description": "The catalogue plus everything needed to price a routing choice.",
+  "properties": {
+    "models": {
+      "items": {
+        "$ref": "#/$defs/ModelOption"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "task_classes": {
+      "items": {
+        "$ref": "#/$defs/TaskClassRouting"
+      },
+      "title": "Task Classes",
+      "type": "array"
+    },
+    "usage_source": {
+      "title": "Usage Source",
+      "type": "string"
+    }
+  },
+  "required": [
+    "models",
+    "task_classes",
+    "usage_source"
+  ],
+  "title": "ModelListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

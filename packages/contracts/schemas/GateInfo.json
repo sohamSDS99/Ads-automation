@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "ApprovalRequiredRole": {
+      "description": "Who may decide a gate. A strict subset of `UserRole` (PRD \u00a76).",
+      "enum": [
+        "admin",
+        "approver"
+      ],
+      "title": "ApprovalRequiredRole",
+      "type": "string"
+    }
+  },
+  "description": "A gate as the setup wizard and the project overview render it.",
+  "properties": {
+    "assignee_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unassigned means any approver may claim it",
+      "title": "Assignee Id"
+    },
+    "sla_hours": {
+      "anyOf": [
+        {
+          "maximum": 720,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sla Hours"
+    },
+    "node_id": {
+      "title": "Node Id",
+      "type": "string"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "audience": {
+      "title": "Audience",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "required_role": {
+      "$ref": "#/$defs/ApprovalRequiredRole"
+    },
+    "assignee_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assignee Name"
+    }
+  },
+  "required": [
+    "node_id",
+    "stage",
+    "name",
+    "audience",
+    "description",
+    "required_role"
+  ],
+  "title": "GateInfo",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
