@@ -61,6 +61,30 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         {"role": "viewer"},
     ),
     ("PATCH", "/workspace", "/workspace", Permission.SETTINGS_WRITE, {"name": "Renamed"}),
+    (
+        "POST",
+        "/projects/{project_id}/runs",
+        "/projects/{project}/runs",
+        Permission.RUN_EXECUTE,
+        {},
+    ),
+    ("GET", "/runs/{run_id}", "/runs/{run}", Permission.READ, None),
+    ("GET", "/runs/{run_id}/events", "/runs/{run}/events", Permission.READ, None),
+    (
+        "GET",
+        "/runs/{run_id}/nodes/{node_id}",
+        "/runs/{run}/nodes/0.1",
+        Permission.READ,
+        None,
+    ),
+    ("POST", "/runs/{run_id}/cancel", "/runs/{run}/cancel", Permission.RUN_EXECUTE, None),
+    (
+        "POST",
+        "/runs/{run_id}/retry-failed",
+        "/runs/{run}/retry-failed",
+        Permission.RUN_EXECUTE,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
@@ -92,7 +116,10 @@ async def test_a_role_without_the_permission_is_refused_and_writes_nothing(
 ) -> None:
     caller = admin if role == "admin" else await signed_in_as(role)  # type: ignore[operator]
     target = (await db.execute(sa.select(User.id).where(User.role == UserRole.ADMIN))).scalar_one()
-    url = path.format(target=target)
+    # The run and project ids are deliberately fictional: `require(Permission)`
+    # is a dependency, so a forbidden caller is refused before any lookup. A 403
+    # that depended on the row existing would not be proving authorization.
+    url = path.format(target=target, project=uuid.uuid4(), run=uuid.uuid4())
 
     if has_permission(UserRole(role), permission):
         pytest.skip(f"{role} legitimately holds {permission.value}")
@@ -120,7 +147,7 @@ async def test_every_guarded_route_rejects_an_anonymous_caller(
     permission: Permission,
     body: dict[str, object] | None,
 ) -> None:
-    url = path.format(target=uuid.uuid4())
+    url = path.format(target=uuid.uuid4(), project=uuid.uuid4(), run=uuid.uuid4())
     response = await getattr(client, method.lower())(url, json=body)
     assert response.status_code == 401
     assert response.json()["type"] == "/problems/unauthenticated"
