@@ -1,0 +1,187 @@
+{
+  "$defs": {
+    "NodeRunStatus": {
+      "description": "Per-node lifecycle.\n\nPRD \u00a76 leaves `NodeRun.status` untyped; these values are the ones \u00a77.2\nexecution semantics and the \u00a713.2 status palette actually require.",
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "succeeded",
+        "failed",
+        "skipped"
+      ],
+      "title": "NodeRunStatus",
+      "type": "string"
+    }
+  },
+  "description": "`GET /runs/{id}/nodes/{node_id}` \u2014 output, evidence, prompt, metrics.",
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "node_id": {
+      "title": "Node Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/NodeRunStatus"
+    },
+    "attempt": {
+      "title": "Attempt",
+      "type": "integer"
+    },
+    "input_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Input Hash"
+    },
+    "output": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Output"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "prompt": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Prompt"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Model"
+    },
+    "token_in": {
+      "title": "Token In",
+      "type": "integer"
+    },
+    "token_out": {
+      "title": "Token Out",
+      "type": "integer"
+    },
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Cost Usd"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Latency Ms"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Finished At"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Error"
+    }
+  },
+  "required": [
+    "run_id",
+    "node_id",
+    "name",
+    "stage",
+    "status",
+    "attempt",
+    "input_hash",
+    "output",
+    "evidence_ids",
+    "prompt",
+    "model",
+    "token_in",
+    "token_out",
+    "cost_usd",
+    "latency_ms",
+    "started_at",
+    "finished_at",
+    "error"
+  ],
+  "title": "NodeRunDetail",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

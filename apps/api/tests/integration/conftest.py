@@ -281,3 +281,63 @@ async def signed_in_as(admin: ApiClient) -> AsyncIterator[Any]:
     yield factory
     for raw in clients:
         await raw.aclose()
+
+
+# ---------------------------------------------------------------------------
+# P1: projects, credentials and runs
+#
+# There is no project or credential API yet — PRD §14 assigns both to the
+# frontend phases — so the rows a run needs are created directly. When P6 ships
+# those routes these fixtures should start going through them instead.
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def admin_user(db: AsyncSession, workspace: Workspace) -> Any:
+    """The bootstrapped admin row, for fixtures that need a `created_by`."""
+    from agent.db.models import User
+
+    result = await db.execute(sa.select(User).where(User.email == workspace.admin_email))
+    return result.scalar_one()
+
+
+@pytest_asyncio.fixture
+async def project(db: AsyncSession, admin_user: Any) -> Any:
+    """One project with an OpenRouter credential — the minimum a run needs."""
+    from agent.credentials import new_credential
+    from agent.db.models import CredentialKind, Project
+
+    row = Project(
+        workspace_id=admin_user.workspace_id,
+        created_by=admin_user.id,
+        name="SDS Manager",
+        domain="sdsmanager.com",
+        product_context={"pitch": "safety data sheet management"},
+        markets=[{"country": "US", "language": "en"}],
+        settings={},
+    )
+    db.add(row)
+    db.add(
+        new_credential(
+            workspace_id=admin_user.workspace_id,
+            kind=CredentialKind.OPENROUTER,
+            secret="sk-or-test-key",
+            created_by=admin_user.id,
+        )
+    )
+    await db.commit()
+    return row
+
+
+@pytest.fixture(autouse=True)
+def fast_llm_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Take the gateway's real rate limit out of the test clock.
+
+    `agent.llm.gateway` throttles to 4 requests/second process-wide, which is
+    right in production and adds ten seconds to a suite that deliberately drives
+    the retry ladder. The limiter itself is unit-tested; here it only gets in
+    the way.
+    """
+    from agent.llm.gateway import RateLimiter
+
+    monkeypatch.setattr("agent.llm.gateway._LIMITER", RateLimiter(rate=10_000, concurrency=16))

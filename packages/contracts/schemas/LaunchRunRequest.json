@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "RunMode": {
+      "enum": [
+        "full",
+        "partial"
+      ],
+      "title": "RunMode",
+      "type": "string"
+    }
+  },
+  "description": "`POST /projects/{id}/runs` \u2014 `{mode, node_filter?, reuse_cache?}`.",
+  "properties": {
+    "mode": {
+      "$ref": "#/$defs/RunMode",
+      "default": "full"
+    },
+    "node_ids": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Partial runs only. The selection is widened to include everything these nodes depend on, because a node cannot run without its inputs.",
+      "title": "Node Ids"
+    },
+    "reuse_cache": {
+      "default": false,
+      "description": "Reuse a previous succeeded output when the input hash and node version match.",
+      "title": "Reuse Cache",
+      "type": "boolean"
+    }
+  },
+  "title": "LaunchRunRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

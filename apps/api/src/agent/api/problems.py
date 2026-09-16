@@ -25,6 +25,8 @@ TYPE_RATE_LIMITED = "/problems/rate-limited"
 TYPE_CONFLICT = "/problems/conflict"
 TYPE_VALIDATION = "/problems/validation-failed"
 TYPE_INVITE_INVALID = "/problems/invite-invalid"
+TYPE_NOT_FOUND = "/problems/not-found"
+TYPE_UNPROCESSABLE = "/problems/unprocessable"
 
 
 class Problem(Exception):
@@ -92,6 +94,26 @@ def conflict(detail: str, *, title: str = "Conflict", **extra: Any) -> Problem:
         title=title,
         detail=detail,
         type_=TYPE_CONFLICT,
+        **extra,
+    )
+
+
+def not_found(detail: str, *, title: str = "Not found") -> Problem:
+    return Problem(
+        status_code=status.HTTP_404_NOT_FOUND,
+        title=title,
+        detail=detail,
+        type_=TYPE_NOT_FOUND,
+    )
+
+
+def unprocessable(detail: str, *, title: str = "Unprocessable request", **extra: Any) -> Problem:
+    """422 for a request that parsed but asks for something impossible."""
+    return Problem(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        title=title,
+        detail=detail,
+        type_=TYPE_UNPROCESSABLE,
         **extra,
     )
 

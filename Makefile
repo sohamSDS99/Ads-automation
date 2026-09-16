@@ -52,10 +52,13 @@ test: test-api test-integration guards typecheck ## Run every check
 test-api: ## Run the api unit suite (no database needed)
 	cd $(API) && uv run pytest tests -q --ignore=tests/integration
 
-test-integration: ## Run the DB+Redis suite against the running compose stack
+test-integration: ## Run the DB+Redis suite inside the compose network
 	@docker compose ps --status running --format '{{.Service}}' | grep -qx postgres \
 		|| { echo "postgres is not running — run 'make up' first"; exit 1; }
-	cd $(API) && uv run pytest tests/integration -q
+	# Not `uv run pytest` on the host: postgres, redis and api publish no host
+	# port (PRD §5.2), so those hostnames only resolve inside the network. The
+	# `test` service's own command is `pytest tests/integration -q`.
+	docker compose run --rm test
 
 guards: ## Fail if any route is missing its require(Permission)
 	cd $(API) && uv run python scripts/check_route_guards.py
