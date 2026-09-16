@@ -1,0 +1,27 @@
+# python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# node
+node_modules/
+.next/
+next-env.d.ts
+*.tsbuildinfo
+
+# env & local state
+.env
+.env.local
+data/
+/data
+
+# os
+.DS_Store
+
+# generated from packages/contracts/schemas by `pnpm --dir packages/contracts generate`
+packages/contracts/zod/
