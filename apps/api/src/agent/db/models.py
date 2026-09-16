@@ -386,6 +386,11 @@ class NodeRun(Base):
     )
     attempt: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
     input_hash: Mapped[str | None] = mapped_column(sa.Text)
+    # Not in the PRD §6 column list. `GET /runs/{id}/nodes/{node_id}` is
+    # specified to return the prompt (PRD §14), and after a repair pass or a
+    # model substitution the prompt that was actually sent cannot be
+    # re-derived from the inputs. Added in migration 0002.
+    prompt: Mapped[str | None] = mapped_column(sa.Text)
     output: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     evidence_ids: Mapped[list[uuid.UUID]] = mapped_column(
         ARRAY(UUID(as_uuid=True)), nullable=False, server_default=sa.text("'{}'::uuid[]")
