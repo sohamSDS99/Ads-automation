@@ -7,10 +7,12 @@ sources and emits a versioned, citation-backed Research Report.
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
 for the full specification.
 
-> **Status: Phase P0b (Auth & workspace).** Schema, scaffold, and the whole
-> sign-in surface: Argon2id passwords, Redis sessions, four roles, invites,
-> CSRF, and the audit trail. The orchestrator, connectors, nodes, report and
-> exports arrive in later phases — the phase table lives in PRD §17.
+> **Status: Phase P1 (Orchestrator + LLM gateway).** Everything P0/P0b shipped,
+> plus the engine: an auto-discovered node registry, a validated DAG, a
+> wavefront executor with retries, repair passes, checkpoints, cancellation and
+> a budget cap, the OpenRouter gateway with strict structured output, and the
+> run API with its SSE feed. Two dummy nodes stand in for the real DAG —
+> connectors arrive in P2, the 21 research nodes in P3–P5. Phase table: PRD §17.
 
 ## Setup
 
@@ -62,6 +64,28 @@ make logs          # tail everything
 make clean         # stop and delete volumes
 ```
 
+## Running the DAG
+
+A run needs two things the API cannot invent: a `project` row and an OpenRouter
+credential. Both get their own screens in P6; until then they are rows.
+
+```bash
+# launch, then watch it
+curl -X POST localhost:3000/api/v1/projects/$PROJECT_ID/runs \
+     -H "X-CSRF-Token: $CSRF" -b cookies.txt -d '{}'
+curl -N localhost:3000/api/v1/runs/$RUN_ID/events    # SSE, heartbeats every 15s
+```
+
+* **`api` never executes a node.** It writes the `run` row, takes the project's
+  run lock and enqueues; `worker` does the rest.
+* **Nodes are discovered, not listed.** Drop a module in `agent/nodes/` that
+  instantiates a node at module level and it is in the DAG. A class that
+  declares a `NodeSpec` and is never instantiated is an error, not a silence.
+* **The DAG is derived from `depends_on`** and validated at import — a cycle or
+  a dangling dependency stops the process at boot rather than mid-run.
+* **Resume is the default.** Re-running a crashed run skips every succeeded
+  node; `POST /runs/{id}/retry-failed` re-runs only what failed.
+
 ## Layout
 
 ```
@@ -100,11 +124,29 @@ railway/      provisioning runbook + the full env-var table
 - **Secrets never reach a log.** A structlog processor redacts any field whose
   name mentions a password, secret, token, authorization, ciphertext or cookie,
   ahead of the renderer.
+- **An LLM never sources a fact.** Connectors write `Evidence`; a node's output
+  cites `evidence_ids`, and the executor fails the node if it cites anything it
+  did not gather.
+- **`ctx.complete()` is the only door to a model.** Routing, the cost ledger and
+  the stored prompt all live behind it, so no node can spend money the run's
+  budget cap cannot see.
+- **A run always reaches a terminal state.** Cancel, budget abort, crash or
+  failure — the executor records where it stopped and what it had already paid
+  for, and releases the project lock.
 - **No `if RAILWAY` branch anywhere.** Environments differ by variable values.
 
-## Known limits of P0
+## Known limits of P1
 
-- The nav links to Approvals, Evidence and Settings resolve to a 404 page —
-  those screens are built in P6/P7.
-- There is no login. The shell is deliberately unguarded until P0b.
+- The DAG is two dummy nodes (`0.1`, `0.2`). The real 21 arrive in P3–P5 and
+  delete `agent/nodes/dummy.py`.
+- `gather()` always returns nothing: connectors and the evidence store are P2,
+  so no node has real evidence to cite yet.
+- **Gate nodes are refused at registration.** The approval machinery lands in
+  P3; registering a `gate=True` node now would halt a branch nothing could
+  resume.
+- There is no `POST /projects`, `POST /credentials` or `GET /models` — PRD §14
+  lists them but no phase before P6 owns them, so a run's project and OpenRouter
+  key are inserted directly for now.
+- The run console, approvals inbox and report viewer are P7. P1's surface is the
+  API and the SSE feed.
 - `STORAGE_BACKEND=s3` raises `NotImplementedError` by design.
