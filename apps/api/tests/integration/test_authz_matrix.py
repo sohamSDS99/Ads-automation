@@ -124,6 +124,24 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # P3. The inbox is readable by every role — PRD §4.1 gives `viewer` the
+    # run history, and a gate is part of it — but only `approval_decide`
+    # holders may act, which excludes `operator` as well as `viewer`.
+    ("GET", "/approvals", "/approvals", Permission.READ, None),
+    (
+        "POST",
+        "/approvals/{approval_id}",
+        "/approvals/{run}",
+        Permission.APPROVAL_DECIDE,
+        {"decision": "approve"},
+    ),
+    (
+        "PATCH",
+        "/approvals/{approval_id}/assignee",
+        "/approvals/{run}/assignee",
+        Permission.APPROVAL_DECIDE,
+        {"assignee_id": None},
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import NodeRun, NodeRunStatus, Run, RunStatus
 from tests.integration.conftest import ApiClient
-from tests.integration.runs_support import BRIEF, CRITIQUE, execute, launch
+from tests.integration.runs_support import ICP_LABELS, MARKET_LABELS, execute, launch_chain
 from tests.openrouter_fake import FakeOpenRouter, completion
 
 
@@ -36,16 +36,16 @@ async def rows_for(db: AsyncSession, run_id: uuid.UUID, node_id: str) -> list[No
 async def test_a_run_killed_mid_dag_resumes_without_re_executing_the_finished_node(
     admin: ApiClient, project: Any, db: AsyncSession
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     run_id = uuid.UUID(created["id"])
 
     dying = FakeOpenRouter()
-    dying.queue(completion(BRIEF), kill)
+    dying.queue(completion(ICP_LABELS), kill)
     with pytest.raises(WorkerKilled):
         await execute(run_id, dying)
 
     # The checkpoint survived the kill; the run never reached a terminal state.
-    first_node = await rows_for(db, run_id, "0.1")
+    first_node = await rows_for(db, run_id, "1.1.2")
     assert [row.status for row in first_node] == [NodeRunStatus.SUCCEEDED]
     finished_at = first_node[0].finished_at
     run = await db.get(Run, run_id)
@@ -54,14 +54,14 @@ async def test_a_run_killed_mid_dag_resumes_without_re_executing_the_finished_no
     assert run.status is RunStatus.RUNNING
 
     resumed = FakeOpenRouter()
-    resumed.queue(completion(CRITIQUE))
+    resumed.queue(completion(MARKET_LABELS))
     result = await execute(run_id, resumed)
 
     assert result.status is RunStatus.SUCCEEDED
     assert len(resumed.requests) == 1, "the completed node must not be paid for twice"
     assert result.nodes_executed == 1
 
-    after = await rows_for(db, run_id, "0.1")
+    after = await rows_for(db, run_id, "1.1.2")
     assert len(after) == 1, "a resumed run must not open a second attempt of a succeeded node"
     assert after[0].finished_at == finished_at
 
@@ -70,24 +70,24 @@ async def test_the_node_that_was_in_flight_is_closed_out_rather_than_left_runnin
     admin: ApiClient, project: Any, db: AsyncSession
 ) -> None:
     """A node stuck at `running` would show as in-flight in the console forever."""
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     run_id = uuid.UUID(created["id"])
 
     dying = FakeOpenRouter()
-    dying.queue(completion(BRIEF), kill)
+    dying.queue(completion(ICP_LABELS), kill)
     with pytest.raises(WorkerKilled):
         await execute(run_id, dying)
 
-    in_flight = await rows_for(db, run_id, "0.2")
+    in_flight = await rows_for(db, run_id, "1.1.4")
     assert [row.status for row in in_flight] == [NodeRunStatus.RUNNING]
 
     resumed = FakeOpenRouter()
-    resumed.queue(completion(CRITIQUE))
+    resumed.queue(completion(MARKET_LABELS))
     await execute(run_id, resumed)
 
-    for row in await rows_for(db, run_id, "0.2"):
+    for row in await rows_for(db, run_id, "1.1.4"):
         await db.refresh(row)
-    rows = await rows_for(db, run_id, "0.2")
+    rows = await rows_for(db, run_id, "1.1.4")
     assert [row.status for row in rows] == [NodeRunStatus.FAILED, NodeRunStatus.SUCCEEDED]
     assert rows[0].error["code"] == "crashed"
 

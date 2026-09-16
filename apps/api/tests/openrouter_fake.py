@@ -85,6 +85,7 @@ class FakeOpenRouter:
         self.catalogue_calls = 0
         self._queue: deque[httpx.Response | Callable[[httpx.Request], httpx.Response]] = deque()
         self.default: httpx.Response | None = None
+        self.dispatcher: Callable[[httpx.Request], httpx.Response] | None = None
 
     # -- scripting ---------------------------------------------------------
 
@@ -94,6 +95,17 @@ class FakeOpenRouter:
     def always(self, response: httpx.Response) -> None:
         """Answer every completion with this, forever. Copied per call."""
         self.default = response
+
+    def dispatch(self, handler: Callable[[httpx.Request], httpx.Response]) -> None:
+        """Answer by inspecting the request rather than by position.
+
+        A queue only works when calls are ordered, and a wave of independent
+        nodes runs them concurrently — `asyncio.Semaphore(4)`, PRD §7.2 item 2 —
+        so which node asks first is not fixed. Routing on what was asked is the
+        only way to script a wave without making the test depend on scheduler
+        order.
+        """
+        self.dispatcher = handler
 
     # -- transport ---------------------------------------------------------
 
@@ -114,6 +126,8 @@ class FakeOpenRouter:
         if self._queue:
             scripted = self._queue.popleft()
             return scripted(request) if callable(scripted) else scripted
+        if self.dispatcher is not None:
+            return self.dispatcher(request)
         if self.default is not None:
             return httpx.Response(
                 self.default.status_code,

@@ -1,0 +1,44 @@
+{
+  "description": "`POST /approvals/{id}` \u2014 `{decision, note, edited_proposal?}`.",
+  "properties": {
+    "decision": {
+      "description": "`approve` or `reject`.",
+      "title": "Decision",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "maxLength": 4000,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Why. Recorded in the audit log.",
+      "title": "Note"
+    },
+    "edited_proposal": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Approve with changes. When present this replaces the proposal as the node's output, so everything downstream reads the approved text, not the draft.",
+      "title": "Edited Proposal"
+    }
+  },
+  "required": [
+    "decision"
+  ],
+  "title": "ApprovalDecisionRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

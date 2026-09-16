@@ -27,6 +27,7 @@ dependencies = [
     "weasyprint>=63.1",   # PDF via HTML+CSS Paged Media (PRD §12). Imported lazily: it needs
                           # pango/cairo, which only the worker image carries.
     "python-docx>=1.1.2", # DOCX with real Heading styles so Word's TOC field works (PRD §12)
+    "pandas>=2.2.3",             # PRD §18 law 3: every CPA/ROAS/P&L figure is computed here, never by a model
 ]
 
 [dependency-groups]
@@ -38,6 +39,7 @@ dev = [
     "pyyaml>=6.0.2",   # docker-compose assertions in tests/test_deployment_config.py
     "types-pyyaml>=6.0.12",
     "vcrpy>=6.0.2",    # connector cassettes (PRD §9); replayed with record_mode=none
+    "pandas-stubs>=2.2.3",  # mypy strict has no types for pandas otherwise, and `frames.py` is where the arithmetic lives
 ]
 
 [build-system]

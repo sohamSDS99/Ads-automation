@@ -7,10 +7,31 @@ import pytest
 from agent.orchestrator.dag import Dag, DagError, get_dag
 
 
-def test_the_dummy_dag_is_two_waves_of_one() -> None:
+def test_the_real_dag_matches_the_prd_edge_list() -> None:
+    """PRD §10: 1.1.4 depends on 1.1.2, 1.1.5 on 1.1.1, and stage 1.2 on nothing."""
     dag = get_dag()
-    assert dag.waves() == [("0.1",), ("0.2",)]
-    assert [(edge.source, edge.target) for edge in dag.edges] == [("0.1", "0.2")]
+    assert set(dag.node_ids) == {
+        "1.1.1",
+        "1.1.2",
+        "1.1.3",
+        "1.1.4",
+        "1.1.5",
+        "1.2.1",
+        "1.2.2",
+        "1.2.3",
+    }
+    assert sorted((edge.source, edge.target) for edge in dag.edges) == [
+        ("1.1.1", "1.1.5"),
+        ("1.1.2", "1.1.4"),
+    ]
+    assert dag.waves() == [
+        ("1.1.1", "1.1.2", "1.1.3", "1.2.1", "1.2.2", "1.2.3"),
+        ("1.1.4", "1.1.5"),
+    ]
+
+
+def test_selecting_the_gate_pulls_in_the_node_it_reads() -> None:
+    assert get_dag().closure(["1.1.5"]) == {"1.1.1", "1.1.5"}
 
 
 def test_independent_nodes_share_a_wave() -> None:

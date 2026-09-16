@@ -89,14 +89,11 @@ def _validate(spec: NodeSpec, *, owner: str) -> None:
         raise RegistryError(
             f"{owner}: node {spec.id!r} declares stage {spec.stage!r}, which is not its prefix."
         )
-    if spec.gate:
-        # The machinery a gate needs — Approval rows, assignee routing, the
-        # /approvals endpoints — lands in P3. Registering one now would halt a
-        # branch that nothing can ever resume, so refuse it at import time
-        # rather than at 3am in the middle of a run.
-        raise RegistryError(
-            f"{owner}: node {spec.id!r} declares gate=True, but approval routing ships in P3."
-        )
+    if spec.gate and spec.required_role is None:  # pragma: no cover — NodeSpec validates it
+        # Belt and braces around the `NodeSpec` validator. A gate with nobody
+        # entitled to decide it halts a branch that nothing can ever resume, and
+        # the place to find that out is import time, not 3am mid-run.
+        raise RegistryError(f"{owner}: gate node {spec.id!r} declares no required_role.")
     if spec.id in spec.depends_on:
         raise RegistryError(f"{owner}: node {spec.id!r} depends on itself.")
 

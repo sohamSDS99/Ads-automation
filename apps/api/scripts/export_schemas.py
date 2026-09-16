@@ -28,6 +28,7 @@ SOURCE_MODULES: tuple[str, ...] = (
     "agent.api.schemas_evidence",
     "agent.api.schemas_report",
     "agent.export.contract",
+    "agent.api.schemas_approvals",
 )
 
 

@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import NodeRunStatus, Project, RunStatus
 from tests.integration.conftest import ApiClient
-from tests.integration.runs_support import execute, launch, script_two_node_run
+from tests.integration.runs_support import execute, launch_chain, script_two_node_run
 from tests.openrouter_fake import FakeOpenRouter
 
 
@@ -29,7 +29,7 @@ async def test_a_run_that_spends_past_its_cap_stops_and_keeps_what_it_bought(
 ) -> None:
     # The first node costs $0.0002 at the fixture's prices.
     await set_cap(db, project, "0.0001")
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
 
     fake = FakeOpenRouter()
     script_two_node_run(fake)
@@ -52,7 +52,7 @@ async def test_the_environment_default_applies_when_the_project_is_silent(
     admin: ApiClient, project: Any
 ) -> None:
     """MAX_RUN_COST_USD is $15 in the fixture environment, so a cheap run finishes."""
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
 
@@ -63,7 +63,7 @@ async def test_a_malformed_cap_falls_back_instead_of_failing_the_run(
     admin: ApiClient, project: Any, db: AsyncSession
 ) -> None:
     await set_cap(db, project, "not a number")
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
 
@@ -75,7 +75,7 @@ async def test_the_lock_is_released_when_a_run_aborts(
 ) -> None:
     """An abort that kept the lock would leave the project unrunnable until the TTL."""
     await set_cap(db, project, "0.0001")
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)

@@ -7,12 +7,10 @@ sources and emits a versioned, citation-backed Research Report.
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
 for the full specification.
 
-> **Status: Phase P1 (Orchestrator + LLM gateway).** Everything P0/P0b shipped,
-> plus the engine: an auto-discovered node registry, a validated DAG, a
-> wavefront executor with retries, repair passes, checkpoints, cancellation and
-> a budget cap, the OpenRouter gateway with strict structured output, and the
-> run API with its SSE feed. Two dummy nodes stand in for the real DAG —
-> connectors arrive in P2, the 21 research nodes in P3–P5. Phase table: PRD §17.
+> **Status: Phase P3 (Stages 1.1 + 1.2).** Everything P0/P0b/P1/P2 shipped, plus
+> the first eight real research nodes, the gate machinery behind node 1.1.5 and
+> the `/approvals` API. The dummy nodes are gone. Stages 1.3–1.6 (the remaining
+> thirteen nodes) arrive in P4–P5. Phase table: PRD §17.
 
 ## Setup
 
@@ -64,6 +62,57 @@ make contracts     # regenerate packages/contracts from the Pydantic models
 make logs          # tail everything
 make clean         # stop and delete volumes
 ```
+
+## The DAG today
+
+Eight nodes, two stages, one gate:
+
+```
+1.1.1 offer_economics       1.2.1 historical_performance
+1.1.2 icp_profile           1.2.2 search_term_pnl
+1.1.3 negative_icp          1.2.3 failed_experiments
+1.1.4 market_coverage    ← 1.1.2
+1.1.5 compliance_guardrails ← 1.1.1   ⛳ gate → approver
+```
+
+Two things about them are worth knowing before reading the code.
+
+**No node writes a number.** PRD §18 law 3 puts every CPA, ROAS, share-of-
+revenue and payback figure in `nodes/frames.py` and `nodes/pnl.py`. Five of the
+eight nodes therefore run in two halves: pandas computes the table, the model is
+shown it and asked only for labels, and `reason()` merges the labels onto the
+computed rows. A model that miscopies a cost figure cannot put a wrong number in
+the report, because the figure never passes through it.
+
+**An empty source is an answer.** A node with no evidence returns empty arrays
+without calling a model at all, and records what it could not read in its
+`coverage` field (PRD §16: never hallucinate history).
+
+## Approval gates
+
+`1.1.5 compliance_guardrails` is a gate. When it produces its proposal the
+executor writes an `Approval`, leaves the node in `awaiting_approval`, halts
+**that branch only** and lets every other branch finish. The run then ends the
+pass as `awaiting_approval` and gives the project lock back — a gate can sit for
+days, and a project that could not be launched for a week would be worse than
+the collision the lock prevents.
+
+```bash
+curl -b cookies.txt "localhost:3000/api/v1/approvals?mine=true"
+curl -X POST localhost:3000/api/v1/approvals/$ID -b cookies.txt \
+     -H "X-CSRF-Token: $CSRF" -d '{"decision":"approve","note":"checked"}'
+```
+
+* **`operator` cannot decide a gate.** The role that launches runs is precisely
+  the one excluded (PRD §4.1). `admin` and `approver` can; when `assignee_id` is
+  set, only that person or an admin.
+* **Approve with changes is real.** `edited_proposal` replaces the node's output,
+  so everything downstream reads the approved text and not the draft.
+* **No auto-approve, ever**, and the decision is audit-logged in the same
+  transaction that records it.
+* A rejected gate ends the run as `failed` with `error.code=approval_rejected`;
+  cancelling a paused run expires its open gate rather than leaving a question
+  nobody can act on.
 
 ## Running the DAG
 
@@ -168,20 +217,24 @@ railway/      provisioning runbook + the full env-var table
   for, and releases the project lock.
 - **No `if RAILWAY` branch anywhere.** Environments differ by variable values.
 
-## Known limits of P1
+## Known limits of P3
 
-- The DAG is two dummy nodes (`0.1`, `0.2`). The real 21 arrive in P3–P5 and
-  delete `agent/nodes/dummy.py`.
-- `gather()` always returns nothing: connectors and the evidence store are P2,
-  so no node has real evidence to cite yet.
-- **Gate nodes are refused at registration.** The approval machinery lands in
-  P3; registering a `gate=True` node now would halt a branch nothing could
-  resume.
+- **Thirteen of the twenty-one nodes do not exist yet.** Stages 1.3 (competition),
+  1.4 (demand) and 1.5 (readiness) are P4; the report itself is P5. A "full" run
+  today is stages 1.1 and 1.2.
+- **Google Ads evidence only appears if a credential is stored.** Nodes pull
+  through `nodes/gather.py` when the evidence store has nothing of a kind and
+  the node names a connector; without the secret they degrade to empty and say
+  so in `coverage`. `web_crawler` is not pulled at all — the site crawl belongs
+  to P5's landing-page audit.
+- **Approval SLAs and reminders are P8.** `Approval.due_at` is left NULL, so
+  nothing nags an approver; the inbox badge is the only prompt.
 - There is no `POST /projects`, `POST /credentials` or `GET /models` — PRD §14
   lists them but no phase before P6 owns them, so a run's project and OpenRouter
   key are inserted directly for now.
-- The run console, approvals inbox and report viewer are P7. P1's surface is the
-  API and the SSE feed.
+- The run console, approvals inbox and report viewer are P7. P3's surface is the
+  API and the SSE feed; `make verify-p3` drives the whole acceptance path
+  through it.
 - `STORAGE_BACKEND=s3` raises `NotImplementedError` by design.
 
 ## Known limits of P5a

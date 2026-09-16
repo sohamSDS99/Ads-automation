@@ -7,6 +7,7 @@ import types
 import pytest
 from pydantic import BaseModel
 
+from agent.db.models import ApprovalRequiredRole
 from agent.llm.router import TaskClass
 from agent.nodes.base import LLMNode, NodeSpec
 from agent.orchestrator.registry import (
@@ -39,8 +40,17 @@ def make_node(node_id: str, *, stage: str | None = None, **kwargs: object) -> LL
 
 def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     registry = discover()
-    assert registry.ids == ("0.1", "0.2")
-    assert registry.spec("0.2").depends_on == ("0.1",)
+    assert registry.ids == (
+        "1.1.1",
+        "1.1.2",
+        "1.1.3",
+        "1.1.4",
+        "1.1.5",
+        "1.2.1",
+        "1.2.2",
+        "1.2.3",
+    )
+    assert registry.spec("1.1.4").depends_on == ("1.1.2",)
 
 
 def test_the_registry_is_cached_per_process() -> None:
@@ -57,9 +67,17 @@ def test_a_duplicate_node_id_is_refused() -> None:
         NodeRegistry.of([make_node("1.1"), make_node("1.1")])
 
 
-def test_a_gate_node_is_refused_until_p3_can_resume_it() -> None:
-    with pytest.raises(RegistryError, match="P3"):
-        NodeRegistry.of([make_node("1.5", gate=True, required_role="approver")])
+def test_a_gate_node_registers_now_that_approvals_exist() -> None:
+    registry = NodeRegistry.of([make_node("1.5", gate=True, required_role="approver")])
+    assert registry.spec("1.5").gate is True
+    assert registry.spec("1.5").required_role is not None
+
+
+def test_the_only_gate_in_the_real_dag_routes_to_an_approver() -> None:
+    """PRD §10: 1.1.5 compliance_guardrails is the stage-1.1 gate, decided by legal."""
+    gates = [item for item in discover().specs() if item.gate]
+    assert [item.id for item in gates] == ["1.1.5"]
+    assert gates[0].required_role is ApprovalRequiredRole.APPROVER
 
 
 def test_a_stage_that_is_not_the_id_prefix_is_refused() -> None:
