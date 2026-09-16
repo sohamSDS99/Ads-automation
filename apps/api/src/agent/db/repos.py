@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 
 import sqlalchemy as sa
 
-from agent.db.models import AuditLog, Invite, User, UserRole, UserStatus
+from agent.db.models import AuditLog, Invite, Project, Run, User, UserRole, UserStatus
 from agent.db.repo import WorkspaceScopedRepo
 
 
@@ -94,6 +94,23 @@ class AuditRepo(WorkspaceScopedRepo[AuditLog]):
             )
         result = await self.session.execute(stmt)
         return [(row[0], row[1]) for row in result.all()]
+
+
+class ProjectRepo(WorkspaceScopedRepo[Project]):
+    model = Project
+
+
+class RunRepo(WorkspaceScopedRepo[Run]):
+    model = Run
+
+    async def for_project(self, project_id: uuid.UUID, *, limit: int = 50) -> list[Run]:
+        result = await self.session.execute(
+            self.select()
+            .where(Run.project_id == project_id)
+            .order_by(Run.started_at.desc().nullslast(), Run.id.desc())
+            .limit(limit)
+        )
+        return list(result.scalars().all())
 
 
 def utcnow() -> datetime:

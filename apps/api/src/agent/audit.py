@@ -30,6 +30,10 @@ class AuditAction(StrEnum):
     PASSWORD_CHANGED = "user.password_changed"  # noqa: S105 — an action name, not a secret
     SESSION_REVOKED = "user.session_revoked"
 
+    RUN_LAUNCHED = "run.launched"
+    RUN_CANCELLED = "run.cancelled"
+    RUN_RETRIED = "run.retried"
+
     USER_INVITED = "user.invited"
     INVITE_ACCEPTED = "user.invite_accepted"
     USER_ROLE_CHANGED = "user.role_changed"
@@ -41,6 +45,7 @@ class AuditTarget(StrEnum):
     USER = "user"
     INVITE = "invite"
     SESSION = "session"
+    RUN = "run"
 
 
 def write_audit(

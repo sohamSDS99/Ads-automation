@@ -1,0 +1,195 @@
+{
+  "$defs": {
+    "NodeRunStatus": {
+      "description": "Per-node lifecycle.\n\nPRD \u00a76 leaves `NodeRun.status` untyped; these values are the ones \u00a77.2\nexecution semantics and the \u00a713.2 status palette actually require.",
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "succeeded",
+        "failed",
+        "skipped"
+      ],
+      "title": "NodeRunStatus",
+      "type": "string"
+    },
+    "TaskClass": {
+      "description": "What a node asks of a model. The only thing a node declares.",
+      "enum": [
+        "extract",
+        "classify",
+        "synthesize",
+        "critique"
+      ],
+      "title": "TaskClass",
+      "type": "string"
+    }
+  },
+  "description": "One node of the DAG, with whatever this run has done to it so far.",
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "task_class": {
+      "$ref": "#/$defs/TaskClass"
+    },
+    "depends_on": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Depends On",
+      "type": "array"
+    },
+    "gate": {
+      "title": "Gate",
+      "type": "boolean"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NodeRunStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Null until the run reaches this node."
+    },
+    "attempt": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Attempt"
+    },
+    "model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Model"
+    },
+    "token_in": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Token In"
+    },
+    "token_out": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Token Out"
+    },
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost Usd"
+    },
+    "latency_ms": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latency Ms"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Finished At"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Error"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "stage",
+    "task_class",
+    "depends_on",
+    "gate"
+  ],
+  "title": "NodeState",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
