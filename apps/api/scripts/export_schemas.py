@@ -31,6 +31,12 @@ SOURCE_MODULES: tuple[str, ...] = (
 )
 
 
+#: Base classes that exist to carry configuration, not to describe a payload.
+#: Emitting them would put two schemas in `packages/contracts` that no endpoint
+#: ever returns, and zod types nobody can use.
+ABSTRACT_BASES: frozenset[str] = frozenset({"ReportModel", "StrictReportModel"})
+
+
 def collect_models() -> dict[str, type[BaseModel]]:
     import importlib
 
@@ -39,8 +45,11 @@ def collect_models() -> dict[str, type[BaseModel]]:
         module = importlib.import_module(module_name)
         for name in dir(module):
             obj = getattr(module, name)
-            if isinstance(obj, type) and issubclass(obj, BaseModel) and obj is not BaseModel:
-                found[obj.__name__] = obj
+            if not (isinstance(obj, type) and issubclass(obj, BaseModel)):
+                continue
+            if obj is BaseModel or obj.__name__ in ABSTRACT_BASES:
+                continue
+            found[obj.__name__] = obj
     return found
 
 

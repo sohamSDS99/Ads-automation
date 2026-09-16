@@ -1,0 +1,53 @@
+{
+  "additionalProperties": true,
+  "description": "1.5.2 `tracking_probe`.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Status"
+    },
+    "last_conversion_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Conversion At"
+    },
+    "staleness_days": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Staleness Days"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "ConversionAction",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

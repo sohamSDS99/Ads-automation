@@ -1,0 +1,56 @@
+{
+  "additionalProperties": true,
+  "description": "1.1.4 `market_coverage`.",
+  "properties": {
+    "country": {
+      "title": "Country",
+      "type": "string"
+    },
+    "language": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Language"
+    },
+    "currency": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
+    },
+    "demand_months": {
+      "description": "1\u201312",
+      "items": {
+        "type": "integer"
+      },
+      "title": "Demand Months",
+      "type": "array"
+    },
+    "dead_months": {
+      "description": "1\u201312",
+      "items": {
+        "type": "integer"
+      },
+      "title": "Dead Months",
+      "type": "array"
+    }
+  },
+  "required": [
+    "country"
+  ],
+  "title": "MarketCoverage",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

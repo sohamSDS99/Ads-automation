@@ -43,6 +43,11 @@ class AuditAction(StrEnum):
     CSV_UPLOADED = "source.csv_uploaded"
     EVIDENCE_WRITTEN = "evidence.written"
 
+    # P5a — report exports. Requesting one is the recorded act; downloading the
+    # same file twice is not a second decision, and a row per click would bury
+    # the log the admin actually reads.
+    EXPORT_REQUESTED = "export.requested"
+
 
 class AuditTarget(StrEnum):
     WORKSPACE = "workspace"
@@ -52,6 +57,7 @@ class AuditTarget(StrEnum):
     RUN = "run"
     PROJECT = "project"
     EVIDENCE = "evidence"
+    EXPORT = "export"
 
 
 def write_audit(

@@ -1,0 +1,34 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "theme": {
+      "title": "Theme",
+      "type": "string"
+    },
+    "frequency": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frequency"
+    },
+    "advertisers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Advertisers",
+      "type": "array"
+    }
+  },
+  "required": [
+    "theme"
+  ],
+  "title": "MessageCluster",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

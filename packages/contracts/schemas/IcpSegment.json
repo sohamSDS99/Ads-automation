@@ -1,0 +1,57 @@
+{
+  "additionalProperties": true,
+  "description": "1.1.2 `icp_profile`.",
+  "properties": {
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "firmographics": {
+      "additionalProperties": true,
+      "title": "Firmographics",
+      "type": "object"
+    },
+    "triggers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Triggers",
+      "type": "array"
+    },
+    "jobs_to_be_done": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Jobs To Be Done",
+      "type": "array"
+    },
+    "share_of_revenue_pct": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Share Of Revenue Pct"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "label"
+  ],
+  "title": "IcpSegment",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

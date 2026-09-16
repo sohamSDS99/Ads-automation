@@ -1,0 +1,55 @@
+{
+  "additionalProperties": true,
+  "description": "1.4.4 `negative_blocklist`.",
+  "properties": {
+    "term": {
+      "title": "Term",
+      "type": "string"
+    },
+    "match_type": {
+      "default": "phrase",
+      "enum": [
+        "broad",
+        "phrase",
+        "exact"
+      ],
+      "title": "Match Type",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "enum": [
+            "lost_reasons",
+            "wasteful_terms",
+            "intent_irrelevant"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source"
+    }
+  },
+  "required": [
+    "term"
+  ],
+  "title": "NegativeKeyword",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

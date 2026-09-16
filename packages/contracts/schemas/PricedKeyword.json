@@ -1,0 +1,171 @@
+{
+  "additionalProperties": false,
+  "description": "One row of the CSV export (PRD \u00a712). Strict on purpose \u2014 see\n`StrictReportModel`.\n\n`seasonality_index` is twelve monthly multipliers, January first, and the\nPDF renders it as a sparkline. A list of any other length is a bug in the\nnode that produced it, so it is rejected here rather than plotted wrong.",
+  "properties": {
+    "term": {
+      "minLength": 1,
+      "title": "Term",
+      "type": "string"
+    },
+    "market": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Market"
+    },
+    "intent": {
+      "anyOf": [
+        {
+          "enum": [
+            "transactional",
+            "commercial_investigation",
+            "informational",
+            "navigational",
+            "irrelevant"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Intent"
+    },
+    "funnel_stage": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Funnel Stage"
+    },
+    "volume": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Volume"
+    },
+    "cpc_low": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cpc Low"
+    },
+    "cpc_high": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cpc High"
+    },
+    "competition": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Competition"
+    },
+    "seasonality_index": {
+      "items": {
+        "type": "number"
+      },
+      "title": "Seasonality Index",
+      "type": "array"
+    },
+    "trend_yoy": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trend Yoy"
+    },
+    "best_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Url"
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "good_fit",
+            "weak_fit",
+            "gap"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verdict"
+    },
+    "match_type": {
+      "default": "phrase",
+      "enum": [
+        "broad",
+        "phrase",
+        "exact"
+      ],
+      "title": "Match Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "term"
+  ],
+  "title": "PricedKeyword",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

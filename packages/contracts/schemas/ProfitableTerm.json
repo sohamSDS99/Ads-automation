@@ -1,0 +1,64 @@
+{
+  "additionalProperties": true,
+  "description": "1.2.2 `search_term_pnl`, profitable side. Arithmetic is pandas', not the model's.",
+  "properties": {
+    "term": {
+      "title": "Term",
+      "type": "string"
+    },
+    "cost": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost"
+    },
+    "conv": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Conv"
+    },
+    "cpa": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cpa"
+    },
+    "roas": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Roas"
+    }
+  },
+  "required": [
+    "term"
+  ],
+  "title": "ProfitableTerm",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,45 @@
+{
+  "additionalProperties": true,
+  "description": "1.2.2 `search_term_pnl`, wasteful side.",
+  "properties": {
+    "term": {
+      "title": "Term",
+      "type": "string"
+    },
+    "cost": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cost"
+    },
+    "conv": {
+      "default": 0.0,
+      "title": "Conv",
+      "type": "number"
+    },
+    "recommended_action": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recommended Action"
+    }
+  },
+  "required": [
+    "term"
+  ],
+  "title": "WastefulTerm",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

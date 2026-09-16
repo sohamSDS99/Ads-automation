@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "RegulatedTerm": {
+      "additionalProperties": true,
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "rule"
+      ],
+      "title": "RegulatedTerm",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "1.1.5 \u26f3 `compliance_guardrails` \u2014 gated on an `approver` (legal).",
+  "properties": {
+    "prohibited_claims": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Prohibited Claims",
+      "type": "array"
+    },
+    "required_disclaimers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Disclaimers",
+      "type": "array"
+    },
+    "regulated_terms": {
+      "items": {
+        "$ref": "#/$defs/RegulatedTerm"
+      },
+      "title": "Regulated Terms",
+      "type": "array"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    }
+  },
+  "title": "ComplianceGuardrails",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
