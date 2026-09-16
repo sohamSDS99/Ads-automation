@@ -1,0 +1,81 @@
+{
+  "$defs": {
+    "CsvColumnSample": {
+      "properties": {
+        "header": {
+          "title": "Header",
+          "type": "string"
+        },
+        "values": {
+          "description": "First few non-empty cells",
+          "items": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "suggested_field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Proposed canonical field; a proposal, never auto-applied",
+          "title": "Suggested Field"
+        }
+      },
+      "required": [
+        "header"
+      ],
+      "title": "CsvColumnSample",
+      "type": "object"
+    }
+  },
+  "description": "What the column-mapping UI needs before a human confirms a mapping.",
+  "properties": {
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "row_count": {
+      "title": "Row Count",
+      "type": "integer"
+    },
+    "columns": {
+      "items": {
+        "$ref": "#/$defs/CsvColumnSample"
+      },
+      "title": "Columns",
+      "type": "array"
+    },
+    "canonical_fields": {
+      "description": "Every field a column may be mapped to",
+      "items": {
+        "type": "string"
+      },
+      "title": "Canonical Fields",
+      "type": "array"
+    },
+    "required_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Fields",
+      "type": "array"
+    }
+  },
+  "required": [
+    "filename",
+    "row_count",
+    "columns",
+    "canonical_fields",
+    "required_fields"
+  ],
+  "title": "CsvPreviewResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

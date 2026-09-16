@@ -1,0 +1,30 @@
+{
+  "properties": {
+    "row": {
+      "description": "1-based line number in the uploaded file, header included",
+      "title": "Row",
+      "type": "integer"
+    },
+    "column": {
+      "title": "Column",
+      "type": "string"
+    },
+    "value": {
+      "title": "Value",
+      "type": "string"
+    },
+    "problem": {
+      "title": "Problem",
+      "type": "string"
+    }
+  },
+  "required": [
+    "row",
+    "column",
+    "value",
+    "problem"
+  ],
+  "title": "CsvRowError",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

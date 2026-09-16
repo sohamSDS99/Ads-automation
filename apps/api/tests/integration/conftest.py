@@ -341,3 +341,37 @@ def fast_llm_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     from agent.llm.gateway import RateLimiter
 
     monkeypatch.setattr("agent.llm.gateway._LIMITER", RateLimiter(rate=10_000, concurrency=16))
+
+
+# --- P2: evidence -------------------------------------------------------
+#
+# Built on P1's `project` fixture rather than a second one of my own — the
+# evidence tests want an id, and the runs tests want the row, but there should
+# only ever be one project in a test's workspace.
+
+
+@pytest_asyncio.fixture
+async def project_id(project: Any) -> uuid.UUID:
+    """P1's project, as the id the evidence layer takes."""
+    return project.id
+
+
+@pytest_asyncio.fixture
+async def second_project_id(db: AsyncSession, admin_user: Any) -> uuid.UUID:
+    """A second project in the same workspace, for cross-project dedupe tests."""
+    from agent.db.models import Project
+
+    row = Project(
+        workspace_id=admin_user.workspace_id,
+        created_by=admin_user.id,
+        name="Second Product",
+        domain="second.example",
+    )
+    db.add(row)
+    await db.commit()
+    return row.id
+
+
+@pytest_asyncio.fixture
+async def workspace_id(admin_user: Any) -> uuid.UUID:
+    return admin_user.workspace_id

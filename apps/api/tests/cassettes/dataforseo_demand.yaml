@@ -1,0 +1,77 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_site/live
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 20000, "status_message": "Ok.", "result":
+        [{"keyword": "sds management software", "search_volume": 2400, "cpc": 14.2,
+        "competition": "HIGH", "competition_index": 87, "low_top_of_page_bid": 8.1,
+        "high_top_of_page_bid": 22.4, "monthly_searches": [{"year": 2025, "month":
+        6, "search_volume": 2600}, {"year": 2025, "month": 5, "search_volume": 2300}]},
+        {"keyword": "chemical inventory software", "search_volume": 1300, "cpc": 11.9,
+        "competition": "MEDIUM", "competition_index": 61, "low_top_of_page_bid": 6.4,
+        "high_top_of_page_bid": 18.0, "monthly_searches": [{"year": 2025, "month":
+        6, "search_volume": 1400}]}]}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/dataforseo_labs/google/keyword_ideas/live
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 20000, "status_message": "Ok.", "result":
+        [{"items": [{"keyword": "ghs labelling software", "keyword_info": {"search_volume":
+        720, "cpc": 9.4, "competition": "MEDIUM", "competition_index": 55, "monthly_searches":
+        [{"year": 2025, "month": 6, "search_volume": 800}]}}]}]}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/serp/google/organic/live/advanced
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 20000, "status_message": "Ok.", "result":
+        [{"check_url": "https://www.google.com/search?q=sds+management+software",
+        "se_results_count": 4120000, "items": [{"type": "organic", "rank_absolute":
+        1, "domain": "chemwatch.net", "title": "SDS Management Software", "description":
+        "Manage safety data sheets.", "url": "https://chemwatch.net/sds/"}, {"type":
+        "organic", "rank_absolute": 2, "domain": "www.sdsmanager.com", "title": "SDS
+        Manager", "description": "SDS management for every site.", "url": "https://www.sdsmanager.com/us/"}]}]}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/dataforseo_labs/google/competitors_domain/live
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 20000, "status_message": "Ok.", "result":
+        [{"items": [{"domain": "chemwatch.net", "avg_position": 4.2, "intersections":
+        812, "metrics": {"paid": {"count": 140, "estimated_paid_traffic_cost": 21400.0}}}]}]}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

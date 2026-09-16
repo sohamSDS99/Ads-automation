@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "CsvRowError": {
+      "properties": {
+        "row": {
+          "description": "1-based line number in the uploaded file, header included",
+          "title": "Row",
+          "type": "integer"
+        },
+        "column": {
+          "title": "Column",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "type": "string"
+        },
+        "problem": {
+          "title": "Problem",
+          "type": "string"
+        }
+      },
+      "required": [
+        "row",
+        "column",
+        "value",
+        "problem"
+      ],
+      "title": "CsvRowError",
+      "type": "object"
+    }
+  },
+  "description": "The outcome of an upload: what landed, what did not, and why.",
+  "properties": {
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "won",
+        "lost"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "rows_accepted": {
+      "title": "Rows Accepted",
+      "type": "integer"
+    },
+    "rows_skipped": {
+      "title": "Rows Skipped",
+      "type": "integer"
+    },
+    "evidence_written": {
+      "description": "New rows; excludes duplicates already held",
+      "title": "Evidence Written",
+      "type": "integer"
+    },
+    "duplicates": {
+      "title": "Duplicates",
+      "type": "integer"
+    },
+    "errors": {
+      "items": {
+        "$ref": "#/$defs/CsvRowError"
+      },
+      "title": "Errors",
+      "type": "array"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "project_id",
+    "outcome",
+    "rows_accepted",
+    "rows_skipped",
+    "evidence_written",
+    "duplicates"
+  ],
+  "title": "CsvIngestResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

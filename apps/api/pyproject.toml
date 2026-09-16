@@ -19,6 +19,10 @@ dependencies = [
     "pgvector>=0.3.6",           # SQLAlchemy Vector column type
     "email-validator>=2.2.0",    # pydantic EmailStr; invites are addressed by email (PRD §6.1.6)
     "aiosmtplib>=3.0.2",         # async SMTP; invite delivery when SMTP_HOST is set (PRD §19.1.12)
+    "fastembed>=0.5.1",   # local embeddings; OpenRouter serves no embedding model (PRD §20 Q6)
+    "selectolax>=0.3.21", # HTML parsing for the site crawler (PRD §9.4)
+    "playwright>=1.49.0", # Transparency Center connector (PRD §9.2); browsers ship in the worker image
+    "python-multipart>=0.0.20",  # FastAPI multipart parsing for the CSV upload (PRD §14)
 ]
 
 [dependency-groups]
@@ -29,6 +33,7 @@ dev = [
     "ruff>=0.8.4",
     "pyyaml>=6.0.2",   # docker-compose assertions in tests/test_deployment_config.py
     "types-pyyaml>=6.0.12",
+    "vcrpy>=6.0.2",    # connector cassettes (PRD §9); replayed with record_mode=none
 ]
 
 [build-system]
@@ -60,7 +65,7 @@ mypy_path = "src"
 packages = ["agent"]
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "arq.*"]
+module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

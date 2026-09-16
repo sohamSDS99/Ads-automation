@@ -1,0 +1,175 @@
+{
+  "$defs": {
+    "EvidenceItem": {
+      "description": "One stored fact, as the Evidence Explorer renders it.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Null when the evidence arrived outside a run, e.g. a CSV upload",
+          "title": "Run Id"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "kind": {
+          "description": "Sub-type within the source, e.g. search_term_pnl",
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Url"
+        },
+        "content_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What was embedded and indexed",
+          "title": "Content Text"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "fetched_at": {
+          "format": "date-time",
+          "title": "Fetched At",
+          "type": "string"
+        },
+        "score": {
+          "default": 0.0,
+          "description": "Fused relevance; 0 when not a ranked query",
+          "title": "Score",
+          "type": "number"
+        },
+        "matched_by": {
+          "default": "filter",
+          "description": "Which retriever surfaced this row",
+          "enum": [
+            "vector",
+            "text",
+            "both",
+            "filter"
+          ],
+          "title": "Matched By",
+          "type": "string"
+        },
+        "text_rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rank within full-text results",
+          "title": "Text Rank"
+        },
+        "vector_rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Rank within vector results",
+          "title": "Vector Rank"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "source",
+        "kind",
+        "fetched_at"
+      ],
+      "title": "EvidenceItem",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "google_ads",
+        "dataforseo",
+        "transparency",
+        "web",
+        "csv",
+        "derived"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    }
+  },
+  "description": "A page of evidence. `ranked` distinguishes a search from a browse.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/EvidenceItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "ranked": {
+      "default": false,
+      "description": "True when `q` was supplied and results are relevance-ordered",
+      "title": "Ranked",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "EvidenceListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

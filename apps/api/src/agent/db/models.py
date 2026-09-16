@@ -19,7 +19,15 @@ from pgvector.sqlalchemy import Vector
 from sqlalchemy.dialects.postgresql import ARRAY, CITEXT, ENUM, INET, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
-EMBEDDING_DIM = 1536
+#: Width of `Evidence.embedding`, and therefore of the HNSW index built on it.
+#: pgvector fixes a column's dimension at DDL time, so this is a schema constant
+#: rather than configuration: changing it is a migration, not an env var.
+#:
+#: 384 is `BAAI/bge-small-en-v1.5`. PRD §6 wrote 1536 assuming a hosted OpenAI-
+#: shaped embedder; OpenRouter turned out to serve no embedding model at all
+#: (PRD §20 Q6), so the local model the PRD named as the fallback is the model,
+#: and the column narrowed to match it in migration 0003.
+EMBEDDING_DIM = 384
 
 
 class Base(DeclarativeBase):
@@ -426,8 +434,10 @@ class Evidence(Base):
     project_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
     )
-    run_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False
+    # NULL when the evidence arrived outside a run — a CSV uploaded in the
+    # setup wizard has no run to belong to (PRD §9.5, migration 0003).
+    run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=True
     )
     source: Mapped[EvidenceSource] = mapped_column(
         _enum(EvidenceSource, "evidence_source"), nullable=False

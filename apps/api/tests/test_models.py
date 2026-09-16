@@ -30,9 +30,17 @@ def test_thirteen_tables() -> None:
     assert set(ALL_TABLES) == EXPECTED_TABLES
 
 
-def test_evidence_embedding_is_a_1536_dimension_vector() -> None:
+def test_evidence_embedding_matches_the_local_embedder() -> None:
+    """384, not the 1536 PRD §6 assumed.
+
+    OpenRouter serves no embedding model, so the vectors come from the local
+    `bge-small` the PRD named as its fallback (§20 Q6) and the column narrowed
+    to match in migration 0003. The column and the constant must never drift:
+    pgvector rejects a vector of the wrong width at INSERT, long after the
+    mistake was made.
+    """
     column = Evidence.__table__.c.embedding
-    assert EMBEDDING_DIM == 1536
+    assert EMBEDDING_DIM == 384
     assert getattr(column.type, "dim", None) == EMBEDDING_DIM
 
 

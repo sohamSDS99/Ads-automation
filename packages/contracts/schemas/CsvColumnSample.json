@@ -1,0 +1,35 @@
+{
+  "properties": {
+    "header": {
+      "title": "Header",
+      "type": "string"
+    },
+    "values": {
+      "description": "First few non-empty cells",
+      "items": {
+        "type": "string"
+      },
+      "title": "Values",
+      "type": "array"
+    },
+    "suggested_field": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Proposed canonical field; a proposal, never auto-applied",
+      "title": "Suggested Field"
+    }
+  },
+  "required": [
+    "header"
+  ],
+  "title": "CsvColumnSample",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

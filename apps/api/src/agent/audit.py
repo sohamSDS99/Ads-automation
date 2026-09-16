@@ -39,6 +39,10 @@ class AuditAction(StrEnum):
     USER_ROLE_CHANGED = "user.role_changed"
     USER_STATUS_CHANGED = "user.status_changed"
 
+    # P2 — connectors and evidence.
+    CSV_UPLOADED = "source.csv_uploaded"
+    EVIDENCE_WRITTEN = "evidence.written"
+
 
 class AuditTarget(StrEnum):
     WORKSPACE = "workspace"
@@ -46,6 +50,8 @@ class AuditTarget(StrEnum):
     INVITE = "invite"
     SESSION = "session"
     RUN = "run"
+    PROJECT = "project"
+    EVIDENCE = "evidence"
 
 
 def write_audit(

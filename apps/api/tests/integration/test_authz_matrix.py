@@ -85,6 +85,25 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.RUN_EXECUTE,
         None,
     ),
+    # P2. The CSV routes take multipart, not JSON — which is fine here: the
+    # permission dependency is resolved before the body is, so a role without
+    # `project_write` gets its 403 without the request ever being parsed.
+    ("GET", "/evidence", "/evidence", Permission.READ, None),
+    ("GET", "/connectors", "/connectors", Permission.READ, None),
+    (
+        "POST",
+        "/projects/{project_id}/sources/csv",
+        "/projects/{target}/sources/csv",
+        Permission.PROJECT_WRITE,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/sources/csv/preview",
+        "/projects/{target}/sources/csv/preview",
+        Permission.PROJECT_WRITE,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
