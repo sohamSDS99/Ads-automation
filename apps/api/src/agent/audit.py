@@ -43,6 +43,13 @@ class AuditAction(StrEnum):
     CSV_UPLOADED = "source.csv_uploaded"
     EVIDENCE_WRITTEN = "evidence.written"
 
+    # P3 — approval gates. `APPROVAL_REQUESTED` is the one action here with no
+    # human actor: the executor opens the gate, and the row exists so the audit
+    # log tells the whole story of a decision rather than only its second half.
+    APPROVAL_REQUESTED = "approval.requested"
+    APPROVAL_DECIDED = "approval.decided"
+    APPROVAL_REASSIGNED = "approval.reassigned"
+
 
 class AuditTarget(StrEnum):
     WORKSPACE = "workspace"
@@ -52,6 +59,7 @@ class AuditTarget(StrEnum):
     RUN = "run"
     PROJECT = "project"
     EVIDENCE = "evidence"
+    APPROVAL = "approval"
 
 
 def write_audit(

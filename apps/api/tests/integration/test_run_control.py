@@ -9,8 +9,13 @@ from agent.db.models import NodeRunStatus, RunStatus
 from agent.orchestrator.state import CancelFlag
 from agent.redis_client import get_redis
 from tests.integration.conftest import ApiClient
-from tests.integration.runs_support import execute, launch, script_two_node_run
-from tests.openrouter_fake import FakeOpenRouter, completion
+from tests.integration.runs_support import (
+    execute,
+    launch_chain,
+    script_two_node_run,
+    unparseable,
+)
+from tests.openrouter_fake import FakeOpenRouter
 
 # -- cancel ------------------------------------------------------------------
 
@@ -18,7 +23,7 @@ from tests.openrouter_fake import FakeOpenRouter, completion
 async def test_cancelling_a_queued_run_ends_it_without_waiting_for_a_worker(
     admin: ApiClient, project: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
 
     response = await admin.post(f"/runs/{created['id']}/cancel")
     assert response.status_code == 202
@@ -38,7 +43,7 @@ async def test_cancelling_a_queued_run_ends_it_without_waiting_for_a_worker(
 async def test_a_cancel_requested_before_the_first_node_stops_the_run_cold(
     admin: ApiClient, project: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     run_id = uuid.UUID(created["id"])
     # Set the flag directly: cancelling through the API would also finalise the
     # queued run, and what is under test here is the executor's own check.
@@ -56,7 +61,7 @@ async def test_a_cancel_requested_before_the_first_node_stops_the_run_cold(
 
 
 async def test_cancelling_a_finished_run_is_a_conflict(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -69,7 +74,7 @@ async def test_cancelling_a_finished_run_is_a_conflict(admin: ApiClient, project
 async def test_cancelling_frees_the_project_for_the_next_run(
     admin: ApiClient, project: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     await admin.post(f"/runs/{created['id']}/cancel")
 
     assert (await admin.post(f"/projects/{project.id}/runs", json={})).status_code == 201
@@ -82,7 +87,7 @@ async def test_two_operators_launching_the_same_project_produce_one_run(
     admin: ApiClient, project: Any, signed_in_as: Any
 ) -> None:
     """PRD §15 NF5d: the loser gets a 409 naming the holder and the run id."""
-    first = await launch(admin, project.id)
+    first = await launch_chain(admin, project.id)
 
     operator = await signed_in_as("operator")
     second = await operator.post(f"/projects/{project.id}/runs", json={})
@@ -97,7 +102,7 @@ async def test_two_operators_launching_the_same_project_produce_one_run(
 async def test_the_losing_launch_leaves_no_run_row_behind(
     admin: ApiClient, project: Any, signed_in_as: Any
 ) -> None:
-    await launch(admin, project.id)
+    await launch_chain(admin, project.id)
     operator = await signed_in_as("operator")
     await operator.post(f"/projects/{project.id}/runs", json={})
 
@@ -116,7 +121,7 @@ async def _one_run_id(admin: ApiClient, project: Any) -> str:
 
 
 async def test_a_finished_run_releases_the_project(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -131,10 +136,10 @@ async def test_retry_failed_re_runs_only_the_failed_node(
     admin: ApiClient, project: Any, monkeypatch: Any
 ) -> None:
     monkeypatch.setattr("agent.llm.gateway.BACKOFF_BASE_SECONDS", 0.0)
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
 
     broken = FakeOpenRouter()
-    broken.always(completion({"not": "a brief"}))
+    broken.always(unparseable())
     assert (await execute(created["id"], broken)).status is RunStatus.FAILED
 
     state = (await admin.get(f"/runs/{created['id']}")).json()
@@ -161,7 +166,7 @@ async def test_retry_failed_re_runs_only_the_failed_node(
 async def test_retry_failed_refuses_a_run_that_is_still_going(
     admin: ApiClient, project: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     response = await admin.post(f"/runs/{created['id']}/retry-failed")
     assert response.status_code == 409
 
@@ -169,7 +174,7 @@ async def test_retry_failed_refuses_a_run_that_is_still_going(
 async def test_retry_failed_refuses_a_run_with_nothing_to_retry(
     admin: ApiClient, project: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -184,8 +189,8 @@ async def test_an_unknown_run_is_a_404_not_a_500(admin: ApiClient) -> None:
 
 
 async def test_an_unknown_node_of_a_real_run_is_a_404(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
-    assert (await admin.get(f"/runs/{created['id']}/nodes/0.1")).status_code == 404
+    created = await launch_chain(admin, project.id)
+    assert (await admin.get(f"/runs/{created['id']}/nodes/1.1.2")).status_code == 404
     assert (await admin.get(f"/runs/{created['id']}/nodes/9.9")).status_code == 404
 
 
@@ -201,9 +206,9 @@ async def test_a_conflicting_retry_does_not_erase_the_failure_record(
 ) -> None:
     """The lock is taken before `reset_failed` deletes anything."""
     monkeypatch.setattr("agent.llm.gateway.BACKOFF_BASE_SECONDS", 0.0)
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     broken = FakeOpenRouter()
-    broken.always(completion({"not": "a brief"}))
+    broken.always(unparseable())
     await execute(created["id"], broken)
 
     # Somebody else starts a different run on the same project first.

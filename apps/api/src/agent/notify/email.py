@@ -1,10 +1,15 @@
-"""Optional SMTP delivery for invites.
+"""Optional SMTP delivery for invites and approval gates.
 
 SMTP is a nice-to-have, never a dependency. With `SMTP_HOST` unset the app is
 fully functional: `send_invite` returns the link and the API hands it back to
 the admin to copy. With SMTP configured and the send failing, the behaviour is
 identical — a mail server outage must never be able to block an invite, so
 nothing in here raises (PRD §19.1 item 12).
+
+The same rule governs approval notices, and PRD §16 states it directly: "SMTP
+unconfigured or failing → invites and approval notices degrade to copyable
+in-app links + inbox badges; never blocks the flow." A gate whose email did not
+send is still a gate — it is in `GET /approvals` either way.
 """
 
 from __future__ import annotations
@@ -76,4 +81,55 @@ async def send_invite(
         return InviteDelivery(link=link, delivered=False, reason="send-failed")
 
     log.info("invite.email_sent", to=to)
+    return InviteDelivery(link=link, delivered=True)
+
+
+def _compose_approval(*, to: str, link: str, project_name: str, node_name: str) -> EmailMessage:
+    message = EmailMessage()
+    message["To"] = to
+    message["Subject"] = f"Approval needed: {node_name} ({project_name})"
+    message.set_content(
+        f"A research run for {project_name} has paused and is waiting on you.\n\n"
+        f"Step: {node_name}\n\n"
+        f"Review the proposal and decide:\n{link}\n\n"
+        "The run stays paused until someone decides — nothing is auto-approved.\n"
+    )
+    return message
+
+
+async def send_approval_request(
+    settings: Settings,
+    *,
+    to: str,
+    link: str,
+    project_name: str,
+    node_name: str,
+) -> InviteDelivery:
+    """Tell an approver a gate is waiting. Always returns; never raises."""
+    if not settings.smtp_configured:
+        log.info("approval.email_skipped", to=to, reason="smtp-not-configured")
+        return InviteDelivery(link=link, delivered=False, reason="smtp-not-configured")
+
+    message = _compose_approval(to=to, link=link, project_name=project_name, node_name=node_name)
+    message["From"] = settings.smtp_from or ""
+
+    try:
+        import aiosmtplib
+
+        await aiosmtplib.send(
+            message,
+            hostname=settings.smtp_host,
+            port=settings.smtp_port,
+            username=settings.smtp_user,
+            password=(
+                settings.smtp_password.get_secret_value() if settings.smtp_password else None
+            ),
+            start_tls=settings.smtp_starttls,
+            timeout=15,
+        )
+    except Exception as exc:  # noqa: BLE001 — a gate must survive a broken mail server
+        log.warning("approval.email_failed", to=to, error=str(exc))
+        return InviteDelivery(link=link, delivered=False, reason="send-failed")
+
+    log.info("approval.email_sent", to=to)
     return InviteDelivery(link=link, delivered=True)

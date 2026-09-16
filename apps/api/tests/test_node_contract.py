@@ -9,7 +9,7 @@ from pydantic import BaseModel, ValidationError
 
 from agent.llm.router import TaskClass
 from agent.nodes.base import NodeSpec, collect_evidence_ids
-from agent.nodes.dummy import BriefCritiqueNode, ProjectBriefNode
+from agent.nodes.stage_1_1 import IcpProfileNode, MarketCoverageNode
 
 
 class Out(BaseModel):
@@ -44,9 +44,10 @@ def test_a_spec_is_frozen() -> None:
         declared.id = "9.9"  # type: ignore[misc]
 
 
-def test_the_dummy_nodes_declare_the_dependency_they_use() -> None:
-    assert ProjectBriefNode.spec.depends_on == ()
-    assert BriefCritiqueNode.spec.depends_on == ("0.1",)
+def test_a_node_declares_the_dependency_it_reads() -> None:
+    """1.1.4 calls `ctx.output_of("1.1.2")`, so it has to declare it."""
+    assert IcpProfileNode.spec.depends_on == ()
+    assert MarketCoverageNode.spec.depends_on == ("1.1.2",)
 
 
 def test_evidence_ids_are_collected_from_any_depth() -> None:
