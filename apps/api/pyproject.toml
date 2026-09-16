@@ -23,6 +23,10 @@ dependencies = [
     "selectolax>=0.3.21", # HTML parsing for the site crawler (PRD §9.4)
     "playwright>=1.49.0", # Transparency Center connector (PRD §9.2); browsers ship in the worker image
     "python-multipart>=0.0.20",  # FastAPI multipart parsing for the CSV upload (PRD §14)
+    "jinja2>=3.1.5",      # the deterministic report templates (PRD §11) — markdown and print HTML
+    "weasyprint>=63.1",   # PDF via HTML+CSS Paged Media (PRD §12). Imported lazily: it needs
+                          # pango/cairo, which only the worker image carries.
+    "python-docx>=1.1.2", # DOCX with real Heading styles so Word's TOC field works (PRD §12)
 ]
 
 [dependency-groups]
@@ -65,7 +69,7 @@ mypy_path = "src"
 packages = ["agent"]
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*"]
+module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
