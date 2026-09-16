@@ -30,6 +30,13 @@ class AuditAction(StrEnum):
     PASSWORD_CHANGED = "user.password_changed"  # noqa: S105 — an action name, not a secret
     SESSION_REVOKED = "user.session_revoked"
 
+    PROJECT_CREATED = "project.created"
+    PROJECT_UPDATED = "project.updated"
+
+    CREDENTIAL_CREATED = "credential.created"
+    CREDENTIAL_TESTED = "credential.tested"
+    CREDENTIAL_DELETED = "credential.deleted"
+
     RUN_LAUNCHED = "run.launched"
     RUN_CANCELLED = "run.cancelled"
     RUN_RETRIED = "run.retried"
@@ -62,6 +69,7 @@ class AuditTarget(StrEnum):
     SESSION = "session"
     RUN = "run"
     PROJECT = "project"
+    CREDENTIAL = "credential"
     EVIDENCE = "evidence"
     EXPORT = "export"
     APPROVAL = "approval"

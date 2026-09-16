@@ -1,0 +1,28 @@
+{
+  "description": "One thing standing between this project and a run.",
+  "properties": {
+    "code": {
+      "description": "Stable id, e.g. `openrouter_credential`",
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "description": "The sentence to show the person who has to fix it",
+      "title": "Detail",
+      "type": "string"
+    },
+    "blocking": {
+      "description": "False for a warning that degrades a run without stopping it",
+      "title": "Blocking",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "blocking"
+  ],
+  "title": "ProjectRequirement",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

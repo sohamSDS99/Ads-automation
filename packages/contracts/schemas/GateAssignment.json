@@ -1,0 +1,36 @@
+{
+  "description": "Who decides one gate, and how long they have.",
+  "properties": {
+    "assignee_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Unassigned means any approver may claim it",
+      "title": "Assignee Id"
+    },
+    "sla_hours": {
+      "anyOf": [
+        {
+          "maximum": 720,
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sla Hours"
+    }
+  },
+  "title": "GateAssignment",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

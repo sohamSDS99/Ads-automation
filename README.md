@@ -58,7 +58,9 @@ make guards        # fail if any route lacks its require(Permission)
 make verify        # PRD §19.1's acceptance list against the running stack
 make verify-p4     # P4's exit criteria end to end (needs a live OpenRouter key)
 make verify-p5a    # P5a's acceptance list: five formats, rendered and downloaded
+make verify-p6     # P6's acceptance list against the running stack
 make browser       # render the auth screens in Chromium and assert on them
+make browser-p6    # drive the P6 screens as admin and as operator, 1440 + 390
 make lint          # ruff + eslint
 make migrate       # alembic upgrade head
 make psql          # psql shell
@@ -151,8 +153,9 @@ curl -X POST localhost:3000/api/v1/approvals/$ID -b cookies.txt \
 
 ## Running the DAG
 
-A run needs two things the API cannot invent: a `project` row and an OpenRouter
-credential. Both get their own screens in P6; until then they are rows.
+A run needs two things the API cannot invent: a project and an OpenRouter
+credential. Both have screens now — `/` → **New project** → the setup wizard,
+and Settings → **OpenRouter key**. The API underneath is below.
 
 ```bash
 # launch, then watch it
@@ -272,12 +275,8 @@ railway/      provisioning runbook + the full env-var table
   assertion passes for the wrong reason.
 - **Approval SLAs and reminders are P8.** `Approval.due_at` is left NULL, so
   nothing nags an approver; the inbox badge is the only prompt.
-- There is no `POST /projects`, `POST /credentials` or `GET /models` — PRD §14
-  lists them but no phase before P6 owns them, so a run's project and OpenRouter
-  key are inserted directly for now.
-- The run console, approvals inbox and report viewer are P7. P4's surface is the
-  API and the SSE feed; `make verify-p4` drives the whole acceptance path
-  through it, both gates included.
+- The run console, approvals inbox and report viewer are P7. `make verify-p4`
+  drives P4's whole acceptance path through the API, both gates included.
 - `STORAGE_BACKEND=s3` raises `NotImplementedError` by design.
 
 ## Known limits of P5a
@@ -298,3 +297,63 @@ railway/      provisioning runbook + the full env-var table
   that closes on the terminal event will miss it; `GET /exports/{job_id}` is the
   reliable answer.
 - **The Report Viewer is P7.** This phase is the API and the files.
+
+## The interface (P6)
+
+Everything a workspace needs before a run has a screen. An admin can invite all
+four roles, store and test keys, choose models, assign every approval gate and
+launch a run without touching the API; an operator sees the same app with the
+two admin-only steps read-only rather than hidden behind a locked door.
+
+| Screen | Route | Who |
+| --- | --- | --- |
+| Project list | `/` | anyone; **New project** for `project_write` |
+| Overview | `/projects/{id}` | anyone |
+| Setup wizard | `/projects/{id}/setup` | `project_write` |
+| Run history | `/projects/{id}/runs` | anyone |
+| Workspace settings | `/settings` | `settings_write` |
+| Members | `/settings/members` | `settings_write` |
+| Audit log | `/settings/audit` | `audit_read` |
+| Account | `/account` | anyone |
+
+Three things are worth knowing before changing any of it.
+
+- **`requirements` is the server's answer to "can this run yet".** The wizard's
+  last step and `POST /projects/{id}/runs` read the same field, so the screen
+  cannot say *ready* while the API refuses the launch.
+- **A save carries `If-Match`, not `If-Unmodified-Since`.** Every project
+  response includes an opaque `version`; sending it back is what turns a lost
+  update into a 412 and a prompt. The HTTP-date header is still accepted, and
+  still cannot tell two saves in the same second apart — which is why `version`
+  exists.
+- **A credential goes in and never comes out.** There is no read endpoint and no
+  update: replacing a key writes a new row, so a half-typed replacement cannot
+  leave the old one partly overwritten. `POST /credentials/{id}/test` answers
+  `200` with `ok:false` for a bad key — the request succeeded, the key did not.
+- **The wizard's gate list is the registry's.** `agent/gates.py` derives it from
+  the nodes that declare `gate=True` and adds only the copy a `NodeSpec` has no
+  field for. Assignees are written to `settings["gate_assignees"]`, which is the
+  key `orchestrator/approvals.py` reads — the writer and the reader name the
+  same constant on purpose.
+
+## Known limits of P6
+
+- **Stage 1.5's gate does not appear in the wizard yet**, because its node is
+  not registered yet. The list comes from the DAG, so it arrives on its own when
+  P5 lands — nothing here needs changing for it.
+- **The per-gate SLA is stored and not yet used.** It lands in
+  `settings["gate_sla_hours"]`; reminders are P8, which is what will read it.
+- The run console, report viewer, evidence explorer and approvals inbox are P7.
+  `/approvals` and `/evidence` render what they are and when they arrive rather
+  than 404ing out of a navigation item every role can see.
+- **The overview shows setup readiness, not the report's `GO` / `NO-GO`.** That
+  verdict is part of the `ResearchReport` contract, which P5 writes; reading it
+  early would mean guessing at a key that does not exist yet.
+- `GET /models` needs `settings_write`, because the only screen that consumes it
+  is the admin-only routing step. An operator's read-only view of that step
+  renders the ids already stored on the project.
+- **SMTP is reported, not edited.** It is deployment configuration
+  (`SMTP_HOST`, `SMTP_FROM`), so Settings says whether it works and what
+  happens when it does not — invites degrade to a copyable link.
+- The cost estimate is labelled `assumed` until three full runs have finished,
+  then `measured`. It is never presented as a measurement it is not.

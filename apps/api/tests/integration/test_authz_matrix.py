@@ -142,6 +142,45 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.APPROVAL_DECIDE,
         {"assignee_id": None},
     ),
+    # P6. The credential routes declare `read` and then narrow by scope inside:
+    # a shared credential needs `credential_write`, a personal one needs only a
+    # session (PRD §13.4 H). The matrix cannot express that — every role holds
+    # `read`, so every row below is skipped by the refusal test — so the scope
+    # rules are covered directly in `test_credentials_api.py`.
+    ("GET", "/projects", "/projects", Permission.READ, None),
+    (
+        "POST",
+        "/projects",
+        "/projects",
+        Permission.PROJECT_WRITE,
+        {"name": "Matrix probe", "domain": "example.com"},
+    ),
+    ("GET", "/projects/{project_id}", "/projects/{project}", Permission.READ, None),
+    (
+        "PATCH",
+        "/projects/{project_id}",
+        "/projects/{project}",
+        Permission.PROJECT_WRITE,
+        {"name": "Matrix probe"},
+    ),
+    ("GET", "/projects/{project_id}/runs", "/projects/{project}/runs", Permission.READ, None),
+    ("GET", "/credentials", "/credentials", Permission.READ, None),
+    (
+        "POST",
+        "/credentials",
+        "/credentials",
+        Permission.READ,
+        {"kind": "openrouter", "values": {"api_key": "sk-or-matrix-probe"}},
+    ),
+    (
+        "POST",
+        "/credentials/{credential_id}/test",
+        "/credentials/{target}/test",
+        Permission.READ,
+        None,
+    ),
+    ("DELETE", "/credentials/{credential_id}", "/credentials/{target}", Permission.READ, None),
+    ("GET", "/models", "/models", Permission.SETTINGS_WRITE, None),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

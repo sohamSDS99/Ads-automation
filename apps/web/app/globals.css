@@ -91,9 +91,32 @@
     animation: menu-out 90ms ease-in forwards;
   }
 
+  /* A dialog is an interruption, so it announces itself a little more than a
+     menu does: the surface rises, the page behind it recedes. Same easing
+     family, same short duration — one authored moment, not two. */
+  .dialog-surface {
+    animation: dialog-in 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .dialog-surface[data-state="closed"] {
+    animation: dialog-out 120ms ease-in forwards;
+  }
+
+  .dialog-overlay {
+    animation: fade-in 180ms ease-out;
+  }
+
+  .dialog-overlay[data-state="closed"] {
+    animation: fade-out 120ms ease-in forwards;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     .menu-surface,
-    .menu-surface[data-state="closed"] {
+    .menu-surface[data-state="closed"],
+    .dialog-surface,
+    .dialog-surface[data-state="closed"],
+    .dialog-overlay,
+    .dialog-overlay[data-state="closed"] {
       animation: none;
     }
   }
@@ -110,5 +133,31 @@
   to {
     opacity: 0;
     transform: scale(0.98);
+  }
+}
+
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-50% + 8px)) scale(0.98);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: translate(-50%, -50%) scale(0.99);
+  }
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes fade-out {
+  to {
+    opacity: 0;
   }
 }

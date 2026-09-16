@@ -1,4 +1,39 @@
 {
+  "$defs": {
+    "WorkspaceSettings": {
+      "description": "The workspace-wide defaults `/settings` edits.\n\nBoth are *defaults*: `llm.router` lets a project override the models, and\n`orchestrator.executor` lets a project override the cap. What is set here\napplies to every project that has not said otherwise.",
+      "properties": {
+        "models": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Task class \u2192 OpenRouter model id",
+          "title": "Models",
+          "type": "object"
+        },
+        "max_run_cost_usd": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0.0,
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hard ceiling per run. Null falls back to the deployment default.",
+          "title": "Max Run Cost Usd"
+        }
+      },
+      "title": "WorkspaceSettings",
+      "type": "object"
+    }
+  },
   "properties": {
     "id": {
       "format": "uuid",
@@ -13,12 +48,34 @@
       "format": "date-time",
       "title": "Created At",
       "type": "string"
+    },
+    "settings": {
+      "$ref": "#/$defs/WorkspaceSettings"
+    },
+    "smtp_configured": {
+      "default": false,
+      "title": "Smtp Configured",
+      "type": "boolean"
+    },
+    "default_max_run_cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Default Max Run Cost Usd"
     }
   },
   "required": [
     "id",
     "name",
-    "created_at"
+    "created_at",
+    "settings",
+    "default_max_run_cost_usd"
   ],
   "title": "WorkspaceResponse",
   "type": "object",

@@ -4,8 +4,8 @@
 # ---------------------------------------------------------------------------
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
-        test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a \
-        browser typecheck lint fmt contracts health clean
+        test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p6 \
+        browser browser-p6 typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -78,11 +78,21 @@ verify-p3: ## Run P3's exit criteria against the running stack (needs a live Ope
 verify-p4: ## Run P4's exit criteria against the running stack (needs a live OpenRouter key)
 	./scripts/verify-p4.sh
 
+verify-p6: ## Run P6's exit criteria against the running stack
+	./scripts/verify-p6.sh
+
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-p6: ## Drive the P6 screens as an admin and as an operator, at 1440 and 390
+	@docker compose cp scripts/browser-check-p6.py worker:/tmp/browser-check-p6.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p6.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 typecheck: ## mypy (api) + tsc (web)

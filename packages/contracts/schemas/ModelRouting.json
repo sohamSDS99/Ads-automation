@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "description": "Per-task-class model overrides. Absent classes fall back to the seeds.",
+  "properties": {
+    "extract": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Extract"
+    },
+    "classify": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Classify"
+    },
+    "synthesize": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Synthesize"
+    },
+    "critique": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Critique"
+    }
+  },
+  "title": "ModelRouting",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

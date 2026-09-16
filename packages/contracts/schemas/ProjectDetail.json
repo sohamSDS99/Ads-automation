@@ -1,0 +1,513 @@
+{
+  "$defs": {
+    "ApprovalRequiredRole": {
+      "description": "Who may decide a gate. A strict subset of `UserRole` (PRD \u00a76).",
+      "enum": [
+        "admin",
+        "approver"
+      ],
+      "title": "ApprovalRequiredRole",
+      "type": "string"
+    },
+    "GateInfo": {
+      "description": "A gate as the setup wizard and the project overview render it.",
+      "properties": {
+        "assignee_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Unassigned means any approver may claim it",
+          "title": "Assignee Id"
+        },
+        "sla_hours": {
+          "anyOf": [
+            {
+              "maximum": 720,
+              "minimum": 1,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sla Hours"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "audience": {
+          "title": "Audience",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "required_role": {
+          "$ref": "#/$defs/ApprovalRequiredRole"
+        },
+        "assignee_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assignee Name"
+        }
+      },
+      "required": [
+        "node_id",
+        "stage",
+        "name",
+        "audience",
+        "description",
+        "required_role"
+      ],
+      "title": "GateInfo",
+      "type": "object"
+    },
+    "Market": {
+      "description": "One country the campaign will run in. PRD \u00a76: `[{country, language, currency}]`.",
+      "properties": {
+        "country": {
+          "description": "ISO 3166-1 alpha-2, e.g. NO",
+          "maxLength": 2,
+          "minLength": 2,
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "description": "ISO 639-1, e.g. nb",
+          "maxLength": 5,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217, e.g. NOK",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "country",
+        "language",
+        "currency"
+      ],
+      "title": "Market",
+      "type": "object"
+    },
+    "ModelRouting": {
+      "additionalProperties": false,
+      "description": "Per-task-class model overrides. Absent classes fall back to the seeds.",
+      "properties": {
+        "extract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extract"
+        },
+        "classify": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classify"
+        },
+        "synthesize": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Synthesize"
+        },
+        "critique": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Critique"
+        }
+      },
+      "title": "ModelRouting",
+      "type": "object"
+    },
+    "ProductContext": {
+      "description": "What we sell, in the words a research node will be grounded on.\n\nFree text plus the structured fields the nodes actually index on. Everything\nis optional at the model level and required at the *readiness* level \u2014 a\nhalf-filled project is a legitimate thing to save and a bad thing to run.",
+      "properties": {
+        "summary": {
+          "default": "",
+          "maxLength": 8000,
+          "title": "Summary",
+          "type": "string"
+        },
+        "products": {
+          "items": {
+            "maxLength": 200,
+            "type": "string"
+          },
+          "title": "Products",
+          "type": "array"
+        },
+        "pricing": {
+          "default": "",
+          "maxLength": 4000,
+          "title": "Pricing",
+          "type": "string"
+        },
+        "icp": {
+          "default": "",
+          "description": "Who we are trying to reach",
+          "maxLength": 4000,
+          "title": "Icp",
+          "type": "string"
+        },
+        "differentiators": {
+          "items": {
+            "maxLength": 300,
+            "type": "string"
+          },
+          "title": "Differentiators",
+          "type": "array"
+        },
+        "site_url": {
+          "default": "",
+          "maxLength": 2048,
+          "title": "Site Url",
+          "type": "string"
+        }
+      },
+      "title": "ProductContext",
+      "type": "object"
+    },
+    "ProjectRequirement": {
+      "description": "One thing standing between this project and a run.",
+      "properties": {
+        "code": {
+          "description": "Stable id, e.g. `openrouter_credential`",
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "description": "The sentence to show the person who has to fix it",
+          "title": "Detail",
+          "type": "string"
+        },
+        "blocking": {
+          "description": "False for a warning that degrades a run without stopping it",
+          "title": "Blocking",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "code",
+        "detail",
+        "blocking"
+      ],
+      "title": "ProjectRequirement",
+      "type": "object"
+    },
+    "RunMode": {
+      "enum": [
+        "full",
+        "partial"
+      ],
+      "title": "RunMode",
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    },
+    "RunSummary": {
+      "description": "A run as a list row: what happened, who asked, what it cost.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "project_id": {
+          "format": "uuid",
+          "title": "Project Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "mode": {
+          "$ref": "#/$defs/RunMode"
+        },
+        "trigger": {
+          "$ref": "#/$defs/RunTrigger"
+        },
+        "triggered_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Triggered By"
+        },
+        "triggered_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Null for a scheduled run, which has no actor",
+          "title": "Triggered By Name"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Finished At"
+        },
+        "cost_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "default": "0",
+          "title": "Cost Usd"
+        },
+        "token_in": {
+          "default": 0,
+          "title": "Token In",
+          "type": "integer"
+        },
+        "token_out": {
+          "default": 0,
+          "title": "Token Out",
+          "type": "integer"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error"
+        }
+      },
+      "required": [
+        "id",
+        "project_id",
+        "status",
+        "mode",
+        "trigger"
+      ],
+      "title": "RunSummary",
+      "type": "object"
+    },
+    "RunTrigger": {
+      "enum": [
+        "manual",
+        "schedule"
+      ],
+      "title": "RunTrigger",
+      "type": "string"
+    }
+  },
+  "description": "Everything the overview and the setup wizard need, in one response.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "domain": {
+      "title": "Domain",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "created_by": {
+      "format": "uuid",
+      "title": "Created By",
+      "type": "string"
+    },
+    "created_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Created By Name"
+    },
+    "version": {
+      "description": "Opaque revision token. Send it back as `If-Match` to save safely.",
+      "title": "Version",
+      "type": "string"
+    },
+    "run_count": {
+      "default": 0,
+      "title": "Run Count",
+      "type": "integer"
+    },
+    "last_run": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RunSummary"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "product_context": {
+      "$ref": "#/$defs/ProductContext"
+    },
+    "markets": {
+      "items": {
+        "$ref": "#/$defs/Market"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "models": {
+      "$ref": "#/$defs/ModelRouting"
+    },
+    "gates": {
+      "items": {
+        "$ref": "#/$defs/GateInfo"
+      },
+      "title": "Gates",
+      "type": "array"
+    },
+    "requirements": {
+      "description": "Empty means this project can be run",
+      "items": {
+        "$ref": "#/$defs/ProjectRequirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "domain",
+    "created_at",
+    "updated_at",
+    "created_by",
+    "version",
+    "product_context",
+    "markets",
+    "models",
+    "gates",
+    "requirements"
+  ],
+  "title": "ProjectDetail",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

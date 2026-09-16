@@ -829,15 +829,29 @@ class RunExecutor:
             raise RunCancelled
 
     async def _budget_cap(self, project: Project) -> Decimal:
-        """Project setting wins; the environment default is the floor under it."""
-        raw = (project.settings or {}).get("max_run_cost_usd")
-        if raw is None:
-            return Decimal(self.settings.max_run_cost_usd)
-        try:
-            return Decimal(str(raw))
-        except (InvalidOperation, ValueError):
-            log.warning("run.bad_budget_setting", project_id=str(project.id), value=raw)
-            return Decimal(self.settings.max_run_cost_usd)
+        """Narrowest scope wins: project, then workspace, then the environment.
+
+        The workspace layer is what `/settings` writes. Without it an admin can
+        set a workspace-wide ceiling and watch every project ignore it.
+        """
+        workspace = await self.db.get(Workspace, project.workspace_id)
+        for scope, settings in (
+            ("project", project.settings),
+            ("workspace", workspace.settings if workspace else None),
+        ):
+            raw = (settings or {}).get("max_run_cost_usd")
+            if raw is None:
+                continue
+            try:
+                return Decimal(str(raw))
+            except (InvalidOperation, ValueError):
+                log.warning(
+                    "run.bad_budget_setting",
+                    scope=scope,
+                    project_id=str(project.id),
+                    value=raw,
+                )
+        return Decimal(self.settings.max_run_cost_usd)
 
     async def _build_gateway(
         self, run: Run, project: Project
