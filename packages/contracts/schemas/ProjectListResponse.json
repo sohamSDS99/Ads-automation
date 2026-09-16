@@ -43,6 +43,11 @@
           "default": null,
           "title": "Created By Name"
         },
+        "version": {
+          "description": "Opaque revision token. Send it back as `If-Match` to save safely.",
+          "title": "Version",
+          "type": "string"
+        },
         "run_count": {
           "default": 0,
           "title": "Run Count",
@@ -66,7 +71,8 @@
         "domain",
         "created_at",
         "updated_at",
-        "created_by"
+        "created_by",
+        "version"
       ],
       "title": "ProjectSummary",
       "type": "object"

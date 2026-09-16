@@ -443,6 +443,11 @@
       "default": null,
       "title": "Created By Name"
     },
+    "version": {
+      "description": "Opaque revision token. Send it back as `If-Match` to save safely.",
+      "title": "Version",
+      "type": "string"
+    },
     "run_count": {
       "default": 0,
       "title": "Run Count",
@@ -495,6 +500,7 @@
     "created_at",
     "updated_at",
     "created_by",
+    "version",
     "product_context",
     "markets",
     "models",

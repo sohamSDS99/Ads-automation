@@ -1,10 +1,43 @@
 {
+  "description": "`name` stays required: this is one form with one Save button, and a\npartial write would let two admins each blank out the other's field.",
   "properties": {
     "name": {
       "maxLength": 120,
       "minLength": 1,
       "title": "Name",
       "type": "string"
+    },
+    "models": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Models"
+    },
+    "max_run_cost_usd": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Run Cost Usd"
     }
   },
   "required": [

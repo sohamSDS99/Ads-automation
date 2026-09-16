@@ -253,6 +253,9 @@ class ProjectSummary(BaseModel):
     updated_at: datetime
     created_by: uuid.UUID
     created_by_name: str | None = None
+    version: str = Field(
+        description="Opaque revision token. Send it back as `If-Match` to save safely."
+    )
     run_count: int = 0
     last_run: RunSummary | None = None
 

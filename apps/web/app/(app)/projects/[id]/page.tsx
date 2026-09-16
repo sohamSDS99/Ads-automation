@@ -111,8 +111,10 @@ function Overview({ project }: { project: ProjectDetail }) {
           <p data-numeric className="text-[length:var(--text-lg)] font-medium tracking-tight">
             {usd(run?.cost_usd ?? null)}
           </p>
+          {/* Not a second em-dash under the first: two stacked dashes read as a
+              rendering fault rather than as "there is nothing here yet". */}
           <p className="text-xs text-fg-subtle">
-            {run ? `${compactNumber(run.token_in + run.token_out)} tokens` : "—"}
+            {run ? `${compactNumber(run.token_in + run.token_out)} tokens` : "No runs yet"}
           </p>
         </Stat>
         <Stat label="Duration">

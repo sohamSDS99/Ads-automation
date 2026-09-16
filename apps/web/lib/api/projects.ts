@@ -1,9 +1,12 @@
 /**
  * Projects: the list, one project, and the edits the setup wizard makes.
  *
- * `updated_at` travels with every project and goes back out as
- * `If-Unmodified-Since` on save, so two people editing the same project get a
- * 412 and a prompt instead of one silently overwriting the other (PRD §16).
+ * Every project carries a `version` — an opaque revision token — which goes
+ * back out as `If-Match` on save. Two people editing the same project get a 412
+ * and a prompt instead of one silently overwriting the other (PRD §16).
+ *
+ * Not `If-Unmodified-Since`: that header carries HTTP-date, which resolves to
+ * whole seconds, so two saves inside the same second look identical to it.
  */
 import { apiFetch } from "@/lib/api";
 
@@ -73,6 +76,8 @@ export type ProjectSummary = {
   updated_at: string;
   created_by: string;
   created_by_name: string | null;
+  /** Opaque. Read it from a response, send it back as `If-Match`. */
+  version: string;
   run_count: number;
   last_run: RunSummary | null;
 };
@@ -109,18 +114,18 @@ export function createProject(name: string, domain: string): Promise<ProjectDeta
 /**
  * Save part of a project.
  *
- * `seenAt` is the `updated_at` the caller last read. Sending it is what turns a
- * lost update into a 412 the person can act on.
+ * `version` is the token from the project the caller last read. Sending it is
+ * what turns a lost update into a 412 the person can act on.
  */
 export function updateProject(
   id: string,
   patch: ProjectPatch,
-  seenAt?: string,
+  version?: string,
 ): Promise<ProjectDetail> {
   return apiFetch(`/projects/${id}`, {
     method: "PATCH",
     body: JSON.stringify(patch),
-    headers: seenAt ? { "If-Unmodified-Since": new Date(seenAt).toUTCString() } : undefined,
+    headers: version ? { "If-Match": version } : undefined,
   });
 }
 

@@ -5,11 +5,20 @@ Two things here are load-bearing beyond CRUD.
 `requirements` is the server's single answer to "can this be run yet", so the
 wizard's last step and the launch endpoint cannot disagree about it.
 
-`PATCH` honours `If-Unmodified-Since` and answers `412` when the row moved
-underneath the caller (PRD §16, "Concurrent project edits … never a silent
-overwrite"). The header carries HTTP-date, which has one-second resolution, so
-the comparison truncates `updated_at` to the second — otherwise every edit
-would 412 against the `Last-Modified` value we ourselves just sent.
+`PATCH` answers `412` when the row moved underneath the caller (PRD §16,
+"Concurrent project edits … never a silent overwrite"). It accepts two
+preconditions and they are not equivalent.
+
+`If-Match` carries the opaque `version` string from the body the caller read.
+It is exact, and it is what this product's own client sends.
+
+`If-Unmodified-Since` is the header PRD §16 names, and it is kept — but
+HTTP-date resolves to whole seconds, so two edits inside the same second are
+indistinguishable to it and the second one is allowed through. That is a
+property of the header, not a bug to be worked around: a validator that
+compared microseconds would 412 against the `Last-Modified` value we ourselves
+just sent. `If-Match` exists because of it, and takes precedence when both
+arrive (RFC 9110 §13.1.1).
 """
 
 from __future__ import annotations
@@ -100,6 +109,7 @@ async def list_projects(me: AnyMember, db: Db) -> ProjectListResponse:
                 updated_at=project.updated_at,
                 created_by=project.created_by,
                 created_by_name=names.get(project.created_by),
+                version=_version(project),
                 run_count=counts.get(project.id, 0),
                 last_run=_run_summary(latest[project.id], names) if project.id in latest else None,
             )
@@ -260,6 +270,13 @@ async def _load(db: AsyncSession, me: Principal, project_id: uuid.UUID) -> Proje
 
 def _assert_unmodified(request: Request, project: Project) -> None:
     """412 when the row changed since the caller last read it."""
+    if_match = (request.headers.get("if-match") or "").strip()
+    if if_match:
+        # `*` means "as long as it exists", which it does — we just loaded it.
+        if if_match != "*" and if_match.strip('"') != _version(project):
+            raise _changed(project)
+        return
+
     header = request.headers.get("if-unmodified-since")
     if not header:
         return
@@ -275,16 +292,21 @@ def _assert_unmodified(request: Request, project: Project) -> None:
     # HTTP-date has one-second resolution; `updated_at` has microseconds.
     # Comparing them untruncated would 412 against the very value we sent.
     if current.replace(microsecond=0) > seen:
-        raise problems.Problem(
-            status_code=status.HTTP_412_PRECONDITION_FAILED,
-            title="Project changed",
-            detail=(
-                "Someone else edited this project after you opened it. "
-                "Reload to see their changes before saving yours."
-            ),
-            type_=problems.TYPE_CONFLICT,
-            modified_at=format_datetime(current, usegmt=True),
-        )
+        raise _changed(project)
+
+
+def _changed(project: Project) -> problems.Problem:
+    return problems.Problem(
+        status_code=status.HTTP_412_PRECONDITION_FAILED,
+        title="Project changed",
+        detail=(
+            "Someone else edited this project after you opened it. "
+            "Reload to see their changes before saving yours."
+        ),
+        type_=problems.TYPE_CONFLICT,
+        modified_at=format_datetime(_aware(project.updated_at), usegmt=True),
+        version=_version(project),
+    )
 
 
 async def _assert_assignees_exist(
@@ -394,8 +416,10 @@ async def _detail(
     counts, latest = await _run_rollup(db, me.workspace_id, [project.id])
     assignments = _assignments(project)
 
-    # So the browser can echo it back as `If-Unmodified-Since` on the next save.
+    # Both validators, so a plain HTTP client and this product's own client
+    # each have something exact to send back on the next write.
     response.headers["Last-Modified"] = format_datetime(_aware(project.updated_at), usegmt=True)
+    response.headers["ETag"] = f'"{_version(project)}"'
 
     return ProjectDetail(
         id=project.id,
@@ -405,6 +429,7 @@ async def _detail(
         updated_at=project.updated_at,
         created_by=project.created_by,
         created_by_name=names.get(project.created_by),
+        version=_version(project),
         run_count=counts.get(project.id, 0),
         last_run=_run_summary(latest[project.id], names) if project.id in latest else None,
         product_context=ProductContext.model_validate(project.product_context or {}),
@@ -530,6 +555,16 @@ async def _requirements(
             )
         )
     return found
+
+
+def _version(project: Project) -> str:
+    """An opaque token for "this exact revision of this row".
+
+    Microseconds since the epoch, as a string. The client never parses it — it
+    reads `version` out of one response and sends it back as `If-Match` on the
+    next write — so the format can change without breaking anyone.
+    """
+    return str(int(_aware(project.updated_at).timestamp() * 1_000_000))
 
 
 def _aware(value: datetime) -> datetime:

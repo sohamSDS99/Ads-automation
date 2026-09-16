@@ -56,7 +56,7 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
   const canWriteSettings = has("settings_write");
   const canWriteCredentials = has("credential_write");
 
-  // Drafts start from the saved project and are keyed to the version they came
+  // Drafts start from the saved project and are keyed to the revision they came
   // from, so a reload after a 412 rebuilds them from the newer row.
   const [context, setContext] = useState<ProductContext>(project.product_context);
   const [markets, setMarkets] = useState<Market[]>(project.markets);
@@ -69,13 +69,13 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
       ]),
     ),
   );
-  const [version, setVersion] = useState(project.updated_at);
-  if (version !== project.updated_at) {
+  const [version, setVersion] = useState(project.version);
+  if (version !== project.version) {
     // A refetch brought a newer row in — adopt it rather than keep editing a
-    // copy of the old one. `updated_at` only moves once a write has landed, so
+    // copy of the old one. `version` only moves once a write has landed, so
     // this never fires mid-save; assigning during render is what keeps the
     // drafts from lagging one render behind the data.
-    setVersion(project.updated_at);
+    setVersion(project.version);
     setContext(project.product_context);
     setMarkets(project.markets);
     setModels(project.models);
@@ -90,7 +90,7 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
   }
 
   const save = useMutation({
-    mutationFn: (patch: ProjectPatch) => updateProject(project.id, patch, project.updated_at),
+    mutationFn: (patch: ProjectPatch) => updateProject(project.id, patch, project.version),
     onSuccess: async () => {
       setStale(false);
       await queryClient.invalidateQueries({ queryKey: keys.project(project.id) });
