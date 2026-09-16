@@ -192,19 +192,21 @@ async def update_project(
         changed["markets"] = [market.country for market in body.markets]
 
     if body.models is not None or body.approvals is not None:
-        # Model routing and gate assignment are settings writes, not project
-        # writes: an operator may describe the business, an admin decides what
-        # it costs to research and who signs the claims off (PRD §13.4).
-        if Permission.SETTINGS_WRITE not in me.permissions:
-            raise problems.forbidden(missing_permission=Permission.SETTINGS_WRITE.value)
-        await _assert_assignees_exist(db, me, body.approvals)
         # Reassigning rather than mutating: SQLAlchemy does not track in-place
         # edits of a JSONB dict, so a mutated `settings` would never be written.
         settings = dict(project.settings)
         if body.models is not None:
+            # "Set model routing & budget caps" is admin-only in PRD §4.1, and
+            # it is the one part of a project an operator may not touch.
+            if Permission.SETTINGS_WRITE not in me.permissions:
+                raise problems.forbidden(missing_permission=Permission.SETTINGS_WRITE.value)
             settings[SETTINGS_MODELS] = body.models.as_settings()
             changed["models"] = settings[SETTINGS_MODELS]
         if body.approvals is not None:
+            # Assigning a gate is editing the project, not changing settings:
+            # §4.1 gives "create / edit project" to operators, and the wizard's
+            # approver step is not one of the two admin-only steps (§13.4).
+            await _assert_assignees_exist(db, me, body.approvals)
             settings[SETTINGS_APPROVALS] = {
                 node_id: assignment.model_dump(mode="json")
                 for node_id, assignment in body.approvals.items()

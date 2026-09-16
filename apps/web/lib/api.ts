@@ -94,7 +94,10 @@ export async function apiFetch<T>(path: string, init: ApiOptions = {}): Promise<
   if (!SAFE_METHODS.has(method)) {
     const token = await ensureCsrfToken();
     if (token) headers.set(CSRF_HEADER, token);
-    if (request.body && !headers.has("Content-Type")) {
+    // A FormData body is left alone: the browser writes its own
+    // `multipart/form-data` header with the boundary, and setting one here
+    // would send a boundary-less content type the server cannot parse.
+    if (request.body && !headers.has("Content-Type") && !(request.body instanceof FormData)) {
       headers.set("Content-Type", "application/json");
     }
   }

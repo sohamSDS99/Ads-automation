@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -156,16 +157,46 @@ class AcceptInviteRequest(BaseModel):
 # --- workspace --------------------------------------------------------------
 
 
+class WorkspaceSettings(BaseModel):
+    """The workspace-wide defaults `/settings` edits.
+
+    Both are *defaults*: `llm.router` lets a project override the models, and
+    `orchestrator.executor` lets a project override the cap. What is set here
+    applies to every project that has not said otherwise.
+    """
+
+    models: dict[str, str] = Field(
+        default_factory=dict, description="Task class → OpenRouter model id"
+    )
+    max_run_cost_usd: Decimal | None = Field(
+        default=None,
+        gt=0,
+        description="Hard ceiling per run. Null falls back to the deployment default.",
+    )
+
+
 class WorkspaceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: uuid.UUID
     name: str
     created_at: datetime
+    settings: WorkspaceSettings
+    #: SMTP comes from the environment, not from the workspace (PRD §18 law 9),
+    #: so the screen reports it rather than editing it. False means invites
+    #: degrade to copyable links.
+    smtp_configured: bool = False
+    #: The ceiling used when neither the project nor the workspace sets one.
+    default_max_run_cost_usd: Decimal
 
 
 class UpdateWorkspaceRequest(BaseModel):
+    """`name` stays required: this is one form with one Save button, and a
+    partial write would let two admins each blank out the other's field."""
+
     name: str = Field(min_length=1, max_length=120)
+    models: dict[str, str] | None = None
+    max_run_cost_usd: Decimal | None = Field(default=None, gt=0)
 
 
 # --- audit ------------------------------------------------------------------

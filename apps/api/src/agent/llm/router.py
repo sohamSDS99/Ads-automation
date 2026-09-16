@@ -125,6 +125,18 @@ def _overrides_from(settings: Mapping[str, Any] | None, *, source: str) -> dict[
     return resolved
 
 
+def validate_overrides(
+    models: Mapping[str, str], *, source: str = "settings"
+) -> dict[TaskClass, str]:
+    """Check a `{task class: model id}` mapping before it is stored.
+
+    The router already refuses a bad override at run time; this is the same
+    check moved forward to the moment someone typed it, where the message can
+    still reach them.
+    """
+    return _overrides_from({SETTINGS_KEY: dict(models)}, source=source)
+
+
 class ModelRouter:
     """Task class → model chain, with project settings winning over workspace settings."""
 

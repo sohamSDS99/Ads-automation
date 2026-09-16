@@ -1,6 +1,7 @@
 "use client";
 
 import { LogOut, UserRound } from "lucide-react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -55,12 +56,11 @@ export function UserMenu() {
 
         <DropdownMenuSeparator />
 
-        {/* The account screen arrives with settings in P8. Saying so beats a
-            dead link that looks like a bug. */}
-        <DropdownMenuItem disabled>
-          <UserRound aria-hidden />
-          Account settings
-          <span className="ml-auto text-xs text-fg-subtle">P8</span>
+        <DropdownMenuItem asChild>
+          <Link href="/account">
+            <UserRound aria-hidden />
+            Account
+          </Link>
         </DropdownMenuItem>
 
         <DropdownMenuItem

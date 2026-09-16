@@ -1,0 +1,219 @@
+"use client";
+
+import { Plus, Trash2 } from "lucide-react";
+
+import { Button } from "@/components/ui/button";
+import { Field } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
+import { TagInput } from "@/components/ui/tag-input";
+import { Textarea } from "@/components/ui/textarea";
+import type { Market, ProductContext } from "@/lib/api/projects";
+
+/**
+ * Step 1 — what we sell, and where.
+ *
+ * This is the text every research node is grounded on, so the fields are
+ * prompts for specifics rather than empty boxes: what the product does, what it
+ * costs, who it is for. Vague input here produces a vague report and no error
+ * message anywhere.
+ */
+export function StepContext({
+  context,
+  markets,
+  onContextChange,
+  onMarketsChange,
+  disabled,
+}: {
+  context: ProductContext;
+  markets: Market[];
+  onContextChange: (context: ProductContext) => void;
+  onMarketsChange: (markets: Market[]) => void;
+  disabled: boolean;
+}) {
+  const set = <K extends keyof ProductContext>(key: K, value: ProductContext[K]) =>
+    onContextChange({ ...context, [key]: value });
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor="summary" className="text-sm font-medium text-fg">
+          What does this brand sell?
+        </label>
+        <Textarea
+          id="summary"
+          value={context.summary}
+          disabled={disabled}
+          rows={7}
+          maxLength={8000}
+          onChange={(event) => set("summary", event.target.value)}
+          placeholder="Safety data sheet management software for EHS teams in manufacturing and construction. Replaces binders and spreadsheets with a searchable library, automatic SDS updates from suppliers, and compliance reporting for national regulators."
+        />
+        <p className="min-h-4 text-xs text-fg-muted">
+          Write it the way you would explain it to a new salesperson. Every node in the run reads
+          this.
+        </p>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <TagInput
+          label="Products"
+          values={context.products}
+          disabled={disabled}
+          onChange={(values) => set("products", values)}
+          placeholder="SDS Manager"
+          hint="One per entry. Enter or comma to add."
+        />
+        <TagInput
+          label="What makes us different"
+          values={context.differentiators}
+          disabled={disabled}
+          onChange={(values) => set("differentiators", values)}
+          placeholder="Automatic supplier SDS updates"
+          hint="The claims the report will look for proof of."
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="pricing" className="text-sm font-medium text-fg">
+            Pricing
+          </label>
+          <Textarea
+            id="pricing"
+            rows={4}
+            value={context.pricing}
+            disabled={disabled}
+            maxLength={4000}
+            onChange={(event) => set("pricing", event.target.value)}
+            placeholder="From €49/month per site. Free tier for under 50 sheets."
+          />
+          <p className="min-h-4 text-xs text-fg-muted">
+            Used to judge whether a keyword can pay for itself.
+          </p>
+        </div>
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="icp" className="text-sm font-medium text-fg">
+            Who we are trying to reach
+          </label>
+          <Textarea
+            id="icp"
+            rows={4}
+            value={context.icp}
+            disabled={disabled}
+            maxLength={4000}
+            onChange={(event) => set("icp", event.target.value)}
+            placeholder="EHS managers at 50–500 employee manufacturers, usually the one person responsible for compliance."
+          />
+          <p className="min-h-4 text-xs text-fg-muted">
+            Job titles and company shape, not demographics.
+          </p>
+        </div>
+      </div>
+
+      <Field
+        label="Site to crawl"
+        value={context.site_url}
+        disabled={disabled}
+        onChange={(event) => set("site_url", event.target.value)}
+        placeholder="https://sdsmanager.com"
+        hint="Optional. The crawler reads landing pages, CTAs and forms from here."
+      />
+
+      <Markets markets={markets} onChange={onMarketsChange} disabled={disabled} />
+    </div>
+  );
+}
+
+const LANGUAGES = ["en", "nb", "sv", "da", "fi", "de", "fr", "nl", "es", "it", "pl"];
+
+function Markets({
+  markets,
+  onChange,
+  disabled,
+}: {
+  markets: Market[];
+  onChange: (markets: Market[]) => void;
+  disabled: boolean;
+}) {
+  function update(index: number, patch: Partial<Market>) {
+    onChange(markets.map((market, i) => (i === index ? { ...market, ...patch } : market)));
+  }
+
+  return (
+    <fieldset className="space-y-3">
+      <legend className="text-sm font-medium text-fg">Markets</legend>
+      <p className="-mt-1 text-xs text-fg-muted">
+        Keyword volume, CPC and seasonality are all per country, so a market is the unit the
+        research is sized in.
+      </p>
+
+      {markets.length === 0 ? (
+        <p className="rounded-[var(--radius)] border border-dashed px-3 py-4 text-sm text-fg-muted">
+          No markets yet. Add the first country this campaign will run in.
+        </p>
+      ) : null}
+
+      <ul className="space-y-2">
+        {markets.map((market, index) => (
+          <li key={index} className="flex flex-wrap items-center gap-2">
+            <Input
+              value={market.country}
+              disabled={disabled}
+              maxLength={2}
+              aria-label={`Market ${index + 1} country`}
+              onChange={(event) => update(index, { country: event.target.value.toUpperCase() })}
+              placeholder="NO"
+              className="w-20 font-mono uppercase"
+            />
+            <Select
+              value={market.language}
+              disabled={disabled}
+              aria-label={`Market ${index + 1} language`}
+              onChange={(event) => update(index, { language: event.target.value })}
+              className="w-32"
+            >
+              {LANGUAGES.map((code) => (
+                <option key={code} value={code}>
+                  {code}
+                </option>
+              ))}
+            </Select>
+            <Input
+              value={market.currency}
+              disabled={disabled}
+              maxLength={3}
+              aria-label={`Market ${index + 1} currency`}
+              onChange={(event) => update(index, { currency: event.target.value.toUpperCase() })}
+              placeholder="NOK"
+              className="w-24 font-mono uppercase"
+            />
+            {disabled ? null : (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={`Remove market ${market.country || index + 1}`}
+                onClick={() => onChange(markets.filter((_, i) => i !== index))}
+              >
+                <Trash2 aria-hidden />
+              </Button>
+            )}
+          </li>
+        ))}
+      </ul>
+
+      {disabled ? null : (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          onClick={() => onChange([...markets, { country: "", language: "en", currency: "" }])}
+        >
+          <Plus aria-hidden />
+          Add market
+        </Button>
+      )}
+    </fieldset>
+  );
+}
