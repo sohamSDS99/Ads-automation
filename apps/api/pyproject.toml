@@ -1,0 +1,67 @@
+[project]
+name = "ads-research-agent-api"
+version = "0.1.0"
+description = "Paid Ads Research Agent — API and worker"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "fastapi>=0.115.6",          # HTTP framework (PRD stack)
+    "uvicorn[standard]>=0.34.0", # ASGI server
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",           # async Postgres driver
+    "alembic>=1.14.0",           # migrations (preDeployCommand)
+    "pydantic-settings>=2.7.0",  # typed env config
+    "arq>=0.26.3",               # job queue on Redis
+    "redis>=5.2.1",              # imported directly by the health check
+    "cryptography>=44.0.0",      # AES-256-GCM secret vault
+    "argon2-cffi>=23.1.0",       # Argon2id password hashing (used in P0b)
+    "httpx>=0.28.1",             # outbound HTTP (OpenRouter, connectors)
+    "structlog>=24.4.0",         # structured logging
+    "pgvector>=0.3.6",           # SQLAlchemy Vector column type
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.4",
+    "pytest-asyncio>=0.25.0",
+    "mypy>=1.14.0",
+    "ruff>=0.8.4",
+    "pyyaml>=6.0.2",   # docker-compose assertions in tests/test_deployment_config.py
+    "types-pyyaml>=6.0.12",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/agent"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "S"]
+ignore = ["S101"]  # assert is fine in tests
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "E501"]
+"alembic/*" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+mypy_path = "src"
+packages = ["agent"]
+
+[[tool.mypy.overrides]]
+module = ["pgvector.*", "arq.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+pythonpath = ["src"]
