@@ -48,6 +48,7 @@ Start command: `redis-server --appendonly yes --requirepass $REDIS_PASSWORD`.
 | `SESSION_COOKIE_NAME` | fixed | `ara_session` |
 | `SESSION_TTL_DAYS` | fixed | `30` |
 | `COOKIE_SECURE` | fixed | `true` |
+| `APP_BASE_URL` | manual | `https://<your web domain>` — **invite links are built from this; a wrong value ships dead links** |
 | `BOOTSTRAP_ADMIN_EMAIL` | manual | the first admin's address |
 | `BOOTSTRAP_ADMIN_PASSWORD` | manual | ≥12 chars; change it after first login |
 | `OPENROUTER_BASE_URL` | fixed | `https://openrouter.ai/api/v1` |
@@ -98,3 +99,10 @@ fix the rewrite.
    be logged, echoed in a build step, or returned by an endpoint.
 3. Nothing reads `RAILWAY_*` variables in application code. Environments differ
    by **values only** (PRD §15 NF8c).
+4. `APP_BASE_URL` on `api` must be the public domain of `web`. It is the only
+   place an invite link's origin comes from, and it cannot be derived: `api` has
+   no public domain of its own to infer one from.
+5. `BOOTSTRAP_ADMIN_EMAIL`/`_PASSWORD` are read once, on the first boot against
+   an empty database. Leaving them set afterwards is harmless — the bootstrap
+   path refuses to run a second time — but rotating the password there does
+   **not** change the admin's password. Use the app for that.

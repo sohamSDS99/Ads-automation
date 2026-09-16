@@ -10,10 +10,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import __version__
+from agent.api.middleware import SecurityHeadersMiddleware, SessionMiddleware
+from agent.api.problems import install_problem_handlers
+from agent.api.routes_audit import router as audit_router
+from agent.api.routes_auth import router as auth_router
 from agent.api.routes_health import router as health_router
+from agent.api.routes_invites import router as invites_router
+from agent.api.routes_users import router as users_router
+from agent.api.routes_workspace import router as workspace_router
+from agent.auth.bootstrap import bootstrap_from_environment
 from agent.config import Settings, get_settings
-from agent.db.session import dispose_engine
+from agent.db.session import dispose_engine, get_sessionmaker
 from agent.logging_setup import configure_logging
+from agent.redis_client import close_redis
 
 API_PREFIX = "/api/v1"
 
@@ -22,7 +31,18 @@ API_PREFIX = "/api/v1"
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log = structlog.get_logger(__name__)
     log.info("api.startup", version=__version__)
+
+    # First boot creates the workspace and its admin. A database that is not
+    # migrated yet must not stop the process: Railway runs migrations in
+    # `preDeployCommand`, and locally the container starts before `make migrate`.
+    try:
+        async with get_sessionmaker()() as session:
+            await bootstrap_from_environment(session, get_settings())
+    except Exception as exc:  # noqa: BLE001 — startup must survive an unmigrated DB
+        log.warning("bootstrap.skipped", error=str(exc))
+
     yield
+    await close_redis()
     await dispose_engine()
     log.info("api.shutdown")
 
@@ -50,7 +70,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    app.include_router(health_router, prefix=API_PREFIX)
+    # Order matters: the security headers wrap everything, including the
+    # problem+json responses the session layer emits on a CSRF failure.
+    app.add_middleware(SessionMiddleware, settings=settings)
+    app.add_middleware(SecurityHeadersMiddleware, settings=settings)
+
+    install_problem_handlers(app)
+
+    for router in (
+        health_router,
+        auth_router,
+        invites_router,
+        users_router,
+        audit_router,
+        workspace_router,
+    ):
+        app.include_router(router, prefix=API_PREFIX)
     return app
 
 

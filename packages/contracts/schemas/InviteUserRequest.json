@@ -1,0 +1,38 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "email": {
+      "format": "email",
+      "title": "Email",
+      "type": "string"
+    },
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/UserRole"
+    }
+  },
+  "required": [
+    "email",
+    "name",
+    "role"
+  ],
+  "title": "InviteUserRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

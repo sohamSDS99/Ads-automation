@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    },
+    "UserStatus": {
+      "enum": [
+        "invited",
+        "active",
+        "disabled"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    },
+    "UserSummary": {
+      "description": "One member of the workspace, as any authenticated caller may see them.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        },
+        "status": {
+          "$ref": "#/$defs/UserStatus"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Login At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "role",
+        "status",
+        "created_at"
+      ],
+      "title": "UserSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "users": {
+      "items": {
+        "$ref": "#/$defs/UserSummary"
+      },
+      "title": "Users",
+      "type": "array"
+    }
+  },
+  "required": [
+    "users"
+  ],
+  "title": "UserListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

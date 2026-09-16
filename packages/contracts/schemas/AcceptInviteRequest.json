@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "password": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Password",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "password"
+  ],
+  "title": "AcceptInviteRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

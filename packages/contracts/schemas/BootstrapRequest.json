@@ -1,0 +1,7 @@
+{
+  "description": "Empty by design.\n\nThe first admin's credentials come from `BOOTSTRAP_ADMIN_EMAIL` and\n`BOOTSTRAP_ADMIN_PASSWORD`, never from the request body \u2014 otherwise the\nbootstrap route would be an unauthenticated account-creation endpoint for\nhowever long it took someone to reach it first.",
+  "properties": {},
+  "title": "BootstrapRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
