@@ -1,0 +1,88 @@
+{
+  "additionalProperties": true,
+  "description": "1.5.4 `opportunity_sizing` \u2014 arithmetic in Python, assumptions from the model.",
+  "properties": {
+    "budget_usd_month": {
+      "minimum": 0,
+      "title": "Budget Usd Month",
+      "type": "number"
+    },
+    "est_clicks": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Est Clicks"
+    },
+    "est_conv": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Est Conv"
+    },
+    "est_cpa": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Est Cpa"
+    },
+    "est_revenue": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Est Revenue"
+    },
+    "assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "confidence_interval": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence Interval"
+    }
+  },
+  "required": [
+    "budget_usd_month"
+  ],
+  "title": "Scenario",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

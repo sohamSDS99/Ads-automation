@@ -261,6 +261,37 @@ async def test_an_assigned_gate_survives_a_reload_with_the_assignee_named(
     assert all(g["assignee_id"] is None for g in others)
 
 
+async def test_the_gate_machinery_reads_what_the_wizard_wrote(
+    admin: ApiClient, signed_in_as: Any, db: AsyncSession
+) -> None:
+    """The one seam that cannot be checked from the API alone.
+
+    P6 writes the default approver; P3's executor reads it when it opens the
+    gate. Asserting the project reads back correctly proves the writer and the
+    reader agree about the *response* shape, not about the stored one — so this
+    calls the real reader.
+    """
+    from agent.orchestrator.approvals import assignee_for
+
+    body = await create(admin)
+    approver = await signed_in_as("approver")
+    me = (await approver.get("/auth/me")).json()
+
+    await admin.patch(
+        f"/projects/{body['id']}",
+        json={"approvals": {"1.1.5": {"assignee_id": me["id"], "sla_hours": 12}}},
+    )
+
+    project = (
+        await db.execute(sa.select(Project).where(Project.id == uuid.UUID(body["id"])))
+    ).scalar_one()
+    await db.refresh(project)
+
+    assert str(assignee_for(project, "1.1.5")) == me["id"]
+    # And a gate nobody was assigned to still means "any approver".
+    assert assignee_for(project, "1.3.4") is None
+
+
 async def test_the_gate_list_comes_from_the_registered_dag(admin: ApiClient) -> None:
     """Not from a list in the wizard.
 

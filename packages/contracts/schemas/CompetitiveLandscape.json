@@ -1,0 +1,381 @@
+{
+  "$defs": {
+    "Competitor": {
+      "additionalProperties": true,
+      "description": "1.3.1 `competitor_set`.",
+      "properties": {
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "overlap_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overlap Score"
+        },
+        "overlap_basis": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Overlap Basis",
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "Competitor",
+      "type": "object"
+    },
+    "CompetitorAd": {
+      "additionalProperties": true,
+      "description": "1.3.2 `creative_corpus` \u2014 one observed ad.\n\n`screenshot_path` is a **storage key**, never a filesystem path (PRD \u00a75.2);\nthe PDF renderer resolves it through `storage.backend`.",
+      "properties": {
+        "advertiser": {
+          "title": "Advertiser",
+          "type": "string"
+        },
+        "headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headline"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "offer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offer"
+        },
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "proof_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proof Type"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cta"
+        },
+        "landing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Landing Url"
+        },
+        "first_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Seen"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "screenshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Screenshot Path"
+        }
+      },
+      "required": [
+        "advertiser"
+      ],
+      "title": "CompetitorAd",
+      "type": "object"
+    },
+    "MessageCluster": {
+      "additionalProperties": true,
+      "properties": {
+        "theme": {
+          "title": "Theme",
+          "type": "string"
+        },
+        "frequency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequency"
+        },
+        "advertisers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advertisers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "theme"
+      ],
+      "title": "MessageCluster",
+      "type": "object"
+    },
+    "SpendEstimate": {
+      "additionalProperties": true,
+      "description": "1.3.3 `spend_estimation`.\n\n`method` is required: PRD \u00a710 says an estimate must state its method and is\nnever to be presented as fact. The renderers print it next to the number.",
+      "properties": {
+        "competitor": {
+          "title": "Competitor",
+          "type": "string"
+        },
+        "est_monthly_spend_range": {
+          "title": "Est Monthly Spend Range",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "peak_months": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Peak Months",
+          "type": "array"
+        }
+      },
+      "required": [
+        "competitor",
+        "est_monthly_spend_range",
+        "method"
+      ],
+      "title": "SpendEstimate",
+      "type": "object"
+    },
+    "Whitespace": {
+      "additionalProperties": true,
+      "description": "1.3.4 \u26f3 `differentiation_claim` \u2014 gated on an `approver` (marketing).",
+      "properties": {
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "why_unsaid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why Unsaid"
+        },
+        "our_proof": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Our Proof"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Risk"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "Whitespace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Stage 1.3 rolled up.",
+  "properties": {
+    "competitors": {
+      "items": {
+        "$ref": "#/$defs/Competitor"
+      },
+      "title": "Competitors",
+      "type": "array"
+    },
+    "ads": {
+      "items": {
+        "$ref": "#/$defs/CompetitorAd"
+      },
+      "title": "Ads",
+      "type": "array"
+    },
+    "message_clusters": {
+      "items": {
+        "$ref": "#/$defs/MessageCluster"
+      },
+      "title": "Message Clusters",
+      "type": "array"
+    },
+    "spend_estimates": {
+      "items": {
+        "$ref": "#/$defs/SpendEstimate"
+      },
+      "title": "Spend Estimates",
+      "type": "array"
+    },
+    "whitespace": {
+      "items": {
+        "$ref": "#/$defs/Whitespace"
+      },
+      "title": "Whitespace",
+      "type": "array"
+    },
+    "recommended_claim": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recommended Claim"
+    },
+    "substantiation_required": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Substantiation Required",
+      "type": "array"
+    }
+  },
+  "title": "CompetitiveLandscape",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,415 @@
+{
+  "schema_version": "1.0",
+  "project_id": "11111111-1111-4111-8111-111111111111",
+  "run_id": "22222222-2222-4222-8222-222222222222",
+  "generated_at": "2026-03-04T09:30:00+00:00",
+  "executive_summary": "Northwind Safety can launch paid search in the UK and Germany, but not yet in the US. Demand is real and priced: 2,140 qualified terms carry a blended CPC of 4.10 GBP, and the profitable half of the historic search-term report already clears a 310 GBP target CPA. Two things block a clean start. Conversion tracking has not recorded a demo request in 41 days and the synthetic probe we fired never surfaced in the Ads API, so spend today would be unmeasurable. And the pricing page fails mobile Core Web Vitals at 4.8s LCP, which is where 61 percent of the qualified terms map. Competitors are spending into a single message — audit readiness — and none of the eleven advertisers we captured mentions multi-site rollout, which is the one claim our own won-deal notes support. Fix tracking, fix the pricing page, and launch against the transactional cluster in the UK first; Germany needs the consent basis on the prospect list resolved before any audience targeting.",
+  "launch_readiness": "go_with_fixes",
+  "launch_blockers": [
+    {
+      "statement": "Conversion tracking is stale: the demo_request action has recorded nothing for 41 days and a synthetic click fired on 2026-03-02 never appeared in the Ads API.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000001", "aaaaaaaa-0000-4000-8000-000000000002"],
+      "confidence": "high"
+    },
+    {
+      "statement": "The pricing page, the destination for 61% of qualified terms, fails mobile Core Web Vitals at 4.8s LCP.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000003"],
+      "confidence": "high"
+    },
+    {
+      "statement": "The German prospect list has no recorded consent basis, so audience targeting in DE cannot be used at launch.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000004"],
+      "confidence": "medium"
+    }
+  ],
+  "business_context": {
+    "products": [
+      {
+        "name": "Northwind SDS Manager",
+        "price_model": "per-site annual subscription",
+        "acv": 14200.0,
+        "gross_margin_pct": 82.0,
+        "delivery_cost_notes": "Onboarding is 12 hours of implementation per site, billed separately."
+      },
+      {
+        "name": "Northwind Audit Pack",
+        "price_model": "one-off",
+        "acv": 3400.0,
+        "gross_margin_pct": 64.0,
+        "delivery_cost_notes": "Consultant-delivered; margin falls below 50% above four sites."
+      }
+    ],
+    "ltv_estimate": 47800.0,
+    "target_cac": 9600.0,
+    "payback_months": 11.0,
+    "segments": [
+      {
+        "label": "Multi-site manufacturers, 200-2000 staff",
+        "firmographics": {"employees": "200-2000", "sites": "3+", "industry": "manufacturing"},
+        "triggers": ["failed inspection", "new site opening", "REACH deadline"],
+        "jobs_to_be_done": ["prove compliance to an auditor in one afternoon"],
+        "share_of_revenue_pct": 58.0,
+        "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000010"]
+      },
+      {
+        "label": "Chemical distributors, single site",
+        "firmographics": {"employees": "50-200", "sites": "1"},
+        "triggers": ["supplier SDS reissue"],
+        "jobs_to_be_done": ["keep a current SDS library without a full-time owner"],
+        "share_of_revenue_pct": 24.0,
+        "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000011"]
+      }
+    ],
+    "exclusions": [
+      {
+        "persona": "Sole-trader consultant",
+        "disqualifier": "Buys per-report, never renews",
+        "observable_signal": "Company size under 10 on the form",
+        "suggested_negative_terms": ["free sds template", "sds example pdf", "coshh template free"]
+      },
+      {
+        "persona": "Student or researcher",
+        "disqualifier": "No purchasing authority",
+        "observable_signal": ".edu / .ac.uk email domain",
+        "suggested_negative_terms": ["what is an sds", "sds definition", "msds meaning"]
+      }
+    ],
+    "markets": [
+      {
+        "country": "GB",
+        "language": "en",
+        "currency": "GBP",
+        "demand_months": [1, 2, 3, 9, 10, 11],
+        "dead_months": [7, 8, 12]
+      },
+      {
+        "country": "DE",
+        "language": "de",
+        "currency": "EUR",
+        "demand_months": [1, 2, 3, 4, 9, 10],
+        "dead_months": [7, 8]
+      }
+    ],
+    "compliance": {
+      "prohibited_claims": [
+        "Guarantees regulatory compliance",
+        "Certified by the HSE",
+        "Eliminates all audit risk"
+      ],
+      "required_disclaimers": [
+        "Northwind is a compliance management tool, not a certifying body."
+      ],
+      "regulated_terms": [
+        {"term": "REACH compliant", "rule": "Only in reference to the customer's own filings, never to the product."},
+        {"term": "certified", "rule": "Prohibited unless naming the specific ISO certification held."}
+      ],
+      "confidence": "high"
+    }
+  },
+  "account_learnings": {
+    "winners": [
+      {"campaign": "UK - Brand", "metric_delta": "CPA 84 GBP, 6.1x ROAS", "period": "2025-04 to 2026-02"},
+      {"campaign": "UK - SDS Software Exact", "metric_delta": "CPA 287 GBP at 41 conversions", "period": "2025-09 to 2026-02"}
+    ],
+    "losers": [
+      {"campaign": "EU - Broad Match Test", "metric_delta": "1,840 GBP spend, 0 conversions", "period": "2025-11 to 2025-12"},
+      {"campaign": "US - Display Remarketing", "metric_delta": "CPA 1,410 GBP", "period": "2025-06 to 2025-10"}
+    ],
+    "structural_findings": [
+      "Broad match without a negative list consumed 34% of spend on informational queries.",
+      "No campaign has ever been segmented by market; GB and DE share one budget and one bid strategy.",
+      "Conversion tracking counts form views, not submissions, in the DE account."
+    ],
+    "profitable_terms": [
+      {"term": "sds management software", "cost": 4120.0, "conv": 19.0, "cpa": 216.84, "roas": 4.1},
+      {"term": "coshh assessment software", "cost": 2890.0, "conv": 11.0, "cpa": 262.73, "roas": 3.4},
+      {"term": "safety data sheet software uk", "cost": 1640.0, "conv": 7.0, "cpa": 234.29, "roas": 3.8}
+    ],
+    "wasteful_terms": [
+      {"term": "free sds template", "cost": 2210.0, "conv": 0.0, "recommended_action": "Add as phrase negative across all campaigns."},
+      {"term": "what is a safety data sheet", "cost": 1180.0, "conv": 0.0, "recommended_action": "Add as phrase negative; serve from the blog instead."},
+      {"term": "msds vs sds", "cost": 640.0, "conv": 0.0, "recommended_action": "Add as exact negative."}
+    ],
+    "tried_and_failed": [
+      {
+        "what": "Broad match with Maximise Conversions and no negatives",
+        "when": "2025-11",
+        "outcome": "1,840 GBP spent, zero conversions, 71% of traffic on informational queries",
+        "do_not_repeat_reason": "The account has no conversion history dense enough for Smart Bidding to learn from."
+      }
+    ]
+  },
+  "competitive_landscape": {
+    "competitors": [
+      {"domain": "chemwatch.net", "name": "Chemwatch", "overlap_score": 0.81, "overlap_basis": ["auction_insights", "keyword_overlap"]},
+      {"domain": "sitehound.io", "name": "SiteHound EHS", "overlap_score": 0.64, "overlap_basis": ["keyword_overlap"]},
+      {"domain": "safetyvault.co.uk", "name": "SafetyVault", "overlap_score": 0.52, "overlap_basis": ["auction_insights"]}
+    ],
+    "ads": [
+      {
+        "advertiser": "Chemwatch",
+        "headline": "SDS Management, Audit Ready",
+        "description": "Every sheet current, every site covered. Trusted by 400+ manufacturers.",
+        "offer": "Free compliance gap report",
+        "angle": "audit_readiness",
+        "proof_type": "customer_count",
+        "cta": "Book a demo",
+        "landing_url": "https://chemwatch.net/uk/sds-management",
+        "first_seen": "2025-08-14",
+        "last_seen": "2026-03-01",
+        "screenshot_path": "screenshots/22222222-2222-4222-8222-222222222222/chemwatch-001.png"
+      },
+      {
+        "advertiser": "SiteHound EHS",
+        "headline": "COSHH Assessments in Minutes",
+        "description": "Cut assessment time by 70%. ISO 45001 aligned templates included.",
+        "offer": "14-day trial",
+        "angle": "time_saving",
+        "proof_type": "statistic",
+        "cta": "Start free trial",
+        "landing_url": "https://sitehound.io/coshh",
+        "first_seen": "2025-11-02",
+        "last_seen": "2026-02-27",
+        "screenshot_path": "screenshots/22222222-2222-4222-8222-222222222222/sitehound-001.png"
+      },
+      {
+        "advertiser": "SafetyVault",
+        "headline": "Pass Your Next HSE Inspection",
+        "description": "Your SDS library, always current. UK-hosted, GDPR compliant.",
+        "offer": null,
+        "angle": "audit_readiness",
+        "proof_type": "none",
+        "cta": "See pricing",
+        "landing_url": "https://safetyvault.co.uk/pricing",
+        "first_seen": "2026-01-09",
+        "last_seen": "2026-03-03",
+        "screenshot_path": null
+      }
+    ],
+    "message_clusters": [
+      {"theme": "Audit readiness", "frequency": 7, "advertisers": ["Chemwatch", "SafetyVault", "SiteHound EHS"]},
+      {"theme": "Time saved per assessment", "frequency": 3, "advertisers": ["SiteHound EHS"]},
+      {"theme": "UK data residency", "frequency": 2, "advertisers": ["SafetyVault"]}
+    ],
+    "spend_estimates": [
+      {
+        "competitor": "Chemwatch",
+        "est_monthly_spend_range": "18,000-26,000 GBP",
+        "method": "Impression share against our own observed impressions on 41 shared terms, priced at observed CPC range.",
+        "confidence": "medium",
+        "peak_months": [1, 2, 9, 10]
+      },
+      {
+        "competitor": "SiteHound EHS",
+        "est_monthly_spend_range": "4,000-7,000 GBP",
+        "method": "Ad count and continuity in the Transparency Centre, priced at DataForSEO CPC midpoints.",
+        "confidence": "low",
+        "peak_months": [11, 1]
+      }
+    ],
+    "whitespace": [
+      {
+        "claim": "Roll out across every site without a per-site implementation project",
+        "why_unsaid": "All three competitors price and message per site, so multi-site is their upsell, not their pitch.",
+        "our_proof": "Nine of our last twelve won deals cited a multi-site rollout in under six weeks.",
+        "risk": "Implementation currently takes 12 hours per site; the claim needs the onboarding change to hold."
+      }
+    ],
+    "recommended_claim": "Every site compliant in six weeks, not six months.",
+    "substantiation_required": [
+      "Median multi-site rollout time from the last twelve won deals",
+      "Written customer permission to cite site counts"
+    ]
+  },
+  "demand_map": {
+    "total_keywords": 2140,
+    "negatives": [
+      {"term": "free", "match_type": "broad", "reason": "Every free-modified term in the historic report converted at zero.", "source": "wasteful_terms"},
+      {"term": "template", "match_type": "phrase", "reason": "Template seekers do not buy software.", "source": "wasteful_terms"},
+      {"term": "what is", "match_type": "phrase", "reason": "Definitional intent.", "source": "intent_irrelevant"},
+      {"term": "jobs", "match_type": "phrase", "reason": "Job seekers, not buyers.", "source": "intent_irrelevant"},
+      {"term": "course", "match_type": "phrase", "reason": "Training buyers were the top lost-reason in CRM.", "source": "lost_reasons"}
+    ],
+    "mapping": [
+      {"term_cluster": "sds management software", "best_url": "https://northwind.example/pricing", "relevance_score": 0.91, "verdict": "good_fit"},
+      {"term_cluster": "coshh assessment software", "best_url": "https://northwind.example/coshh", "relevance_score": 0.74, "verdict": "weak_fit"},
+      {"term_cluster": "multi site chemical inventory", "best_url": null, "relevance_score": null, "verdict": "gap"},
+      {"term_cluster": "reach compliance software", "best_url": "https://northwind.example/pricing", "relevance_score": 0.48, "verdict": "weak_fit"}
+    ],
+    "content_gaps": [
+      {"cluster": "multi site chemical inventory", "required_page_type": "solution page with multi-site proof"},
+      {"cluster": "reach compliance software", "required_page_type": "regulation-specific landing page"}
+    ]
+  },
+  "readiness": {
+    "pages": [
+      {
+        "url": "https://northwind.example/pricing",
+        "lcp_ms": 4800.0,
+        "cls": 0.21,
+        "mobile_ok": false,
+        "form_fields_count": 9,
+        "trust_signals": ["customer logos"],
+        "issues": ["LCP 4.8s on mobile", "CLS 0.21 from a late-loading banner", "9-field form"],
+        "severity": "critical"
+      },
+      {
+        "url": "https://northwind.example/coshh",
+        "lcp_ms": 2100.0,
+        "cls": 0.04,
+        "mobile_ok": true,
+        "form_fields_count": 4,
+        "trust_signals": ["case study", "ISO badge"],
+        "issues": ["No pricing anchor above the fold"],
+        "severity": "minor"
+      }
+    ],
+    "conversion_actions": [
+      {"name": "demo_request", "status": "active", "last_conversion_at": "2026-01-22T14:02:00+00:00", "staleness_days": 41},
+      {"name": "trial_signup", "status": "active", "last_conversion_at": "2026-03-01T08:15:00+00:00", "staleness_days": 3},
+      {"name": "quote_request_de", "status": "no_recent_conversions", "last_conversion_at": null, "staleness_days": null}
+    ],
+    "synthetic_check": {
+      "fired_at": "2026-03-02T11:00:00+00:00",
+      "observed_in_ads_api": false,
+      "latency_min": null,
+      "verdict": "fail"
+    },
+    "alerts": [
+      "demo_request has not fired in 41 days despite continuous traffic.",
+      "quote_request_de has never recorded a conversion.",
+      "The synthetic click did not reach the Ads API within 180 minutes."
+    ],
+    "lists": [
+      {"name": "UK prospects 2025", "size": 8400, "consent_basis": "legitimate_interest", "markets_allowed": ["GB"], "usable": true, "blocker": null},
+      {"name": "DE prospects 2025", "size": 3100, "consent_basis": null, "markets_allowed": [], "usable": false, "blocker": "No recorded consent basis; GDPR Art.6 basis must be documented before use."},
+      {"name": "Customer list (all)", "size": 412, "consent_basis": "contract", "markets_allowed": ["GB", "DE"], "usable": true, "blocker": null}
+    ],
+    "scenarios": [
+      {
+        "budget_usd_month": 8000.0,
+        "est_clicks": 1560.0,
+        "est_conv": 18.7,
+        "est_cpa": 428.0,
+        "est_revenue": 265540.0,
+        "assumptions": ["2.4% landing-page conversion, the account's historic rate on exact match", "No bid inflation from the two new entrants"],
+        "confidence_interval": "±35% on conversions"
+      },
+      {
+        "budget_usd_month": 15000.0,
+        "est_clicks": 2810.0,
+        "est_conv": 31.2,
+        "est_cpa": 481.0,
+        "est_revenue": 442960.0,
+        "assumptions": ["Marginal CPC rises 11% past the top 1,200 terms", "Pricing-page LCP fixed before scaling"],
+        "confidence_interval": "±40% on conversions"
+      }
+    ]
+  },
+  "priced_keyword_list": [
+    {
+      "term": "sds management software",
+      "market": "GB",
+      "intent": "transactional",
+      "funnel_stage": "bottom",
+      "volume": 880,
+      "cpc_low": 3.2,
+      "cpc_high": 6.8,
+      "competition": 0.82,
+      "seasonality_index": [1.21, 1.18, 1.09, 0.94, 0.88, 0.79, 0.61, 0.58, 1.14, 1.27, 1.16, 0.85],
+      "trend_yoy": 0.14,
+      "best_url": "https://northwind.example/pricing",
+      "verdict": "good_fit",
+      "match_type": "exact"
+    },
+    {
+      "term": "coshh assessment software",
+      "market": "GB",
+      "intent": "transactional",
+      "funnel_stage": "bottom",
+      "volume": 590,
+      "cpc_low": 2.9,
+      "cpc_high": 5.4,
+      "competition": 0.71,
+      "seasonality_index": [1.14, 1.22, 1.11, 0.97, 0.9, 0.82, 0.64, 0.6, 1.08, 1.19, 1.12, 0.81],
+      "trend_yoy": 0.09,
+      "best_url": "https://northwind.example/coshh",
+      "verdict": "weak_fit",
+      "match_type": "phrase"
+    },
+    {
+      "term": "chemical inventory management system",
+      "market": "GB",
+      "intent": "commercial_investigation",
+      "funnel_stage": "middle",
+      "volume": 320,
+      "cpc_low": 2.1,
+      "cpc_high": 4.6,
+      "competition": 0.58,
+      "seasonality_index": [1.02, 1.07, 1.04, 1.0, 0.96, 0.88, 0.7, 0.68, 1.05, 1.11, 1.03, 0.86],
+      "trend_yoy": 0.21,
+      "best_url": null,
+      "verdict": "gap",
+      "match_type": "phrase"
+    },
+    {
+      "term": "sicherheitsdatenblatt software",
+      "market": "DE",
+      "intent": "transactional",
+      "funnel_stage": "bottom",
+      "volume": 410,
+      "cpc_low": 2.4,
+      "cpc_high": 5.1,
+      "competition": 0.66,
+      "seasonality_index": [1.18, 1.24, 1.12, 1.03, 0.91, 0.8, 0.59, 0.57, 1.1, 1.21, 1.09, 0.78],
+      "trend_yoy": 0.17,
+      "best_url": null,
+      "verdict": "gap",
+      "match_type": "exact"
+    },
+    {
+      "term": "reach compliance software",
+      "market": "GB",
+      "intent": "commercial_investigation",
+      "funnel_stage": "middle",
+      "volume": 260,
+      "cpc_low": 3.6,
+      "cpc_high": 7.9,
+      "competition": 0.77,
+      "seasonality_index": [],
+      "trend_yoy": null,
+      "best_url": "https://northwind.example/pricing",
+      "verdict": "weak_fit",
+      "match_type": "phrase"
+    }
+  ],
+  "recommended_next_actions": [
+    {
+      "statement": "Repair the demo_request conversion action and re-run the synthetic probe before any spend resumes.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000001", "aaaaaaaa-0000-4000-8000-000000000002"],
+      "confidence": "high"
+    },
+    {
+      "statement": "Cut the pricing page to a 4-field form and defer the banner script; the 9-field form is the single largest friction point on the highest-intent destination.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000003"],
+      "confidence": "medium"
+    },
+    {
+      "statement": "Launch GB exact-match on the 412 transactional terms first, at 8,000 USD per month, and hold DE until the consent basis is documented.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000004", "aaaaaaaa-0000-4000-8000-000000000010"],
+      "confidence": "medium"
+    },
+    {
+      "statement": "Build the multi-site solution page before bidding on the 2 gap clusters; 580 monthly searches currently have nowhere to land.",
+      "evidence_ids": ["aaaaaaaa-0000-4000-8000-000000000012"],
+      "confidence": "medium"
+    }
+  ],
+  "open_questions": [
+    "Can onboarding be reduced below 12 hours per site? The differentiation claim depends on it.",
+    "Is there budget authority for DE before the consent basis is documented, or does DE wait for the next quarter?",
+    "Who owns the pricing-page fix, and is it in a sprint?"
+  ],
+  "degraded_sources": ["transparency", "google_ads"],
+  "cost_usd": 4.87
+}

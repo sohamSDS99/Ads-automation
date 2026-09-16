@@ -1,0 +1,420 @@
+{
+  "$defs": {
+    "AudienceList": {
+      "additionalProperties": true,
+      "description": "1.5.3 \u26f3 `audience_consent_check` \u2014 gated on an `approver` (data officer).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "consent_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consent Basis"
+        },
+        "markets_allowed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Markets Allowed",
+          "type": "array"
+        },
+        "usable": {
+          "default": false,
+          "title": "Usable",
+          "type": "boolean"
+        },
+        "blocker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocker"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AudienceList",
+      "type": "object"
+    },
+    "ConversionAction": {
+      "additionalProperties": true,
+      "description": "1.5.2 `tracking_probe`.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "last_conversion_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Conversion At"
+        },
+        "staleness_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Staleness Days"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConversionAction",
+      "type": "object"
+    },
+    "PageAudit": {
+      "additionalProperties": true,
+      "description": "1.5.1 `landing_page_audit`.",
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "lcp_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lcp Ms"
+        },
+        "cls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cls"
+        },
+        "mobile_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile Ok"
+        },
+        "form_fields_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Form Fields Count"
+        },
+        "trust_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trust Signals",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "critical",
+                "major",
+                "minor",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "PageAudit",
+      "type": "object"
+    },
+    "Scenario": {
+      "additionalProperties": true,
+      "description": "1.5.4 `opportunity_sizing` \u2014 arithmetic in Python, assumptions from the model.",
+      "properties": {
+        "budget_usd_month": {
+          "minimum": 0,
+          "title": "Budget Usd Month",
+          "type": "number"
+        },
+        "est_clicks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Clicks"
+        },
+        "est_conv": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Conv"
+        },
+        "est_cpa": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Cpa"
+        },
+        "est_revenue": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Revenue"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "confidence_interval": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Interval"
+        }
+      },
+      "required": [
+        "budget_usd_month"
+      ],
+      "title": "Scenario",
+      "type": "object"
+    },
+    "SyntheticCheck": {
+      "additionalProperties": true,
+      "description": "The synthetic conversion probe: did a click we fired ourselves come back?",
+      "properties": {
+        "fired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fired At"
+        },
+        "observed_in_ads_api": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed In Ads Api"
+        },
+        "latency_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Min"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "enum": [
+                "pass",
+                "fail",
+                "inconclusive"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        }
+      },
+      "title": "SyntheticCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Stage 1.5 rolled up.",
+  "properties": {
+    "pages": {
+      "items": {
+        "$ref": "#/$defs/PageAudit"
+      },
+      "title": "Pages",
+      "type": "array"
+    },
+    "conversion_actions": {
+      "items": {
+        "$ref": "#/$defs/ConversionAction"
+      },
+      "title": "Conversion Actions",
+      "type": "array"
+    },
+    "synthetic_check": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SyntheticCheck"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "alerts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Alerts",
+      "type": "array"
+    },
+    "lists": {
+      "items": {
+        "$ref": "#/$defs/AudienceList"
+      },
+      "title": "Lists",
+      "type": "array"
+    },
+    "scenarios": {
+      "items": {
+        "$ref": "#/$defs/Scenario"
+      },
+      "title": "Scenarios",
+      "type": "array"
+    }
+  },
+  "title": "Readiness",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

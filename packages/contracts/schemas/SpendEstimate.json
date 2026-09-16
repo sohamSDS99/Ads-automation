@@ -1,0 +1,50 @@
+{
+  "additionalProperties": true,
+  "description": "1.3.3 `spend_estimation`.\n\n`method` is required: PRD \u00a710 says an estimate must state its method and is\nnever to be presented as fact. The renderers print it next to the number.",
+  "properties": {
+    "competitor": {
+      "title": "Competitor",
+      "type": "string"
+    },
+    "est_monthly_spend_range": {
+      "title": "Est Monthly Spend Range",
+      "type": "string"
+    },
+    "method": {
+      "title": "Method",
+      "type": "string"
+    },
+    "confidence": {
+      "anyOf": [
+        {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Confidence"
+    },
+    "peak_months": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Peak Months",
+      "type": "array"
+    }
+  },
+  "required": [
+    "competitor",
+    "est_monthly_spend_range",
+    "method"
+  ],
+  "title": "SpendEstimate",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

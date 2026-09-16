@@ -1,0 +1,396 @@
+{#
+  The source of truth for every export (PRD §11/§12).
+
+  Rules for editing this file:
+  - Never put a judgement in here. The template arranges what node 1.6.1 already
+    decided; a conditional that changes a verdict is a node change wearing a
+    template's clothes.
+  - Every long table states its own cap in the document. A table silently cut to
+    50 rows reads as a complete list, which is worse than no table.
+  - `report.md.j2` and `report.html.j2` render the same sections in the same
+    order. §12's acceptance compares them.
+#}
+# Paid Ads Research Report
+
+**Project:** {{ project_name|text }}
+**Run:** `{{ report.run_id }}`
+**Generated:** {{ report.generated_at|datetime }}
+**Research cost:** {{ report.cost_usd|money("USD") }}
+**Schema:** {{ report.schema_version }}
+
+---
+
+## 1. Executive summary
+
+{{ report.executive_summary }}
+
+### Launch readiness: {{ readiness_label }}
+
+{% if report.launch_blockers %}
+{{ report.launch_blockers|length }} blocker{{ "" if report.launch_blockers|length == 1 else "s" }} must be cleared before launch.
+
+{% for blocker in report.launch_blockers %}
+{{ loop.index }}. {{ blocker.statement }} *({{ blocker.confidence }} confidence)* {{ cite.markers(blocker.evidence_ids) }}
+{% endfor %}
+{% else %}
+No launch blockers were recorded.
+{% endif %}
+
+{% if report.degraded_sources %}
+> **Degraded sources.** {{ report.degraded_sources|commalist }} returned partial data during this run. Findings drawn from them are correspondingly thinner, and re-running after the source recovers will change this report.
+{% endif %}
+
+---
+
+## 2. Business context
+
+{% if business.products %}
+### Offer economics
+
+| Product | Price model | ACV | Gross margin | Delivery notes |
+| --- | --- | ---: | ---: | --- |
+{% for product in business.products %}
+| {{ product.name|cell }} | {{ product.price_model|cell }} | {{ product.acv|money }} | {{ product.gross_margin_pct|pct }} | {{ product.delivery_cost_notes|cell }} |
+{% endfor %}
+
+**LTV estimate:** {{ business.ltv_estimate|money }} · **Target CAC:** {{ business.target_cac|money }} · **Payback:** {{ business.payback_months|num(1) }} months
+{% endif %}
+
+{% if business.segments %}
+### Ideal customer profile
+
+{% for segment in business.segments %}
+**{{ segment.label }}** — {{ segment.share_of_revenue_pct|pct }} of revenue {{ cite.markers(segment.evidence_ids) }}
+
+{% if segment.firmographics %}
+- Firmographics: {% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}
+
+{% endif %}
+{% if segment.triggers %}
+- Buying triggers: {{ segment.triggers|commalist }}
+{% endif %}
+{% if segment.jobs_to_be_done %}
+- Jobs to be done: {{ segment.jobs_to_be_done|commalist }}
+{% endif %}
+
+{% endfor %}
+{% endif %}
+
+{% if business.exclusions %}
+### Who we are not selling to
+
+| Persona | Disqualifier | Observable signal | Suggested negatives |
+| --- | --- | --- | --- |
+{% for exclusion in business.exclusions %}
+| {{ exclusion.persona|cell }} | {{ exclusion.disqualifier|cell }} | {{ exclusion.observable_signal|cell }} | {{ exclusion.suggested_negative_terms|commalist|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if business.markets %}
+### Markets
+
+| Market | Language | Currency | Demand months | Dead months |
+| --- | --- | --- | --- | --- |
+{% for market in business.markets %}
+| {{ market.country|cell }} | {{ market.language|cell }} | {{ market.currency|cell }} | {{ market.demand_months|months|cell }} | {{ market.dead_months|months|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if business.compliance %}
+### Compliance guardrails
+
+{% if business.compliance.prohibited_claims %}
+**Never claim:**
+{% for claim in business.compliance.prohibited_claims %}
+- {{ claim }}
+{% endfor %}
+{% endif %}
+
+{% if business.compliance.required_disclaimers %}
+**Always disclose:**
+{% for disclaimer in business.compliance.required_disclaimers %}
+- {{ disclaimer }}
+{% endfor %}
+{% endif %}
+
+{% if business.compliance.regulated_terms %}
+| Regulated term | Rule |
+| --- | --- |
+{% for term in business.compliance.regulated_terms %}
+| {{ term.term|cell }} | {{ term.rule|cell }} |
+{% endfor %}
+{% endif %}
+{% endif %}
+
+---
+
+## 3. What we already ran
+
+{% if learnings.winners or learnings.losers %}
+### Winners and losers
+
+| Outcome | Campaign | Result | Period |
+| --- | --- | --- | --- |
+{% for finding in learnings.winners %}
+| Won | {{ finding.campaign|cell }} | {{ finding.metric_delta|cell }} | {{ finding.period|cell }} |
+{% endfor %}
+{% for finding in learnings.losers %}
+| Lost | {{ finding.campaign|cell }} | {{ finding.metric_delta|cell }} | {{ finding.period|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if learnings.structural_findings %}
+### Structural findings
+
+{% for finding in learnings.structural_findings %}
+- {{ finding }}
+{% endfor %}
+{% endif %}
+
+{% if learnings.profitable_terms %}
+### Search terms that paid
+
+| Term | Cost | Conversions | CPA | ROAS |
+| --- | ---: | ---: | ---: | ---: |
+{% for term in learnings.profitable_terms %}
+| {{ term.term|cell }} | {{ term.cost|money }} | {{ term.conv|num(1) }} | {{ term.cpa|money }} | {{ term.roas|num(1) }} |
+{% endfor %}
+{% endif %}
+
+{% if learnings.wasteful_terms %}
+### Search terms that did not
+
+| Term | Cost | Conversions | Recommended action |
+| --- | ---: | ---: | --- |
+{% for term in learnings.wasteful_terms %}
+| {{ term.term|cell }} | {{ term.cost|money }} | {{ term.conv|num(1) }} | {{ term.recommended_action|cell }} |
+{% endfor %}
+
+Wasted spend across the terms above: **{{ wasted_spend|money }}**.
+{% endif %}
+
+{% if learnings.tried_and_failed %}
+### Do not repeat
+
+{% for experiment in learnings.tried_and_failed %}
+- **{{ experiment.what }}** ({{ experiment.when|text }}) — {{ experiment.outcome|text }}. {{ experiment.do_not_repeat_reason|text }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 4. The competition
+
+{% if competition.competitors %}
+### Competitor set
+
+| Domain | Name | Overlap | Basis |
+| --- | --- | ---: | --- |
+{% for competitor in competition.competitors %}
+| {{ competitor.domain|cell }} | {{ competitor.name|cell }} | {{ competitor.overlap_score|ratio_pct }} | {{ competitor.overlap_basis|commalist|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if competition.message_clusters %}
+### What they are all saying
+
+| Theme | Ads | Advertisers |
+| --- | ---: | --- |
+{% for cluster in competition.message_clusters %}
+| {{ cluster.theme|cell }} | {{ cluster.frequency|num }} | {{ cluster.advertisers|commalist|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if ads %}
+### Creative corpus
+
+{{ ads_total }} ad{{ "" if ads_total == 1 else "s" }} were captured.
+{% if ads_truncated %}
+The {{ ads|length }} below are the first {{ ads|length }}; the rest are in the JSON export.
+{% endif %}
+
+| Advertiser | Headline | Angle | Offer | CTA | Seen |
+| --- | --- | --- | --- | --- | --- |
+{% for ad in ads %}
+| {{ ad.advertiser|cell }} | {{ ad.headline|cell }} | {{ ad.angle|cell }} | {{ ad.offer|cell }} | {{ ad.cta|cell }} | {{ ad.first_seen|cell }} → {{ ad.last_seen|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if competition.spend_estimates %}
+### Estimated spend
+
+Every figure below is an estimate with a stated method. None of it is reported fact.
+
+| Competitor | Estimated monthly spend | Method | Confidence | Peaks |
+| --- | --- | --- | --- | --- |
+{% for estimate in competition.spend_estimates %}
+| {{ estimate.competitor|cell }} | {{ estimate.est_monthly_spend_range|cell }} | {{ estimate.method|cell }} | {{ estimate.confidence|cell }} | {{ estimate.peak_months|months|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if competition.whitespace or competition.recommended_claim %}
+### Whitespace
+
+{% if competition.recommended_claim %}
+**Recommended claim:** {{ competition.recommended_claim }}
+{% endif %}
+
+{% for gap in competition.whitespace %}
+- **{{ gap.claim }}**
+    - Why nobody is saying it: {{ gap.why_unsaid|text }}
+    - Our proof: {{ gap.our_proof|text }}
+    - Risk: {{ gap.risk|text }}
+{% endfor %}
+
+{% if competition.substantiation_required %}
+**Substantiation required before this claim runs:**
+{% for item in competition.substantiation_required %}
+- {{ item }}
+{% endfor %}
+{% endif %}
+{% endif %}
+
+---
+
+## 5. Demand
+
+**{{ demand.total_keywords|num }}** keywords were classified and priced. The complete list is the CSV export; the table below is a preview.
+
+{% if keywords %}
+### Priced keywords{{ " (top %d by volume)" % keywords|length if keywords_truncated else "" }}
+
+| Term | Market | Intent | Volume | CPC low | CPC high | Competition | Destination | Verdict |
+| --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
+{% for keyword in keywords %}
+| {{ keyword.term|cell }} | {{ keyword.market|cell }} | {{ keyword.intent|cell }} | {{ keyword.volume|num }} | {{ keyword.cpc_low|money }} | {{ keyword.cpc_high|money }} | {{ keyword.competition|ratio_pct }} | {{ keyword.best_url|cell }} | {{ keyword.verdict|cell }} |
+{% endfor %}
+{% if keywords_truncated %}
+
+{{ keywords_total }} keywords are in the CSV export. {{ keywords|length }} are shown here.
+{% endif %}
+{% endif %}
+
+{% if demand.mapping %}
+### Keyword to page
+
+| Cluster | Destination | Relevance | Verdict |
+| --- | --- | ---: | --- |
+{% for row in demand.mapping %}
+| {{ row.term_cluster|cell }} | {{ row.best_url|cell }} | {{ row.relevance_score|ratio_pct }} | {{ row.verdict|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if demand.content_gaps %}
+### Content gaps
+
+{% for gap in demand.content_gaps %}
+- **{{ gap.cluster }}** needs a {{ gap.required_page_type }}.
+{% endfor %}
+{% endif %}
+
+{% if demand.negatives %}
+### Negative keyword blocklist
+
+| Term | Match type | Source | Reason |
+| --- | --- | --- | --- |
+{% for negative in demand.negatives %}
+| {{ negative.term|cell }} | {{ negative.match_type|cell }} | {{ negative.source|cell }} | {{ negative.reason|cell }} |
+{% endfor %}
+{% endif %}
+
+---
+
+## 6. Are we ready
+
+{% if readiness.pages %}
+### Landing pages
+
+| URL | LCP | CLS | Mobile | Form fields | Severity | Issues |
+| --- | ---: | ---: | --- | ---: | --- | --- |
+{% for page in readiness.pages %}
+| {{ page.url|cell }} | {{ page.lcp_ms|num }} ms | {{ page.cls|num(2) }} | {{ page.mobile_ok|yesno }} | {{ page.form_fields_count|num }} | {{ page.severity|cell }} | {{ page.issues|commalist|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if readiness.conversion_actions %}
+### Conversion tracking
+
+| Action | Status | Last conversion | Stale for |
+| --- | --- | --- | ---: |
+{% for action in readiness.conversion_actions %}
+| {{ action.name|cell }} | {{ action.status|cell }} | {{ action.last_conversion_at|date }} | {{ action.staleness_days|days }} |
+{% endfor %}
+{% endif %}
+
+{% if readiness.synthetic_check %}
+**Synthetic conversion probe:** fired {{ readiness.synthetic_check.fired_at|datetime }}, observed in the Ads API: {{ readiness.synthetic_check.observed_in_ads_api|yesno }}{% if readiness.synthetic_check.latency_min is not none %}, latency {{ readiness.synthetic_check.latency_min|num }} min{% endif %}. Verdict: **{{ readiness.synthetic_check.verdict|text }}**.
+{% endif %}
+
+{% if readiness.alerts %}
+**Alerts:**
+{% for alert in readiness.alerts %}
+- {{ alert }}
+{% endfor %}
+{% endif %}
+
+{% if readiness.lists %}
+### Audience lists
+
+| List | Size | Consent basis | Markets | Usable | Blocker |
+| --- | ---: | --- | --- | --- | --- |
+{% for audience in readiness.lists %}
+| {{ audience.name|cell }} | {{ audience.size|num }} | {{ audience.consent_basis|cell }} | {{ audience.markets_allowed|commalist|cell }} | {{ audience.usable|yesno }} | {{ audience.blocker|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if readiness.scenarios %}
+### Opportunity sizing
+
+| Monthly budget | Est. clicks | Est. conversions | Est. CPA | Est. revenue | Interval |
+| ---: | ---: | ---: | ---: | ---: | --- |
+{% for scenario in readiness.scenarios %}
+| {{ scenario.budget_usd_month|money("USD", 0) }} | {{ scenario.est_clicks|num }} | {{ scenario.est_conv|num(1) }} | {{ scenario.est_cpa|money }} | {{ scenario.est_revenue|money("", 0) }} | {{ scenario.confidence_interval|cell }} |
+{% endfor %}
+
+{% for scenario in readiness.scenarios %}
+{% if scenario.assumptions %}
+*{{ scenario.budget_usd_month|money("USD", 0) }}/month assumes:* {{ scenario.assumptions|commalist("; ") }}
+{% endif %}
+{% endfor %}
+{% endif %}
+
+---
+
+## 7. What to do next
+
+{% if report.recommended_next_actions %}
+{% for action in report.recommended_next_actions %}
+{{ loop.index }}. {{ action.statement }} *({{ action.confidence }} confidence)* {{ cite.markers(action.evidence_ids) }}
+{% endfor %}
+{% else %}
+No next actions were recorded.
+{% endif %}
+
+{% if report.open_questions %}
+### Open questions
+
+{% for question in report.open_questions %}
+- {{ question }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 8. Evidence index
+
+{% if cite|length %}
+Every claim above cites the evidence it rests on. These are the row ids in this workspace's evidence store.
+
+| Marker | Evidence id |
+| --- | --- |
+{% for citation in cite.citations %}
+| {{ citation.marker }} | `{{ citation.evidence_id }}` |
+{% endfor %}
+{% else %}
+This report cites no evidence, which for a completed run is itself a finding.
+{% endif %}

@@ -1,0 +1,162 @@
+{
+  "$defs": {
+    "ContentGap": {
+      "additionalProperties": true,
+      "properties": {
+        "cluster": {
+          "title": "Cluster",
+          "type": "string"
+        },
+        "required_page_type": {
+          "title": "Required Page Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cluster",
+        "required_page_type"
+      ],
+      "title": "ContentGap",
+      "type": "object"
+    },
+    "KeywordPageMapping": {
+      "additionalProperties": true,
+      "description": "1.4.5 `keyword_to_page_map`.",
+      "properties": {
+        "term_cluster": {
+          "title": "Term Cluster",
+          "type": "string"
+        },
+        "best_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Url"
+        },
+        "relevance_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relevance Score"
+        },
+        "verdict": {
+          "enum": [
+            "good_fit",
+            "weak_fit",
+            "gap"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term_cluster",
+        "verdict"
+      ],
+      "title": "KeywordPageMapping",
+      "type": "object"
+    },
+    "NegativeKeyword": {
+      "additionalProperties": true,
+      "description": "1.4.4 `negative_blocklist`.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "default": "phrase",
+          "enum": [
+            "broad",
+            "phrase",
+            "exact"
+          ],
+          "title": "Match Type",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "lost_reasons",
+                "wasteful_terms",
+                "intent_irrelevant"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "NegativeKeyword",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Stage 1.4 rolled up. The keyword rows themselves live in\n`ResearchReport.priced_keyword_list` \u2014 they are the CSV export, so they are\nheld once, at the top level, rather than duplicated inside a section.",
+  "properties": {
+    "total_keywords": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Total Keywords",
+      "type": "integer"
+    },
+    "negatives": {
+      "items": {
+        "$ref": "#/$defs/NegativeKeyword"
+      },
+      "title": "Negatives",
+      "type": "array"
+    },
+    "mapping": {
+      "items": {
+        "$ref": "#/$defs/KeywordPageMapping"
+      },
+      "title": "Mapping",
+      "type": "array"
+    },
+    "content_gaps": {
+      "items": {
+        "$ref": "#/$defs/ContentGap"
+      },
+      "title": "Content Gaps",
+      "type": "array"
+    }
+  },
+  "title": "DemandMap",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,49 @@
+{
+  "additionalProperties": true,
+  "description": "1.3.1 `competitor_set`.",
+  "properties": {
+    "domain": {
+      "title": "Domain",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "overlap_score": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Overlap Score"
+    },
+    "overlap_basis": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Overlap Basis",
+      "type": "array"
+    }
+  },
+  "required": [
+    "domain"
+  ],
+  "title": "Competitor",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,99 @@
+{
+  "additionalProperties": true,
+  "description": "1.5.1 `landing_page_audit`.",
+  "properties": {
+    "url": {
+      "title": "Url",
+      "type": "string"
+    },
+    "lcp_ms": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lcp Ms"
+    },
+    "cls": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cls"
+    },
+    "mobile_ok": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mobile Ok"
+    },
+    "form_fields_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Form Fields Count"
+    },
+    "trust_signals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trust Signals",
+      "type": "array"
+    },
+    "issues": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Issues",
+      "type": "array"
+    },
+    "severity": {
+      "anyOf": [
+        {
+          "enum": [
+            "critical",
+            "major",
+            "minor",
+            "none"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Severity"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "PageAudit",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

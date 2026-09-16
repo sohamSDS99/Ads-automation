@@ -48,6 +48,15 @@ CMD uvicorn agent.main:app --host :: --port ${PORT:-8000}
 # built only by the profiled `test` service in docker-compose.yml.
 # ---------------------------------------------------------------------------
 FROM base AS dev
+# The integration suite renders real PDFs, so the test image needs WeasyPrint's
+# native dependencies. They are added HERE and not in `base`: production `api`
+# never renders — the worker does — and pulling Pango into the runtime image
+# would undo the "slim, no browser" property the first line of this file claims.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
 RUN uv sync --frozen
 
 # ---------------------------------------------------------------------------

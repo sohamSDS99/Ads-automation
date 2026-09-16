@@ -124,10 +124,22 @@ class ApprovalRequiredRole(StrEnum):
 
 
 class ExportFormat(StrEnum):
+    """The five deliverables of PRD §12. `csv` arrived in migration 0004."""
+
     PDF = "pdf"
     DOCX = "docx"
     MD = "md"
     JSON = "json"
+    CSV = "csv"
+
+
+class ExportStatus(StrEnum):
+    """The lifecycle `GET /exports/{job_id}` reports (PRD §12)."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+    READY = "ready"
+    FAILED = "failed"
 
 
 def _enum(enum_cls: type[StrEnum], name: str) -> ENUM:
@@ -523,9 +535,12 @@ class Report(Base):
 
 
 class Export(Base):
-    """A rendered artifact on the worker's Volume.
+    """One export job, and — once it finishes — the artifact it produced.
 
-    `path` is a storage key, never a filesystem path.
+    The row is written when the API accepts the request, not when the file
+    exists, so `id` doubles as the job id the client polls (PRD §12). `path` is
+    a storage key, never a filesystem path; nothing outside `agent.storage`
+    turns it into one.
     """
 
     __tablename__ = "export"
@@ -537,11 +552,35 @@ class Export(Base):
     format: Mapped[ExportFormat] = mapped_column(
         _enum(ExportFormat, "export_format"), nullable=False
     )
-    path: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    bytes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    status: Mapped[ExportStatus] = mapped_column(
+        _enum(ExportStatus, "export_status"),
+        nullable=False,
+        server_default=ExportStatus.QUEUED.value,
+    )
+    #: Set only once `status` reaches `ready`.
+    path: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    bytes: Mapped[int | None] = mapped_column(sa.Integer, nullable=True)
+    #: The failure, in words a person can act on. Set only when `status='failed'`.
+    error: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    ready_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
+    #: Who asked. Nullable because a scheduled export (P8) has no human behind it,
+    #: and because a user may be deleted long after their export was generated.
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
+
+    __table_args__ = (
+        sa.Index("ix_export_report_id", "report_id"),
+        sa.Index("ix_export_status", "status"),
+    )
+
+    @property
+    def is_downloadable(self) -> bool:
+        """A `ready` row always has a file behind it. Anything else does not."""
+        return self.status is ExportStatus.READY and bool(self.path)
 
 
 class Schedule(Base):

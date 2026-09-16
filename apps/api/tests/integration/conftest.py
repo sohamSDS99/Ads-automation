@@ -195,24 +195,40 @@ class ApiClient:
         self.raw.cookies.clear()
 
 
-def build_client() -> ApiClient:
+def build_client(overrides: dict[Any, Any] | None = None) -> ApiClient:
     from agent.main import create_app
 
-    transport = ASGITransport(app=create_app())
+    app = create_app()
+    # FastAPI resolves a dependency when the route is declared, so patching the
+    # module attribute afterwards changes nothing. `dependency_overrides` is the
+    # only hook that actually swaps one out.
+    for dependency, replacement in (overrides or {}).items():
+        app.dependency_overrides[dependency] = replacement
+    transport = ASGITransport(app=app)
     return ApiClient(AsyncClient(transport=transport, base_url="http://testserver"))
 
 
+@pytest.fixture
+def api_dependency_overrides() -> dict[Any, Any]:
+    """Dependency overrides applied to every app a test builds.
+
+    Empty by default. A module that needs one — a client pointed at an
+    in-process file server, say — redefines this fixture.
+    """
+    return {}
+
+
 @pytest_asyncio.fixture
-async def client() -> AsyncIterator[ApiClient]:
-    api = build_client()
+async def client(api_dependency_overrides: dict[Any, Any]) -> AsyncIterator[ApiClient]:
+    api = build_client(api_dependency_overrides)
     async with api.raw:
         yield api
 
 
 @pytest_asyncio.fixture
-async def second_client() -> AsyncIterator[ApiClient]:
+async def second_client(api_dependency_overrides: dict[Any, Any]) -> AsyncIterator[ApiClient]:
     """A second browser, with its own cookie jar."""
-    api = build_client()
+    api = build_client(api_dependency_overrides)
     async with api.raw:
         yield api
 
