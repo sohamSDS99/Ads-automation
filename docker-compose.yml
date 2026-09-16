@@ -26,6 +26,7 @@ x-api-env: &api-env
   COOKIE_SECURE: ${COOKIE_SECURE:-false}
   BOOTSTRAP_ADMIN_EMAIL: ${BOOTSTRAP_ADMIN_EMAIL:-admin@example.com}
   BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-change-me-at-least-12-chars}
+  APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
   OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
   STORAGE_BACKEND: ${STORAGE_BACKEND:-local}
   STORAGE_DIR: /data
@@ -75,6 +76,7 @@ services:
       - ./apps/api/alembic:/app/alembic
       - ./apps/api/alembic.ini:/app/alembic.ini
       - ./apps/api/scripts:/app/scripts
+      - ./apps/api/tests:/app/tests
     depends_on:
       postgres:
         condition: service_healthy
@@ -100,6 +102,39 @@ services:
         condition: service_healthy
     networks: [internal]
     # No `ports:` — worker has no public ingress here, exactly as on Railway.
+
+  # `docker compose run --rm test` — the integration suite, on the same private
+  # network as everything else. Profiled, so `make up` never starts it, and
+  # unpublished, so the "only web publishes a host port" rule still holds.
+  test:
+    profiles: ["test"]
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+      target: dev
+    environment:
+      <<: *api-env
+      # Its own database. The suite truncates between tests and must never be
+      # pointed at the one `make up` gave you.
+      DATABASE_URL: postgresql://agent:agent@postgres:5432/agent_test
+      REDIS_URL: redis://redis:6379/15
+      COOKIE_SECURE: "false"
+      BOOTSTRAP_ADMIN_EMAIL: ""
+      BOOTSTRAP_ADMIN_PASSWORD: ""
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/api/alembic:/app/alembic
+      - ./apps/api/alembic.ini:/app/alembic.ini
+      - ./apps/api/scripts:/app/scripts
+      - ./apps/api/pyproject.toml:/app/pyproject.toml  # pytest settings live here
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+    command: ["pytest", "tests/integration", "-q"]
 
   web:
     build:
