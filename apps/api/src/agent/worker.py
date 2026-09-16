@@ -20,6 +20,7 @@ from arq.connections import RedisSettings
 
 from agent.config import get_settings
 from agent.db.session import dispose_engine, get_sessionmaker
+from agent.export.jobs import generate_export
 from agent.fileserver import FileServer
 from agent.logging_setup import configure_logging
 from agent.orchestrator.executor import RunExecutor
@@ -81,7 +82,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_run]
+    functions = [execute_run, generate_export]
     on_startup = startup
     on_shutdown = shutdown
     redis_settings = RedisSettings.from_dsn(get_settings().redis_url)
