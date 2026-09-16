@@ -1,0 +1,32 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/keywords_data/google_ads/keywords_for_site/live
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 40501, "status_message": "Invalid Field:
+        ''target''.", "result": null}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://api.dataforseo.com/v3/dataforseo_labs/google/competitors_domain/live
+  response:
+    body:
+      string: '{"tasks": [{"status_code": 40501, "status_message": "Invalid Field:
+        ''target''.", "result": null}]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1

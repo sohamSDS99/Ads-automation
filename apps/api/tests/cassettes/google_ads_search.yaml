@@ -1,0 +1,116 @@
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://oauth2.googleapis.com/token
+  response:
+    body:
+      string: '{"access_token": "ya29.cassette-access-token", "expires_in": 3599,
+        "token_type": "Bearer"}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"campaign": {"id": "111", "name": "Brand \u2014 Exact",
+        "status": "ENABLED", "advertisingChannelType": "SEARCH"}, "segments": {"month":
+        "2025-06-01"}, "metrics": {"costMicros": "4820000000", "conversions": 61.0,
+        "conversionsValue": 244000.0, "impressions": "82000", "clicks": "5100", "ctr":
+        0.0622, "averageCpc": "945098"}}, {"campaign": {"id": "222", "name": "Generic
+        \u2014 SDS Software", "status": "ENABLED", "advertisingChannelType": "SEARCH"},
+        "segments": {"month": "2025-06-01"}, "metrics": {"costMicros": "9110000000",
+        "conversions": 18.0, "conversionsValue": 54000.0, "impressions": "410000",
+        "clicks": "9800", "ctr": 0.0239, "averageCpc": "929592"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"searchTermView": {"searchTerm": "safety data sheet
+        software"}, "campaign": {"name": "Generic \u2014 SDS Software"}, "adGroup":
+        {"name": "SDS Software \u2014 Broad"}, "segments": {"month": "2025-06-01"},
+        "metrics": {"costMicros": "2140000000", "conversions": 9.0, "conversionsValue":
+        27000.0, "impressions": "61000", "clicks": "2300"}}, {"searchTermView": {"searchTerm":
+        "free sds sheets download"}, "campaign": {"name": "Generic \u2014 SDS Software"},
+        "adGroup": {"name": "SDS Software \u2014 Broad"}, "segments": {"month": "2025-06-01"},
+        "metrics": {"costMicros": "1880000000", "conversions": 0.0, "conversionsValue":
+        0.0, "impressions": "94000", "clicks": "3100"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"adGroupAd": {"ad": {"id": "9001", "type": "RESPONSIVE_SEARCH_AD",
+        "responsiveSearchAd": {"headlines": [{"text": "SDS Management Software"},
+        {"text": "Compliance Without the Binders"}], "descriptions": [{"text": "Track
+        every safety data sheet in one place."}]}, "finalUrls": ["https://www.sdsmanager.com/us/"]},
+        "status": "ENABLED"}, "adGroup": {"name": "SDS Software \u2014 Broad"}, "campaign":
+        {"name": "Generic \u2014 SDS Software"}, "metrics": {"impressions": "61000",
+        "clicks": "2300", "conversions": 9.0, "costMicros": "2140000000"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"changeEvent": {"changeDateTime": "2025-06-11 09:14:22",
+        "changeResourceType": "CAMPAIGN_BUDGET", "resourceChangeOperation": "UPDATE",
+        "changedFields": "amount_micros", "userEmail": "soham@sdsmanager.com"}, "campaign":
+        {"name": "Generic \u2014 SDS Software"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"adGroupCriterion": {"keyword": {"text": "sds software",
+        "matchType": "PHRASE"}}, "campaign": {"name": "Generic \u2014 SDS Software"},
+        "segments": {"month": "2025-06-01"}, "metrics": {"searchImpressionShare":
+        0.31, "searchBudgetLostImpressionShare": 0.42, "searchRankLostImpressionShare":
+        0.27, "costMicros": "2140000000", "conversions": 9.0, "impressions": "61000"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+version: 1
