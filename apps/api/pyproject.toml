@@ -72,6 +72,14 @@ packages = ["agent"]
 module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*"]
 ignore_missing_imports = true
 
+[[tool.mypy.overrides]]
+# python-docx ships a py.typed marker but leaves parts of its own API
+# unannotated (Table.add_row among them), so strict mode refuses to call them.
+# The module is still fully type-checked; exactly one rule is relaxed, and only
+# in the one module that touches those calls.
+module = ["agent.export.docx"]
+disallow_untyped_calls = false
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

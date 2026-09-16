@@ -11,10 +11,24 @@ a template that can disagree with the one next to it.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
 from agent.export.citations import CitationIndex
 from agent.export.contract import CompetitorAd, PricedKeyword, ResearchReport
+from agent.export.templating import (
+    EMPTY,
+    fmt_bool,
+    fmt_date,
+    fmt_days,
+    fmt_list,
+    fmt_money,
+    fmt_months,
+    fmt_number,
+    fmt_pct,
+    fmt_ratio_pct,
+    fmt_text,
+)
 
 #: How many priced keywords a prose document shows before deferring to the CSV.
 #: A run targets ≥2,000 (PRD §10, 1.4.1); a 2,000-row table in a PDF is not a
@@ -24,6 +38,22 @@ KEYWORD_PREVIEW_LIMIT = 50
 
 #: Same reasoning for the creative corpus: §12 sizes a PDF for 200 ads.
 AD_PREVIEW_LIMIT = 40
+
+#: The eight sections, in order, that every format must contain. PRD §12's
+#: acceptance is that the PDF and the DOCX "contain every section present in the
+#: JSON"; this is that list, and `tests/test_report_parity.py` checks all three
+#: renderings against it. The markdown numbers them ("## 1. Executive summary"),
+#: so the check is a substring match, not equality.
+SECTION_TITLES = (
+    "Executive summary",
+    "Business context",
+    "What we already ran",
+    "The competition",
+    "Demand",
+    "Are we ready",
+    "What to do next",
+    "Evidence index",
+)
 
 READINESS_LABELS = {
     "go": "Go",
@@ -81,3 +111,223 @@ def build_context(
         "ads_total": ads_total,
         "ads_truncated": ads_total > len(ads),
     }
+
+
+# ---------------------------------------------------------------------------
+# Print rows
+# ---------------------------------------------------------------------------
+#
+# The print template renders tables from lists of pre-formatted strings rather
+# than from model objects. Two reasons: a Jinja macro that has to know how to
+# format a column is a macro that will format it differently from the markdown
+# template, and every number in a table has exactly one correct rendering, which
+# is decided here next to the others.
+
+
+def _print_rows(report: ResearchReport, context: dict[str, Any]) -> dict[str, Any]:
+    """Every table in `report.html.j2`, as rows of rendered strings."""
+    business = report.business_context
+    learnings = report.account_learnings
+    competition = report.competitive_landscape
+    demand = report.demand_map
+    readiness = report.readiness
+    citations: CitationIndex = context["cite"]
+
+    return {
+        "product_rows": [
+            [
+                product.name,
+                fmt_text(product.price_model),
+                fmt_money(product.acv),
+                fmt_pct(product.gross_margin_pct),
+                fmt_text(product.delivery_cost_notes),
+            ]
+            for product in business.products
+        ],
+        "exclusion_rows": [
+            [
+                exclusion.persona,
+                exclusion.disqualifier,
+                fmt_text(exclusion.observable_signal),
+                fmt_list(exclusion.suggested_negative_terms),
+            ]
+            for exclusion in business.exclusions
+        ],
+        "market_rows": [
+            [
+                market.country,
+                fmt_text(market.language),
+                fmt_text(market.currency),
+                fmt_months(market.demand_months),
+                fmt_months(market.dead_months),
+            ]
+            for market in business.markets
+        ],
+        "regulated_rows": [
+            [term.term, term.rule]
+            for term in (business.compliance.regulated_terms if business.compliance else [])
+        ],
+        "performance_rows": [
+            ["Won", finding.campaign, fmt_text(finding.metric_delta), fmt_text(finding.period)]
+            for finding in learnings.winners
+        ]
+        + [
+            ["Lost", finding.campaign, fmt_text(finding.metric_delta), fmt_text(finding.period)]
+            for finding in learnings.losers
+        ],
+        "profitable_rows": [
+            [
+                term.term,
+                fmt_money(term.cost),
+                fmt_number(term.conv, 1),
+                fmt_money(term.cpa),
+                fmt_number(term.roas, 1),
+            ]
+            for term in learnings.profitable_terms
+        ],
+        "wasteful_rows": [
+            [
+                term.term,
+                fmt_money(term.cost),
+                fmt_number(term.conv, 1),
+                fmt_text(term.recommended_action),
+            ]
+            for term in learnings.wasteful_terms
+        ],
+        "competitor_rows": [
+            [
+                competitor.domain,
+                fmt_text(competitor.name),
+                fmt_ratio_pct(competitor.overlap_score),
+                fmt_list(competitor.overlap_basis),
+            ]
+            for competitor in competition.competitors
+        ],
+        "cluster_rows": [
+            [cluster.theme, fmt_number(cluster.frequency), fmt_list(cluster.advertisers)]
+            for cluster in competition.message_clusters
+        ],
+        "ad_rows": [
+            [
+                ad.advertiser,
+                fmt_text(ad.headline),
+                fmt_text(ad.angle),
+                fmt_text(ad.offer),
+                fmt_text(ad.cta),
+                f"{fmt_text(ad.first_seen)} → {fmt_text(ad.last_seen)}",
+            ]
+            for ad in context["ads"]
+        ],
+        "spend_rows": [
+            [
+                estimate.competitor,
+                estimate.est_monthly_spend_range,
+                estimate.method,
+                fmt_text(estimate.confidence),
+                fmt_months(estimate.peak_months),
+            ]
+            for estimate in competition.spend_estimates
+        ],
+        "keyword_rows": [
+            [
+                keyword.term,
+                fmt_text(keyword.market),
+                fmt_text(keyword.intent),
+                fmt_number(keyword.volume),
+                fmt_money(keyword.cpc_low),
+                fmt_money(keyword.cpc_high),
+                fmt_ratio_pct(keyword.competition),
+                fmt_text(keyword.best_url),
+                fmt_text(keyword.verdict),
+            ]
+            for keyword in context["keywords"]
+        ],
+        "mapping_rows": [
+            [
+                row.term_cluster,
+                fmt_text(row.best_url),
+                fmt_ratio_pct(row.relevance_score),
+                row.verdict,
+            ]
+            for row in demand.mapping
+        ],
+        "negative_rows": [
+            [
+                negative.term,
+                negative.match_type,
+                fmt_text(negative.source),
+                fmt_text(negative.reason),
+            ]
+            for negative in demand.negatives
+        ],
+        "page_rows": [
+            [
+                page.url,
+                f"{fmt_number(page.lcp_ms)} ms" if page.lcp_ms is not None else EMPTY,
+                fmt_number(page.cls, 2),
+                fmt_bool(page.mobile_ok),
+                fmt_number(page.form_fields_count),
+                fmt_text(page.severity),
+                fmt_list(page.issues),
+            ]
+            for page in readiness.pages
+        ],
+        "conversion_rows": [
+            [
+                action.name,
+                fmt_text(action.status),
+                fmt_date(action.last_conversion_at),
+                fmt_days(action.staleness_days),
+            ]
+            for action in readiness.conversion_actions
+        ],
+        "audience_rows": [
+            [
+                audience.name,
+                fmt_number(audience.size),
+                fmt_text(audience.consent_basis),
+                fmt_list(audience.markets_allowed),
+                fmt_bool(audience.usable),
+                fmt_text(audience.blocker),
+            ]
+            for audience in readiness.lists
+        ],
+        "scenario_rows": [
+            [
+                fmt_money(scenario.budget_usd_month, "USD", 0),
+                fmt_number(scenario.est_clicks),
+                fmt_number(scenario.est_conv, 1),
+                fmt_money(scenario.est_cpa),
+                fmt_money(scenario.est_revenue, "", 0),
+                fmt_text(scenario.confidence_interval),
+            ]
+            for scenario in readiness.scenarios
+        ],
+        "evidence_rows": [
+            [citation.marker, str(citation.evidence_id)] for citation in citations.citations
+        ],
+    }
+
+
+def build_print_context(
+    report: ResearchReport,
+    *,
+    project_name: str | None = None,
+    charts: Sequence[Any] = (),
+    screenshots: Sequence[Any] = (),
+    screenshot_total: int = 0,
+    keyword_limit: int = KEYWORD_PREVIEW_LIMIT,
+    ad_limit: int = AD_PREVIEW_LIMIT,
+) -> dict[str, Any]:
+    """`build_context` plus everything only the printed document needs."""
+    context = build_context(
+        report,
+        project_name=project_name,
+        keyword_limit=keyword_limit,
+        ad_limit=ad_limit,
+    )
+    context.update(_print_rows(report, context))
+    context["charts"] = list(charts)
+    context["screenshots"] = list(screenshots)
+    context["screenshot_total"] = screenshot_total
+    return context

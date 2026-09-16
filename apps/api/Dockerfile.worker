@@ -21,6 +21,20 @@ WORKDIR /app
 
 RUN uv python install 3.12
 
+# WeasyPrint's native dependencies (PRD §12). Since WeasyPrint 53 that is Pango
+# alone — Cairo and GDK-PixBuf were dropped — plus a font the stylesheet can
+# actually name. Without fonts-dejavu-core the PDF still renders, silently
+# substituting whatever face is present, and a document that picks its own font
+# per deploy is a document that does not reproduce.
+#
+# These live in the worker image only. Exports are generated here (the worker
+# owns the Volume); the api image stays slim and never imports WeasyPrint.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libpango-1.0-0 \
+        libpangoft2-1.0-0 \
+        fonts-dejavu-core \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 

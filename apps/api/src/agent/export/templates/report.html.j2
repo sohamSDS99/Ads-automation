@@ -1,0 +1,392 @@
+{#
+  The print document (PRD §12): A4, cover page, TOC with real page numbers,
+  running header and footer, inline SVG charts, embedded creative screenshots.
+
+  It renders the SAME sections in the SAME order as report.md.j2. The two are
+  compared by test, because §12's acceptance is that every section in the JSON
+  appears in both.
+
+  Page furniture is CSS's job, not this file's — see report.css. The only thing
+  in here that exists for the printer is `<a class="toc-link">`, whose page
+  number comes from `target-counter(attr(href), page)` at print time.
+#}
+{% macro table(headers, rows, numeric=[]) %}
+<table>
+  <thead>
+    <tr>
+      {% for header in headers %}
+      <th{% if loop.index0 in numeric %} class="num"{% endif %}>{{ header }}</th>
+      {% endfor %}
+    </tr>
+  </thead>
+  <tbody>
+    {% for row in rows %}
+    <tr>
+      {% for value in row %}
+      <td{% if loop.index0 in numeric %} class="num"{% endif %}>{{ value }}</td>
+      {% endfor %}
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endmacro %}
+
+{% macro chart_block(chart) %}
+<figure class="chart">
+  <figcaption class="chart-title">{{ chart.title }}</figcaption>
+  {{ chart.svg|safe }}
+  {% if chart.caption %}
+  <figcaption class="chart-caption">{{ chart.caption }}</figcaption>
+  {% endif %}
+</figure>
+{% endmacro %}
+
+<article>
+
+<section class="cover">
+  <div class="cover-kicker">Paid Ads Research</div>
+  <h1 class="cover-title">Stage 01 — Marketing Intelligence</h1>
+  <div class="cover-project">{{ project_name|text }}</div>
+
+  <div class="cover-verdict verdict-{{ report.launch_readiness }}">
+    Launch readiness: {{ readiness_label }}
+  </div>
+
+  <dl class="cover-meta">
+    <dt>Generated</dt><dd>{{ report.generated_at|datetime }}</dd>
+    <dt>Run</dt><dd class="cover-run mono">{{ report.run_id }}</dd>
+    <dt>Project id</dt><dd class="mono">{{ report.project_id }}</dd>
+    <dt>Research cost</dt><dd>{{ report.cost_usd|money("USD") }}</dd>
+    <dt>Schema</dt><dd>{{ report.schema_version }}</dd>
+  </dl>
+
+  {% if report.degraded_sources %}
+  <p class="cover-warning">
+    Degraded sources: {{ report.degraded_sources|commalist }}. Findings drawn from them are thinner
+    than the rest of this report.
+  </p>
+  {% endif %}
+</section>
+
+<section id="toc" class="toc">
+  <h2 class="toc-heading">Contents</h2>
+  <ol>
+    <li><a class="toc-link" href="#sec-summary">Executive summary</a></li>
+    <li><a class="toc-link" href="#sec-business">Business context</a></li>
+    <li><a class="toc-link" href="#sec-account">What we already ran</a></li>
+    <li><a class="toc-link" href="#sec-competition">The competition</a></li>
+    <li><a class="toc-link" href="#sec-demand">Demand</a></li>
+    <li><a class="toc-link" href="#sec-readiness">Are we ready</a></li>
+    <li><a class="toc-link" href="#sec-actions">What to do next</a></li>
+    <li><a class="toc-link" href="#sec-evidence">Evidence index</a></li>
+  </ol>
+</section>
+
+<section id="sec-summary" class="section">
+  <h2>Executive summary</h2>
+  <p class="lede">{{ report.executive_summary }}</p>
+
+  <h3>Launch readiness: {{ readiness_label }}</h3>
+  {% if report.launch_blockers %}
+  <p>{{ report.launch_blockers|length }} blocker{{ "" if report.launch_blockers|length == 1 else "s" }} must be cleared before launch.</p>
+  <ol class="claims">
+    {% for blocker in report.launch_blockers %}
+    <li>
+      {{ blocker.statement }}
+      <span class="confidence conf-{{ blocker.confidence }}">{{ blocker.confidence }}</span>
+      <span class="cite">{{ cite.markers(blocker.evidence_ids) }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>No launch blockers were recorded.</p>
+  {% endif %}
+</section>
+
+<section id="sec-business" class="section">
+  <h2>Business context</h2>
+
+  {% if business.products %}
+  <h3>Offer economics</h3>
+  {{ table(["Product", "Price model", "ACV", "Gross margin", "Delivery notes"],
+      product_rows, numeric=[2, 3]) }}
+  <p class="stat-row">
+    <span><strong>LTV estimate</strong> {{ business.ltv_estimate|money }}</span>
+    <span><strong>Target CAC</strong> {{ business.target_cac|money }}</span>
+    <span><strong>Payback</strong> {{ business.payback_months|num(1) }} months</span>
+  </p>
+  {% endif %}
+
+  {% if business.segments %}
+  <h3>Ideal customer profile</h3>
+  {% for segment in business.segments %}
+  <div class="segment">
+    <h4>{{ segment.label }} <span class="share">{{ segment.share_of_revenue_pct|pct }} of revenue</span>
+      <span class="cite">{{ cite.markers(segment.evidence_ids) }}</span></h4>
+    <ul>
+      {% if segment.firmographics %}
+      <li><strong>Firmographics:</strong> {% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}</li>
+      {% endif %}
+      {% if segment.triggers %}<li><strong>Buying triggers:</strong> {{ segment.triggers|commalist }}</li>{% endif %}
+      {% if segment.jobs_to_be_done %}<li><strong>Jobs to be done:</strong> {{ segment.jobs_to_be_done|commalist }}</li>{% endif %}
+    </ul>
+  </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if business.exclusions %}
+  <h3>Who we are not selling to</h3>
+  {{ table(["Persona", "Disqualifier", "Observable signal", "Suggested negatives"],
+      exclusion_rows) }}
+  {% endif %}
+
+  {% if business.markets %}
+  <h3>Markets</h3>
+  {{ table(["Market", "Language", "Currency", "Demand months", "Dead months"],
+      market_rows) }}
+  {% endif %}
+
+  {% if business.compliance %}
+  <h3>Compliance guardrails</h3>
+  {% if business.compliance.prohibited_claims %}
+  <p class="label">Never claim</p>
+  <ul>{% for claim in business.compliance.prohibited_claims %}<li>{{ claim }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if business.compliance.required_disclaimers %}
+  <p class="label">Always disclose</p>
+  <ul>{% for item in business.compliance.required_disclaimers %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% if business.compliance.regulated_terms %}
+  {{ table(["Regulated term", "Rule"], regulated_rows) }}
+  {% endif %}
+  {% endif %}
+</section>
+
+<section id="sec-account" class="section">
+  <h2>What we already ran</h2>
+
+  {% if learnings.winners or learnings.losers %}
+  <h3>Winners and losers</h3>
+  {{ table(["Outcome", "Campaign", "Result", "Period"], performance_rows) }}
+  {% endif %}
+
+  {% if learnings.structural_findings %}
+  <h3>Structural findings</h3>
+  <ul>{% for finding in learnings.structural_findings %}<li>{{ finding }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if learnings.profitable_terms %}
+  <h3>Search terms that paid</h3>
+  {{ table(["Term", "Cost", "Conversions", "CPA", "ROAS"], profitable_rows, numeric=[1, 2, 3, 4]) }}
+  {% endif %}
+
+  {% if learnings.wasteful_terms %}
+  <h3>Search terms that did not</h3>
+  {{ table(["Term", "Cost", "Conversions", "Recommended action"], wasteful_rows, numeric=[1, 2]) }}
+  <p class="callout">Wasted spend across the terms above: <strong>{{ wasted_spend|money }}</strong>.</p>
+  {% endif %}
+
+  {% if learnings.tried_and_failed %}
+  <h3>Do not repeat</h3>
+  <ul class="spaced">
+    {% for experiment in learnings.tried_and_failed %}
+    <li><strong>{{ experiment.what }}</strong> ({{ experiment.when|text }}) — {{ experiment.outcome|text }} {{ experiment.do_not_repeat_reason|text }}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section id="sec-competition" class="section">
+  <h2>The competition</h2>
+
+  {% if competition.competitors %}
+  <h3>Competitor set</h3>
+  {{ table(["Domain", "Name", "Overlap", "Basis"], competitor_rows, numeric=[2]) }}
+  {% endif %}
+
+  {% for chart in charts if chart.title == "What competitors are saying" %}
+  {{ chart_block(chart) }}
+  {% endfor %}
+
+  {% if competition.message_clusters %}
+  <h3>What they are all saying</h3>
+  {{ table(["Theme", "Ads", "Advertisers"], cluster_rows, numeric=[1]) }}
+  {% endif %}
+
+  {% if ads %}
+  <h3>Creative corpus</h3>
+  <p>
+    {{ ads_total }} ad{{ "" if ads_total == 1 else "s" }} were captured.
+    {% if ads_truncated %}The {{ ads|length }} below are the first {{ ads|length }}; the rest are in the JSON export.{% endif %}
+  </p>
+  {{ table(["Advertiser", "Headline", "Angle", "Offer", "CTA", "Seen"], ad_rows) }}
+  {% endif %}
+
+  {% if screenshots %}
+  <h3>Captured creatives</h3>
+  <p class="note">
+    {{ screenshots|length }} of {{ screenshot_total }} screenshot{{ "" if screenshot_total == 1 else "s" }}
+    are reproduced here; embedding every one would push this file past the 15&nbsp;MB ceiling §12 sets.
+    All of them stay addressable in the evidence store.
+  </p>
+  <div class="gallery">
+    {% for shot in screenshots %}
+    <figure>
+      <img src="{{ shot.data_uri }}" alt="Ad by {{ shot.advertiser }}"/>
+      <figcaption>{{ shot.advertiser }}{% if shot.headline %} — {{ shot.headline }}{% endif %}</figcaption>
+    </figure>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if competition.spend_estimates %}
+  <h3>Estimated spend</h3>
+  <p class="note">Every figure below is an estimate with a stated method. None of it is reported fact.</p>
+  {{ table(["Competitor", "Estimated monthly spend", "Method", "Confidence", "Peaks"], spend_rows) }}
+  {% endif %}
+
+  {% if competition.whitespace or competition.recommended_claim %}
+  <h3>Whitespace</h3>
+  {% if competition.recommended_claim %}
+  <p class="callout"><strong>Recommended claim:</strong> {{ competition.recommended_claim }}</p>
+  {% endif %}
+  {% for gap in competition.whitespace %}
+  <div class="whitespace">
+    <h4>{{ gap.claim }}</h4>
+    <ul>
+      <li><strong>Why nobody is saying it:</strong> {{ gap.why_unsaid|text }}</li>
+      <li><strong>Our proof:</strong> {{ gap.our_proof|text }}</li>
+      <li><strong>Risk:</strong> {{ gap.risk|text }}</li>
+    </ul>
+  </div>
+  {% endfor %}
+  {% if competition.substantiation_required %}
+  <p class="label">Substantiation required before this claim runs</p>
+  <ul>{% for item in competition.substantiation_required %}<li>{{ item }}</li>{% endfor %}</ul>
+  {% endif %}
+  {% endif %}
+</section>
+
+<section id="sec-demand" class="section">
+  <h2>Demand</h2>
+  <p><strong>{{ demand.total_keywords|num }}</strong> keywords were classified and priced. The complete
+  list is the CSV export; the table below is a preview.</p>
+
+  {% for chart in charts if chart.title == "Demand through the year" %}
+  {{ chart_block(chart) }}
+  {% endfor %}
+
+  {% if keywords %}
+  <h3>Priced keywords{% if keywords_truncated %} (top {{ keywords|length }} by volume){% endif %}</h3>
+  {{ table(
+      ["Term", "Market", "Intent", "Volume", "CPC low", "CPC high", "Competition", "Destination", "Verdict"],
+      keyword_rows, numeric=[3, 4, 5, 6]) }}
+  {% if keywords_truncated %}
+  <p class="note">{{ keywords_total }} keywords are in the CSV export. {{ keywords|length }} are shown here.</p>
+  {% endif %}
+  {% endif %}
+
+  {% if demand.mapping %}
+  <h3>Keyword to page</h3>
+  {{ table(["Cluster", "Destination", "Relevance", "Verdict"], mapping_rows, numeric=[2]) }}
+  {% endif %}
+
+  {% if demand.content_gaps %}
+  <h3>Content gaps</h3>
+  <ul>
+    {% for gap in demand.content_gaps %}
+    <li><strong>{{ gap.cluster }}</strong> needs a {{ gap.required_page_type }}.</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if demand.negatives %}
+  <h3>Negative keyword blocklist</h3>
+  {{ table(["Term", "Match type", "Source", "Reason"], negative_rows) }}
+  {% endif %}
+</section>
+
+<section id="sec-readiness" class="section">
+  <h2>Are we ready</h2>
+
+  {% if readiness.pages %}
+  <h3>Landing pages</h3>
+  {{ table(["URL", "LCP", "CLS", "Mobile", "Form fields", "Severity", "Issues"], page_rows, numeric=[1, 2, 4]) }}
+  {% endif %}
+
+  {% if readiness.conversion_actions %}
+  <h3>Conversion tracking</h3>
+  {{ table(["Action", "Status", "Last conversion", "Stale for"], conversion_rows, numeric=[3]) }}
+  {% endif %}
+
+  {% if readiness.synthetic_check %}
+  <p class="callout">
+    <strong>Synthetic conversion probe:</strong>
+    fired {{ readiness.synthetic_check.fired_at|datetime }},
+    observed in the Ads API: {{ readiness.synthetic_check.observed_in_ads_api|yesno }}{% if readiness.synthetic_check.latency_min is not none %}, latency {{ readiness.synthetic_check.latency_min|num }} min{% endif %}.
+    Verdict: <strong>{{ readiness.synthetic_check.verdict|text }}</strong>.
+  </p>
+  {% endif %}
+
+  {% if readiness.alerts %}
+  <p class="label">Alerts</p>
+  <ul>{% for alert in readiness.alerts %}<li>{{ alert }}</li>{% endfor %}</ul>
+  {% endif %}
+
+  {% if readiness.lists %}
+  <h3>Audience lists</h3>
+  {{ table(["List", "Size", "Consent basis", "Markets", "Usable", "Blocker"], audience_rows, numeric=[1]) }}
+  {% endif %}
+
+  {% if readiness.scenarios %}
+  <h3>Opportunity sizing</h3>
+  {% for chart in charts if chart.title == "Conversions by monthly budget" %}
+  {{ chart_block(chart) }}
+  {% endfor %}
+  {{ table(
+      ["Monthly budget", "Est. clicks", "Est. conversions", "Est. CPA", "Est. revenue", "Interval"],
+      scenario_rows, numeric=[0, 1, 2, 3, 4]) }}
+  <ul class="assumptions">
+    {% for scenario in readiness.scenarios %}
+    {% if scenario.assumptions %}
+    <li><strong>{{ scenario.budget_usd_month|money("USD", 0) }}/month assumes:</strong> {{ scenario.assumptions|commalist("; ") }}</li>
+    {% endif %}
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section id="sec-actions" class="section">
+  <h2>What to do next</h2>
+  {% if report.recommended_next_actions %}
+  <ol class="claims">
+    {% for action in report.recommended_next_actions %}
+    <li>
+      {{ action.statement }}
+      <span class="confidence conf-{{ action.confidence }}">{{ action.confidence }}</span>
+      <span class="cite">{{ cite.markers(action.evidence_ids) }}</span>
+    </li>
+    {% endfor %}
+  </ol>
+  {% else %}
+  <p>No next actions were recorded.</p>
+  {% endif %}
+
+  {% if report.open_questions %}
+  <h3>Open questions</h3>
+  <ul>{% for question in report.open_questions %}<li>{{ question }}</li>{% endfor %}</ul>
+  {% endif %}
+</section>
+
+<section id="sec-evidence" class="section">
+  <h2>Evidence index</h2>
+  {% if cite|length %}
+  <p>Every claim above cites the evidence it rests on. These are the row ids in this workspace's
+  evidence store.</p>
+  {{ table(["Marker", "Evidence id"], evidence_rows) }}
+  {% else %}
+  <p>This report cites no evidence, which for a completed run is itself a finding.</p>
+  {% endif %}
+</section>
+
+</article>
