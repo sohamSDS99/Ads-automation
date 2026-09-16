@@ -1,0 +1,40 @@
+{
+  "additionalProperties": true,
+  "description": "1.2.1 `historical_performance` \u2014 one winner or one loser.",
+  "properties": {
+    "campaign": {
+      "title": "Campaign",
+      "type": "string"
+    },
+    "metric_delta": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Metric Delta"
+    },
+    "period": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Period"
+    }
+  },
+  "required": [
+    "campaign"
+  ],
+  "title": "PerformanceFinding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

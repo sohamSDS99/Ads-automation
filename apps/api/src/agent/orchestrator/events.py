@@ -38,7 +38,18 @@ BEGINNING = "0-0"
 
 
 class EventType(StrEnum):
-    """The eight event types of PRD §7.3, and nothing else."""
+    """The eight event types of PRD §7.3, plus `export.ready` from §12.
+
+    §7.3 enumerates eight and §12 then says the client may "listen on the run
+    SSE channel for `export.ready`" — the two sections disagree, and §12 is the
+    one describing a feature, so the ninth is here.
+
+    It is the only event that can be published after `run.completed`, which
+    matters to any reader that treats the terminal event as end-of-stream: an
+    export requested an hour after the run finished publishes into a feed
+    nobody is holding open. `GET /exports/{job_id}` is the reliable answer, and
+    this event is the fast one.
+    """
 
     RUN_STATUS = "run.status"
     NODE_STARTED = "node.started"
@@ -48,6 +59,7 @@ class EventType(StrEnum):
     NODE_FAILED = "node.failed"
     APPROVAL_REQUIRED = "approval.required"
     RUN_COMPLETED = "run.completed"
+    EXPORT_READY = "export.ready"
 
 
 #: After this, the stream is over and an SSE reader may close.

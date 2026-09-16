@@ -1,0 +1,40 @@
+{
+  "additionalProperties": true,
+  "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
+  "properties": {
+    "persona": {
+      "title": "Persona",
+      "type": "string"
+    },
+    "disqualifier": {
+      "title": "Disqualifier",
+      "type": "string"
+    },
+    "observable_signal": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observable Signal"
+    },
+    "suggested_negative_terms": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Suggested Negative Terms",
+      "type": "array"
+    }
+  },
+  "required": [
+    "persona",
+    "disqualifier"
+  ],
+  "title": "IcpExclusion",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

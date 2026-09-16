@@ -1,0 +1,250 @@
+{
+  "$defs": {
+    "FailedExperiment": {
+      "additionalProperties": true,
+      "description": "1.2.3 `failed_experiments` \u2014 the institutional memory that stops a repeat.",
+      "properties": {
+        "what": {
+          "title": "What",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "do_not_repeat_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Do Not Repeat Reason"
+        }
+      },
+      "required": [
+        "what"
+      ],
+      "title": "FailedExperiment",
+      "type": "object"
+    },
+    "PerformanceFinding": {
+      "additionalProperties": true,
+      "description": "1.2.1 `historical_performance` \u2014 one winner or one loser.",
+      "properties": {
+        "campaign": {
+          "title": "Campaign",
+          "type": "string"
+        },
+        "metric_delta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Delta"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        }
+      },
+      "required": [
+        "campaign"
+      ],
+      "title": "PerformanceFinding",
+      "type": "object"
+    },
+    "ProfitableTerm": {
+      "additionalProperties": true,
+      "description": "1.2.2 `search_term_pnl`, profitable side. Arithmetic is pandas', not the model's.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "conv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conv"
+        },
+        "cpa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpa"
+        },
+        "roas": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roas"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "ProfitableTerm",
+      "type": "object"
+    },
+    "WastefulTerm": {
+      "additionalProperties": true,
+      "description": "1.2.2 `search_term_pnl`, wasteful side.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "conv": {
+          "default": 0.0,
+          "title": "Conv",
+          "type": "number"
+        },
+        "recommended_action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended Action"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "WastefulTerm",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Stage 1.2 rolled up.",
+  "properties": {
+    "winners": {
+      "items": {
+        "$ref": "#/$defs/PerformanceFinding"
+      },
+      "title": "Winners",
+      "type": "array"
+    },
+    "losers": {
+      "items": {
+        "$ref": "#/$defs/PerformanceFinding"
+      },
+      "title": "Losers",
+      "type": "array"
+    },
+    "structural_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Structural Findings",
+      "type": "array"
+    },
+    "profitable_terms": {
+      "items": {
+        "$ref": "#/$defs/ProfitableTerm"
+      },
+      "title": "Profitable Terms",
+      "type": "array"
+    },
+    "wasteful_terms": {
+      "items": {
+        "$ref": "#/$defs/WastefulTerm"
+      },
+      "title": "Wasteful Terms",
+      "type": "array"
+    },
+    "tried_and_failed": {
+      "items": {
+        "$ref": "#/$defs/FailedExperiment"
+      },
+      "title": "Tried And Failed",
+      "type": "array"
+    }
+  },
+  "title": "AccountLearnings",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

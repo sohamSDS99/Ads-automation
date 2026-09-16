@@ -1,0 +1,52 @@
+{
+  "additionalProperties": true,
+  "description": "1.4.5 `keyword_to_page_map`.",
+  "properties": {
+    "term_cluster": {
+      "title": "Term Cluster",
+      "type": "string"
+    },
+    "best_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Url"
+    },
+    "relevance_score": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Relevance Score"
+    },
+    "verdict": {
+      "enum": [
+        "good_fit",
+        "weak_fit",
+        "gap"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    }
+  },
+  "required": [
+    "term_cluster",
+    "verdict"
+  ],
+  "title": "KeywordPageMapping",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

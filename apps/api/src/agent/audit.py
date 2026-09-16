@@ -43,6 +43,10 @@ class AuditAction(StrEnum):
     CSV_UPLOADED = "source.csv_uploaded"
     EVIDENCE_WRITTEN = "evidence.written"
 
+    # P5a — report exports. Requesting one is the recorded act; downloading the
+    # same file twice is not a second decision, and a row per click would bury
+    # the log the admin actually reads.
+    EXPORT_REQUESTED = "export.requested"
     # P3 — approval gates. `APPROVAL_REQUESTED` is the one action here with no
     # human actor: the executor opens the gate, and the row exists so the audit
     # log tells the whole story of a decision rather than only its second half.
@@ -59,6 +63,7 @@ class AuditTarget(StrEnum):
     RUN = "run"
     PROJECT = "project"
     EVIDENCE = "evidence"
+    EXPORT = "export"
     APPROVAL = "approval"
 
 

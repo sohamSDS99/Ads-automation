@@ -1,0 +1,20 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "term": {
+      "title": "Term",
+      "type": "string"
+    },
+    "rule": {
+      "title": "Rule",
+      "type": "string"
+    }
+  },
+  "required": [
+    "term",
+    "rule"
+  ],
+  "title": "RegulatedTerm",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,367 @@
+{
+  "$defs": {
+    "ComplianceGuardrails": {
+      "additionalProperties": true,
+      "description": "1.1.5 \u26f3 `compliance_guardrails` \u2014 gated on an `approver` (legal).",
+      "properties": {
+        "prohibited_claims": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Claims",
+          "type": "array"
+        },
+        "required_disclaimers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Disclaimers",
+          "type": "array"
+        },
+        "regulated_terms": {
+          "items": {
+            "$ref": "#/$defs/RegulatedTerm"
+          },
+          "title": "Regulated Terms",
+          "type": "array"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "title": "ComplianceGuardrails",
+      "type": "object"
+    },
+    "IcpExclusion": {
+      "additionalProperties": true,
+      "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
+      "properties": {
+        "persona": {
+          "title": "Persona",
+          "type": "string"
+        },
+        "disqualifier": {
+          "title": "Disqualifier",
+          "type": "string"
+        },
+        "observable_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observable Signal"
+        },
+        "suggested_negative_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suggested Negative Terms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "persona",
+        "disqualifier"
+      ],
+      "title": "IcpExclusion",
+      "type": "object"
+    },
+    "IcpSegment": {
+      "additionalProperties": true,
+      "description": "1.1.2 `icp_profile`.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "firmographics": {
+          "additionalProperties": true,
+          "title": "Firmographics",
+          "type": "object"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "jobs_to_be_done": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Jobs To Be Done",
+          "type": "array"
+        },
+        "share_of_revenue_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Of Revenue Pct"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "IcpSegment",
+      "type": "object"
+    },
+    "MarketCoverage": {
+      "additionalProperties": true,
+      "description": "1.1.4 `market_coverage`.",
+      "properties": {
+        "country": {
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "demand_months": {
+          "description": "1\u201312",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Demand Months",
+          "type": "array"
+        },
+        "dead_months": {
+          "description": "1\u201312",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Dead Months",
+          "type": "array"
+        }
+      },
+      "required": [
+        "country"
+      ],
+      "title": "MarketCoverage",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": true,
+      "description": "1.1.1 `offer_economics`.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "price_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Model"
+        },
+        "acv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Annual contract value, account currency",
+          "title": "Acv"
+        },
+        "gross_margin_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gross Margin Pct"
+        },
+        "delivery_cost_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delivery Cost Notes"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "RegulatedTerm": {
+      "additionalProperties": true,
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "rule"
+      ],
+      "title": "RegulatedTerm",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "Stage 1.1 rolled up.",
+  "properties": {
+    "products": {
+      "items": {
+        "$ref": "#/$defs/Product"
+      },
+      "title": "Products",
+      "type": "array"
+    },
+    "ltv_estimate": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ltv Estimate"
+    },
+    "target_cac": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Target Cac"
+    },
+    "payback_months": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Payback Months"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/IcpSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    },
+    "exclusions": {
+      "items": {
+        "$ref": "#/$defs/IcpExclusion"
+      },
+      "title": "Exclusions",
+      "type": "array"
+    },
+    "markets": {
+      "items": {
+        "$ref": "#/$defs/MarketCoverage"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "compliance": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ComplianceGuardrails"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "BusinessContext",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

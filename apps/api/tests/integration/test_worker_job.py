@@ -45,7 +45,24 @@ def patched_gateway(
 
 
 def test_the_worker_registers_the_function_the_api_enqueues() -> None:
-    assert [function.__name__ for function in WorkerSettings.functions] == [EXECUTE_RUN]
+    """Every name the API can enqueue must be a function the worker runs.
+
+    Derived from `agent.queue`, not written out here: a hardcoded list is a
+    second place to remember, and the failure it produces — a job stuck at
+    `queued` forever — looks nothing like a missing test entry.
+    """
+    import agent.queue as queue_module
+
+    enqueueable = {
+        value
+        for name, value in vars(queue_module).items()
+        if name.isupper() and isinstance(value, str) and not name.startswith("_")
+    }
+    registered = {function.__name__ for function in WorkerSettings.functions}
+    assert enqueueable <= registered, (
+        f"the API can enqueue jobs the worker cannot run: {enqueueable - registered}"
+    )
+    assert EXECUTE_RUN in registered
     # arq's default job timeout is 300s; a full run is allowed 45 minutes.
     assert WorkerSettings.job_timeout >= 45 * 60
     # The executor owns retries. A job-level retry would re-enter a live run.

@@ -1,0 +1,63 @@
+{
+  "additionalProperties": true,
+  "description": "The synthetic conversion probe: did a click we fired ourselves come back?",
+  "properties": {
+    "fired_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fired At"
+    },
+    "observed_in_ads_api": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed In Ads Api"
+    },
+    "latency_min": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Latency Min"
+    },
+    "verdict": {
+      "anyOf": [
+        {
+          "enum": [
+            "pass",
+            "fail",
+            "inconclusive"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verdict"
+    }
+  },
+  "title": "SyntheticCheck",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

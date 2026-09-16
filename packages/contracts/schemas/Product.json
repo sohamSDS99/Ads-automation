@@ -1,0 +1,67 @@
+{
+  "additionalProperties": true,
+  "description": "1.1.1 `offer_economics`.",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "price_model": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Price Model"
+    },
+    "acv": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Annual contract value, account currency",
+      "title": "Acv"
+    },
+    "gross_margin_pct": {
+      "anyOf": [
+        {
+          "maximum": 100,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Gross Margin Pct"
+    },
+    "delivery_cost_notes": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Delivery Cost Notes"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "Product",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,1881 @@
+{
+  "$defs": {
+    "AccountLearnings": {
+      "additionalProperties": true,
+      "description": "Stage 1.2 rolled up.",
+      "properties": {
+        "winners": {
+          "items": {
+            "$ref": "#/$defs/PerformanceFinding"
+          },
+          "title": "Winners",
+          "type": "array"
+        },
+        "losers": {
+          "items": {
+            "$ref": "#/$defs/PerformanceFinding"
+          },
+          "title": "Losers",
+          "type": "array"
+        },
+        "structural_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Structural Findings",
+          "type": "array"
+        },
+        "profitable_terms": {
+          "items": {
+            "$ref": "#/$defs/ProfitableTerm"
+          },
+          "title": "Profitable Terms",
+          "type": "array"
+        },
+        "wasteful_terms": {
+          "items": {
+            "$ref": "#/$defs/WastefulTerm"
+          },
+          "title": "Wasteful Terms",
+          "type": "array"
+        },
+        "tried_and_failed": {
+          "items": {
+            "$ref": "#/$defs/FailedExperiment"
+          },
+          "title": "Tried And Failed",
+          "type": "array"
+        }
+      },
+      "title": "AccountLearnings",
+      "type": "object"
+    },
+    "AudienceList": {
+      "additionalProperties": true,
+      "description": "1.5.3 \u26f3 `audience_consent_check` \u2014 gated on an `approver` (data officer).",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "size": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Size"
+        },
+        "consent_basis": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Consent Basis"
+        },
+        "markets_allowed": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Markets Allowed",
+          "type": "array"
+        },
+        "usable": {
+          "default": false,
+          "title": "Usable",
+          "type": "boolean"
+        },
+        "blocker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Blocker"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AudienceList",
+      "type": "object"
+    },
+    "BusinessContext": {
+      "additionalProperties": true,
+      "description": "Stage 1.1 rolled up.",
+      "properties": {
+        "products": {
+          "items": {
+            "$ref": "#/$defs/Product"
+          },
+          "title": "Products",
+          "type": "array"
+        },
+        "ltv_estimate": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ltv Estimate"
+        },
+        "target_cac": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Cac"
+        },
+        "payback_months": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payback Months"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/IcpSegment"
+          },
+          "title": "Segments",
+          "type": "array"
+        },
+        "exclusions": {
+          "items": {
+            "$ref": "#/$defs/IcpExclusion"
+          },
+          "title": "Exclusions",
+          "type": "array"
+        },
+        "markets": {
+          "items": {
+            "$ref": "#/$defs/MarketCoverage"
+          },
+          "title": "Markets",
+          "type": "array"
+        },
+        "compliance": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ComplianceGuardrails"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "BusinessContext",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": true,
+      "description": "An assertion the report is prepared to stand behind.\n\nPRD \u00a711. `evidence_ids` has `min_length=1` because the alternative \u2014 an\noptional citation list \u2014 makes \"uncited\" the path of least resistance for\nboth the model and every future caller.",
+      "properties": {
+        "statement": {
+          "minLength": 1,
+          "title": "Statement",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        }
+      },
+      "required": [
+        "statement",
+        "evidence_ids",
+        "confidence"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "CompetitiveLandscape": {
+      "additionalProperties": true,
+      "description": "Stage 1.3 rolled up.",
+      "properties": {
+        "competitors": {
+          "items": {
+            "$ref": "#/$defs/Competitor"
+          },
+          "title": "Competitors",
+          "type": "array"
+        },
+        "ads": {
+          "items": {
+            "$ref": "#/$defs/CompetitorAd"
+          },
+          "title": "Ads",
+          "type": "array"
+        },
+        "message_clusters": {
+          "items": {
+            "$ref": "#/$defs/MessageCluster"
+          },
+          "title": "Message Clusters",
+          "type": "array"
+        },
+        "spend_estimates": {
+          "items": {
+            "$ref": "#/$defs/SpendEstimate"
+          },
+          "title": "Spend Estimates",
+          "type": "array"
+        },
+        "whitespace": {
+          "items": {
+            "$ref": "#/$defs/Whitespace"
+          },
+          "title": "Whitespace",
+          "type": "array"
+        },
+        "recommended_claim": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended Claim"
+        },
+        "substantiation_required": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Substantiation Required",
+          "type": "array"
+        }
+      },
+      "title": "CompetitiveLandscape",
+      "type": "object"
+    },
+    "Competitor": {
+      "additionalProperties": true,
+      "description": "1.3.1 `competitor_set`.",
+      "properties": {
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "overlap_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overlap Score"
+        },
+        "overlap_basis": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Overlap Basis",
+          "type": "array"
+        }
+      },
+      "required": [
+        "domain"
+      ],
+      "title": "Competitor",
+      "type": "object"
+    },
+    "CompetitorAd": {
+      "additionalProperties": true,
+      "description": "1.3.2 `creative_corpus` \u2014 one observed ad.\n\n`screenshot_path` is a **storage key**, never a filesystem path (PRD \u00a75.2);\nthe PDF renderer resolves it through `storage.backend`.",
+      "properties": {
+        "advertiser": {
+          "title": "Advertiser",
+          "type": "string"
+        },
+        "headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headline"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "offer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offer"
+        },
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "proof_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proof Type"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cta"
+        },
+        "landing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Landing Url"
+        },
+        "first_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Seen"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "screenshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Screenshot Path"
+        }
+      },
+      "required": [
+        "advertiser"
+      ],
+      "title": "CompetitorAd",
+      "type": "object"
+    },
+    "ComplianceGuardrails": {
+      "additionalProperties": true,
+      "description": "1.1.5 \u26f3 `compliance_guardrails` \u2014 gated on an `approver` (legal).",
+      "properties": {
+        "prohibited_claims": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Claims",
+          "type": "array"
+        },
+        "required_disclaimers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Disclaimers",
+          "type": "array"
+        },
+        "regulated_terms": {
+          "items": {
+            "$ref": "#/$defs/RegulatedTerm"
+          },
+          "title": "Regulated Terms",
+          "type": "array"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "title": "ComplianceGuardrails",
+      "type": "object"
+    },
+    "ContentGap": {
+      "additionalProperties": true,
+      "properties": {
+        "cluster": {
+          "title": "Cluster",
+          "type": "string"
+        },
+        "required_page_type": {
+          "title": "Required Page Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cluster",
+        "required_page_type"
+      ],
+      "title": "ContentGap",
+      "type": "object"
+    },
+    "ConversionAction": {
+      "additionalProperties": true,
+      "description": "1.5.2 `tracking_probe`.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Status"
+        },
+        "last_conversion_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Conversion At"
+        },
+        "staleness_days": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Staleness Days"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConversionAction",
+      "type": "object"
+    },
+    "DemandMap": {
+      "additionalProperties": true,
+      "description": "Stage 1.4 rolled up. The keyword rows themselves live in\n`ResearchReport.priced_keyword_list` \u2014 they are the CSV export, so they are\nheld once, at the top level, rather than duplicated inside a section.",
+      "properties": {
+        "total_keywords": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Total Keywords",
+          "type": "integer"
+        },
+        "negatives": {
+          "items": {
+            "$ref": "#/$defs/NegativeKeyword"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "mapping": {
+          "items": {
+            "$ref": "#/$defs/KeywordPageMapping"
+          },
+          "title": "Mapping",
+          "type": "array"
+        },
+        "content_gaps": {
+          "items": {
+            "$ref": "#/$defs/ContentGap"
+          },
+          "title": "Content Gaps",
+          "type": "array"
+        }
+      },
+      "title": "DemandMap",
+      "type": "object"
+    },
+    "FailedExperiment": {
+      "additionalProperties": true,
+      "description": "1.2.3 `failed_experiments` \u2014 the institutional memory that stops a repeat.",
+      "properties": {
+        "what": {
+          "title": "What",
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "When"
+        },
+        "outcome": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Outcome"
+        },
+        "do_not_repeat_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Do Not Repeat Reason"
+        }
+      },
+      "required": [
+        "what"
+      ],
+      "title": "FailedExperiment",
+      "type": "object"
+    },
+    "IcpExclusion": {
+      "additionalProperties": true,
+      "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
+      "properties": {
+        "persona": {
+          "title": "Persona",
+          "type": "string"
+        },
+        "disqualifier": {
+          "title": "Disqualifier",
+          "type": "string"
+        },
+        "observable_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observable Signal"
+        },
+        "suggested_negative_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suggested Negative Terms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "persona",
+        "disqualifier"
+      ],
+      "title": "IcpExclusion",
+      "type": "object"
+    },
+    "IcpSegment": {
+      "additionalProperties": true,
+      "description": "1.1.2 `icp_profile`.",
+      "properties": {
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "firmographics": {
+          "additionalProperties": true,
+          "title": "Firmographics",
+          "type": "object"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "jobs_to_be_done": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Jobs To Be Done",
+          "type": "array"
+        },
+        "share_of_revenue_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Of Revenue Pct"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "IcpSegment",
+      "type": "object"
+    },
+    "KeywordPageMapping": {
+      "additionalProperties": true,
+      "description": "1.4.5 `keyword_to_page_map`.",
+      "properties": {
+        "term_cluster": {
+          "title": "Term Cluster",
+          "type": "string"
+        },
+        "best_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Url"
+        },
+        "relevance_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relevance Score"
+        },
+        "verdict": {
+          "enum": [
+            "good_fit",
+            "weak_fit",
+            "gap"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term_cluster",
+        "verdict"
+      ],
+      "title": "KeywordPageMapping",
+      "type": "object"
+    },
+    "MarketCoverage": {
+      "additionalProperties": true,
+      "description": "1.1.4 `market_coverage`.",
+      "properties": {
+        "country": {
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        },
+        "demand_months": {
+          "description": "1\u201312",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Demand Months",
+          "type": "array"
+        },
+        "dead_months": {
+          "description": "1\u201312",
+          "items": {
+            "type": "integer"
+          },
+          "title": "Dead Months",
+          "type": "array"
+        }
+      },
+      "required": [
+        "country"
+      ],
+      "title": "MarketCoverage",
+      "type": "object"
+    },
+    "MessageCluster": {
+      "additionalProperties": true,
+      "properties": {
+        "theme": {
+          "title": "Theme",
+          "type": "string"
+        },
+        "frequency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequency"
+        },
+        "advertisers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advertisers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "theme"
+      ],
+      "title": "MessageCluster",
+      "type": "object"
+    },
+    "NegativeKeyword": {
+      "additionalProperties": true,
+      "description": "1.4.4 `negative_blocklist`.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "default": "phrase",
+          "enum": [
+            "broad",
+            "phrase",
+            "exact"
+          ],
+          "title": "Match Type",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "source": {
+          "anyOf": [
+            {
+              "enum": [
+                "lost_reasons",
+                "wasteful_terms",
+                "intent_irrelevant"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "NegativeKeyword",
+      "type": "object"
+    },
+    "PageAudit": {
+      "additionalProperties": true,
+      "description": "1.5.1 `landing_page_audit`.",
+      "properties": {
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "lcp_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lcp Ms"
+        },
+        "cls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cls"
+        },
+        "mobile_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile Ok"
+        },
+        "form_fields_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Form Fields Count"
+        },
+        "trust_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trust Signals",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "critical",
+                "major",
+                "minor",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "PageAudit",
+      "type": "object"
+    },
+    "PerformanceFinding": {
+      "additionalProperties": true,
+      "description": "1.2.1 `historical_performance` \u2014 one winner or one loser.",
+      "properties": {
+        "campaign": {
+          "title": "Campaign",
+          "type": "string"
+        },
+        "metric_delta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Metric Delta"
+        },
+        "period": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Period"
+        }
+      },
+      "required": [
+        "campaign"
+      ],
+      "title": "PerformanceFinding",
+      "type": "object"
+    },
+    "PricedKeyword": {
+      "additionalProperties": false,
+      "description": "One row of the CSV export (PRD \u00a712). Strict on purpose \u2014 see\n`StrictReportModel`.\n\n`seasonality_index` is twelve monthly multipliers, January first, and the\nPDF renders it as a sparkline. A list of any other length is a bug in the\nnode that produced it, so it is rejected here rather than plotted wrong.",
+      "properties": {
+        "term": {
+          "minLength": 1,
+          "title": "Term",
+          "type": "string"
+        },
+        "market": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market"
+        },
+        "intent": {
+          "anyOf": [
+            {
+              "enum": [
+                "transactional",
+                "commercial_investigation",
+                "informational",
+                "navigational",
+                "irrelevant"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Intent"
+        },
+        "funnel_stage": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Funnel Stage"
+        },
+        "volume": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Volume"
+        },
+        "cpc_low": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpc Low"
+        },
+        "cpc_high": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpc High"
+        },
+        "competition": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Competition"
+        },
+        "seasonality_index": {
+          "items": {
+            "type": "number"
+          },
+          "title": "Seasonality Index",
+          "type": "array"
+        },
+        "trend_yoy": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trend Yoy"
+        },
+        "best_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Url"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "enum": [
+                "good_fit",
+                "weak_fit",
+                "gap"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        },
+        "match_type": {
+          "default": "phrase",
+          "enum": [
+            "broad",
+            "phrase",
+            "exact"
+          ],
+          "title": "Match Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PricedKeyword",
+      "type": "object"
+    },
+    "Product": {
+      "additionalProperties": true,
+      "description": "1.1.1 `offer_economics`.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "price_model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Price Model"
+        },
+        "acv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Annual contract value, account currency",
+          "title": "Acv"
+        },
+        "gross_margin_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gross Margin Pct"
+        },
+        "delivery_cost_notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Delivery Cost Notes"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "Product",
+      "type": "object"
+    },
+    "ProfitableTerm": {
+      "additionalProperties": true,
+      "description": "1.2.2 `search_term_pnl`, profitable side. Arithmetic is pandas', not the model's.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "conv": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Conv"
+        },
+        "cpa": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cpa"
+        },
+        "roas": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Roas"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "ProfitableTerm",
+      "type": "object"
+    },
+    "Readiness": {
+      "additionalProperties": true,
+      "description": "Stage 1.5 rolled up.",
+      "properties": {
+        "pages": {
+          "items": {
+            "$ref": "#/$defs/PageAudit"
+          },
+          "title": "Pages",
+          "type": "array"
+        },
+        "conversion_actions": {
+          "items": {
+            "$ref": "#/$defs/ConversionAction"
+          },
+          "title": "Conversion Actions",
+          "type": "array"
+        },
+        "synthetic_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SyntheticCheck"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "alerts": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Alerts",
+          "type": "array"
+        },
+        "lists": {
+          "items": {
+            "$ref": "#/$defs/AudienceList"
+          },
+          "title": "Lists",
+          "type": "array"
+        },
+        "scenarios": {
+          "items": {
+            "$ref": "#/$defs/Scenario"
+          },
+          "title": "Scenarios",
+          "type": "array"
+        }
+      },
+      "title": "Readiness",
+      "type": "object"
+    },
+    "RegulatedTerm": {
+      "additionalProperties": true,
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "rule"
+      ],
+      "title": "RegulatedTerm",
+      "type": "object"
+    },
+    "Scenario": {
+      "additionalProperties": true,
+      "description": "1.5.4 `opportunity_sizing` \u2014 arithmetic in Python, assumptions from the model.",
+      "properties": {
+        "budget_usd_month": {
+          "minimum": 0,
+          "title": "Budget Usd Month",
+          "type": "number"
+        },
+        "est_clicks": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Clicks"
+        },
+        "est_conv": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Conv"
+        },
+        "est_cpa": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Cpa"
+        },
+        "est_revenue": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Revenue"
+        },
+        "assumptions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "confidence_interval": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence Interval"
+        }
+      },
+      "required": [
+        "budget_usd_month"
+      ],
+      "title": "Scenario",
+      "type": "object"
+    },
+    "SpendEstimate": {
+      "additionalProperties": true,
+      "description": "1.3.3 `spend_estimation`.\n\n`method` is required: PRD \u00a710 says an estimate must state its method and is\nnever to be presented as fact. The renderers print it next to the number.",
+      "properties": {
+        "competitor": {
+          "title": "Competitor",
+          "type": "string"
+        },
+        "est_monthly_spend_range": {
+          "title": "Est Monthly Spend Range",
+          "type": "string"
+        },
+        "method": {
+          "title": "Method",
+          "type": "string"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        },
+        "peak_months": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Peak Months",
+          "type": "array"
+        }
+      },
+      "required": [
+        "competitor",
+        "est_monthly_spend_range",
+        "method"
+      ],
+      "title": "SpendEstimate",
+      "type": "object"
+    },
+    "SyntheticCheck": {
+      "additionalProperties": true,
+      "description": "The synthetic conversion probe: did a click we fired ourselves come back?",
+      "properties": {
+        "fired_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fired At"
+        },
+        "observed_in_ads_api": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed In Ads Api"
+        },
+        "latency_min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Latency Min"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "enum": [
+                "pass",
+                "fail",
+                "inconclusive"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        }
+      },
+      "title": "SyntheticCheck",
+      "type": "object"
+    },
+    "WastefulTerm": {
+      "additionalProperties": true,
+      "description": "1.2.2 `search_term_pnl`, wasteful side.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "cost": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cost"
+        },
+        "conv": {
+          "default": 0.0,
+          "title": "Conv",
+          "type": "number"
+        },
+        "recommended_action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended Action"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "WastefulTerm",
+      "type": "object"
+    },
+    "Whitespace": {
+      "additionalProperties": true,
+      "description": "1.3.4 \u26f3 `differentiation_claim` \u2014 gated on an `approver` (marketing).",
+      "properties": {
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "why_unsaid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why Unsaid"
+        },
+        "our_proof": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Our Proof"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Risk"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "Whitespace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "PRD \u00a711, verbatim in field names and order.\n\nThis object is the single source of truth for every export. If something is\nnot in here, it is not in the PDF, the DOCX, the markdown, the JSON or the\nCSV \u2014 which is the point.",
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "generated_at": {
+      "format": "date-time",
+      "title": "Generated At",
+      "type": "string"
+    },
+    "executive_summary": {
+      "minLength": 1,
+      "title": "Executive Summary",
+      "type": "string"
+    },
+    "launch_readiness": {
+      "enum": [
+        "go",
+        "go_with_fixes",
+        "no_go"
+      ],
+      "title": "Launch Readiness",
+      "type": "string"
+    },
+    "launch_blockers": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Launch Blockers",
+      "type": "array"
+    },
+    "business_context": {
+      "$ref": "#/$defs/BusinessContext"
+    },
+    "account_learnings": {
+      "$ref": "#/$defs/AccountLearnings"
+    },
+    "competitive_landscape": {
+      "$ref": "#/$defs/CompetitiveLandscape"
+    },
+    "demand_map": {
+      "$ref": "#/$defs/DemandMap"
+    },
+    "readiness": {
+      "$ref": "#/$defs/Readiness"
+    },
+    "priced_keyword_list": {
+      "items": {
+        "$ref": "#/$defs/PricedKeyword"
+      },
+      "title": "Priced Keyword List",
+      "type": "array"
+    },
+    "recommended_next_actions": {
+      "items": {
+        "$ref": "#/$defs/Claim"
+      },
+      "title": "Recommended Next Actions",
+      "type": "array"
+    },
+    "open_questions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Open Questions",
+      "type": "array"
+    },
+    "degraded_sources": {
+      "description": "Connectors that partially failed during the run",
+      "items": {
+        "type": "string"
+      },
+      "title": "Degraded Sources",
+      "type": "array"
+    },
+    "cost_usd": {
+      "default": 0.0,
+      "minimum": 0,
+      "title": "Cost Usd",
+      "type": "number"
+    }
+  },
+  "required": [
+    "project_id",
+    "run_id",
+    "generated_at",
+    "executive_summary",
+    "launch_readiness"
+  ],
+  "title": "ResearchReport",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

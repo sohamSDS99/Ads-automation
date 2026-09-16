@@ -18,6 +18,8 @@ from agent.api.routes_auth import router as auth_router
 from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
+from agent.api.routes_reports import close_worker_client
+from agent.api.routes_reports import router as reports_router
 from agent.api.routes_runs import router as runs_router
 from agent.api.routes_sources import router as sources_router
 from agent.api.routes_users import router as users_router
@@ -47,6 +49,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         log.warning("bootstrap.skipped", error=str(exc))
 
     yield
+    await close_worker_client()
     await close_arq_pool()
     await close_redis()
     await dispose_engine()
@@ -94,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         approvals_router,
         evidence_router,
         sources_router,
+        reports_router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app

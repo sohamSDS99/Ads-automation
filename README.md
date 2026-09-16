@@ -57,6 +57,7 @@ make test-integration  # the DB+Redis suite, inside the compose network
 make guards        # fail if any route lacks its require(Permission)
 make verify        # PRD §19.1's acceptance list against the running stack
 make verify-p4     # P4's exit criteria end to end (needs a live OpenRouter key)
+make verify-p5a    # P5a's acceptance list: five formats, rendered and downloaded
 make browser       # render the auth screens in Chromium and assert on them
 make lint          # ruff + eslint
 make migrate       # alembic upgrade head
@@ -170,10 +171,42 @@ curl -N localhost:3000/api/v1/runs/$RUN_ID/events    # SSE, heartbeats every 15s
 * **Resume is the default.** Re-running a crashed run skips every succeeded
   node; `POST /runs/{id}/retry-failed` re-runs only what failed.
 
+## Reports and exports
+
+A finished run has one `ResearchReport` (PRD §11) — a validated object, not
+prose. Every format is a projection of it, which is what guarantees the PDF, the
+DOCX and the JSON cannot disagree: the model fills the object, and a
+deterministic template renders it.
+
+```bash
+curl -b cookies.txt localhost:3000/api/v1/reports/$RUN_ID          # the report + its markdown
+
+curl -X POST -b cookies.txt -H "X-CSRF-Token: $CSRF" \
+     "localhost:3000/api/v1/reports/$RUN_ID/export?format=pdf"     # 202 {job_id}
+
+curl -b cookies.txt localhost:3000/api/v1/exports/$JOB_ID          # queued|running|ready|failed
+curl -b cookies.txt -OJ localhost:3000/api/v1/exports/$JOB_ID/download
+```
+
+* **Generation is a worker job, never a request.** A 200-creative PDF takes tens
+  of seconds, and the Volume attaches to `worker` — `api` has no disk to write
+  to. The export row is created at enqueue time and its id *is* the job id.
+* **`api` cannot read the Volume either.** It signs a capability for one storage
+  key, fetches the object from the worker's internal file server over the
+  private network, and relays the bytes. Nothing on that network can read an
+  object without a signature.
+* **Exports are for everyone.** PRD §4.1 gives read and export to all four
+  roles, `viewer` included.
+* **Long tables say they are truncated.** The prose formats preview the top 50
+  keywords; the CSV is the complete list, and the document says so rather than
+  letting a cut table read as a full one.
+
 ## Layout
 
 ```
 apps/api      FastAPI + SQLAlchemy 2.0 + Alembic + arq       (uv-managed)
+  src/agent/export/    the report contract, five renderers, templates
+  src/agent/fileserver.py   worker-only; serves the Volume to `api`
 apps/web      Next.js 15 + Tailwind v4 + shadcn/ui           (pnpm)
 packages/contracts   JSON Schema emitted from Pydantic, consumed as zod
 railway/      provisioning runbook + the full env-var table
@@ -246,3 +279,22 @@ railway/      provisioning runbook + the full env-var table
   API and the SSE feed; `make verify-p4` drives the whole acceptance path
   through it, both gates included.
 - `STORAGE_BACKEND=s3` raises `NotImplementedError` by design.
+
+## Known limits of P5a
+
+- **Nothing writes a report yet.** Nodes 1.5.\*, `report_synthesis` (1.6.1) and
+  `report_critique` (1.6.2) are P5b, so `GET /reports/{run_id}` answers with a
+  404 naming the run's status until one exists. `scripts/verify-p5a.sh` seeds a
+  report to prove the rest of the path.
+- **The charts do not use matplotlib.** PRD §12 names its svg backend;
+  `export/charts.py` builds the SVG directly, because matplotlib embeds font
+  metrics and glyph paths and the same report would render to different bytes on
+  different machines. Reverting is one module. Flagged for a ruling.
+- **The PDF embeds 18 screenshots, not 200.** §12 sizes the file at 15 MB and
+  200 base64 PNGs exceed that before the text is counted. The gallery prints how
+  many it omitted.
+- **`export.ready` can be published after `run.completed`.** §7.3 enumerates
+  eight event types and §12 asks for this ninth on the same channel. A console
+  that closes on the terminal event will miss it; `GET /exports/{job_id}` is the
+  reliable answer.
+- **The Report Viewer is P7.** This phase is the API and the files.

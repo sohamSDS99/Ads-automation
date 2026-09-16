@@ -1,0 +1,65 @@
+{
+  "additionalProperties": true,
+  "description": "1.5.3 \u26f3 `audience_consent_check` \u2014 gated on an `approver` (data officer).",
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "size": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Size"
+    },
+    "consent_basis": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Consent Basis"
+    },
+    "markets_allowed": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Markets Allowed",
+      "type": "array"
+    },
+    "usable": {
+      "default": false,
+      "title": "Usable",
+      "type": "boolean"
+    },
+    "blocker": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Blocker"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "AudienceList",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,20 @@
+{
+  "additionalProperties": true,
+  "properties": {
+    "cluster": {
+      "title": "Cluster",
+      "type": "string"
+    },
+    "required_page_type": {
+      "title": "Required Page Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "cluster",
+    "required_page_type"
+  ],
+  "title": "ContentGap",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

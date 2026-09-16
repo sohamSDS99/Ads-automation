@@ -1,0 +1,52 @@
+{
+  "additionalProperties": true,
+  "description": "1.2.3 `failed_experiments` \u2014 the institutional memory that stops a repeat.",
+  "properties": {
+    "what": {
+      "title": "What",
+      "type": "string"
+    },
+    "when": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "When"
+    },
+    "outcome": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Outcome"
+    },
+    "do_not_repeat_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Do Not Repeat Reason"
+    }
+  },
+  "required": [
+    "what"
+  ],
+  "title": "FailedExperiment",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

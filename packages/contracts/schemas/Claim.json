@@ -1,0 +1,37 @@
+{
+  "additionalProperties": true,
+  "description": "An assertion the report is prepared to stand behind.\n\nPRD \u00a711. `evidence_ids` has `min_length=1` because the alternative \u2014 an\noptional citation list \u2014 makes \"uncited\" the path of least resistance for\nboth the model and every future caller.",
+  "properties": {
+    "statement": {
+      "minLength": 1,
+      "title": "Statement",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Evidence Ids",
+      "type": "array"
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    }
+  },
+  "required": [
+    "statement",
+    "evidence_ids",
+    "confidence"
+  ],
+  "title": "Claim",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

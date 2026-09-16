@@ -1,0 +1,138 @@
+{
+  "$defs": {
+    "ExportFormat": {
+      "description": "The five deliverables of PRD \u00a712. `csv` arrived in migration 0004.",
+      "enum": [
+        "pdf",
+        "docx",
+        "md",
+        "json",
+        "csv"
+      ],
+      "title": "ExportFormat",
+      "type": "string"
+    },
+    "ExportJob": {
+      "description": "`POST /reports/{run_id}/export` (202) and `GET /exports/{job_id}`.\n\n`id` is the job id *and* the export id \u2014 one identifier, because \u00a714 polls\n`/exports/{job_id}` and downloads `/exports/{id}/download`, and two ids for\none thing is how a client ends up polling something it cannot fetch.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "format": {
+          "$ref": "#/$defs/ExportFormat"
+        },
+        "status": {
+          "$ref": "#/$defs/ExportStatus"
+        },
+        "bytes": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set once `status` is `ready`",
+          "title": "Bytes"
+        },
+        "filename": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What a download will be called",
+          "title": "Filename"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set only when `status` is `failed`",
+          "title": "Error"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "ready_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ready At"
+        }
+      },
+      "required": [
+        "id",
+        "report_id",
+        "run_id",
+        "format",
+        "status",
+        "created_at"
+      ],
+      "title": "ExportJob",
+      "type": "object"
+    },
+    "ExportStatus": {
+      "description": "The lifecycle `GET /exports/{job_id}` reports (PRD \u00a712).",
+      "enum": [
+        "queued",
+        "running",
+        "ready",
+        "failed"
+      ],
+      "title": "ExportStatus",
+      "type": "string"
+    }
+  },
+  "description": "The `202` body of PRD \u00a712, which names the field `job_id`.",
+  "properties": {
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "export": {
+      "$ref": "#/$defs/ExportJob"
+    }
+  },
+  "required": [
+    "job_id",
+    "export"
+  ],
+  "title": "ExportAccepted",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
