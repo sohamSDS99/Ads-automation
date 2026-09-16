@@ -46,7 +46,7 @@ MatchedBy = Literal["vector", "text", "both", "filter"]
 #: Emitted as literal SQL, not as bound parameters, and both reasons matter.
 #: `to_tsvector` needs its first argument typed `regconfig`; a bound string
 #: arrives as `varchar` and Postgres refuses the call outright. And the GIN
-#: index in migration 0002 is built on this exact expression — a parameterised
+#: index in migration 0003 is built on this exact expression — a parameterised
 #: one would not match it, so the query would silently fall back to a sequential
 #: scan over every row of evidence. Neither value is user input.
 TS_CONFIG: sa.ColumnClause[str] = sa.literal_column("'english'")
@@ -54,7 +54,7 @@ TS_EMPTY: sa.ColumnClause[str] = sa.literal_column("''")
 
 
 def _document() -> sa.Function[Any]:
-    """The indexed expression, character for character (see migration 0002)."""
+    """The indexed expression, character for character (see migration 0003)."""
     return sa.func.to_tsvector(TS_CONFIG, sa.func.coalesce(Evidence.content_text, TS_EMPTY))
 
 

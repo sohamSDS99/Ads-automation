@@ -178,7 +178,7 @@ async def test_backfill_is_idempotent(
 async def test_evidence_can_be_written_without_a_run(
     db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID
 ) -> None:
-    """A CSV uploaded in the setup wizard has no run to belong to (migration 0002)."""
+    """A CSV uploaded in the setup wizard has no run to belong to (migration 0003)."""
     await store(db, workspace_id).write([draft("sds software")], project_id=project_id, run_id=None)
     await db.commit()
     row = (await db.execute(sa.select(Evidence))).scalar_one()

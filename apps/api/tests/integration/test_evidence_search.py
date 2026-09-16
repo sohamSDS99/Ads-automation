@@ -219,7 +219,7 @@ async def test_rows_without_an_embedding_are_still_findable_lexically(
 async def test_the_full_text_index_is_actually_used(
     db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID
 ) -> None:
-    """The query expression must match migration 0002's index expression exactly.
+    """The query expression must match migration 0003's index expression exactly.
 
     A parameterised `to_tsvector` still returns correct rows, so this would
     never show up as a failing assertion — it would show up as a sequential scan

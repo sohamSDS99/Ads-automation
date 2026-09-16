@@ -26,7 +26,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 #: 384 is `BAAI/bge-small-en-v1.5`. PRD §6 wrote 1536 assuming a hosted OpenAI-
 #: shaped embedder; OpenRouter turned out to serve no embedding model at all
 #: (PRD §20 Q6), so the local model the PRD named as the fallback is the model,
-#: and the column narrowed to match it in migration 0002.
+#: and the column narrowed to match it in migration 0003.
 EMBEDDING_DIM = 384
 
 
@@ -435,7 +435,7 @@ class Evidence(Base):
         UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
     )
     # NULL when the evidence arrived outside a run — a CSV uploaded in the
-    # setup wizard has no run to belong to (PRD §9.5, migration 0002).
+    # setup wizard has no run to belong to (PRD §9.5, migration 0003).
     run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=True
     )

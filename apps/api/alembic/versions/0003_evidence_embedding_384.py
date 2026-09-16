@@ -24,8 +24,8 @@ Run row to exist so an upload can reference it would put a lie in the run
 history; NULL says the true thing, which is that this evidence arrived outside
 any run.
 
-Revision ID: 0002
-Revises: 0001
+Revision ID: 0003
+Revises: 0002
 """
 
 from __future__ import annotations
@@ -34,8 +34,8 @@ from alembic import op
 
 # Ids match the file-number convention 0001 set; the descriptive part lives
 # in the filename, not in the id.
-revision: str = "0002"
-down_revision: str | None = "0001"
+revision: str = "0003"
+down_revision: str | None = "0002"
 branch_labels: str | None = None
 depends_on: str | None = None
 

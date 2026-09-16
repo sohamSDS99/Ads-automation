@@ -35,7 +35,7 @@ def test_evidence_embedding_matches_the_local_embedder() -> None:
 
     OpenRouter serves no embedding model, so the vectors come from the local
     `bge-small` the PRD named as its fallback (§20 Q6) and the column narrowed
-    to match in migration 0002. The column and the constant must never drift:
+    to match in migration 0003. The column and the constant must never drift:
     pgvector rejects a vector of the wrong width at INSERT, long after the
     mistake was made.
     """

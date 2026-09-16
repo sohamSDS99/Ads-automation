@@ -1,0 +1,61 @@
+{
+  "$defs": {
+    "ConnectorInfo": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/EvidenceSource"
+        },
+        "requires_credential": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "CredentialKind this connector needs, or null if none",
+          "title": "Requires Credential"
+        }
+      },
+      "required": [
+        "name",
+        "source"
+      ],
+      "title": "ConnectorInfo",
+      "type": "object"
+    },
+    "EvidenceSource": {
+      "enum": [
+        "google_ads",
+        "dataforseo",
+        "transparency",
+        "web",
+        "csv",
+        "derived"
+      ],
+      "title": "EvidenceSource",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "connectors": {
+      "items": {
+        "$ref": "#/$defs/ConnectorInfo"
+      },
+      "title": "Connectors",
+      "type": "array"
+    }
+  },
+  "required": [
+    "connectors"
+  ],
+  "title": "ConnectorListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
