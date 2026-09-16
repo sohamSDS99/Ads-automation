@@ -124,3 +124,128 @@ def test_every_selector_group_is_a_non_empty_fallback_chain() -> None:
 def test_parsing_is_stable_across_calls(fixture_text: Fixture) -> None:
     """Card payloads feed content hashes; instability would defeat dedupe."""
     assert cards(fixture_text) == cards(fixture_text)
+
+
+# ---------------------------------------------------------------------------
+# The screenshot key has to reach the card (P4, node 1.3.2's `screenshot_path`)
+# ---------------------------------------------------------------------------
+
+
+class FakeLocator:
+    def __init__(self, present: bool) -> None:
+        self.present = present
+        self.filled: list[str] = []
+        self.pressed: list[str] = []
+
+    @property
+    def first(self) -> FakeLocator:
+        return self
+
+    async def count(self) -> int:
+        return 1 if self.present else 0
+
+    async def is_visible(self) -> bool:
+        return self.present
+
+    async def fill(self, value: str) -> None:
+        self.filled.append(value)
+
+    async def press(self, key: str) -> None:
+        self.pressed.append(key)
+
+    async def click(self) -> None:  # pragma: no cover - the grid never loads more here
+        raise AssertionError("this page has no load-more control")
+
+
+class FakeMouse:
+    async def wheel(self, x: int, y: int) -> None:  # pragma: no cover - one page of cards
+        return None
+
+
+class FakePage:
+    """Only the surface `_scrape_advertiser` actually drives."""
+
+    def __init__(self, html: str, present: set[str]) -> None:
+        self.html = html
+        self.present = present
+        self.mouse = FakeMouse()
+        self.screenshots = 0
+
+    async def goto(self, url: str, **kwargs: object) -> None:
+        self.url = url
+
+    async def content(self) -> str:
+        return self.html
+
+    def locator(self, selector: str) -> FakeLocator:
+        return FakeLocator(selector in self.present)
+
+    async def screenshot(self, **kwargs: object) -> bytes:
+        self.screenshots += 1
+        return b"PNG"
+
+
+class FakeStorage:
+    def __init__(self) -> None:
+        self.written: dict[str, bytes] = {}
+
+    def put(self, key: str, data: bytes, *, content_type: str | None = None) -> str:
+        self.written[key] = data
+        return key
+
+
+def test_a_parsed_card_always_carries_the_screenshot_field(fixture_text: Fixture) -> None:
+    """Present even before the browser fills it, so live and saved pages match."""
+    assert all("screenshot_path" in card for card in cards(fixture_text))
+    assert cards(fixture_text)[0]["screenshot_path"] is None
+
+
+async def test_the_stored_screenshot_key_lands_on_every_card(
+    fixture_text: Fixture, monkeypatch: object
+) -> None:
+    """Before P4 the key never left `_screenshot`, so 1.3.2 could not cite it."""
+    from agent.connectors import transparency as module
+
+    async def no_delay(settings: object) -> None:
+        return None
+
+    monkeypatch.setattr(module, "polite_delay", no_delay)  # type: ignore[attr-defined]
+
+    page = FakePage(fixture_text("transparency_grid.html"), set(selectors.ADVERTISER_SEARCH_INPUT))
+    storage = FakeStorage()
+    connector = module.TransparencyConnector(storage=storage)
+
+    collected = await connector._scrape_advertiser(page, "Chemwatch", "US", 3)  # noqa: SLF001
+
+    assert len(collected) == 3
+    assert page.screenshots == 1
+    keys = {card["screenshot_path"] for card in collected}
+    assert len(keys) == 1
+    key = keys.pop()
+    assert key is not None
+    assert key.startswith("creatives/adhoc/chemwatch-")
+    assert storage.written[key] == b"PNG"
+
+
+async def test_a_screenshot_that_fails_costs_the_key_and_not_the_ads(
+    fixture_text: Fixture, monkeypatch: object
+) -> None:
+    """A screenshot is evidence, not the point. Losing it must not lose the corpus."""
+    from agent.connectors import transparency as module
+
+    async def no_delay(settings: object) -> None:
+        return None
+
+    monkeypatch.setattr(module, "polite_delay", no_delay)  # type: ignore[attr-defined]
+
+    page = FakePage(fixture_text("transparency_grid.html"), set(selectors.ADVERTISER_SEARCH_INPUT))
+
+    async def broken(**kwargs: object) -> bytes:
+        raise RuntimeError("renderer crashed")
+
+    page.screenshot = broken  # type: ignore[method-assign]
+    connector = module.TransparencyConnector(storage=FakeStorage())
+
+    collected = await connector._scrape_advertiser(page, "Chemwatch", "US", 3)  # noqa: SLF001
+    assert len(collected) == 3
+    assert all(card["screenshot_path"] is None for card in collected)

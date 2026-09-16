@@ -141,6 +141,10 @@ def parse_ad_cards(
                 "image_url": image_url,
                 "destination_url": destination,
                 "regions": [region] if region else [],
+                # Filled in by `_scrape_advertiser` once the grid is captured.
+                # Present here so a card parsed from a saved page has the same
+                # keys as one scraped live.
+                "screenshot_path": None,
             }
         )
     return parsed
@@ -267,7 +271,15 @@ class TransparencyConnector(BaseConnector):
             return []
 
         collected = collected[:max_ads]
-        await self._screenshot(page, advertiser)
+        # Stamped onto every card rather than discarded. Until now `_screenshot`
+        # wrote a PNG nobody could find again: the key never left this method,
+        # so PRD §10's `screenshot_path` on node 1.3.2 had no way to be filled.
+        # One full-page capture of the scrolled grid covers the cards collected
+        # from it — it is the grid the ad was seen in, not a crop of the ad, and
+        # `screenshot_path` is documented that way downstream.
+        key = await self._screenshot(page, advertiser)
+        for card in collected:
+            card["screenshot_path"] = key
         return collected
 
     @staticmethod

@@ -7,10 +7,13 @@ sources and emits a versioned, citation-backed Research Report.
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
 for the full specification.
 
-> **Status: Phase P3 (Stages 1.1 + 1.2).** Everything P0/P0b/P1/P2 shipped, plus
-> the first eight real research nodes, the gate machinery behind node 1.1.5 and
-> the `/approvals` API. The dummy nodes are gone. Stages 1.3–1.6 (the remaining
-> thirteen nodes) arrive in P4–P5. Phase table: PRD §17.
+> **Status: Phase P4 (Stages 1.3 + 1.4).** Everything P0/P0b/P1/P2/P3 shipped,
+> plus nine more nodes: the competitor set, the Playwright creative corpus with
+> stored screenshots, spend estimation, the second gate (1.3.4), and the demand
+> half — a ≥2,000-term keyword universe, batched intent classification, the
+> DataForSEO demand join, the negative blocklist and the keyword→page map.
+> Seventeen of the twenty-one nodes now exist. Stage 1.5 and the report itself
+> are P5. Phase table: PRD §17.
 
 ## Setup
 
@@ -53,6 +56,7 @@ make test          # unit + integration + route guards + mypy + tsc
 make test-integration  # the DB+Redis suite, inside the compose network
 make guards        # fail if any route lacks its require(Permission)
 make verify        # PRD §19.1's acceptance list against the running stack
+make verify-p4     # P4's exit criteria end to end (needs a live OpenRouter key)
 make verify-p5a    # P5a's acceptance list: five formats, rendered and downloaded
 make browser       # render the auth screens in Chromium and assert on them
 make lint          # ruff + eslint
@@ -65,32 +69,63 @@ make clean         # stop and delete volumes
 
 ## The DAG today
 
-Eight nodes, two stages, one gate:
+Seventeen nodes, four stages, two gates, six waves:
 
 ```
-1.1.1 offer_economics       1.2.1 historical_performance
-1.1.2 icp_profile           1.2.2 search_term_pnl
-1.1.3 negative_icp          1.2.3 failed_experiments
-1.1.4 market_coverage    ← 1.1.2
-1.1.5 compliance_guardrails ← 1.1.1   ⛳ gate → approver
+1.1.1 offer_economics        1.2.1 historical_performance
+1.1.2 icp_profile            1.2.2 search_term_pnl
+1.1.3 negative_icp           1.2.3 failed_experiments
+1.1.4 market_coverage     ← 1.1.2
+1.1.5 compliance_guardrails ← 1.1.1                  ⛳ gate → approver (legal)
+
+1.3.1 competitor_set        ← 1.1.2, 1.2.2
+1.3.2 creative_corpus       ← 1.3.1
+1.3.3 spend_estimation      ← 1.3.2, 1.3.1
+1.3.4 differentiation_claim ← 1.3.2, 1.1.1, 1.1.5    ⛳ gate → approver (marketing)
+
+1.4.1 keyword_universe      ← 1.1.1, 1.2.2, 1.3.2
+1.4.2 intent_classification ← 1.4.1
+1.4.3 demand_metrics        ← 1.4.1
+1.4.4 negative_blocklist    ← 1.4.2, 1.1.3, 1.2.2
+1.4.5 keyword_to_page_map   ← 1.4.2, 1.4.3
 ```
 
-Two things about them are worth knowing before reading the code.
+Four things about them are worth knowing before reading the code.
 
 **No node writes a number.** PRD §18 law 3 puts every CPA, ROAS, share-of-
-revenue and payback figure in `nodes/frames.py` and `nodes/pnl.py`. Five of the
-eight nodes therefore run in two halves: pandas computes the table, the model is
+revenue, overlap score, spend range, seasonality index and relevance score in
+`nodes/frames.py`, `nodes/pnl.py`, `nodes/creatives.py` and `nodes/keywords.py`.
+Most nodes therefore run in two halves: Python computes the table, the model is
 shown it and asked only for labels, and `reason()` merges the labels onto the
 computed rows. A model that miscopies a cost figure cannot put a wrong number in
-the report, because the figure never passes through it.
+the report, because the figure never passes through it. Two nodes — `1.4.3` and
+`1.4.4` — call no model at all, because a join and a merge are not questions.
 
 **An empty source is an answer.** A node with no evidence returns empty arrays
 without calling a model at all, and records what it could not read in its
 `coverage` field (PRD §16: never hallucinate history).
 
+**Big jobs are batched, and say how they went.** `1.3.2` reads its corpus 25 ads
+at a time and `1.4.2` labels terms 100 at a time, through `nodes/batching.py`.
+A minority of failed batches degrades rather than fails, and the output carries
+`batches`, `failed_batches` and `unread_ads` — a node returning a fifth of its
+work must not look like one that finished.
+
+**Estimates state their method.** `1.3.3` never presents a spend figure as fact:
+every range carries the `method` that produced it, the `basis` it used and a
+confidence that drops to `low` when the only signal is how many ads we saw. With
+no signal at all it returns `insufficient_evidence` rather than a number.
+
 ## Approval gates
 
-`1.1.5 compliance_guardrails` is a gate. When it produces its proposal the
+Two of the seventeen nodes are gates: `1.1.5 compliance_guardrails` (legal —
+what we may claim) and `1.3.4 differentiation_claim` (marketing — what we will
+claim). They run in that order because 1.3.4 depends on 1.1.5: a differentiator
+the approved guardrails prohibit is a disapproval waiting to happen, so the
+second gate is shown the first one's decision rather than left to guess. A run
+covering both therefore stops twice.
+
+When a gate produces its proposal the
 executor writes an `Approval`, leaves the node in `awaiting_approval`, halts
 **that branch only** and lets every other branch finish. The run then ends the
 pass as `awaiting_approval` and gives the project lock back — a gate can sit for
@@ -217,24 +252,32 @@ railway/      provisioning runbook + the full env-var table
   for, and releases the project lock.
 - **No `if RAILWAY` branch anywhere.** Environments differ by variable values.
 
-## Known limits of P3
+## Known limits of P4
 
-- **Thirteen of the twenty-one nodes do not exist yet.** Stages 1.3 (competition),
-  1.4 (demand) and 1.5 (readiness) are P4; the report itself is P5. A "full" run
-  today is stages 1.1 and 1.2.
-- **Google Ads evidence only appears if a credential is stored.** Nodes pull
-  through `nodes/gather.py` when the evidence store has nothing of a kind and
-  the node names a connector; without the secret they degrade to empty and say
-  so in `coverage`. `web_crawler` is not pulled at all — the site crawl belongs
-  to P5's landing-page audit.
+- **Four of the twenty-one nodes do not exist yet.** Stage 1.5 (readiness) and
+  the two report nodes are P5. A "full" run today is stages 1.1 through 1.4.
+- **`overlap_basis` can never say `auction`.** PRD §10 names it first, but the
+  Google Ads API exposes no auction-insights resource — it is a UI-only report.
+  The value stays in the vocabulary so a future source slots in without a schema
+  change; nothing emits it today, and `paid_keywords` and `serp` are what the
+  evidence actually supports.
+- **A creative's `screenshot_path` is the grid it was captured from**, not a crop
+  of the ad. One full-page capture per advertiser is written to the worker's
+  Volume through `StorageBackend`; serving it is P5's file server.
+- **Evidence only appears if its source is reachable.** Nodes pull through
+  `nodes/gather.py` when the evidence store has nothing of a kind and the node
+  names a connector; without the secret — or without Chromium, for the
+  Transparency Center — they degrade to empty and say so in `coverage`. That is
+  correct behaviour and also a trap when testing: seed the evidence, or every
+  assertion passes for the wrong reason.
 - **Approval SLAs and reminders are P8.** `Approval.due_at` is left NULL, so
   nothing nags an approver; the inbox badge is the only prompt.
 - There is no `POST /projects`, `POST /credentials` or `GET /models` — PRD §14
   lists them but no phase before P6 owns them, so a run's project and OpenRouter
   key are inserted directly for now.
-- The run console, approvals inbox and report viewer are P7. P3's surface is the
-  API and the SSE feed; `make verify-p3` drives the whole acceptance path
-  through it.
+- The run console, approvals inbox and report viewer are P7. P4's surface is the
+  API and the SSE feed; `make verify-p4` drives the whole acceptance path
+  through it, both gates included.
 - `STORAGE_BACKEND=s3` raises `NotImplementedError` by design.
 
 ## Known limits of P5a
