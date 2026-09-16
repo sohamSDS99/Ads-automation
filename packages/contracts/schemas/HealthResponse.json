@@ -1,0 +1,46 @@
+{
+  "description": "Liveness plus dependency reachability. Public, unauthenticated.",
+  "properties": {
+    "status": {
+      "description": "Overall service health",
+      "enum": [
+        "ok",
+        "degraded"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "db": {
+      "description": "Postgres reachability",
+      "enum": [
+        "ok",
+        "error"
+      ],
+      "title": "Db",
+      "type": "string"
+    },
+    "redis": {
+      "description": "Redis reachability",
+      "enum": [
+        "ok",
+        "error"
+      ],
+      "title": "Redis",
+      "type": "string"
+    },
+    "version": {
+      "description": "Application version",
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "db",
+    "redis",
+    "version"
+  ],
+  "title": "HealthResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
