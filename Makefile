@@ -4,7 +4,7 @@
 # ---------------------------------------------------------------------------
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
-        test-integration guards typecheck lint fmt contracts health clean
+        test-integration guards verify browser typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -59,6 +59,16 @@ test-integration: ## Run the DB+Redis suite against the running compose stack
 
 guards: ## Fail if any route is missing its require(Permission)
 	cd $(API) && uv run python scripts/check_route_guards.py
+
+verify: ## Run PRD §19.1's acceptance list against the running stack
+	./scripts/verify-p0b.sh
+
+browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
+	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 typecheck: ## mypy (api) + tsc (web)
 	cd $(API) && uv run mypy
