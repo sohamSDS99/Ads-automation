@@ -258,7 +258,15 @@ class DataForSEOConnector(BaseConnector):
     async def fetch(self, params: dict[str, Any]) -> list[EvidenceDraft]:
         """Volume for the site's own keywords, ideas from seeds, and SERP ownership.
 
-        `params`: `{domain, seeds?, serp_keywords?, location?, language?}`.
+        `params`: `{domain, seeds?, serp_keywords?, volume_for?, location?, language?}`.
+
+        `volume_for` is a different question from the rest and answers it alone:
+        node 1.4.1 discovers a keyword universe from several sources, and node
+        1.4.3 has to price *those* terms — including the ones that came from our
+        own search-term report or a competitor's ad copy and were never in this
+        vendor's idea list. Discovery is skipped when it is set, because
+        re-running `keywords_for_site` would spend quota to answer a question
+        nobody asked.
         """
         self.context.require(*self.CREDENTIAL_FIELDS)
         domain = str(params.get("domain") or "").strip()
@@ -268,6 +276,7 @@ class DataForSEOConnector(BaseConnector):
         language = params.get("language") or "English"
         seeds = list(params.get("seeds") or [])
         serp_keywords = list(params.get("serp_keywords") or [])
+        volume_for = [str(term).strip() for term in (params.get("volume_for") or []) if term]
 
         drafts: list[EvidenceDraft] = []
         failures: list[str] = []
@@ -276,6 +285,18 @@ class DataForSEOConnector(BaseConnector):
         # serves the whole fetch and a cassette sees one consistent transport.
         self.context.client = client
         try:
+            if volume_for:
+                try:
+                    for row in await self.search_volume(
+                        volume_for, location=location, language=language
+                    ):
+                        drafts.append(self._keyword_draft(row, domain, origin="volume"))
+                except ConnectorError as exc:
+                    failures.append(f"search_volume: {exc}")
+                if failures:
+                    raise ConnectorDegraded("; ".join(failures), drafts)
+                return drafts
+
             try:
                 for row in await self.keywords_for_site(
                     domain, location=location, language=language

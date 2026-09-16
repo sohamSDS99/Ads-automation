@@ -119,16 +119,11 @@ async def test_an_unknown_node_id_is_rejected_with_the_registered_set(
     assert response.status_code == 422
     body = response.json()
     assert "9.9" in body["detail"]
-    assert body["registered_nodes"] == [
-        "1.1.1",
-        "1.1.2",
-        "1.1.3",
-        "1.1.4",
-        "1.1.5",
-        "1.2.1",
-        "1.2.2",
-        "1.2.3",
-    ]
+    # Derived, not transcribed: what this route owes the caller is the set it
+    # actually knows about, and PRD §10's census is checked in `test_dag.py`.
+    from agent.orchestrator.registry import get_registry
+
+    assert body["registered_nodes"] == list(get_registry().ids)
 
 
 async def test_reuse_cache_skips_a_node_whose_inputs_have_not_changed(
