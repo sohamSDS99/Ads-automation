@@ -4,7 +4,8 @@
 # ---------------------------------------------------------------------------
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
-        test-integration guards verify verify-p2 browser typecheck lint fmt contracts health clean
+        test-integration guards verify verify-p2 verify-p5a browser typecheck lint fmt \
+        contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -68,6 +69,9 @@ verify: ## Run PRD §19.1's acceptance list against the running stack
 
 verify-p2: ## Run P2's exit criteria against the running stack
 	./scripts/verify-p2.sh
+
+verify-p5a: ## Run P5a's exit criteria against the running stack
+	./scripts/verify-p5a.sh
 
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py

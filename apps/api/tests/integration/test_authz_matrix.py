@@ -104,6 +104,26 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PROJECT_WRITE,
         None,
     ),
+    # P5a. Reports and exports are READ for every role — PRD §4.1 grants both
+    # "read reports" and "export PDF/DOCX/CSV/JSON" to all four, so a `viewer`
+    # may export. The POST is guarded by READ on purpose: it creates a job, so
+    # it cannot be a GET, but it grants nothing a GET would not.
+    ("GET", "/reports/{run_id}", "/reports/{run}", Permission.READ, None),
+    (
+        "POST",
+        "/reports/{run_id}/export",
+        "/reports/{run}/export?format=md",
+        Permission.READ,
+        None,
+    ),
+    ("GET", "/exports/{export_id}", "/exports/{run}", Permission.READ, None),
+    (
+        "GET",
+        "/exports/{export_id}/download",
+        "/exports/{run}/download",
+        Permission.READ,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
