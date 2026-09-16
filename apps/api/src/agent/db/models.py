@@ -459,7 +459,19 @@ class Approval(Base):
     """A halted gate awaiting a human decision (PRD §7.2 item 5)."""
 
     __tablename__ = "approval"
-    __table_args__ = (sa.Index("ix_approval_status_role", "status", "required_role"),)
+    __table_args__ = (
+        sa.Index("ix_approval_status_role", "status", "required_role"),
+        # One *open* question per gate per run (migration 0004). Partial, so a
+        # gate that was rejected and re-run keeps its history alongside the new
+        # pending row.
+        sa.Index(
+            "uq_approval_pending_per_gate",
+            "run_id",
+            "node_id",
+            unique=True,
+            postgresql_where=sa.text("status = 'pending'"),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = _pk()
     run_id: Mapped[uuid.UUID] = mapped_column(

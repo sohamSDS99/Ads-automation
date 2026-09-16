@@ -21,7 +21,7 @@ from agent.llm.ledger import ModelCatalogue
 from agent.queue import EXECUTE_RUN
 from agent.worker import WorkerSettings
 from tests.integration.conftest import REAL_REDIS_URL, ApiClient
-from tests.integration.runs_support import launch, script_two_node_run
+from tests.integration.runs_support import launch_chain, script_two_node_run
 from tests.openrouter_fake import FakeOpenRouter
 
 
@@ -55,7 +55,7 @@ def test_the_worker_registers_the_function_the_api_enqueues() -> None:
 async def test_a_launched_run_is_executed_by_a_real_arq_worker(
     admin: ApiClient, project: Any, monkeypatch: Any
 ) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
 
     fake = FakeOpenRouter()
     script_two_node_run(fake)

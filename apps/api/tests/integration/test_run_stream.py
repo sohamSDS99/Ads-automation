@@ -7,8 +7,13 @@ from typing import Any
 
 from agent.db.models import RunStatus
 from tests.integration.conftest import ApiClient
-from tests.integration.runs_support import execute, launch, script_two_node_run
-from tests.openrouter_fake import FakeOpenRouter, completion
+from tests.integration.runs_support import (
+    execute,
+    launch_chain,
+    script_two_node_run,
+    unparseable,
+)
+from tests.openrouter_fake import FakeOpenRouter
 
 
 def frames(body: str) -> list[dict[str, Any]]:
@@ -26,7 +31,7 @@ def frames(body: str) -> list[dict[str, Any]]:
 
 
 async def test_the_stream_replays_the_whole_run_in_order(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -53,13 +58,13 @@ async def test_the_stream_replays_the_whole_run_in_order(admin: ApiClient, proje
     ]
     assert events[3]["data"]["message"] == "google/gemini-2.5-flash · strict_schema"
     assert events[0]["data"]["status"] == RunStatus.QUEUED
-    assert events[2]["data"]["node_id"] == "0.1"
+    assert events[2]["data"]["node_id"] == "1.1.2"
     assert events[-1]["data"]["status"] == RunStatus.SUCCEEDED
-    assert events[-1]["data"]["cost_usd"] == "0.0015"
+    assert events[-1]["data"]["cost_usd"] == "0.0004"
 
 
 async def test_every_frame_carries_a_resumable_id(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -71,7 +76,7 @@ async def test_every_frame_carries_a_resumable_id(admin: ApiClient, project: Any
 
 
 async def test_a_reconnect_receives_only_what_it_missed(admin: ApiClient, project: Any) -> None:
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
     script_two_node_run(fake)
     await execute(created["id"], fake)
@@ -89,9 +94,9 @@ async def test_a_failed_node_is_reported_on_the_stream(
     admin: ApiClient, project: Any, monkeypatch: Any
 ) -> None:
     monkeypatch.setattr("agent.llm.gateway.BACKOFF_BASE_SECONDS", 0.0)
-    created = await launch(admin, project.id)
+    created = await launch_chain(admin, project.id)
     fake = FakeOpenRouter()
-    fake.always(completion({"no": 1}))
+    fake.always(unparseable())
     await execute(created["id"], fake)
 
     events = frames((await admin.get(f"/runs/{created['id']}/events")).text)

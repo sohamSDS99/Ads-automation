@@ -33,6 +33,7 @@ from agent.auth.rbac import Permission
 from agent.db.models import NodeRun, Run, RunMode, RunStatus, RunTrigger
 from agent.db.repos import ProjectRepo, RunRepo
 from agent.db.session import get_session
+from agent.orchestrator.approvals import expire_pending
 from agent.orchestrator.dag import Dag, DagError, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.registry import NodeRegistry, get_registry
@@ -250,13 +251,16 @@ async def cancel_run(run_id: uuid.UUID, me: RunOperator, request: Request, db: D
     )
 
     store = RunStore(db)
-    if run.status is RunStatus.QUEUED:
-        # Nothing has picked it up. Waiting for a worker to notice the flag
-        # would leave the project locked behind a run that never starts.
+    if run.status in (RunStatus.QUEUED, RunStatus.AWAITING_APPROVAL):
+        # No worker is inside this run — it is queued, or parked on a gate — so
+        # nobody will ever see the flag. Finalising here is the difference
+        # between a cancelled run and one that sits paused forever.
         await store.finish_run(run, status=RunStatus.CANCELLED, error={"code": "cancelled"})
         await store.record_skipped(
             run_id=run.id, node_ids=list(_selected_ids(run, get_dag())), reason="cancelled"
         )
+        # An open gate on a cancelled run is a question nobody can act on.
+        await expire_pending(db, run.id)
         await RunLock(redis).release(run.project_id, run.id)
         await RunEventStream(redis, run.id).publish(
             EventType.RUN_COMPLETED, run_id=str(run.id), status=RunStatus.CANCELLED
