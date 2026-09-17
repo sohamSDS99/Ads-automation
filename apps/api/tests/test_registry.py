@@ -90,14 +90,14 @@ def test_a_gate_node_registers_now_that_approvals_exist() -> None:
 
 
 def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
-    """PRD §10 marks three gates; 1.5.3 lands in P5, so two are registered.
+    """PRD §10 marks three gates, and all three are now registered.
 
     The census is deliberate here rather than derived: a node quietly gaining
     `gate=True` would stop runs dead, and a node quietly losing it would skip a
     human. Both should fail this test and be argued in the pull request.
     """
     gates = [item for item in discover().specs() if item.gate]
-    assert [item.id for item in gates] == ["1.1.5", "1.3.4"]
+    assert [item.id for item in gates] == ["1.1.5", "1.3.4", "1.5.3"]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
 

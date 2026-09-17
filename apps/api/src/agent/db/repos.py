@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -228,6 +229,31 @@ class ReportRepo:
     async def get(self, report_id: uuid.UUID) -> Report | None:
         result = await self.session.execute(self._scoped().where(Report.id == report_id))
         return result.scalar_one_or_none()
+
+    async def upsert(
+        self, *, run_id: uuid.UUID, schema_version: str, payload: dict[str, Any], markdown: str
+    ) -> Report:
+        """Write the run's report, replacing it if this run already has one.
+
+        `Report.run_id` is unique — one report per run (PRD §6) — and node 1.6.2
+        re-synthesises once when its critique finds a blocking issue. That second
+        write has to land on the same row: a run with two reports would leave
+        `GET /reports/{run_id}` picking one at random, and the export the reader
+        already downloaded would disagree with the one the API serves next.
+        """
+        existing = await self.for_run(run_id)
+        if existing is not None:
+            existing.schema_version = schema_version
+            existing.payload = payload
+            existing.markdown = markdown
+            await self.session.flush()
+            return existing
+        report = Report(
+            run_id=run_id, schema_version=schema_version, payload=payload, markdown=markdown
+        )
+        self.session.add(report)
+        await self.session.flush()
+        return report
 
     async def run_for(self, report_id: uuid.UUID) -> Run | None:
         """The run behind a report — the project id and the SSE channel live on it."""

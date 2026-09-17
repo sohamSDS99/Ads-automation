@@ -20,8 +20,10 @@ from __future__ import annotations
 
 import asyncio
 import random
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from typing import Any
 
 import structlog
@@ -144,3 +146,128 @@ async def measure_vitals(
             except Exception as exc:  # noqa: BLE001 — one bad page must not end the pass
                 log.warning("browser.vitals_failed", url=url, error=str(exc))
     return measured
+
+
+#: Hosts a Google conversion tag talks to. Matched on the *request* a real
+#: browser makes, not on markup: a snippet pasted into a page that a consent
+#: banner then blocks is exactly the failure node 1.5.2 exists to catch, and it
+#: is invisible to anything that only reads HTML.
+CONVERSION_HOSTS = (
+    "googleadservices.com",
+    "googletagmanager.com",
+    "google-analytics.com",
+    "analytics.google.com",
+    "doubleclick.net",
+)
+
+#: The conversion beacon itself, in both the third-party and the first-party
+#: (`1p-conversion`) spelling Google switched to for cookie-restricted browsers.
+CONVERSION_BEACON = re.compile(r"/pagead/(?:1p-)?conversion[/?]")
+
+#: `.../pagead/conversion/123456789/?label=AbC-D_efG&…` — the two halves of the
+#: `send_to` that `conversion_action.tag_snippets` carries on the API side. This
+#: is what lets the probe say *which* conversion action fired rather than "a
+#: request went to Google".
+BEACON_ID = re.compile(r"/pagead/(?:1p-)?conversion/(\d+)[/?]")
+BEACON_LABEL = re.compile(r"[?&]label=([A-Za-z0-9_-]+)")
+
+#: Tag loaders: `gtag/js?id=AW-123` or `gtm.js?id=GTM-ABC`. Their presence says
+#: the container loaded; it does not say a conversion fired.
+TAG_ID = re.compile(r"[?&]id=((?:AW|GTM|G)-[A-Za-z0-9_-]+)")
+
+#: How long to keep listening after `networkidle`. A conversion tag fired from a
+#: consent callback or a `setTimeout` lands after the page looks settled, and
+#: recording "no tag fired" a quarter-second too early is a false alarm that
+#: costs someone a morning.
+PROBE_SETTLE_MS = 3_000
+
+
+def classify_request(url: str) -> dict[str, Any] | None:
+    """One outgoing request, as the probe reads it. `None` if it is not Google's.
+
+    Module level, and not a closure inside the probe, so the part that decides
+    "this was a conversion beacon for AW-123/label" can be tested against a URL
+    string without a browser.
+    """
+    if not url:
+        return None
+    # The beacon path counts wherever it is served from. Server-side tagging and
+    # Google's first-party fallback both send the conversion to a host that is
+    # not on the list below — and a host-only test reports those as "no tag".
+    if not (CONVERSION_BEACON.search(url) or any(host in url for host in CONVERSION_HOSTS)):
+        return None
+    identifier = BEACON_ID.search(url)
+    label = BEACON_LABEL.search(url)
+    loader = TAG_ID.search(url)
+    if identifier and label:
+        # Reassembled into the exact spelling `conversion_action.tag_snippets`
+        # reports, so the join in readiness.py is an equality test, not a guess.
+        send_to: str | None = f"AW-{identifier.group(1)}/{label.group(1)}"
+    elif identifier:
+        send_to = f"AW-{identifier.group(1)}"
+    else:
+        send_to = None
+    return {
+        "url": url[:500],
+        "beacon": bool(CONVERSION_BEACON.search(url)),
+        "send_to": send_to,
+        "tag_id": loader.group(1) if loader else None,
+    }
+
+
+async def probe_conversion_tags(url: str, settings: Settings | None = None) -> dict[str, Any]:
+    """Load one page in a real browser and record what its tags actually did.
+
+    This is PRD §10 1.5.2's synthetic check. It answers one question honestly —
+    *did loading this page cause a Google Ads conversion beacon to fire, and
+    against which conversion id* — and refuses to answer the questions it
+    cannot: whether the conversion then reached the account is the Ads API's
+    half, and `nodes/readiness.py` joins the two.
+
+    A page that will not load is reported as an error, never as "no tag".
+    """
+    settings = settings or get_settings()
+    observed: list[dict[str, Any]] = []
+
+    def record(request: Any) -> None:
+        classified = classify_request(str(getattr(request, "url", "")))
+        if classified is not None:
+            observed.append(classified)
+
+    fired_at = datetime.now(UTC)
+    result: dict[str, Any] = {
+        "url": url,
+        "fired_at": fired_at.isoformat(),
+        "loaded": False,
+        "status": None,
+        "error": None,
+    }
+    try:
+        async with browser_page(settings) as page:
+            page.on("request", record)
+            response = await page.goto(url, wait_until="networkidle", timeout=30_000)
+            result["loaded"] = True
+            result["status"] = getattr(response, "status", None)
+            # Listening continues through the wait — see PROBE_SETTLE_MS.
+            await page.wait_for_timeout(PROBE_SETTLE_MS)
+    except BrowserUnavailable:
+        raise
+    except Exception as exc:  # noqa: BLE001 — an unreachable page is a finding, not a crash
+        log.warning("browser.probe_failed", url=url, error=str(exc))
+        result["error"] = str(exc)[:300]
+
+    beacons = [item for item in observed if item["beacon"]]
+    result["requests"] = observed[:50]
+    result["beacons"] = beacons[:20]
+    result["tag_ids"] = sorted({item["tag_id"] for item in observed if item["tag_id"]})
+    result["send_to"] = sorted({item["send_to"] for item in beacons if item["send_to"]})
+    result["conversion_fired"] = bool(beacons)
+    result["observed_at"] = datetime.now(UTC).isoformat()
+    log.info(
+        "browser.probe",
+        url=url,
+        loaded=result["loaded"],
+        beacons=len(beacons),
+        tags=len(result["tag_ids"]),
+    )
+    return result

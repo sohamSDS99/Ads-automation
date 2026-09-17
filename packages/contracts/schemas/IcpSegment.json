@@ -1,15 +1,30 @@
 {
   "additionalProperties": true,
-  "description": "1.1.2 `icp_profile`.",
+  "description": "1.1.2 `icp_profile`.\n\n`firmographics` is a union because the two shipped halves of this pipeline\ndisagree about it, and the disagreement is legitimate: PRD \u00a710 does not type\nthe field, node 1.1.2 asks the model for \"a sentence of firmographics\", and\na structured `{employees: \u2026, sites: \u2026}` map is what the field looks like\nwhen it comes from a CRM rollup. Both render. Refusing one of them would\nfail the very last node of a forty-minute run over a section heading.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "label": {
       "title": "Label",
       "type": "string"
     },
     "firmographics": {
-      "additionalProperties": true,
-      "title": "Firmographics",
-      "type": "object"
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "string"
+        }
+      ],
+      "title": "Firmographics"
     },
     "triggers": {
       "items": {
@@ -38,14 +53,6 @@
       ],
       "default": null,
       "title": "Share Of Revenue Pct"
-    },
-    "evidence_ids": {
-      "items": {
-        "format": "uuid",
-        "type": "string"
-      },
-      "title": "Evidence Ids",
-      "type": "array"
     }
   },
   "required": [

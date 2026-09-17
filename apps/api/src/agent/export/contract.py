@@ -65,6 +65,21 @@ class ReportModel(BaseModel):
     model_config = ConfigDict(extra="allow", populate_by_name=True)
 
 
+class CitedModel(ReportModel):
+    """A record that carries the evidence behind it.
+
+    The field has to be **declared**, not left to `extra="allow"`, and the
+    difference is not cosmetic. An undeclared `evidence_ids` survives as a list
+    of strings, `ResearchReport.evidence_ids()` collects only `UUID` instances,
+    and the whole readiness and competitive half of the report loses its
+    citations the moment the payload round-trips through JSON — which it does,
+    on every read of the stored report. Declaring it makes the round trip
+    lossless and the citation index complete.
+    """
+
+    evidence_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
 class StrictReportModel(BaseModel):
     """Base for the few records whose shape the exports depend on exactly.
 
@@ -98,7 +113,7 @@ class Claim(ReportModel):
 # ---------------------------------------------------------------------------
 
 
-class Product(ReportModel):
+class Product(CitedModel):
     """1.1.1 `offer_economics`."""
 
     name: str
@@ -108,18 +123,25 @@ class Product(ReportModel):
     delivery_cost_notes: str | None = None
 
 
-class IcpSegment(ReportModel):
-    """1.1.2 `icp_profile`."""
+class IcpSegment(CitedModel):
+    """1.1.2 `icp_profile`.
+
+    `firmographics` is a union because the two shipped halves of this pipeline
+    disagree about it, and the disagreement is legitimate: PRD §10 does not type
+    the field, node 1.1.2 asks the model for "a sentence of firmographics", and
+    a structured `{employees: …, sites: …}` map is what the field looks like
+    when it comes from a CRM rollup. Both render. Refusing one of them would
+    fail the very last node of a forty-minute run over a section heading.
+    """
 
     label: str
-    firmographics: dict[str, Any] = Field(default_factory=dict)
+    firmographics: dict[str, Any] | str = Field(default_factory=dict)
     triggers: list[str] = Field(default_factory=list)
     jobs_to_be_done: list[str] = Field(default_factory=list)
     share_of_revenue_pct: float | None = Field(default=None, ge=0, le=100)
-    evidence_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
-class IcpExclusion(ReportModel):
+class IcpExclusion(CitedModel):
     """1.1.3 `negative_icp` — who we are *not* selling to, and how to spot them."""
 
     persona: str
@@ -128,7 +150,7 @@ class IcpExclusion(ReportModel):
     suggested_negative_terms: list[str] = Field(default_factory=list)
 
 
-class MarketCoverage(ReportModel):
+class MarketCoverage(CitedModel):
     """1.1.4 `market_coverage`."""
 
     country: str
@@ -170,7 +192,7 @@ class BusinessContext(ReportModel):
 # ---------------------------------------------------------------------------
 
 
-class PerformanceFinding(ReportModel):
+class PerformanceFinding(CitedModel):
     """1.2.1 `historical_performance` — one winner or one loser."""
 
     campaign: str
@@ -178,7 +200,7 @@ class PerformanceFinding(ReportModel):
     period: str | None = None
 
 
-class ProfitableTerm(ReportModel):
+class ProfitableTerm(CitedModel):
     """1.2.2 `search_term_pnl`, profitable side. Arithmetic is pandas', not the model's."""
 
     term: str
@@ -188,7 +210,7 @@ class ProfitableTerm(ReportModel):
     roas: float | None = None
 
 
-class WastefulTerm(ReportModel):
+class WastefulTerm(CitedModel):
     """1.2.2 `search_term_pnl`, wasteful side."""
 
     term: str
@@ -197,7 +219,7 @@ class WastefulTerm(ReportModel):
     recommended_action: str | None = None
 
 
-class FailedExperiment(ReportModel):
+class FailedExperiment(CitedModel):
     """1.2.3 `failed_experiments` — the institutional memory that stops a repeat."""
 
     what: str
@@ -222,7 +244,7 @@ class AccountLearnings(ReportModel):
 # ---------------------------------------------------------------------------
 
 
-class Competitor(ReportModel):
+class Competitor(CitedModel):
     """1.3.1 `competitor_set`."""
 
     domain: str
@@ -231,7 +253,7 @@ class Competitor(ReportModel):
     overlap_basis: list[str] = Field(default_factory=list)
 
 
-class CompetitorAd(ReportModel):
+class CompetitorAd(CitedModel):
     """1.3.2 `creative_corpus` — one observed ad.
 
     `screenshot_path` is a **storage key**, never a filesystem path (PRD §5.2);
@@ -257,7 +279,7 @@ class MessageCluster(ReportModel):
     advertisers: list[str] = Field(default_factory=list)
 
 
-class SpendEstimate(ReportModel):
+class SpendEstimate(CitedModel):
     """1.3.3 `spend_estimation`.
 
     `method` is required: PRD §10 says an estimate must state its method and is
@@ -271,7 +293,7 @@ class SpendEstimate(ReportModel):
     peak_months: list[int] = Field(default_factory=list)
 
 
-class Whitespace(ReportModel):
+class Whitespace(CitedModel):
     """1.3.4 ⛳ `differentiation_claim` — gated on an `approver` (marketing)."""
 
     claim: str
@@ -297,7 +319,7 @@ class CompetitiveLandscape(ReportModel):
 # ---------------------------------------------------------------------------
 
 
-class NegativeKeyword(ReportModel):
+class NegativeKeyword(CitedModel):
     """1.4.4 `negative_blocklist`."""
 
     term: str
@@ -306,7 +328,7 @@ class NegativeKeyword(ReportModel):
     source: Literal["lost_reasons", "wasteful_terms", "intent_irrelevant"] | None = None
 
 
-class KeywordPageMapping(ReportModel):
+class KeywordPageMapping(CitedModel):
     """1.4.5 `keyword_to_page_map`."""
 
     term_cluster: str
@@ -367,7 +389,7 @@ class PricedKeyword(StrictReportModel):
 # ---------------------------------------------------------------------------
 
 
-class PageAudit(ReportModel):
+class PageAudit(CitedModel):
     """1.5.1 `landing_page_audit`."""
 
     url: str
@@ -380,7 +402,7 @@ class PageAudit(ReportModel):
     severity: Literal["critical", "major", "minor", "none"] | None = None
 
 
-class ConversionAction(ReportModel):
+class ConversionAction(CitedModel):
     """1.5.2 `tracking_probe`."""
 
     name: str
@@ -398,7 +420,7 @@ class SyntheticCheck(ReportModel):
     verdict: Literal["pass", "fail", "inconclusive"] | None = None
 
 
-class AudienceList(ReportModel):
+class AudienceList(CitedModel):
     """1.5.3 ⛳ `audience_consent_check` — gated on an `approver` (data officer)."""
 
     name: str
@@ -409,7 +431,7 @@ class AudienceList(ReportModel):
     blocker: str | None = None
 
 
-class Scenario(ReportModel):
+class Scenario(CitedModel):
     """1.5.4 `opportunity_sizing` — arithmetic in Python, assumptions from the model."""
 
     budget_usd_month: float = Field(ge=0)

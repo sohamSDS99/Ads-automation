@@ -4,7 +4,8 @@
 # ---------------------------------------------------------------------------
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
-        test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p6 \
+        test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
+        verify-p6 \
         browser browser-p6 typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -72,6 +73,9 @@ verify-p2: ## Run P2's exit criteria against the running stack
 
 verify-p5a: ## Run P5a's exit criteria against the running stack
 	./scripts/verify-p5a.sh
+verify-p5b: ## Run P5b's exit criteria against the running stack (needs a live OpenRouter key)
+	./scripts/verify-p5b.sh
+
 verify-p3: ## Run P3's exit criteria against the running stack (needs a live OpenRouter key)
 	./scripts/verify-p3.sh
 

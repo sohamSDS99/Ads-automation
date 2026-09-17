@@ -496,8 +496,20 @@ KEYWORD_FAMILIES: tuple[tuple[str, int], ...] = (
 
 #: Our own pages. Two answer a keyword family well, one answers none of them —
 #: so the page map has a good fit, a weak fit and a gap to find.
+#: The crawler fields node 1.5.1 audits, on a page with nothing wrong with it.
+HEALTHY_PAGE: dict[str, Any] = {
+    "status": 200,
+    "https": True,
+    "mobile_viewport": True,
+    "primary_cta": "Book a demo",
+    "form_fields": ["name", "work_email", "company"],
+    "trust_markers": ["iso_certification", "gdpr"],
+    "word_count": 940,
+}
+
 OUR_PAGES: tuple[dict[str, Any], ...] = (
     {
+        **HEALTHY_PAGE,
         "url": "https://sdsmanager.com/sds-software",
         "title": "SDS software for chemical manufacturers",
         "h1": "SDS software that keeps your library current",
@@ -506,14 +518,20 @@ OUR_PAGES: tuple[dict[str, Any], ...] = (
         "text_excerpt": "software for managing safety data sheets",
     },
     {
+        **HEALTHY_PAGE,
         "url": "https://sdsmanager.com/ghs-labeling",
         "title": "GHS labeling software",
         "h1": "GHS labeling made simple",
         "h2": ["GHS labeling rules"],
         "meta_description": "Print compliant GHS labels.",
+        # Eleven fields on a landing page. 1.5.1 reports it as a major issue and
+        # the report downgrades to `go_with_fixes` — which is the state this
+        # fixture is built to produce.
+        "form_fields": [f"field_{index}" for index in range(11)],
         "text_excerpt": "labeling for hazardous chemicals",
     },
     {
+        **HEALTHY_PAGE,
         "url": "https://sdsmanager.com/about",
         "title": "About us",
         "h1": "Our story",
@@ -833,5 +851,317 @@ def stage_1_3_and_1_4(fake: FakeOpenRouter) -> None:
         if name in BY_OUTPUT_MODEL:
             return completion(BY_OUTPUT_MODEL[name])
         raise AssertionError(f"no scripted answer for output model {name!r}")
+
+    fake.dispatch(respond)
+
+
+# ---------------------------------------------------------------------------
+# P5b: the readiness evidence stage 1.5 reads
+#
+# Seeded directly, for the same reason `seed_google_ads` is: there is no live
+# Google Ads credential and no browser in the test image, and `gather` degrades
+# to an empty result without either. Writing the rows is what lets stage 1.5 be
+# exercised end to end without pretending a connector ran.
+# ---------------------------------------------------------------------------
+
+#: The `send_to` on both sides of the join node 1.5.2 makes: the tag the browser
+#: saw fire, and the conversion action the API reports. They match on purpose —
+#: `test_a_broken_tag_blocks_the_launch` breaks it deliberately.
+SEND_TO = "AW-987654321/AbC-D_efGhIjKlM"
+
+#: The two pages the keyword map points at. One is fast, one is slow enough to
+#: be a major issue but not a critical one.
+PAGE_VITALS_ROWS: tuple[dict[str, Any], ...] = (
+    {"url": "https://sdsmanager.com/sds-software", "lcp_ms": 1840.0, "cls": 0.02, "tbt_ms": 90.0},
+    {"url": "https://sdsmanager.com/ghs-labeling", "lcp_ms": 3300.0, "cls": 0.12, "tbt_ms": 260.0},
+)
+
+
+def conversion_action_rows(
+    *, converting_days_ago: int = 3, conversions: float = 11.0
+) -> list[dict[str, Any]]:
+    """Dated rows for two conversion actions: one live and primary, one removed.
+
+    Dated, because staleness is computed from the last day that *recorded* a
+    conversion rather than the last day the API answered for.
+    """
+    from datetime import timedelta
+
+    today = datetime.now(UTC).date()
+    rows = [
+        {
+            "conversion_action_id": "555000111",
+            "name": "Demo request",
+            "status": "ENABLED",
+            "action_type": "WEBPAGE",
+            "category": "SUBMIT_LEAD_FORM",
+            "counting_type": "ONE_PER_CLICK",
+            "primary_for_goal": True,
+            "send_to": SEND_TO,
+            "date": (today - timedelta(days=converting_days_ago)).isoformat(),
+            "conversions": conversions,
+        }
+    ]
+    rows += [
+        {
+            "conversion_action_id": "555000111",
+            "name": "Demo request",
+            "status": "ENABLED",
+            "primary_for_goal": True,
+            "send_to": None,
+            "date": (today - timedelta(days=offset)).isoformat(),
+            "conversions": 0.0,
+        }
+        for offset in range(converting_days_ago)
+    ]
+    rows.append(
+        {
+            "conversion_action_id": "555000222",
+            "name": "Newsletter signup (legacy)",
+            "status": "REMOVED",
+            "primary_for_goal": False,
+            "send_to": None,
+            "date": today.isoformat(),
+            "conversions": 0.0,
+        }
+    )
+    return rows
+
+
+AUDIENCE_ROWS: tuple[dict[str, Any], ...] = (
+    {
+        "user_list_id": "777000111",
+        "name": "All converters — 540 days",
+        "description": "Anyone who submitted the demo form",
+        "list_type": "REMARKETING",
+        "membership_status": "OPEN",
+        "membership_life_span_days": "540",
+        "size_for_display": "48200",
+        "size_for_search": "39100",
+        "eligible_for_search": True,
+        "eligible_for_display": True,
+    },
+    {
+        "user_list_id": "777000222",
+        "name": "CRM upload — EU customers",
+        "description": "Customer match list uploaded from the CRM",
+        "list_type": "CRM_BASED",
+        "membership_status": "OPEN",
+        "membership_life_span_days": "10000",
+        "size_for_display": "0",
+        "size_for_search": "1200",
+        "eligible_for_search": True,
+        "eligible_for_display": False,
+    },
+)
+
+
+def probe_row(*, fired: bool = True, send_to: str = SEND_TO) -> dict[str, Any]:
+    """What `browser.probe_conversion_tags` writes after loading the page."""
+    return {
+        "url": "https://sdsmanager.com/thanks",
+        "fired_at": utcnow().isoformat(),
+        "loaded": True,
+        "status": 200,
+        "error": None,
+        "tag_ids": ["AW-987654321", "GTM-ABCDE12"],
+        "send_to": [send_to] if fired else [],
+        "beacons": [{"beacon": True, "send_to": send_to}] if fired else [],
+        "conversion_fired": fired,
+        "observed_at": utcnow().isoformat(),
+    }
+
+
+async def seed_readiness(
+    project_id: uuid.UUID,
+    *,
+    probe: dict[str, Any] | None = None,
+    actions: list[dict[str, Any]] | None = None,
+    probe_url: str | None = "https://sdsmanager.com/thanks",
+) -> None:
+    """Vitals, conversion actions, audience lists and one synthetic probe.
+
+    `probe_url` is not decoration: node 1.5.2 only *asks* for probe evidence when
+    the project names a conversion page, so a fixture that seeded the row and
+    left the setting unset would find the probe ignored and every tag assertion
+    passing as "inconclusive".
+    """
+    from agent.db.models import Project
+    from agent.db.session import get_sessionmaker
+    from agent.evidence.normalize import EvidenceDraft
+    from agent.evidence.store import EvidenceStore
+    from agent.nodes.stage_1_5 import PROBE_URL_SETTING
+
+    drafts = (
+        [
+            EvidenceDraft(source="web", kind="page_vitals", payload=dict(row))
+            for row in PAGE_VITALS_ROWS
+        ]
+        + [
+            EvidenceDraft(source="google_ads", kind="conversion_action", payload=dict(row))
+            for row in (actions if actions is not None else conversion_action_rows())
+        ]
+        + [
+            EvidenceDraft(source="google_ads", kind="audience_list", payload=dict(row))
+            for row in AUDIENCE_ROWS
+        ]
+        + [
+            EvidenceDraft(
+                source="web",
+                kind="conversion_probe",
+                payload=probe if probe is not None else probe_row(),
+            )
+        ]
+    )
+    async with get_sessionmaker()() as session:
+        project = await session.get(Project, project_id)
+        assert project is not None
+        if probe_url:
+            project.settings = {**(project.settings or {}), PROBE_URL_SETTING: probe_url}
+        store = EvidenceStore(session, project.workspace_id)
+        await store.write(drafts, project_id=project_id, embed=False)
+        await session.commit()
+
+
+def _citable_ids(user: str) -> list[str]:
+    """The evidence ids node 1.6.1 offered the model, read back out of its prompt.
+
+    Answering with ids taken from the prompt is the point: a fixture that
+    returned a hard-coded id would pass even if the node offered the model
+    nothing, and the executor's provenance check would never be exercised.
+    """
+    try:
+        rows = _computed(user, "evidence you may cite")
+    except AssertionError:
+        return []
+    return [str(row["id"]) for row in rows if isinstance(row, dict) and row.get("id")]
+
+
+def stage_1_5_and_1_6(fake: FakeOpenRouter, *, critique: dict[str, Any] | None = None) -> None:
+    """Answer stages 1.3 through 1.6, each node from the batch it was sent."""
+    stage_1_3_and_1_4(fake)
+    # The P4 scripter installed itself as the dispatcher; keep it as the
+    # fallthrough rather than duplicating nine nodes' worth of answers.
+    inner = fake.dispatcher
+    assert inner is not None
+
+    def respond(request: Any) -> Any:
+        body = json.loads(request.content or b"{}")
+        name = (
+            body.get("response_format", {}).get("json_schema", {}).get("name")
+            or (body.get("tools") or [{}])[0].get("function", {}).get("name")
+            or ""
+        )
+        user = next(
+            (item["content"] for item in reversed(body.get("messages", [])) if item["content"]),
+            "",
+        )
+
+        if name == "PageMatches":
+            rows = _computed(user, "pages and the keyword clusters")
+            return completion(
+                {
+                    "pages": [
+                        {
+                            "url": row["url"],
+                            "message_match": "strong",
+                            "note": "The page answers the cluster directly.",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name == "ConsentVerdicts":
+            rows = _computed(user, "audience lists in the account")
+            return completion(
+                {
+                    "lists": [
+                        {
+                            "name": row["name"],
+                            "consent_basis": (
+                                "Consent captured at form submission"
+                                if row["list_type"] == "REMARKETING"
+                                else "No recorded consent for advertising use"
+                            ),
+                            "markets_allowed": ["US"],
+                            "usable": row["list_type"] == "REMARKETING",
+                            "blocker": (
+                                ""
+                                if row["list_type"] == "REMARKETING"
+                                else "The CRM export records no advertising consent."
+                            ),
+                            "evidence_ids": [],
+                        }
+                        for row in rows
+                    ],
+                    "reviewer_notes": "Confirm the form's consent wording covers advertising.",
+                    "open_questions": ["Who owns the consent register?"],
+                }
+            )
+
+        if name == "SizingAssumptions":
+            rows = _computed(user, "scenarios (final")
+            return completion(
+                {
+                    "scenarios": [
+                        {
+                            "budget_usd_month": row["budget_usd_month"],
+                            "assumptions": [
+                                "Cost per click holds at the account's measured average.",
+                                "The conversion rate holds across new, colder keywords.",
+                            ],
+                            "risk": "Colder traffic usually converts worse than brand traffic.",
+                        }
+                        for row in rows
+                    ]
+                }
+            )
+
+        if name == "ReportNarrative":
+            citable = _citable_ids(user)[:3]
+            cite = citable[:1] or []
+            return completion(
+                {
+                    "executive_summary": (
+                        "The account has a working demand base and a measurable conversion "
+                        "path. Two landing pages carry the mapped keywords, one of which asks "
+                        "for too much information. Fix that, and the plan is fundable."
+                    ),
+                    "launch_blockers": [],
+                    "recommended_next_actions": [
+                        {
+                            "statement": "Cut the GHS labeling form to three fields.",
+                            "evidence_ids": cite,
+                            "confidence": "high",
+                        },
+                        {
+                            "statement": "Add the wasteful terms to the shared negative list.",
+                            "evidence_ids": citable[1:2] or cite,
+                            "confidence": "medium",
+                        },
+                        {
+                            "statement": "Publish a comparison page for the unmapped cluster.",
+                            "evidence_ids": citable[2:3] or cite,
+                            "confidence": "medium",
+                        },
+                    ],
+                    "open_questions": ["Which market should the first campaign run in?"],
+                }
+            )
+
+        if name == "ReportCritique":
+            return completion(
+                critique
+                if critique is not None
+                else {
+                    "issues": [],
+                    "verdict_consistent": True,
+                    "unsupported_claims": [],
+                    "contradictions": [],
+                }
+            )
+
+        return inner(request)
 
     fake.dispatch(respond)

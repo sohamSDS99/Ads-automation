@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.1.1 `offer_economics`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "name": {
       "title": "Name",
       "type": "string"

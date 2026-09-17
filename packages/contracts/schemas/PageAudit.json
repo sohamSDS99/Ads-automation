@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.5.1 `landing_page_audit`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "url": {
       "title": "Url",
       "type": "string"

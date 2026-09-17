@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "persona": {
       "title": "Persona",
       "type": "string"

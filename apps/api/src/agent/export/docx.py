@@ -333,10 +333,16 @@ def _business(document: DocxDocument, report: ResearchReport, context: dict[str,
             if segment.jobs_to_be_done:
                 details.append("Jobs to be done: " + ", ".join(segment.jobs_to_be_done))
             if segment.firmographics:
+                # A sentence from node 1.1.2 or a map from a CRM rollup; the
+                # contract accepts both, so this has to render both.
                 details.append(
                     "Firmographics: "
-                    + ", ".join(
-                        f"{key}={value}" for key, value in sorted(segment.firmographics.items())
+                    + (
+                        ", ".join(
+                            f"{key}={value}" for key, value in sorted(segment.firmographics.items())
+                        )
+                        if isinstance(segment.firmographics, dict)
+                        else str(segment.firmographics)
                     )
                 )
             _bullets(document, details)
