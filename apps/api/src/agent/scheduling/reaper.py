@@ -144,17 +144,24 @@ async def _reap(
         await db.rollback()
         return False
 
+    # Read before anything commits. `finish_run` commits, which expires every
+    # object in this session — and a lazy re-load fired from inside a cron job
+    # raises `MissingGreenlet`, which nothing here would catch.
+    project_id = run.project_id
+    workspace_id = run.workspace_id
+
     # Nodes left `running` belong to the dead process. Closing them is what
     # stops the console showing a node as in-flight for ever, and what lets
     # `retry-failed` see them as retryable rather than as still going.
     crashed = await store.fail_stale_running(run_id)
     error = {**REAPED_ERROR, "reason": reason, "nodes_in_flight": crashed}
     await store.finish_run(run, status=RunStatus.FAILED, error=error)
+    cost_usd = str(run.cost_usd)
     expired = await approvals.expire_pending(db, run_id)
 
     write_audit(
         db,
-        workspace_id=run.workspace_id,
+        workspace_id=workspace_id,
         # NULL: no person did this. PRD §15 NF5c allows exactly this shape, and
         # `meta.reason` is what makes the row answerable.
         actor_id=None,
@@ -163,7 +170,7 @@ async def _reap(
         target_id=run_id,
         meta={
             "reason": reason,
-            "project_id": str(run.project_id),
+            "project_id": str(project_id),
             "nodes_in_flight": crashed,
             "approvals_expired": expired,
             "stale_after_seconds": STALE_AFTER_SECONDS,
@@ -173,19 +180,19 @@ async def _reap(
 
     # Only after the row is durable. Releasing the lock first would let a new
     # run start against a project whose previous run still claims to be running.
-    await RunLock(redis).release(run.project_id, run_id)
+    await RunLock(redis).release(project_id, run_id)
     await RunEventStream(redis, run_id).publish(
         EventType.RUN_COMPLETED,
         run_id=str(run_id),
         status=RunStatus.FAILED,
-        cost_usd=str(run.cost_usd),
+        cost_usd=cost_usd,
         error=error,
     )
     log.warning(
         "run.reaped",
         run_id=str(run_id),
         reason=reason,
-        project_id=str(run.project_id),
+        project_id=str(project_id),
         nodes_in_flight=crashed,
         at=moment.isoformat(),
     )

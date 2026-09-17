@@ -67,7 +67,14 @@ async def send_due_reminders(
     sent: list[tuple[uuid.UUID, str]] = []
     unaddressed: list[uuid.UUID] = []
 
-    for approval in await _pending_with_sla(db, moment):
+    # Ids, not rows. `_record` commits, which expires every object in the
+    # session — so a second pending gate held from the first query would fire a
+    # lazy load on the next iteration, and a `MissingGreenlet` raised inside a
+    # cron job is caught by nothing. Each gate is re-read in its own turn.
+    for approval_id in await _pending_with_sla(db, moment):
+        approval = await db.get(Approval, approval_id)
+        if approval is None:  # pragma: no cover — it was there a moment ago
+            continue
         milestone = _crossed(approval, moment)
         if milestone is None:  # pragma: no cover — the query already filtered on this
             continue
@@ -100,7 +107,9 @@ async def send_due_reminders(
             delivered=delivered,
             recipients=[user.email for user in recipients],
         )
-        sent.append((approval.id, milestone))
+        # `approval_id`, not `approval.id`: `_record` has committed and the
+        # instance is expired.
+        sent.append((approval_id, milestone))
 
     outcome = ReminderOutcome(sent=tuple(sent), unaddressed=tuple(unaddressed))
     if outcome.total or outcome.unaddressed:
@@ -112,8 +121,8 @@ async def send_due_reminders(
     return outcome
 
 
-async def _pending_with_sla(db: AsyncSession, moment: datetime) -> list[Approval]:
-    """Pending gates whose allowance has at least half run out."""
+async def _pending_with_sla(db: AsyncSession, moment: datetime) -> list[uuid.UUID]:
+    """Ids of pending gates whose allowance has at least half run out."""
     result = await db.execute(
         sa.select(Approval).where(
             Approval.status == ApprovalStatus.PENDING,
@@ -121,7 +130,7 @@ async def _pending_with_sla(db: AsyncSession, moment: datetime) -> list[Approval
         )
     )
     rows = list(result.scalars().all())
-    return [row for row in rows if _crossed(row, moment) is not None]
+    return [row.id for row in rows if _crossed(row, moment) is not None]
 
 
 def _crossed(approval: Approval, moment: datetime) -> str | None:
@@ -188,6 +197,8 @@ async def _record(
     # JSONB list, so appending to it would leave the column unchanged and the
     # same reminder would go out again on the next tick.
     approval.reminders_sent = sorted(handled)
+    # Read before the commit below expires the instance.
+    approval_id, node_id, run_id = approval.id, approval.node_id, approval.run_id
 
     write_audit(
         db,
@@ -195,13 +206,13 @@ async def _record(
         actor_id=None,
         action=AuditAction.APPROVAL_REMINDED,
         target_type=AuditTarget.APPROVAL,
-        target_id=approval.id,
+        target_id=approval_id,
         meta={
             "milestone": milestone,
             "delivered": delivered,
             "recipients": recipients,
-            "node_id": approval.node_id,
-            "run_id": str(approval.run_id),
+            "node_id": node_id,
+            "run_id": str(run_id),
         },
     )
     await db.commit()

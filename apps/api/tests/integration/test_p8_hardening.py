@@ -29,6 +29,9 @@ from agent.db.models import (
     RunStatus,
     RunTrigger,
     Schedule,
+    User,
+    UserRole,
+    UserStatus,
 )
 from agent.orchestrator.heartbeat import RunHeartbeat, heartbeat_key, is_alive
 from agent.orchestrator.state import RunLock, lock_key
@@ -113,15 +116,10 @@ async def test_editing_a_schedule_is_audited_with_what_changed(
     assert rows[0].actor_id is not None
 
 
-async def test_an_operator_cannot_schedule_a_run(
-    admin: ApiClient, second_client: ApiClient, project_id: uuid.UUID
-) -> None:
+async def test_an_operator_cannot_schedule_a_run(signed_in_as: Any, project_id: uuid.UUID) -> None:
     """A standing instruction to spend unattended is the settings-holder's decision."""
-    from tests.integration.conftest import make_member
-
-    email, password = await make_member(admin, "operator")
-    await second_client.sign_in(email, password)
-    response = await second_client.post(
+    operator = await signed_in_as("operator")
+    response = await operator.post(
         "/schedules", json={"project_id": str(project_id), "cron": "0 3 * * *"}
     )
     assert response.status_code == 403
@@ -198,9 +196,10 @@ async def test_a_schedule_whose_project_is_already_running_is_skipped_not_queued
     holder = LockHolder(run_id=uuid.uuid4(), user_id=None, user_name="Someone")
     await RunLock(get_redis()).acquire(project.id, holder)
 
+    schedule_id = due_schedule.id
     outcome = await poll_schedules(db, get_redis())
     assert outcome.launched == ()
-    assert outcome.skipped_busy == (due_schedule.id,)
+    assert outcome.skipped_busy == (schedule_id,)
 
     await db.refresh(due_schedule)
     assert due_schedule.next_at > datetime.now(UTC), "a skipped schedule must not stay due"
@@ -279,8 +278,9 @@ async def test_a_run_with_a_live_heartbeat_is_left_alone(
 async def test_a_run_whose_heartbeat_expired_is_failed_and_says_why(
     db: AsyncSession, orphaned_run: Run
 ) -> None:
+    run_id = orphaned_run.id
     outcome = await reaper.reap_stale_runs(db, get_redis())
-    assert outcome.orphaned == (orphaned_run.id,)
+    assert outcome.orphaned == (run_id,)
 
     await db.refresh(orphaned_run)
     assert orphaned_run.status is RunStatus.FAILED
@@ -296,21 +296,23 @@ async def test_reaping_releases_the_project_lock(
     """Left held, the project is unlaunchable for the lock's full two hours."""
     from agent.orchestrator.state import LockHolder
 
+    project_id = project.id
     await RunLock(get_redis()).acquire(
-        project.id, LockHolder(run_id=orphaned_run.id, user_id=None, user_name="Someone")
+        project_id, LockHolder(run_id=orphaned_run.id, user_id=None, user_name="Someone")
     )
-    assert await get_redis().exists(lock_key(project.id))
+    assert await get_redis().exists(lock_key(project_id))
 
     await reaper.reap_stale_runs(db, get_redis())
-    assert not await get_redis().exists(lock_key(project.id))
+    assert not await get_redis().exists(lock_key(project_id))
 
 
 async def test_reaping_is_audited_with_a_null_actor(db: AsyncSession, orphaned_run: Run) -> None:
+    run_id = orphaned_run.id
     await reaper.reap_stale_runs(db, get_redis())
     rows = await audit_rows(db, AuditAction.RUN_REAPED)
     assert len(rows) == 1
     assert rows[0].actor_id is None
-    assert rows[0].target_id == orphaned_run.id
+    assert rows[0].target_id == run_id
     assert rows[0].meta["reason"] == "worker_died"
 
 
@@ -377,7 +379,31 @@ async def test_a_run_that_finished_is_never_reaped_even_while_its_key_lives(
 
 
 @pytest.fixture
-async def parked_gate(db: AsyncSession, project: Any, admin_user: Any) -> Approval:
+async def approver(db: AsyncSession, admin_user: Any) -> User:
+    """A real approver.
+
+    `orchestrator.approvals.notify_targets` deliberately does **not** notify
+    admins — "a mail to every admin on every gate is noise, and the inbox shows
+    it to them anyway" — so a workspace whose only member is the bootstrap admin
+    has nobody to remind. That is correct behaviour and is pinned separately
+    below; these tests need someone the reminder can actually reach.
+    """
+    user = User(
+        workspace_id=admin_user.workspace_id,
+        email=f"approver-{uuid.uuid4().hex[:8]}@example.com",
+        name="Approver",
+        password_hash="x",
+        role=UserRole.APPROVER,
+        status=UserStatus.ACTIVE,
+    )
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
+
+
+@pytest.fixture
+async def parked_gate(db: AsyncSession, project: Any, admin_user: Any, approver: User) -> Approval:
     run = Run(
         workspace_id=project.workspace_id,
         project_id=project.id,
@@ -462,6 +488,48 @@ async def test_a_gate_with_no_sla_is_never_nudged(db: AsyncSession, parked_gate:
     parked_gate.due_at = None
     await db.commit()
     assert (await reminders.send_due_reminders(db, now=datetime.now(UTC))).sent == ()
+
+
+async def test_a_gate_nobody_can_answer_is_recorded_and_warned_about(
+    db: AsyncSession, project: Any, admin_user: Any
+) -> None:
+    """No approver in the workspace: the gate is not nudged, and does not retry forever.
+
+    Deliberately built without the `approver` fixture. A workspace whose only
+    member is an admin has nobody `notify_targets` will mail, and a run held by
+    a gate nobody is told about is exactly the state an admin needs to see in
+    the log rather than wonder about.
+    """
+    run = Run(
+        workspace_id=project.workspace_id,
+        project_id=project.id,
+        triggered_by=admin_user.id,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.AWAITING_APPROVAL,
+    )
+    db.add(run)
+    await db.flush()
+    approval = Approval(
+        run_id=run.id,
+        node_id="1.1.5",
+        status=ApprovalStatus.PENDING,
+        required_role=ApprovalRequiredRole.APPROVER,
+        proposal={},
+        due_at=datetime.now(UTC) + timedelta(hours=6),
+    )
+    db.add(approval)
+    await db.commit()
+    await db.refresh(approval)
+    approval_id = approval.id
+
+    late = approval.created_at + timedelta(hours=4)
+    outcome = await reminders.send_due_reminders(db, now=late)
+    assert outcome.sent == ()
+    assert outcome.unaddressed == (approval_id,)
+
+    # Recorded, so the next tick does not try again — and every tick after that.
+    again = await reminders.send_due_reminders(db, now=late)
+    assert again.unaddressed == ()
 
 
 # ---------------------------------------------------------------------------
@@ -593,7 +661,7 @@ async def test_the_session_cookie_is_http_only_and_same_site(
     cookies = [value for key, value in response.headers.multi_items() if key == "set-cookie"]
     session = next(item for item in cookies if item.startswith(get_settings().session_cookie_name))
     assert "HttpOnly" in session
-    assert "SameSite=Lax" in session
+    assert "samesite=lax" in session.lower()
     # The CSRF cookie is readable by design — that is what makes double-submit work.
     csrf = next(item for item in cookies if item.startswith("csrf="))
     assert "HttpOnly" not in csrf
@@ -679,9 +747,6 @@ async def test_storage_usage_degrades_rather_than_failing_the_settings_screen(
         assert body["used_fraction"] is None
 
 
-async def test_storage_usage_is_admin_only(admin: ApiClient, second_client: ApiClient) -> None:
-    from tests.integration.conftest import make_member
-
-    email, password = await make_member(admin, "viewer")
-    await second_client.sign_in(email, password)
-    assert (await second_client.get("/storage")).status_code == 403
+async def test_storage_usage_is_admin_only(signed_in_as: Any) -> None:
+    viewer = await signed_in_as("viewer")
+    assert (await viewer.get("/storage")).status_code == 403

@@ -100,7 +100,7 @@ async def poll_schedules(
             log.info(
                 "schedule.skipped_locked",
                 schedule_id=str(schedule_id),
-                project_id=str(claimed.schedule.project_id),
+                project_id=str(claimed.project_id),
                 holder_run_id=str(conflict.holder.run_id),
             )
         except (QueueUnavailable, ScheduleUnrunnable) as exc:
@@ -116,7 +116,7 @@ async def poll_schedules(
                 "schedule.launched",
                 schedule_id=str(schedule_id),
                 run_id=str(run.id),
-                project_id=str(claimed.schedule.project_id),
+                project_id=str(claimed.project_id),
             )
 
     outcome = PollOutcome(
@@ -156,9 +156,19 @@ async def _due_ids(db: AsyncSession, moment: datetime) -> list[uuid.UUID]:
 
 @dataclass(frozen=True, slots=True)
 class ClaimedFiring:
-    """A firing this worker owns, and the slot it was for."""
+    """A firing this worker owns, as plain values rather than an ORM row.
 
-    schedule: Schedule
+    Deliberately not a `Schedule` instance. `launch()` commits on success and
+    **rolls back** on `ProjectBusy`, and either one expires every object in the
+    session — so reading `schedule.project_id` afterwards fires a lazy load. In
+    a cron job that load happens inside an `except` block, where the resulting
+    `MissingGreenlet` is not caught by anything and takes the whole tick down
+    with it. Values copied at claim time cannot expire.
+    """
+
+    schedule_id: uuid.UUID
+    project_id: uuid.UUID
+    workspace_id: uuid.UUID
     due_at: datetime
 
 
@@ -177,9 +187,10 @@ async def _claim(
         await db.rollback()
         return None
 
-    # Read before the UPDATE: SQLAlchemy synchronises the in-session object with
-    # an ORM-enabled update, so afterwards `schedule.next_at` is the *new* slot.
+    # Read everything the rest of this tick needs before anything commits.
     due_at = schedule.next_at
+    project_id = schedule.project_id
+    workspace_id = schedule.workspace_id
     # Raises CronError to the caller, which disables the row.
     upcoming = next_at_for(schedule, after=moment)
 
@@ -198,8 +209,12 @@ async def _claim(
     await db.commit()
     if not won:
         return None
-    await db.refresh(schedule)
-    return ClaimedFiring(schedule=schedule, due_at=due_at)
+    return ClaimedFiring(
+        schedule_id=schedule_id,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        due_at=due_at,
+    )
 
 
 async def _disable(db: AsyncSession, schedule_id: uuid.UUID, *, reason: str) -> None:
@@ -211,10 +226,9 @@ async def _disable(db: AsyncSession, schedule_id: uuid.UUID, *, reason: str) -> 
 
 
 async def _fire(db: AsyncSession, redis: Redis, claimed: ClaimedFiring, moment: datetime) -> Run:
-    schedule = claimed.schedule
-    project = await db.get(Project, schedule.project_id)
+    project = await db.get(Project, claimed.project_id)
     if project is None:  # pragma: no cover — FK is ON DELETE CASCADE
-        raise ScheduleUnrunnable(f"schedule {schedule.id} has no project")
+        raise ScheduleUnrunnable(f"schedule {claimed.schedule_id} has no project")
 
     late = lateness_seconds(claimed.due_at, moment)
     if late > LATE_TOLERANCE_SECONDS:
@@ -222,7 +236,7 @@ async def _fire(db: AsyncSession, redis: Redis, claimed: ClaimedFiring, moment: 
         # `started_at` well after the slot it belongs to, and this is why.
         log.info(
             "schedule.late",
-            schedule_id=str(schedule.id),
+            schedule_id=str(claimed.schedule_id),
             due_at=claimed.due_at.isoformat(),
             late_seconds=int(late),
         )
@@ -232,16 +246,21 @@ async def _fire(db: AsyncSession, redis: Redis, claimed: ClaimedFiring, moment: 
         redis,
         LaunchRequest(
             project=project,
-            workspace_id=schedule.workspace_id,
+            workspace_id=claimed.workspace_id,
             trigger=RunTrigger.SCHEDULE,
             # NULL, and this is the one place in the product allowed to pass
             # None here (PRD §6, §15 NF5c).
             actor_id=None,
             actor_name=SCHEDULE_ACTOR_NAME,
-            audit_meta={"schedule_id": str(schedule.id)},
+            audit_meta={"schedule_id": str(claimed.schedule_id)},
         ),
     )
-    schedule.last_run_id = run.id
+    # An explicit UPDATE rather than an attribute assignment: `launch()` has
+    # just committed, so the `Schedule` instance in this session is expired and
+    # touching it would re-load it for no reason.
+    await db.execute(
+        sa.update(Schedule).where(Schedule.id == claimed.schedule_id).values(last_run_id=run.id)
+    )
     await db.commit()
     return run
 
