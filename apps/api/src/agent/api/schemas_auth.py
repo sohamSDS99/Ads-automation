@@ -122,7 +122,10 @@ class SessionSummary(BaseModel):
     id: str
     created_at: datetime
     last_seen_at: datetime
-    absolute_expires_at: datetime
+    #: Null when the deployment sets no outer bound — the default. The screen
+    #: reads that as "until you sign out", which is the truth, rather than
+    #: rendering a date the server does not intend to enforce.
+    absolute_expires_at: datetime | None = None
     ip: str | None = None
     user_agent: str | None = None
     current: bool

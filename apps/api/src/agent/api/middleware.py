@@ -25,7 +25,7 @@ from agent.api import problems
 from agent.api.logging_middleware import bind_actor
 from agent.auth.deps import REQUEST_STATE_SESSION
 from agent.auth.ratelimit import WRITE_QUOTA, RequestRateLimiter
-from agent.auth.sessions import IDLE_TIMEOUT, SessionRecord, SessionStore, new_csrf_token
+from agent.auth.sessions import SessionRecord, SessionStore, new_csrf_token
 from agent.config import Settings
 from agent.redis_client import get_redis
 
@@ -52,8 +52,10 @@ PERMISSIONS_POLICY = (
 SAFE_METHODS = frozenset({"GET", "HEAD", "OPTIONS", "TRACE"})
 
 #: Re-writing the session on every request would mean a Redis round trip per
-#: page load for no gain: the idle window is twelve hours, so sliding it at
-#: minute granularity is indistinguishable from sliding it continuously.
+#: page load for no gain: the idle window is hours at its shortest, so sliding
+#: it at minute granularity is indistinguishable from sliding it continuously.
+#: `last_seen_at` is what this costs — it is accurate to the minute, not to the
+#: request, and `/auth/sessions` is the only reader.
 TOUCH_INTERVAL = timedelta(seconds=60)
 
 
@@ -69,7 +71,12 @@ def csrf_cookie_kwargs(settings: Settings) -> dict[str, Any]:
         "secure": settings.cookie_secure,
         "samesite": "lax",
         "path": "/",
-        "max_age": int(IDLE_TIMEOUT.total_seconds()),
+        # The same life as the session cookie, deliberately. These two used to
+        # differ — the session cookie ran for thirty days and this one for
+        # twelve hours — so a browser could hold a valid session and no CSRF
+        # token, and every write 403'd until the user signed out and back in.
+        # Neither cookie is what expires a session; the server decides that.
+        "max_age": settings.session_ttl_days * 24 * 60 * 60,
     }
 
 

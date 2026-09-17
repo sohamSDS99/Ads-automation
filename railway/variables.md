@@ -46,7 +46,9 @@ Start command: `redis-server --appendonly yes --requirepass $REDIS_PASSWORD`.
 | `FILE_TOKEN_SECRET` | manual | 32 random bytes, base64 |
 | `WORKER_INTERNAL_URL` | ref | `http://${{worker.RAILWAY_PRIVATE_DOMAIN}}:8081` |
 | `SESSION_COOKIE_NAME` | fixed | `ara_session` |
-| `SESSION_TTL_DAYS` | fixed | `30` |
+| `SESSION_TTL_DAYS` | fixed | `400` — the cookie's life, and Chrome's ceiling for one |
+| `SESSION_IDLE_TIMEOUT_HOURS` | fixed | `0`. Signing out is what ends a session; a positive number restores PRD §6.1.3's idle window |
+| `SESSION_ABSOLUTE_LIFETIME_DAYS` | fixed | `0`. As above, for the outer bound |
 | `COOKIE_SECURE` | fixed | `true` |
 | `APP_BASE_URL` | manual | `https://<your web domain>` — **invite links are built from this; a wrong value ships dead links** |
 | `BOOTSTRAP_ADMIN_EMAIL` | manual | the first admin's address |

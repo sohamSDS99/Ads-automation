@@ -9,7 +9,11 @@ export type SessionSummary = {
   user_agent: string | null;
   created_at: string;
   last_seen_at: string;
-  absolute_expires_at: string;
+  /**
+   * Null when the deployment sets no outer bound, which is the default — the
+   * session lasts until it is signed out or revoked.
+   */
+  absolute_expires_at: string | null;
 };
 
 export function listSessions(): Promise<{ sessions: SessionSummary[] }> {

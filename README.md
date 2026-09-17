@@ -281,6 +281,15 @@ railway/      provisioning runbook + the full env-var table
 - **Secrets never reach a log.** A structlog processor redacts any field whose
   name mentions a password, secret, token, authorization, ciphertext or cookie,
   ahead of the renderer.
+- **A session ends when it is signed out, and not before.** A deliberate
+  departure from PRD §6.1.3, which specified a 12-hour idle window and a 30-day
+  outer bound. The idle window signed the workspace's only admin out overnight
+  and bought nothing: this is a single-workspace internal tool behind
+  invite-only accounts, and every revocation that actually protects it —
+  disable, role change, password change — runs on `revoke_all_for_user` and
+  takes effect on the next request, not on a timer. Both windows survive as
+  configuration (`SESSION_IDLE_TIMEOUT_HOURS`, `SESSION_ABSOLUTE_LIFETIME_DAYS`,
+  `0` = off) so a deployment that wants the PRD's clocks sets two variables.
 - **An LLM never sources a fact.** Connectors write `Evidence`; a node's output
   cites `evidence_ids`, and the executor fails the node if it cites anything it
   did not gather.

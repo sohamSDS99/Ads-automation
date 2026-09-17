@@ -16,9 +16,17 @@
       "type": "string"
     },
     "absolute_expires_at": {
-      "format": "date-time",
-      "title": "Absolute Expires At",
-      "type": "string"
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Absolute Expires At"
     },
     "ip": {
       "anyOf": [
@@ -53,7 +61,6 @@
     "id",
     "created_at",
     "last_seen_at",
-    "absolute_expires_at",
     "current"
   ],
   "title": "SessionSummary",

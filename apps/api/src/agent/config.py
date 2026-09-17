@@ -47,8 +47,26 @@ class Settings(BaseSettings):
     app_encryption_key: SecretStr = SecretStr("")
 
     # --- sessions (consumed in P0b) ----------------------------------------
+    # Signing out is the only thing that ends a session. PRD §6.1.3 specified a
+    # 12-hour idle window and a 30-day outer bound; both are off by default here
+    # because the first of them logged the workspace's only admin out overnight,
+    # and a research run that takes 45 minutes is not a threat model that a
+    # twelve-hour clock addresses. The revocations that *are* security controls
+    # — disable a user, change their role, change their password — kill every
+    # session of theirs immediately and are untouched by this.
+    #
+    # Both accept a positive number to put the PRD's clocks back, per
+    # deployment, without a code change.
     session_cookie_name: str = "ara_session"
-    session_ttl_days: int = 30
+    #: 0 = the session never idles out.
+    session_idle_timeout_hours: int = 0
+    #: 0 = the session has no outer bound.
+    session_absolute_lifetime_days: int = 0
+    #: How long the browser keeps the cookie. Chrome clamps any cookie past 400
+    #: days, so that is a ceiling rather than a preference — a cookie cannot be
+    #: made to outlive it, which is why "until you sign out" is enforced on the
+    #: server and only approximated here.
+    session_ttl_days: int = 400
     cookie_secure: bool = False
 
     # --- public URLs --------------------------------------------------------
