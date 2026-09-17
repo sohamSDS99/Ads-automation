@@ -37,7 +37,6 @@ from agent.nodes.base import LLMNode, NodeSpec, RunContext
 from agent.nodes.gather import Gathered
 from agent.nodes.stage_1_1 import PAGE
 from agent.nodes.stage_1_2 import SEARCH_TERM_PNL
-from agent.nodes.stage_1_3 import SERP_QUESTION, SERP_RELATED
 
 log = structlog.get_logger(__name__)
 
@@ -93,7 +92,7 @@ class KeywordUniverse(BaseModel):
 
 
 class KeywordUniverseNode(LLMNode):
-    """1.4.1 — every phrase worth pricing, from seven independent sources.
+    """1.4.1 — every phrase worth pricing, from five independent sources.
 
     PRD §10 targets ≥ 2,000 deduped seeds. That number is only reachable by
     combining sources, which is also why `source` on each term is a list: a
@@ -101,11 +100,11 @@ class KeywordUniverseNode(LLMNode):
     vendor all produced is a different kind of candidate from one only the
     vendor guessed at, and `assemble` orders on exactly that.
 
-    Two of the seven come off the live result pages node 1.3.1 bought —
-    `serp_related` and `serp_questions`. They matter disproportionately for a
-    market the keyword vendor covers thinly: they are the phrasing Google itself
-    associates with the term, and they cost nothing extra because the page has
-    already been paid for.
+    It used to be seven. Two came off the live result pages node 1.3.1 bought
+    — `serp_related` and `serp_questions`, the phrasing Google itself associates
+    with a term — and they went out with the SERP source. They mattered most for
+    a market the keyword vendor covers thinly, so that is where the universe is
+    now thinnest; `coverage` says so rather than the count quietly shrinking.
     """
 
     spec = NodeSpec(
@@ -128,11 +127,6 @@ class KeywordUniverseNode(LLMNode):
             ctx,
             gather.Need(SEARCH_TERM_PNL, limit=5_000),
             gather.Need(PAGE, limit=200),
-            # Bought by node 1.3.1's SERP pull, so neither need names a
-            # connector — the pages are already in the store and asking the
-            # proxy for them again would be paying twice for one fact.
-            gather.Need(SERP_RELATED, limit=200),
-            gather.Need(SERP_QUESTION, limit=200),
             # Uploaded documents carry the vocabulary a buyer actually types
             # before the website does: feature names, the phrase the industry
             # uses for the problem, the words in the objection-handling sheet.
@@ -179,21 +173,6 @@ class KeywordUniverseNode(LLMNode):
                 " ".join(str(row.payload.get(field) or "") for field in ("title", "h1"))
             ):
                 seeds.append(keywords.Seed(phrase, "our_pages", market, evidence_id=row.id))
-
-        # The engine's own phrasing, off the result pages node 1.3.1 bought. A
-        # related search is already a search phrase and is seeded whole; a
-        # People Also Ask entry is a sentence, so it goes through the same
-        # window extraction a page title does.
-        for row in found.of(SERP_RELATED):
-            for term in (row.payload.get("related") or [])[:50]:
-                seeds.append(keywords.Seed(str(term), "serp_related", market, evidence_id=row.id))
-
-        for row in found.of(SERP_QUESTION):
-            for question in (row.payload.get("questions") or [])[:20]:
-                for phrase in keywords.phrases(str(question), limit=4):
-                    seeds.append(
-                        keywords.Seed(phrase, "serp_questions", market, evidence_id=row.id)
-                    )
 
         for ad in (ctx.output_of("1.3.2").get("ads") or [])[:400]:
             if not isinstance(ad, dict):

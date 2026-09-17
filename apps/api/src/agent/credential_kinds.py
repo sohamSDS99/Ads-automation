@@ -175,24 +175,6 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
             "login_customer_id",
         ),
     ),
-    CredentialKind.BRIGHTDATA: KindSpec(
-        kind=CredentialKind.BRIGHTDATA,
-        label="Bright Data SERP",
-        description=(
-            "Live Google result pages: who ranks, who is bidding, what their ads say, "
-            "and what else people search for."
-        ),
-        fields=(
-            FieldSpec(
-                name="api_key",
-                label="API key",
-                hint="The key from Account settings → API keys. That is the whole credential.",
-            ),
-        ),
-        connector="serp",
-        where="sources",
-        env_var="BRIGHTDATA_API_KEY",
-    ),
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
         label="DataForSEO",

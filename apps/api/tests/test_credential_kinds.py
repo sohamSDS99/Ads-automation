@@ -18,7 +18,7 @@ GOOGLE_ADS = {
     "refresh_token": "refresh-token",
     "customer_id": "123-456-7890",
 }
-BRIGHTDATA = {"api_key": "brd-api-key-abc123"}
+WEBSHARE = {"api_key": "ws-api-key-abc123"}
 
 
 def test_a_single_field_kind_seals_the_bare_value() -> None:
@@ -43,7 +43,7 @@ def test_a_multi_field_kind_seals_json_that_gather_can_read() -> None:
         (CredentialKind.OPENROUTER, OPENROUTER),
         (CredentialKind.DATAFORSEO, DATAFORSEO),
         (CredentialKind.GOOGLE_ADS, GOOGLE_ADS),
-        (CredentialKind.BRIGHTDATA, BRIGHTDATA),
+        (CredentialKind.WEBSHARE, WEBSHARE),
     ],
 )
 def test_sealing_then_unsealing_returns_the_connector_shape(
@@ -98,43 +98,48 @@ def test_every_source_asks_a_person_for_exactly_one_value() -> None:
         assert typed[0].required, f"{kind.value}'s one field must not be optional"
 
 
-def test_a_serp_account_is_one_key_and_nothing_else() -> None:
-    """No proxy host, no port, no username: the key is the whole credential."""
-    spec = spec_for(CredentialKind.BRIGHTDATA)
-    cleaned = spec.validate(BRIGHTDATA)
+def test_a_proxy_account_is_one_key_and_nothing_else() -> None:
+    """No proxy host, no port, no username: the key is the whole credential.
 
-    assert cleaned == BRIGHTDATA
-    assert spec.connector == "serp"
+    Asserted on `webshare` since the SERP source was removed. The claim is the
+    same one and it matters for the same reason — `connectors/proxy.account`
+    reads the username and password off the key rather than asking a person for
+    them — and here `connector` is None because the thing the key authenticates
+    is a transport several connectors borrow, tested by `proxy.probe`.
+    """
+    spec = spec_for(CredentialKind.WEBSHARE)
+    cleaned = spec.validate(WEBSHARE)
+
+    assert cleaned == WEBSHARE
+    assert spec.connector is None
     assert [field.name for field in spec.fields] == ["api_key"]
-    assert unseal(spec, spec.seal(cleaned)) == BRIGHTDATA
+    assert unseal(spec, spec.seal(cleaned)) == WEBSHARE
 
 
-def test_a_serp_key_shows_only_its_last_four() -> None:
+def test_a_one_key_credential_shows_only_its_last_four() -> None:
     """There is no non-secret half left to show, so `meta` must not invent one."""
-    spec = spec_for(CredentialKind.BRIGHTDATA)
-    meta = spec.meta(BRIGHTDATA)
+    spec = spec_for(CredentialKind.WEBSHARE)
+    meta = spec.meta(WEBSHARE)
 
     assert meta == {"last4": "c123"}
-    assert BRIGHTDATA["api_key"] not in set(map(str, meta.values()))
+    assert WEBSHARE["api_key"] not in set(map(str, meta.values()))
 
 
 def test_a_credential_sealed_before_the_change_still_unseals() -> None:
-    """A workspace that connected Bright Data last week must not have to retype it.
+    """A workspace that connected DataForSEO last week must not have to retype it.
 
-    The old rows are JSON objects under a kind that is now single-field. The
-    values they carry are no longer what the connector wants — that is a
-    reconnect, and it says so — but the vault must still be able to read them
-    back rather than hand a connector the raw JSON as if it were a key.
+    The old rows are JSON objects under a kind that is now single-field — this
+    one held a `login`/`password` pair. The values they carry are no longer what
+    the connector wants — that is a reconnect, and it says so — but the vault
+    must still be able to read them back rather than hand a connector the raw
+    JSON as if it were a key.
     """
-    spec = spec_for(CredentialKind.BRIGHTDATA)
-    legacy = json.dumps({"username": "brd-customer-hl_abc123-zone-serp1", "password": "pw"})
+    spec = spec_for(CredentialKind.DATAFORSEO)
+    legacy = json.dumps({"login": "ops@example.com", "password": "pw"})
 
-    assert unseal(spec, legacy) == {
-        "username": "brd-customer-hl_abc123-zone-serp1",
-        "password": "pw",
-    }
+    assert unseal(spec, legacy) == {"login": "ops@example.com", "password": "pw"}
     # And a real key, which is not JSON, still lands on the one field.
-    assert unseal(spec, "brd-api-key-abc123") == {"api_key": "brd-api-key-abc123"}
+    assert unseal(spec, "dfs-api-key-abc123") == {"api_key": "dfs-api-key-abc123"}
 
 
 def test_smtp_is_not_writable_through_the_interface() -> None:
@@ -157,7 +162,7 @@ def test_the_run_path_and_the_test_path_decode_a_secret_the_same_way() -> None:
     from agent.nodes.gather import _CREDENTIAL_KIND
 
     cases = {
-        CredentialKind.BRIGHTDATA: {"api_key": "brd-real-key"},
+        CredentialKind.WEBSHARE: {"api_key": "ws-real-key"},
         CredentialKind.DATAFORSEO: {"api_key": "ops@example.com:hunter2"},
         CredentialKind.GOOGLE_ADS: GOOGLE_ADS,
     }
@@ -206,14 +211,14 @@ def test_the_environment_supplies_a_key_when_no_row_does() -> None:
     try:
         import os
 
-        os.environ["BRIGHTDATA_API_KEY"] = "brd-from-the-file"
+        os.environ["DATAFORSEO_API_KEY"] = "dfs-from-the-file"
         get_settings.cache_clear()
-        assert env_secret(CredentialKind.BRIGHTDATA) == "brd-from-the-file"
+        assert env_secret(CredentialKind.DATAFORSEO) == "dfs-from-the-file"
         # Whitespace-only is not a key: a variable left blank in a compose file
         # must read as unconfigured, not as an empty secret the vendor rejects.
-        os.environ["BRIGHTDATA_API_KEY"] = "   "
+        os.environ["DATAFORSEO_API_KEY"] = "   "
         get_settings.cache_clear()
-        assert env_secret(CredentialKind.BRIGHTDATA) is None
+        assert env_secret(CredentialKind.DATAFORSEO) is None
     finally:
-        os.environ.pop("BRIGHTDATA_API_KEY", None)
+        os.environ.pop("DATAFORSEO_API_KEY", None)
         get_settings.cache_clear()

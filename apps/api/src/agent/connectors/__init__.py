@@ -45,7 +45,6 @@ __all__ = [
 CONNECTOR_NAMES: tuple[str, ...] = (
     "google_ads",
     "transparency",
-    "serp",
     "dataforseo",
     "web_crawler",
     "csv_ingest",
@@ -57,13 +56,11 @@ CONNECTOR_NAMES: tuple[str, ...] = (
 _CREDENTIAL_KIND: dict[str, str] = {
     "google_ads": "google_ads",
     "dataforseo": "dataforseo",
-    "serp": "brightdata",
 }
 
 _SOURCES: dict[str, EvidenceSource] = {
     "google_ads": EvidenceSource.GOOGLE_ADS,
     "transparency": EvidenceSource.TRANSPARENCY,
-    "serp": EvidenceSource.SERP,
     "dataforseo": EvidenceSource.DATAFORSEO,
     "web_crawler": EvidenceSource.WEB,
     "csv_ingest": EvidenceSource.CSV,
@@ -96,10 +93,6 @@ def connector_class(name: str) -> type[BaseConnector]:
         from agent.connectors.transparency import TransparencyConnector
 
         return TransparencyConnector
-    if name == "serp":
-        from agent.connectors.serp import SerpConnector
-
-        return SerpConnector
     if name == "web_crawler":
         from agent.connectors.web_crawler import WebCrawlerConnector
 

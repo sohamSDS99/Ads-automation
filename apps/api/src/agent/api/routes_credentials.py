@@ -713,10 +713,11 @@ async def _run_test(
             return ConnectorStatus(ok=True, detail=status_.detail, meta=status_.as_meta())
 
     # No client is handed over, and that is the point: a connector's transport
-    # is part of the thing being tested. `serp` reaches Google through a proxy
-    # that the credential itself addresses, so a plain client built here would
-    # test a route the run path never takes — and pass, or fail, for the wrong
-    # reason. Every connector already builds its own when the context has none,
+    # is part of the thing being tested: a connector that reaches its upstream
+    # through a proxy the credential itself addresses would, against a plain
+    # client built here, test a route the run path never takes — and pass, or
+    # fail, for the wrong reason. Every connector builds its own when the
+    # context has none,
     # and closes it (`gather._pull` relies on the same behaviour).
     try:
         instance = connector_class(connector)(

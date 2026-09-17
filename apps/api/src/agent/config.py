@@ -101,30 +101,9 @@ class Settings(BaseSettings):
 
     dataforseo_base_url: str = "https://api.dataforseo.com/v3"
 
-    # serp: live Google result pages read through the Bright Data SERP API.
-    # The account itself is a vault credential (`CredentialKind.BRIGHTDATA`) and
-    # it is one value, an API key; everything here is shape, not secret.
-    serp_api_url: str = "https://api.brightdata.com/request"
-    #: Where the key's own zones are listed, so the zone name is discovered
-    #: rather than asked for. See `SerpConnector._zone`.
-    serp_zones_url: str = "https://api.brightdata.com/zone/get_active_zones"
-    #: Pin the zone only when discovery picks the wrong one. Empty means ask.
-    serp_zone: str = ""
-    #: What discovery falls back to. Bright Data's own default name for a SERP
-    #: zone, and the only guess worth making when the account will not list.
-    serp_zone_fallback: str = "serp_api1"
-    serp_search_url: str = "https://www.google.com/search"
-    #: `gl` and `hl`. A project's own `markets[0]` overrides both per fetch.
-    serp_country: str = "us"
-    serp_language: str = "en"
-    #: Bright Data bills per request, so the keyword list a node hands over is
-    #: capped here rather than in whichever node happens to be asking.
-    serp_max_keywords: int = 25
-    serp_max_results: int = 20
-    serp_concurrency: int = 4
     # webshare: the exit IP an outbound crawl leaves through — `connectors/proxy.py`
     # explains which connectors use it and, more importantly, which measured
-    # reasons keep `serp`, `transparency` and the vitals pass off it. Shape, not
+    # reasons keep `transparency` and every browser path off it. Shape, not
     # secret: the account itself is `CredentialKind.WEBSHARE` — one API key,
     # from the vault or from `WEBSHARE_API_KEY` below.
     webshare_api_url: str = "https://proxy.webshare.io/api/v2"
@@ -217,9 +196,8 @@ class Settings(BaseSettings):
     # person to paste into a file.
     #
     # The names are not free: `credential_kinds.KindSpec.env_var` lowercased is
-    # the field read here, so these four must keep matching those four.
+    # the field read here, so these three must keep matching those three.
     openrouter_api_key: SecretStr | None = None
-    brightdata_api_key: SecretStr | None = None
     dataforseo_api_key: SecretStr | None = None
     webshare_api_key: SecretStr | None = None
 

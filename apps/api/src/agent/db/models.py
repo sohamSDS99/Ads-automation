@@ -63,7 +63,6 @@ class CredentialKind(StrEnum):
     OPENROUTER = "openrouter"
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
-    BRIGHTDATA = "brightdata"
     WEBSHARE = "webshare"
     SMTP = "smtp"
 
@@ -106,6 +105,9 @@ class EvidenceSource(StrEnum):
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
     TRANSPARENCY = "transparency"
+    #: Kept after the SERP source was removed. No connector writes it any
+    #: more, but evidence already stored carries it, and a citation that
+    #: cannot name where it came from is worse than a label with no writer.
     SERP = "serp"
     WEB = "web"
     CSV = "csv"

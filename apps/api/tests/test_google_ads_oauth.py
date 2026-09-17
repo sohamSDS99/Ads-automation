@@ -52,7 +52,7 @@ def test_the_form_asks_only_for_what_consent_cannot_supply() -> None:
 
 
 def test_no_other_kind_claims_a_provider_it_does_not_have() -> None:
-    for kind in (CredentialKind.OPENROUTER, CredentialKind.DATAFORSEO, CredentialKind.BRIGHTDATA):
+    for kind in (CredentialKind.OPENROUTER, CredentialKind.DATAFORSEO, CredentialKind.WEBSHARE):
         spec = spec_for(kind)
         assert spec.oauth_provider is None
         assert spec.typed_fields == spec.fields

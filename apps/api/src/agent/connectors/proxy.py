@@ -1,16 +1,15 @@
 """Webshare: the exit IP an outbound crawl leaves through.
 
-**What this is not.** It is not a replacement for the SERP source. Bright Data
-SERP is an *API* that returns Google's page already parsed into `organic`,
-`top_ads` and `people_also_ask`; Webshare is a pool of proxies that returns
-whatever bytes the target hands back. The two are different capabilities, and
-the difference was measured rather than assumed: through three separate
-Webshare exits, `google.com/search` never completes a navigation in Chromium,
-and a plain HTTP fetch of it returns a 92 KB JavaScript redirect shell holding
-zero results and zero ads. `adstransparency.google.com` behaves the same way
-through the proxy and answers normally without it. So every Google-owned
-surface in this codebase — `serp` and `transparency` — deliberately does **not**
-route through here — and neither does anything that drives a browser.
+**What this is not.** It is not a way to read Google. That was measured rather
+than assumed, and the measurement is why this codebase has no Google
+result-page source at all: through three separate Webshare exits,
+`google.com/search` never completes a navigation in Chromium, and a plain HTTP
+fetch of it returns a 92 KB JavaScript redirect shell holding zero results and
+zero ads — `429` outright under load. A proxy pool returns whatever bytes the
+target hands back, and Google hands back nothing usable to one.
+`adstransparency.google.com` behaves the same way through the proxy and answers
+normally without it, so `transparency` deliberately does **not** route through
+here — and neither does anything else that drives a browser.
 `measure_vitals` times the page, so a rotating hop's latency would land in LCP
 as if it were the page's; `probe_conversion_tags` loads *our own* conversion
 page, where there is no exit worth hiding, and a full `networkidle` load
@@ -25,8 +24,8 @@ crawl from arriving at one host as 500 requests from one address.
 
 **Why one API key is the whole credential.** A proxy needs a username, a
 password, a host and a port, and asking a person for four values when the
-account can be read from one is the pattern `serp` already set: the key fetches
-`/proxy/config/`, which answers with the pair the proxy itself wants. The
+account can be read from one is the pattern every source key here follows: the
+key fetches `/proxy/config/`, which answers with the pair the proxy wants. The
 rotating endpoint supplies host and port, and they are deployment shape, not
 secret, so they live in `Settings`.
 

@@ -52,7 +52,6 @@ DEFAULT_LIMIT = 2_000
 _CREDENTIAL_KIND: dict[str, CredentialKind] = {
     "google_ads": CredentialKind.GOOGLE_ADS,
     "dataforseo": CredentialKind.DATAFORSEO,
-    "serp": CredentialKind.BRIGHTDATA,
 }
 
 #: Key under `RunContext.scratch` holding the `connector:kind` pairs this run has
@@ -294,9 +293,9 @@ async def _pull(ctx: RunContext, need: Need) -> PullResult:
 
 #: The connectors whose outbound fetches leave through the Webshare pool when
 #: the workspace has a key for it. Deliberately short, and deliberately not
-#: "everything": `serp` reaches Google through Bright Data's own network, and
-#: `transparency` reaches a Google property that does not answer through
-#: Webshare at all — `connectors/proxy.py` records both measurements. Adding a
+#: "everything": `transparency` reaches a Google property that does not answer
+#: through Webshare at all — `connectors/proxy.py` records the measurement,
+#: which is also why there is no Google result-page source left to add. Adding a
 #: name here is a claim that the target works through a rotating datacenter
 #: exit, which is a thing to verify rather than assume.
 _PROXIED_CONNECTORS = frozenset({"web_crawler"})
