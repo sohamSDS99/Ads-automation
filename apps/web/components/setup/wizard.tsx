@@ -18,7 +18,10 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import {
+  autofillProject,
   updateProject,
+  type AutofillField,
+  type AutofillFinding,
   type Market,
   type ModelRouting,
   type ProductContext,
@@ -69,6 +72,9 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
       ]),
     ),
   );
+  // What the last autofill read, kept beside the value so the person can judge
+  // the proposal rather than just receive it.
+  const [findings, setFindings] = useState<AutofillFinding[]>([]);
   const [version, setVersion] = useState(project.version);
   if (version !== project.version) {
     // A refetch brought a newer row in — adopt it rather than keep editing a
@@ -88,6 +94,38 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
       ),
     );
   }
+
+  /**
+   * Hand a step-1 field to the agent.
+   *
+   * The current drafts are saved first, deliberately. Autofill writes on the
+   * server, which moves `project.version`, which resyncs every draft on this
+   * screen — so anything typed and not yet saved would be replaced by the copy
+   * the server still had. Saving first makes that resync a no-op instead of a
+   * loss.
+   */
+  const autofill = useMutation({
+    mutationFn: async (field: AutofillField) => {
+      const patch = patchFor(0, { context, markets, models, gates });
+      if (patch) await save.mutateAsync(patch);
+      return autofillProject(project.id, [field]);
+    },
+    onSuccess: async (result) => {
+      setFindings((current) => [
+        ...current.filter((item) => !result.findings.some((fresh) => fresh.field === item.field)),
+        ...result.findings,
+      ]);
+      for (const finding of result.findings) {
+        if (finding.found) toast.success("Worked it out", { description: finding.source });
+        else toast.error("Nothing to read yet", { description: finding.source });
+      }
+      await queryClient.invalidateQueries({ queryKey: keys.project(project.id) });
+    },
+    onError: (error) =>
+      toast.error("Could not work it out", {
+        description: error instanceof ApiError ? error.detail : "Try again in a moment.",
+      }),
+  });
 
   const save = useMutation({
     mutationFn: (patch: ProjectPatch) => updateProject(project.id, patch, project.version),
@@ -188,6 +226,13 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
               onContextChange={setContext}
               onMarketsChange={setMarkets}
               disabled={!canWriteProject}
+              autofill={project.autofill}
+              findings={findings}
+              onAutofill={(field) => autofill.mutate(field)}
+              onAutofillOff={(field) =>
+                save.mutate({ autofill: { ...project.autofill, [field]: false } })
+              }
+              autofilling={autofill.isPending ? (autofill.variables ?? null) : null}
             />
           ) : null}
           {step === 1 ? (

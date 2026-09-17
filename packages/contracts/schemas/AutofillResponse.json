@@ -9,6 +9,37 @@
       "title": "ApprovalRequiredRole",
       "type": "string"
     },
+    "AutofillFinding": {
+      "description": "One field the agent worked out, and what it read to get there.",
+      "properties": {
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "value": {
+          "description": "The value written: a URL, or a list of markets",
+          "title": "Value"
+        },
+        "source": {
+          "description": "What was read, in a sentence meant to be shown",
+          "title": "Source",
+          "type": "string"
+        },
+        "found": {
+          "description": "False when nothing could be read \u2014 nothing is invented",
+          "title": "Found",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "field",
+        "value",
+        "source",
+        "found"
+      ],
+      "title": "AutofillFinding",
+      "type": "object"
+    },
     "AutofillSettings": {
       "description": "Which step-1 fields this project asks the agent to work out.\n\nA preference, not a value: the field it fills is the ordinary one, editable\nafterwards like anything typed by hand. Turning it off leaves whatever was\nfound in place, because deleting a person's markets because they stopped\nwanting help would be a surprise.",
       "properties": {
@@ -243,6 +274,120 @@
       "title": "ProductContext",
       "type": "object"
     },
+    "ProjectDetail": {
+      "description": "Everything the overview and the setup wizard need, in one response.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "updated_at": {
+          "format": "date-time",
+          "title": "Updated At",
+          "type": "string"
+        },
+        "created_by": {
+          "format": "uuid",
+          "title": "Created By",
+          "type": "string"
+        },
+        "created_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Created By Name"
+        },
+        "version": {
+          "description": "Opaque revision token. Send it back as `If-Match` to save safely.",
+          "title": "Version",
+          "type": "string"
+        },
+        "run_count": {
+          "default": 0,
+          "title": "Run Count",
+          "type": "integer"
+        },
+        "last_run": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunSummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "product_context": {
+          "$ref": "#/$defs/ProductContext"
+        },
+        "markets": {
+          "items": {
+            "$ref": "#/$defs/Market"
+          },
+          "title": "Markets",
+          "type": "array"
+        },
+        "models": {
+          "$ref": "#/$defs/ModelRouting"
+        },
+        "gates": {
+          "items": {
+            "$ref": "#/$defs/GateInfo"
+          },
+          "title": "Gates",
+          "type": "array"
+        },
+        "autofill": {
+          "$ref": "#/$defs/AutofillSettings",
+          "description": "Which step-1 fields the agent keeps for this project"
+        },
+        "requirements": {
+          "description": "Empty means this project can be run",
+          "items": {
+            "$ref": "#/$defs/ProjectRequirement"
+          },
+          "title": "Requirements",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "domain",
+        "created_at",
+        "updated_at",
+        "created_by",
+        "version",
+        "product_context",
+        "markets",
+        "models",
+        "gates",
+        "requirements"
+      ],
+      "title": "ProjectDetail",
+      "type": "object"
+    },
     "ProjectRequirement": {
       "description": "One thing standing between this project and a run.",
       "properties": {
@@ -434,117 +579,24 @@
       "type": "string"
     }
   },
-  "description": "Everything the overview and the setup wizard need, in one response.",
+  "description": "What was worked out, and the project as it now stands.\n\nThe whole project comes back rather than the changed fields alone: the\nwizard is a form bound to one object, and handing it two sources of truth\nis how a screen ends up showing a market the server does not have.",
   "properties": {
-    "id": {
-      "format": "uuid",
-      "title": "Id",
-      "type": "string"
-    },
-    "name": {
-      "title": "Name",
-      "type": "string"
-    },
-    "domain": {
-      "title": "Domain",
-      "type": "string"
-    },
-    "created_at": {
-      "format": "date-time",
-      "title": "Created At",
-      "type": "string"
-    },
-    "updated_at": {
-      "format": "date-time",
-      "title": "Updated At",
-      "type": "string"
-    },
-    "created_by": {
-      "format": "uuid",
-      "title": "Created By",
-      "type": "string"
-    },
-    "created_by_name": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Created By Name"
-    },
-    "version": {
-      "description": "Opaque revision token. Send it back as `If-Match` to save safely.",
-      "title": "Version",
-      "type": "string"
-    },
-    "run_count": {
-      "default": 0,
-      "title": "Run Count",
-      "type": "integer"
-    },
-    "last_run": {
-      "anyOf": [
-        {
-          "$ref": "#/$defs/RunSummary"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null
-    },
-    "product_context": {
-      "$ref": "#/$defs/ProductContext"
-    },
-    "markets": {
+    "findings": {
       "items": {
-        "$ref": "#/$defs/Market"
+        "$ref": "#/$defs/AutofillFinding"
       },
-      "title": "Markets",
+      "title": "Findings",
       "type": "array"
     },
-    "models": {
-      "$ref": "#/$defs/ModelRouting"
-    },
-    "gates": {
-      "items": {
-        "$ref": "#/$defs/GateInfo"
-      },
-      "title": "Gates",
-      "type": "array"
-    },
-    "autofill": {
-      "$ref": "#/$defs/AutofillSettings",
-      "description": "Which step-1 fields the agent keeps for this project"
-    },
-    "requirements": {
-      "description": "Empty means this project can be run",
-      "items": {
-        "$ref": "#/$defs/ProjectRequirement"
-      },
-      "title": "Requirements",
-      "type": "array"
+    "project": {
+      "$ref": "#/$defs/ProjectDetail"
     }
   },
   "required": [
-    "id",
-    "name",
-    "domain",
-    "created_at",
-    "updated_at",
-    "created_by",
-    "version",
-    "product_context",
-    "markets",
-    "models",
-    "gates",
-    "requirements"
+    "findings",
+    "project"
   ],
-  "title": "ProjectDetail",
+  "title": "AutofillResponse",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }
