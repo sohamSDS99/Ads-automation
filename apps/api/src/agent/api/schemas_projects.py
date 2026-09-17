@@ -62,6 +62,36 @@ class Market(BaseModel):
     )
 
 
+class AutofillSettings(BaseModel):
+    """Which step-1 fields this project asks the agent to work out.
+
+    A preference, not a value: the field it fills is the ordinary one, editable
+    afterwards like anything typed by hand. Turning it off leaves whatever was
+    found in place, because deleting a person's markets because they stopped
+    wanting help would be a surprise.
+    """
+
+    site_url: bool = Field(default=False, description="Find where the domain actually lands")
+    markets: bool = Field(default=False, description="Read the countries off the CRM and the site")
+
+
+class AutofillFinding(BaseModel):
+    """One field the agent worked out, and what it read to get there."""
+
+    field: str
+    value: Any = Field(description="The value written: a URL, or a list of markets")
+    source: str = Field(description="What was read, in a sentence meant to be shown")
+    found: bool = Field(description="False when nothing could be read — nothing is invented")
+
+
+class AutofillRequest(BaseModel):
+    """Which fields to work out now. Empty means whichever are switched on."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fields: list[str] | None = Field(default=None, max_length=4)
+
+
 class ProductContext(BaseModel):
     """What we sell, in the words a research node will be grounded on.
 
@@ -182,6 +212,7 @@ class UpdateProjectRequest(BaseModel):
     domain: Domain | None = None
     product_context: ProductContext | None = None
     markets: list[Market] | None = Field(default=None, max_length=25)
+    autofill: AutofillSettings | None = None
     models: ModelRouting | None = None
     approvals: dict[str, GateAssignment] | None = None
 
@@ -273,9 +304,25 @@ class ProjectDetail(ProjectSummary):
     markets: list[Market]
     models: ModelRouting
     gates: list[GateInfo]
+    autofill: AutofillSettings = Field(
+        default_factory=AutofillSettings,
+        description="Which step-1 fields the agent keeps for this project",
+    )
     requirements: list[ProjectRequirement] = Field(
         description="Empty means this project can be run"
     )
+
+
+class AutofillResponse(BaseModel):
+    """What was worked out, and the project as it now stands.
+
+    The whole project comes back rather than the changed fields alone: the
+    wizard is a form bound to one object, and handing it two sources of truth
+    is how a screen ends up showing a market the server does not have.
+    """
+
+    findings: list[AutofillFinding]
+    project: ProjectDetail
 
 
 class ProjectListResponse(BaseModel):

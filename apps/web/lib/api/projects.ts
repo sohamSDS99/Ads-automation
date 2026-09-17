@@ -84,11 +84,29 @@ export type ProjectSummary = {
   last_run: RunSummary | null;
 };
 
+/** Which step-1 fields this project asks the agent to work out for itself. */
+export type AutofillSettings = {
+  site_url: boolean;
+  markets: boolean;
+};
+
+export type AutofillField = keyof AutofillSettings;
+
+/** One field the agent worked out, and what it read to get there. */
+export type AutofillFinding = {
+  field: string;
+  value: unknown;
+  source: string;
+  /** False when nothing could be read. Nothing is invented to fill the gap. */
+  found: boolean;
+};
+
 export type ProjectDetail = ProjectSummary & {
   product_context: ProductContext;
   markets: Market[];
   models: ModelRouting;
   gates: GateInfo[];
+  autofill: AutofillSettings;
   requirements: ProjectRequirement[];
 };
 
@@ -97,6 +115,7 @@ export type ProjectPatch = {
   domain?: string;
   product_context?: ProductContext;
   markets?: Market[];
+  autofill?: AutofillSettings;
   models?: Partial<ModelRouting>;
   approvals?: Record<string, { assignee_id: string | null; sla_hours: number | null }>;
 };
@@ -128,6 +147,23 @@ export function updateProject(
     method: "PATCH",
     body: JSON.stringify(patch),
     headers: version ? { "If-Match": version } : undefined,
+  });
+}
+
+/**
+ * Ask the server to work out the step-1 fields it can read for itself.
+ *
+ * Returns the whole project as well as the findings: the values it wrote are
+ * ordinary project fields afterwards, and the wizard re-reads them from there
+ * rather than keeping a second copy.
+ */
+export function autofillProject(
+  id: string,
+  fields: AutofillField[],
+): Promise<{ findings: AutofillFinding[]; project: ProjectDetail }> {
+  return apiFetch(`/projects/${id}/autofill`, {
+    method: "POST",
+    body: JSON.stringify({ fields }),
   });
 }
 

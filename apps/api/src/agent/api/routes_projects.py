@@ -38,6 +38,10 @@ from agent.api import problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_projects import (
     SETTINGS_MODELS,
+    AutofillFinding,
+    AutofillRequest,
+    AutofillResponse,
+    AutofillSettings,
     CreateProjectRequest,
     GateAssignment,
     GateInfo,
@@ -55,6 +59,9 @@ from agent.api.schemas_projects import (
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
+from agent.autofill import AUTOFILL_FIELDS, detect_markets, detect_site_url
+from agent.autofill import SETTINGS_KEY as SETTINGS_AUTOFILL
+from agent.config import get_settings
 from agent.db.models import (
     Credential,
     CredentialKind,
@@ -200,6 +207,12 @@ async def update_project(
         project.markets = [market.model_dump() for market in body.markets]
         changed["markets"] = [market.country for market in body.markets]
 
+    if body.autofill is not None:
+        settings = dict(project.settings)
+        settings[SETTINGS_AUTOFILL] = body.autofill.model_dump()
+        project.settings = settings
+        changed["autofill"] = settings[SETTINGS_AUTOFILL]
+
     if body.models is not None or body.approvals is not None:
         # Reassigning rather than mutating: SQLAlchemy does not track in-place
         # edits of a JSONB dict, so a mutated `settings` would never be written.
@@ -252,6 +265,110 @@ async def update_project(
     await db.commit()
     await db.refresh(project)
     return await _detail(db, me, project, response)
+
+
+@router.post(
+    "/projects/{project_id}/autofill",
+    response_model=AutofillResponse,
+    summary="Work out the setup fields that can be read instead of typed",
+)
+async def autofill_project(
+    project_id: uuid.UUID,
+    body: AutofillRequest,
+    me: ProjectWriter,
+    request: Request,
+    response: Response,
+    db: Db,
+) -> AutofillResponse:
+    """Fill the step-1 fields the system can read for itself.
+
+    Deliberately not part of a run. Markets size the research, so "the agent
+    will work it out later" would mean a person pressing Launch on a project
+    whose scope nobody has seen — and a scope nobody saw is a scope nobody
+    disagreed with. This answers now, writes what it found, and leaves it
+    editable, so the proposal is on the screen while there is still time for it
+    to be wrong.
+
+    No `If-Unmodified-Since` here, unlike `PATCH`: the caller is asking the
+    server to compute a value rather than to overwrite one it has read, and
+    demanding the version of a field you did not type is a lost race with no
+    lost work behind it.
+    """
+    project = await _load(db, me, project_id)
+    settings = dict(project.settings)
+    stored = AutofillSettings.model_validate(settings.get(SETTINGS_AUTOFILL, {}))
+
+    requested = body.fields if body.fields is not None else None
+    if requested is not None:
+        unknown = [field for field in requested if field not in AUTOFILL_FIELDS]
+        if unknown:
+            raise problems.unprocessable(
+                f"Nothing here can work out {', '.join(unknown)}.",
+                fields=list(AUTOFILL_FIELDS),
+            )
+        wanted = list(dict.fromkeys(requested))
+    else:
+        wanted = [field for field in AUTOFILL_FIELDS if getattr(stored, field)]
+    if not wanted:
+        raise problems.unprocessable(
+            "Turn on at least one field for the agent to work out, or name one in `fields`.",
+            fields=list(AUTOFILL_FIELDS),
+        )
+
+    app_settings = get_settings()
+    findings: list[AutofillFinding] = []
+    changed: dict[str, object] = {}
+
+    # Site first when both are asked for: where the domain lands is also where
+    # the market detection should read its language links from, and reading
+    # them off a redirect stub finds nothing.
+    site_url = ProductContext.model_validate(project.product_context or {}).site_url
+    if "site_url" in wanted:
+        finding = await detect_site_url(project.domain, settings=app_settings)
+        findings.append(AutofillFinding(**finding.as_dict()))
+        if finding.found:
+            context = dict(project.product_context or {})
+            context["site_url"] = finding.value
+            project.product_context = context
+            site_url = str(finding.value)
+            changed["site_url"] = finding.value
+
+    if "markets" in wanted:
+        finding = await detect_markets(db, project, settings=app_settings, site_url=site_url)
+        findings.append(AutofillFinding(**finding.as_dict()))
+        if finding.found:
+            project.markets = list(finding.value)
+            changed["markets"] = [market["country"] for market in finding.value]
+
+    # Asking for a field is asking to keep it: the preference follows the act,
+    # so the wizard does not need a second call to remember what was pressed.
+    for field in wanted:
+        setattr(stored, field, True)
+    settings[SETTINGS_AUTOFILL] = stored.model_dump()
+    project.settings = settings
+
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.PROJECT_UPDATED,
+        target_type=AuditTarget.PROJECT,
+        target_id=project.id,
+        meta={"autofill": {"asked": wanted, "wrote": changed}},
+        ip=client_ip(request),
+    )
+    await db.commit()
+    await db.refresh(project)
+    log.info(
+        "project.autofilled",
+        project_id=str(project.id),
+        asked=wanted,
+        wrote=sorted(changed),
+    )
+    return AutofillResponse(
+        findings=findings,
+        project=await _detail(db, me, project, response),
+    )
 
 
 @router.get(
@@ -442,6 +559,9 @@ async def _detail(
         markets=[Market.model_validate(market) for market in project.markets or []],
         models=ModelRouting.from_settings(project.settings),
         gates=[_gate_info(gate, assignments[gate.node_id], names) for gate in gates()],
+        autofill=AutofillSettings.model_validate(
+            (project.settings or {}).get(SETTINGS_AUTOFILL, {})
+        ),
         requirements=await _requirements(db, me, project),
     )
 

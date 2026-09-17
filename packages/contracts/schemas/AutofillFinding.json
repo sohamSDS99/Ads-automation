@@ -1,0 +1,32 @@
+{
+  "description": "One field the agent worked out, and what it read to get there.",
+  "properties": {
+    "field": {
+      "title": "Field",
+      "type": "string"
+    },
+    "value": {
+      "description": "The value written: a URL, or a list of markets",
+      "title": "Value"
+    },
+    "source": {
+      "description": "What was read, in a sentence meant to be shown",
+      "title": "Source",
+      "type": "string"
+    },
+    "found": {
+      "description": "False when nothing could be read \u2014 nothing is invented",
+      "title": "Found",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "field",
+    "value",
+    "source",
+    "found"
+  ],
+  "title": "AutofillFinding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
