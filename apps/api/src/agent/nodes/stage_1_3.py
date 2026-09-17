@@ -31,6 +31,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from agent.db.models import ApprovalRequiredRole, Evidence
+from agent.documents import BRAND_DOC
 from agent.llm.router import TaskClass
 from agent.nodes import batching, creatives, gather, prompts
 from agent.nodes.base import LLMNode, NodeSpec, RunContext
@@ -673,6 +674,11 @@ class DifferentiationClaimNode(LLMNode):
             gather.Need(COMPETITOR_CREATIVE, limit=400),
             gather.Need(COMPETITOR_LANDING_PAGE, limit=60),
             gather.Need(PAGE, limit=60),
+            # Whitespace is the gap between what we can prove and what rivals
+            # say. The proof — benchmark results, certifications, a customer
+            # list — is usually in a document and almost never on a landing
+            # page, which is exactly why the claim is unmade.
+            gather.Need(BRAND_DOC, limit=120, optional=True),
         )
         ctx.scratch[self.spec.id] = found
         return found.evidence
@@ -689,6 +695,7 @@ class DifferentiationClaimNode(LLMNode):
     def user_prompt(self, ctx: RunContext, ev: Sequence[Evidence]) -> str:
         found: gather.Gathered = ctx.scratch[self.spec.id]
         corpus = ctx.output_of("1.3.2")
+        documents = prompts.documents_block(found, BRAND_DOC)
         return prompts.compose(
             prompts.project_block(ctx.project),
             prompts.computed_block("what we sell (node 1.1.1)", ctx.output_of("1.1.1")),
@@ -717,8 +724,13 @@ class DifferentiationClaimNode(LLMNode):
             prompts.evidence_block(
                 found, COMPETITOR_LANDING_PAGE, title="competitor landing pages", limit=20
             ),
+            documents,
             prompts.coverage_block(found),
-            prompts.cite_from("EVIDENCE — our own pages", "EVIDENCE — competitor landing pages"),
+            prompts.cite_from(
+                "EVIDENCE — our own pages",
+                "EVIDENCE — competitor landing pages",
+                prompts.documents_cite(documents),
+            ),
             "TASK\n"
             "  Return the whitespace: claims that are true of this business and absent from "
             "the competitor corpus, each with why nobody says it, our proof, and the risk of "

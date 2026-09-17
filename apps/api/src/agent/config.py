@@ -128,6 +128,19 @@ class Settings(BaseSettings):
 
     # csv_ingest: a guard against a 2GB upload, not a product limit.
     csv_max_bytes: int = 32 * 1024 * 1024
+
+    # documents: the business-context library uploaded in step 1 of the wizard.
+    # Every one of these is a guard rather than a product opinion — the real
+    # constraint is prompt budget, and that is enforced per node when the
+    # passages are rendered, not here.
+    document_max_bytes: int = 20 * 1024 * 1024
+    #: Characters kept from one file. Roughly 100k words: longer than any brand
+    #: document that is actually about this brand, and short enough that one
+    #: upload cannot fill the evidence table.
+    document_max_chars: int = 400_000
+    #: Files per project. A library larger than this is a content strategy, not
+    #: a business context, and the nodes can only read a fraction of it anyway.
+    document_max_per_project: int = 25
     csv_max_rows: int = 200_000
 
     # --- storage ------------------------------------------------------------

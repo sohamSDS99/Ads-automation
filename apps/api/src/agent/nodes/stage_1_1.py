@@ -29,6 +29,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from agent.db.models import ApprovalRequiredRole, Evidence
+from agent.documents import BRAND_DOC
 from agent.llm.router import TaskClass
 from agent.nodes import frames, gather, prompts
 from agent.nodes.base import LLMNode, NodeSpec, RunContext
@@ -117,12 +118,19 @@ class OfferEconomicsNode(LLMNode):
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        found = await gather.collect(ctx, gather.Need(CRM_WON))
+        # The uploaded documents are where a price list actually lives. A CRM
+        # export says what deals closed for; a pricing sheet says what the list
+        # price was and what the tiers are, which is the difference between
+        # describing history and describing the offer.
+        found = await gather.collect(
+            ctx, gather.Need(CRM_WON), gather.Need(BRAND_DOC, limit=120, optional=True)
+        )
         ctx.scratch[self.spec.id] = found
         return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         found: gather.Gathered = ctx.scratch[self.spec.id]
+        documents = prompts.documents_block(found, BRAND_DOC)
         frame = frames.crm_frame(found.payloads(CRM_WON), [row.id for row in found.of(CRM_WON)])
         preview = frames.crm_economics(
             frame, gross_margin_pct=100.0, lifetime_months=12.0, ltv_cac_ratio=3.0
@@ -147,8 +155,9 @@ class OfferEconomicsNode(LLMNode):
                     },
                 ),
                 prompts.evidence_block(found, CRM_WON, title="closed-won deals"),
+                documents,
                 prompts.coverage_block(found),
-                prompts.cite_from("EVIDENCE — closed-won deals"),
+                prompts.cite_from("EVIDENCE — closed-won deals", prompts.documents_cite(documents)),
                 "TASK\n"
                 "  List the products or services this business sells, each with its pricing "
                 "model and what it costs to deliver. Then state three assumptions: blended "
@@ -232,12 +241,17 @@ class IcpProfileNode(LLMNode):
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        found = await gather.collect(ctx, gather.Need(CRM_WON))
+        found = await gather.collect(
+            ctx, gather.Need(CRM_WON), gather.Need(BRAND_DOC, limit=120, optional=True)
+        )
         ctx.scratch[self.spec.id] = found
         return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         found: gather.Gathered = ctx.scratch[self.spec.id]
+        # An ICP one-pager names the triggers and the jobs-to-be-done that a
+        # deal table can only imply. The numbers still come from the frame.
+        documents = prompts.documents_block(found, BRAND_DOC)
         frame = frames.crm_frame(found.payloads(CRM_WON), [row.id for row in found.of(CRM_WON)])
         segments, omitted = frames.crm_segments(frame)
         if not segments:
@@ -257,6 +271,7 @@ class IcpProfileNode(LLMNode):
                     [segment.as_dict() for segment in segments],
                 ),
                 prompts.evidence_block(found, CRM_WON, title="closed-won deals"),
+                documents,
                 prompts.coverage_block(found),
                 "TASK\n"
                 "  For each segment above, return one entry whose `key` is copied exactly "
@@ -335,12 +350,18 @@ class NegativeIcpNode(LLMNode):
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        found = await gather.collect(ctx, gather.Need(CRM_LOST))
+        found = await gather.collect(
+            ctx, gather.Need(CRM_LOST), gather.Need(BRAND_DOC, limit=120, optional=True)
+        )
         ctx.scratch[self.spec.id] = found
         return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         found: gather.Gathered = ctx.scratch[self.spec.id]
+        # "Who we are not for" is usually written down somewhere — a
+        # qualification guide, a sales playbook — long before it shows up as a
+        # pattern in lost deals.
+        documents = prompts.documents_block(found, BRAND_DOC)
         frame = frames.crm_frame(found.payloads(CRM_LOST), [row.id for row in found.of(CRM_LOST)])
         reasons = frames.lost_reasons(frame)
 
@@ -355,9 +376,12 @@ class NegativeIcpNode(LLMNode):
                 prompts.project_block(ctx.project),
                 prompts.computed_block("closed-lost reasons by frequency", reasons),
                 prompts.evidence_block(found, CRM_LOST, title="closed-lost deals"),
+                documents,
                 prompts.coverage_block(found),
                 prompts.cite_from(
-                    "EVIDENCE — closed-lost deals", "the `evidence_ids` in the reasons table"
+                    "EVIDENCE — closed-lost deals",
+                    prompts.documents_cite(documents),
+                    "the `evidence_ids` in the reasons table",
                 ),
                 "TASK\n"
                 "  Return the personas this business should exclude. For each: the "
@@ -562,6 +586,10 @@ class ComplianceGuardrailsNode(LLMNode):
             ctx,
             gather.Need(CHANGE_LOG, connector="google_ads"),
             gather.Need(PAGE, limit=60),
+            # A compliance policy, a claims-substantiation sheet or a legal
+            # review doc is uploaded far more often than it is published on the
+            # website, and this is the node whose whole job is reading it.
+            gather.Need(BRAND_DOC, limit=200, optional=True),
         )
         ctx.scratch[self.spec.id] = found
         return found.evidence
@@ -577,6 +605,7 @@ class ComplianceGuardrailsNode(LLMNode):
     def user_prompt(self, ctx: RunContext, ev: Sequence[Evidence]) -> str:
         found: gather.Gathered = ctx.scratch[self.spec.id]
         offer = ctx.output_of("1.1.1")
+        documents = prompts.documents_block(found, BRAND_DOC)
         return prompts.compose(
             prompts.project_block(ctx.project),
             prompts.computed_block("what this business sells (node 1.1.1)", offer),
@@ -584,10 +613,12 @@ class ComplianceGuardrailsNode(LLMNode):
                 found, CHANGE_LOG, title="account change history (prior disapprovals)"
             ),
             prompts.evidence_block(found, PAGE, title="our own pages (claims and policy copy)"),
+            documents,
             prompts.coverage_block(found),
             prompts.cite_from(
                 "EVIDENCE — account change history (prior disapprovals)",
                 "EVIDENCE — our own pages (claims and policy copy)",
+                prompts.documents_cite(documents),
             ),
             "TASK\n"
             "  Return the claims this advertiser must not make, the disclaimers it must "

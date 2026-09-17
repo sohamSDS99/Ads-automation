@@ -468,3 +468,41 @@ Three things are worth knowing before changing any of it.
   happens when it does not — invites degrade to a copyable link.
 - The cost estimate is labelled `assumed` until three full runs have finished,
   then `measured`. It is never presented as a measurement it is not.
+
+## Business-context documents
+
+Step 1 of the wizard takes files as well as text. A PDF, a Word file (`.docx`),
+a CSV or plain text/markdown is read on upload, split into passages, and stored
+as evidence the research nodes can cite.
+
+| | |
+| --- | --- |
+| Where | Setup wizard, step 1 — **Background documents** |
+| API | `POST/GET /projects/{id}/documents`, `DELETE /projects/{id}/documents/{doc_id}` |
+| Permission | `project_write` to add or remove, `read` to see the list |
+| Limits | 20MB and 400,000 characters per file, 400 passages, 25 files per project |
+
+Four decisions behind it.
+
+- **It becomes evidence, not configuration.** `product_context` is repeated to
+  every node as text nobody may cite, and a 30-page positioning deck cannot go
+  there — it would be in twenty-three prompts and quotable in none of them. An
+  uploaded file is chunked into ~1,100-character passages with an id each, so a
+  claim about the pricing tiers points back at the page it came from.
+- **Six nodes ask for it, and an absent library is not a gap.** 1.1.1, 1.1.2,
+  1.1.3, 1.1.5, 1.3.4 and 1.4.1 add `Need(BRAND_DOC, optional=True)`.
+  `optional` is what stops "no documents uploaded" being reported as a degraded
+  source all the way out to the report's `insufficient_evidence`.
+- **Extraction failures are loud.** A scanned PDF has no text layer and `pypdf`
+  returns empty strings for every page rather than an error; a legacy `.doc` is
+  an OLE blob. Both are refused with the sentence that says what to do instead,
+  because the alternative is a filename with a tick beside it and a run that
+  cannot read a word of it. Anything partly readable is accepted *and* says
+  what it lost — pages skipped, characters dropped at the budget.
+- **The original bytes are not kept.** The Volume belongs to `worker` (§5.2)
+  and `api` receives the upload, so the extracted text is the artifact. The
+  same file twice is a `409` keyed on its SHA-256, not a second copy.
+
+`make browser-documents` drives the whole thing in Chromium: a real PDF, a CSV,
+a scan that must be refused, the duplicate that must be refused, the review
+step's count, and the delete that has to take the passages with it.

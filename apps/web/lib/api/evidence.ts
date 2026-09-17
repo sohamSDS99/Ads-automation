@@ -13,6 +13,7 @@ export type EvidenceSource =
   | "serp"
   | "web"
   | "csv"
+  | "upload"
   | "derived";
 
 export type EvidenceItem = {
@@ -63,6 +64,7 @@ export const SOURCE_LABEL: Record<EvidenceSource, string> = {
   serp: "Search results",
   web: "Site crawl",
   csv: "CRM upload",
+  upload: "Business context",
   derived: "Computed",
 };
 

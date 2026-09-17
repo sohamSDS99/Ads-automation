@@ -30,6 +30,7 @@ import structlog
 from pydantic import BaseModel, Field
 
 from agent.db.models import Evidence
+from agent.documents import BRAND_DOC
 from agent.llm.router import TaskClass
 from agent.nodes import batching, gather, keywords, prompts
 from agent.nodes.base import LLMNode, NodeSpec, RunContext
@@ -132,6 +133,10 @@ class KeywordUniverseNode(LLMNode):
             # proxy for them again would be paying twice for one fact.
             gather.Need(SERP_RELATED, limit=200),
             gather.Need(SERP_QUESTION, limit=200),
+            # Uploaded documents carry the vocabulary a buyer actually types
+            # before the website does: feature names, the phrase the industry
+            # uses for the problem, the words in the objection-handling sheet.
+            gather.Need(BRAND_DOC, limit=200, optional=True),
         )
         seeds = _vendor_seeds(ctx, found)
         vendor = await gather.collect(
@@ -237,6 +242,12 @@ class KeywordUniverseNode(LLMNode):
                     "themes our competitors advertise on (node 1.3.2)",
                     ctx.output_of("1.3.2").get("message_clusters", []),
                 ),
+                # The uploaded documents reach the universe through this call
+                # rather than through `keywords.phrases`: that function takes
+                # contiguous token windows out of ad copy, and run over a page
+                # of prose it returns the first four words of the page. A model
+                # reading the same page returns the phrase a buyer would type.
+                prompts.documents_block(found, BRAND_DOC),
                 prompts.coverage_block(found),
                 f"TASK\n"
                 f"  Return up to {MAX_TOPICS} search phrases, two to six words each, that "

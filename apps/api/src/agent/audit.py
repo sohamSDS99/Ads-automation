@@ -50,6 +50,13 @@ class AuditAction(StrEnum):
     CSV_UPLOADED = "source.csv_uploaded"
     EVIDENCE_WRITTEN = "evidence.written"
 
+    # Business-context documents. Separate from `CSV_UPLOADED`, which records a
+    # mapped CRM import: these two write different evidence for different
+    # reasons, and an admin reading the log should be able to tell which
+    # happened without opening `meta`.
+    DOCUMENT_UPLOADED = "project.document_uploaded"
+    DOCUMENT_DELETED = "project.document_deleted"
+
     # P5a — report exports. Requesting one is the recorded act; downloading the
     # same file twice is not a second decision, and a row per click would bury
     # the log the admin actually reads.

@@ -2,6 +2,7 @@
 
 import { Plus, Trash2 } from "lucide-react";
 
+import { DocumentUpload } from "@/components/setup/document-upload";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -17,14 +18,22 @@ import type { Market, ProductContext } from "@/lib/api/projects";
  * prompts for specifics rather than empty boxes: what the product does, what it
  * costs, who it is for. Vague input here produces a vague report and no error
  * message anywhere.
+ *
+ * The document uploader below them is the same job at a different scale. The
+ * boxes go into every node's prompt as configuration and have to stay short;
+ * an uploaded file becomes citable evidence instead, which is how a brand with
+ * a 30-page positioning deck gets to use it without putting it in front of
+ * twenty-three model calls.
  */
 export function StepContext({
+  projectId,
   context,
   markets,
   onContextChange,
   onMarketsChange,
   disabled,
 }: {
+  projectId: string;
   context: ProductContext;
   markets: Market[];
   onContextChange: (context: ProductContext) => void;
@@ -110,6 +119,8 @@ export function StepContext({
           </p>
         </div>
       </div>
+
+      <DocumentUpload projectId={projectId} disabled={disabled} />
 
       <Field
         label="Site to crawl"

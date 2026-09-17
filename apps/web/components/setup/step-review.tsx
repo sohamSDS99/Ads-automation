@@ -1,10 +1,13 @@
 "use client";
 
+import { useQuery } from "@tanstack/react-query";
 import { CircleAlert, CircleCheck, TriangleAlert } from "lucide-react";
 
 import { RunTrigger } from "@/components/projects/run-trigger";
 import { Alert } from "@/components/ui/alert";
+import { listDocuments } from "@/lib/api/documents";
 import { blockers, warnings, type ProjectDetail } from "@/lib/api/projects";
+import { keys } from "@/lib/queries";
 import { Can } from "@/lib/session";
 
 /**
@@ -17,6 +20,14 @@ export function StepReview({ project }: { project: ProjectDetail }) {
   const stopped = blockers(project);
   const degraded = warnings(project);
   const context = project.product_context;
+  // Listed here because it is the one part of step 1 that saves itself as you
+  // go: someone who uploaded a file two screens ago should see it counted in
+  // the summary of what the run will read.
+  const library = useQuery({
+    queryKey: keys.documents(project.id),
+    queryFn: () => listDocuments(project.id),
+  });
+  const documents = library.data?.documents ?? [];
 
   return (
     <div className="space-y-5">
@@ -42,6 +53,13 @@ export function StepReview({ project }: { project: ProjectDetail }) {
         <Row term="Gates">
           {project.gates.filter((gate) => gate.assignee_name).length} of {project.gates.length}{" "}
           assigned
+        </Row>
+        <Row term="Background documents">
+          {documents.length
+            ? `${documents.length} file${documents.length === 1 ? "" : "s"} · ${documents
+                .reduce((total, item) => total + item.passage_count, 0)
+                .toLocaleString()} citable passages`
+            : "None uploaded"}
         </Row>
       </dl>
 

@@ -38,7 +38,8 @@
         "serp",
         "web",
         "csv",
-        "derived"
+        "derived",
+        "upload"
       ],
       "title": "EvidenceSource",
       "type": "string"
