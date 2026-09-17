@@ -79,10 +79,17 @@ async def test_the_catalogue_of_kinds_travels_with_the_list(admin: ApiClient) ->
     body = (await admin.get("/credentials")).json()
     kinds = {kind["kind"]: kind for kind in body["kinds"]}
 
-    assert set(kinds) == {"openrouter", "google_ads", "dataforseo"}
+    assert set(kinds) == {"openrouter", "google_ads", "dataforseo", "brightdata"}
     google = {field["name"] for field in kinds["google_ads"]["fields"]}
     assert {"developer_token", "refresh_token", "customer_id"} <= google
     assert kinds["google_ads"]["fields"][0]["secret"] is True
+
+    # The SERP account's zone is shown and its password is not, which is what
+    # lets `/settings` say *which* account is connected without holding one.
+    brightdata = {field["name"]: field for field in kinds["brightdata"]["fields"]}
+    assert brightdata["username"]["secret"] is False
+    assert brightdata["password"]["secret"] is True
+    assert brightdata["host"]["required"] is False
 
 
 async def test_smtp_cannot_be_stored_as_a_credential(admin: ApiClient) -> None:

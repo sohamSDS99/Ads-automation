@@ -20,8 +20,8 @@ refuses to add an enum value inside a transaction that then *uses* it, and
 Alembic runs a migration in exactly that kind of transaction — the
 `CREATE TABLE` below would fail against the value this statement just added.
 
-Revision ID: 0007
-Revises: 0006
+Revision ID: 0008
+Revises: 0007
 """
 
 from __future__ import annotations
@@ -30,8 +30,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision: str = "0007"
-down_revision: str | None = "0006"
+revision: str = "0008"
+down_revision: str | None = "0007"
 branch_labels: str | None = None
 depends_on: str | None = None
 

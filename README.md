@@ -1,7 +1,7 @@
 # ads-research-agent
 
 Self-hosted **Paid Ads Research Agent** — Stage 01 of the SDS Manager marketing
-pipeline. It runs a deterministic 23-node research DAG over four evidence
+pipeline. It runs a deterministic 23-node research DAG over five evidence
 sources and emits a versioned, citation-backed Research Report.
 
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
@@ -121,6 +121,39 @@ work must not look like one that finished.
 every range carries the `method` that produced it, the `basis` it used and a
 confidence that drops to `low` when the only signal is how many ads we saw. With
 no signal at all it returns `insufficient_evidence` rather than a number.
+
+## The SERP source
+
+`connectors/serp.py` buys one live Google result page per money term through a
+Bright Data SERP proxy and keeps four things off it: the organic ranking
+(`serp_snapshot`), every ad on the page (`serp_ad`), People Also Ask
+(`serp_question`) and the related searches (`serp_related`). Node 1.3.1 asks for
+it, 1.3.2 folds the ads into the creative corpus beside the Transparency Center
+archive, and 1.4.1 seeds the keyword universe on the last two.
+
+It is the answer to a gap rather than a second opinion: DataForSEO's SERP
+endpoint is filtered to organic results, so before this the *advertisers* on a
+page we were bidding into never reached the evidence store at all.
+
+Three things to know:
+
+- **The account is a vault credential** (`brightdata`), configured in the setup
+  wizard's Sources step like any other. Host and port are optional and default
+  to Bright Data's published SERP endpoint.
+- **A SERP zone serves search engines, not arbitrary sites.** Asked for a
+  competitor's homepage it answers `400 This target URL isn't supported with
+  SERP API, use the Web Unlocker product for targeting this URL`. So it does
+  not double as an unblocker: `web_crawler` and the Transparency Center still
+  go out directly, and giving them a proxy means a second Bright Data zone.
+- **TLS is not verified on that one connection.** The proxy terminates TLS with
+  its own CA, so a verifying client fails the handshake. The tunnel carries a
+  public search query; the account secret goes to the proxy in a
+  `Proxy-Authorization` header and never enters it. `SERP_VERIFY_TLS=true` once
+  Bright Data's CA is in the image's trust store.
+
+`make verify-serp` proves the whole path against both live accounts — it deletes
+the project's SERP evidence first, so the pull has to happen again rather than
+reading the previous run's rows back.
 
 ## Approval gates
 

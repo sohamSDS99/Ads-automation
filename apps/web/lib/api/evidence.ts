@@ -10,6 +10,7 @@ export type EvidenceSource =
   | "google_ads"
   | "dataforseo"
   | "transparency"
+  | "serp"
   | "web"
   | "csv"
   | "upload"
@@ -60,6 +61,7 @@ export const SOURCE_LABEL: Record<EvidenceSource, string> = {
   google_ads: "Google Ads",
   dataforseo: "Keyword data",
   transparency: "Transparency Center",
+  serp: "Search results",
   web: "Site crawl",
   csv: "CRM upload",
   upload: "Business context",

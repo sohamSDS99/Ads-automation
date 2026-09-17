@@ -43,6 +43,17 @@ COMPETITOR_CREATIVE = "competitor_creative"
 COMPETITOR_LANDING_PAGE = "competitor_landing_page"
 DOMAIN_COMPETITOR = "domain_competitor"
 SERP_SNAPSHOT = "serp_snapshot"
+#: Ads read off a live result page by `connectors/serp.py`. A separate kind from
+#: `competitor_creative` rather than the same one, because the two are different
+#: claims — the archive says an advertiser has run this ad, the SERP says it was
+#: on the page for one of our money terms on one named day — and because a
+#: shared kind would make the store non-empty and skip the Transparency scrape.
+SERP_AD = "serp_ad"
+#: People Also Ask and the related-searches strip, both off the same page. Node
+#: 1.4.1 seeds its keyword universe on them — demand phrased by the engine
+#: rather than by a vendor's idea list or by the model.
+SERP_QUESTION = "serp_question"
+SERP_RELATED = "serp_related"
 
 #: Our own money terms handed to the SERP probe. The vendor charges per SERP, so
 #: this is the top of node 1.2.2's table rather than all of it.
@@ -134,7 +145,7 @@ class CompetitorSetNode(LLMNode):
         task_class=TaskClass.EXTRACT,
         input_model=BaseModel,
         output_model=CompetitorSet,
-        connectors=("dataforseo",),
+        connectors=("dataforseo", "serp"),
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
@@ -142,17 +153,29 @@ class CompetitorSetNode(LLMNode):
         # matter, so the pull is scoped by node 1.2.2's table rather than
         # sampling the vendor's idea of our market.
         terms = _our_terms(ctx)
+        probe = sorted(terms)[:SERP_PROBE_TERMS]
         found = await gather.collect(
             ctx,
             gather.Need(
                 DOMAIN_COMPETITOR,
                 connector="dataforseo",
+                params={"domain": ctx.project.domain, "serp_keywords": probe},
+            ),
+            # Two sources can answer this, and the order is the preference.
+            # `collect` pulls only when the store came back empty, so a
+            # DataForSEO fetch that already wrote its own snapshots above ends
+            # this need without spending a proxy request — and a workspace with
+            # no keyword vendor still gets a SERP, a live one, with the ads on
+            # it that `serp_ad` carries into node 1.3.2.
+            gather.Need(
+                SERP_SNAPSHOT,
+                connector="serp",
                 params={
-                    "domain": ctx.project.domain,
-                    "serp_keywords": sorted(terms)[:SERP_PROBE_TERMS],
+                    "serp_keywords": probe,
+                    "country": _country(ctx),
+                    "language": _language(ctx),
                 },
             ),
-            gather.Need(SERP_SNAPSHOT),
         )
         ctx.scratch[self.spec.id] = found
         return found.evidence
@@ -296,6 +319,12 @@ class CreativeCorpus(BaseModel):
 class CreativeCorpusNode(LLMNode):
     """1.3.2 — every live competitor ad we can see, read and grouped.
 
+    Two captures feed it. The Transparency Center scrape says what an advertiser
+    has run; the SERP rows node 1.3.1 already bought say what was actually on
+    the page for our own money terms, which is the half that can be missing
+    entirely when a competitor advertises only on terms we never thought to
+    search the archive for.
+
     The scrape is the connector's job and the screenshot lands on the Volume
     through `StorageBackend`; this node reads what came back. Extraction is
     batched because the corpus is hundreds of ads, and the batch count is
@@ -329,15 +358,22 @@ class CreativeCorpusNode(LLMNode):
                 limit=MAX_CORPUS_ROWS,
             ),
             gather.Need(COMPETITOR_LANDING_PAGE, limit=200),
+            # Written by node 1.3.1's SERP pull, so there is no connector here:
+            # asking the proxy again would buy the same pages twice.
+            gather.Need(SERP_AD, limit=MAX_CORPUS_ROWS),
         )
         ctx.scratch[self.spec.id] = found
         return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         found: gather.Gathered = ctx.scratch[self.spec.id]
+        # One corpus out of two captures. `creative_rows` keys on the creative's
+        # own identity, so an ad the archive and the SERP both hold collapses to
+        # one row rather than being read, and counted, twice.
+        scraped = found.of(COMPETITOR_CREATIVE) + found.of(SERP_AD)
         rows, omitted = creatives.creative_rows(
-            found.payloads(COMPETITOR_CREATIVE),
-            [row.id for row in found.of(COMPETITOR_CREATIVE)],
+            [dict(row.payload) for row in scraped],
+            [row.id for row in scraped],
             max_ads=_max_ads(ctx),
         )
         if not rows:
@@ -742,6 +778,26 @@ def _currency(ctx: RunContext) -> str:
         if isinstance(market, dict) and market.get("currency"):
             return str(market["currency"]).upper()
     return "USD"
+
+
+def _country(ctx: RunContext) -> str:
+    """The first configured market's country, as the `gl` the SERP proxy wants.
+
+    A project stores ISO 3166-1 alpha-2 already (PRD §6), so this is the code
+    itself rather than a name that has to be looked up in a vendor's table.
+    """
+    for market in ctx.project.markets or []:
+        if isinstance(market, dict) and market.get("country"):
+            return str(market["country"]).lower()
+    return ""
+
+
+def _language(ctx: RunContext) -> str:
+    """The first configured market's language, as `hl`. ISO 639-1, same as above."""
+    for market in ctx.project.markets or []:
+        if isinstance(market, dict) and market.get("language"):
+            return str(market["language"]).lower()
+    return ""
 
 
 def _attr(labels: dict[str, Any], key: str, field_name: str) -> str:

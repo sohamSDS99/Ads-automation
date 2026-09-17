@@ -12,11 +12,15 @@ import { errorMessage, useCredentials } from "@/lib/queries";
 /**
  * Step 2 — where the evidence comes from.
  *
- * Four sources, and they are not four of the same thing: two need a key, one is
- * a browser crawl of a public site, and one is a file you upload. Giving each
- * the same card would say they need the same attention, and they do not — so
- * the two that can be misconfigured get the space, and the two that cannot are
- * stated and left alone.
+ * Five sources, and they are not five of the same thing: three need a key, one
+ * is a browser crawl of a public site, and one is a file you upload. Giving
+ * each the same card would say they need the same attention, and they do not —
+ * so the ones that can be misconfigured get the space, and the ones that cannot
+ * are stated and left alone.
+ *
+ * The keyed list is not spelled out here. It comes from `GET /credentials`,
+ * which reports every kind this build knows about, so adding a source to the
+ * backend adds its card without a change on this screen.
  */
 export function StepSources({
   projectId,
@@ -44,8 +48,8 @@ export function StepSources({
         <div>
           <h3 className="text-sm font-medium text-fg">Sources that need a key</h3>
           <p className="text-sm text-fg-muted">
-            Both are optional. Without them the run continues and the report names the sections
-            that went without evidence — it never fills the gap with a guess.
+            Every one is optional. Without them the run continues and the report names the
+            sections that went without evidence — it never fills the gap with a guess.
           </p>
         </div>
 

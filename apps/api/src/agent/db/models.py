@@ -63,6 +63,7 @@ class CredentialKind(StrEnum):
     OPENROUTER = "openrouter"
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
+    BRIGHTDATA = "brightdata"
     SMTP = "smtp"
 
 
@@ -104,10 +105,11 @@ class EvidenceSource(StrEnum):
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
     TRANSPARENCY = "transparency"
+    SERP = "serp"
     WEB = "web"
     CSV = "csv"
     DERIVED = "derived"
-    #: A document a person uploaded as business context (migration 0007). Kept
+    #: A document a person uploaded as business context (migration 0008). Kept
     #: apart from `CSV`, which means a mapped CRM export and nothing else: these
     #: two arrive through the same kind of form and answer completely different
     #: questions, and an evidence filter that conflated them would show a

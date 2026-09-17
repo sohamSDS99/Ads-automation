@@ -40,7 +40,7 @@ from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.connectors import connector_class
-from agent.connectors.base import ConnectorContext, ConnectorStatus, build_client
+from agent.connectors.base import ConnectorContext, ConnectorStatus
 from agent.credential_kinds import KIND_SPECS, spec_for, unseal
 from agent.credentials import new_credential, open_credential
 from agent.db.models import Credential, CredentialKind, CredentialScope, Project, User
@@ -335,17 +335,20 @@ async def _run_test(
                 return ConnectorStatus(ok=False, detail=exc.detail)
             return ConnectorStatus(ok=True, detail=status_.detail, meta=status_.as_meta())
 
-    client = build_client(settings)
+    # No client is handed over, and that is the point: a connector's transport
+    # is part of the thing being tested. `serp` reaches Google through a proxy
+    # that the credential itself addresses, so a plain client built here would
+    # test a route the run path never takes — and pass, or fail, for the wrong
+    # reason. Every connector already builds its own when the context has none,
+    # and closes it (`gather._pull` relies on the same behaviour).
     try:
         instance = connector_class(connector)(
-            ConnectorContext(credentials=values, settings=settings, client=client)
+            ConnectorContext(credentials=values, settings=settings)
         )
         return await instance.test_connection()
     except Exception as exc:  # noqa: BLE001 — a broken connector must not 500 the vault
         log.warning("credential.test_failed", kind=kind.value, error=str(exc))
         return ConnectorStatus(ok=False, detail=f"The test could not be completed: {exc}")
-    finally:
-        await client.aclose()
 
 
 def _showable(meta: dict[str, object]) -> dict[str, object]:
