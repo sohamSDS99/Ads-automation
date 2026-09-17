@@ -117,17 +117,16 @@ async def test_a_forged_cursor_is_refused(admin: ApiClient) -> None:
 
 
 async def test_the_connector_catalogue_lists_every_source(admin: ApiClient) -> None:
+    from agent.connectors import CONNECTOR_NAMES, credential_kind_for
+
     body = (await admin.get("/connectors")).json()
-    assert {c["name"] for c in body["connectors"]} == {
-        "google_ads",
-        "transparency",
-        "serp",
-        "dataforseo",
-        "web_crawler",
-        "csv_ingest",
-    }
+    # Derived from the registry rather than listed: a hardcoded set here fails a
+    # correct change to the connector list — removing the SERP source was that
+    # change — while proving nothing the registry does not already say. What
+    # this endpoint is for is that the two agree.
+    assert {c["name"] for c in body["connectors"]} == set(CONNECTOR_NAMES)
     needing = {c["name"] for c in body["connectors"] if c["requires_credential"]}
-    assert needing == {"google_ads", "dataforseo", "serp"}
+    assert needing == {name for name in CONNECTOR_NAMES if credential_kind_for(name)}
 
 
 # --- CSV upload ----------------------------------------------------------

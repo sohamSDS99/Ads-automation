@@ -20,8 +20,8 @@ Four things are asserted, in the order they can fail:
 2. traffic actually leaves through one of them, from a different IP than ours
 3. `web_crawler` crawls a real site through that exit and writes evidence
 4. Google is still *not* reachable through it — the measurement that decided
-   this whole design, re-run every time so a later "just point serp at it"
-   has to argue with a fresh result rather than a comment
+   this whole design, re-run every time so a later "let's read Google through
+   it" has to argue with a fresh result rather than with a comment
 """
 
 from __future__ import annotations
@@ -114,7 +114,7 @@ async def main() -> int:
             str(payload.get("title") or payload.get("h1"))[:60],
         )
 
-    # 4 — and Google is still refused, which is why serp stays on Bright Data
+    # 4 — and Google is still refused, which is why there is no SERP source
     blocked = False
     note = ""
     google = build_client(settings, proxy=url)
@@ -133,7 +133,7 @@ async def main() -> int:
     finally:
         await google.aclose()
     check(
-        "Google still returns no results through the proxy (serp stays on Bright Data)",
+        "Google still returns no results through the proxy",
         blocked,
         note,
     )

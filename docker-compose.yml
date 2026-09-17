@@ -42,7 +42,6 @@ x-api-env: &api-env
   # reaches the container, however carefully it was set in `.env`. A workspace
   # credential still overrides whatever is set (`credentials.resolve_secret`).
   OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
-  BRIGHTDATA_API_KEY: ${BRIGHTDATA_API_KEY:-}
   DATAFORSEO_API_KEY: ${DATAFORSEO_API_KEY:-}
   WEBSHARE_API_KEY: ${WEBSHARE_API_KEY:-}
 
@@ -143,7 +142,6 @@ services:
       # the unconfigured path. `test_models_api` asserts a 409 when nothing
       # supplies OpenRouter — with a live key inherited here it got a 200.
       OPENROUTER_API_KEY: ""
-      BRIGHTDATA_API_KEY: ""
       DATAFORSEO_API_KEY: ""
       WEBSHARE_API_KEY: ""
     volumes:

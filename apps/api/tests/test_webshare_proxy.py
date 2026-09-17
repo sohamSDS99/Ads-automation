@@ -4,13 +4,14 @@ Two of these tests are about parsing and the rest are about restraint. The
 parsing half is small — one API call returns a username and a password — and the
 restraint half is the reason the module exists in the form it does.
 
-Webshare was brought in to replace the Bright Data SERP source, and it cannot:
-measured through three separate exits, `google.com/search` never completes a
-navigation, and a plain fetch of it returns a redirect shell with no results and
-no ads in it. `adstransparency.google.com` behaves the same. So the proxy is
-wired to ordinary crawling only, and `test_only_the_crawler_is_proxied` and
-`test_vitals_are_never_measured_through_the_proxy` are what keep a later change
-from quietly widening that — each would have to be deleted deliberately.
+Webshare was brought in to read Google, and it cannot: measured through three
+separate exits, `google.com/search` never completes a navigation, and a plain
+fetch of it returns a redirect shell with no results and no ads in it.
+`adstransparency.google.com` behaves the same. That measurement is why this
+codebase has no live-result-page source at all. So the proxy is wired to
+ordinary crawling only, and `test_only_the_crawler_is_proxied` and
+`test_no_browser_path_is_proxied` are what keep a later change from quietly
+widening that — each would have to be deleted deliberately.
 """
 
 from __future__ import annotations
@@ -191,16 +192,20 @@ def test_build_client_actually_attaches_the_proxy() -> None:
 def test_only_the_crawler_is_proxied() -> None:
     """The allowlist is the claim, so it is pinned.
 
-    `serp` reaches Google through Bright Data's own network and `transparency`
-    reaches a Google property that does not answer through Webshare at all.
-    Adding a name to `_PROXIED_CONNECTORS` asserts that its target works
-    through a rotating datacenter exit, which is measurable and was measured.
+    `transparency` reaches a Google property that does not answer through
+    Webshare at all. Adding a name to `_PROXIED_CONNECTORS` asserts that its
+    target works through a rotating datacenter exit, which is measurable and
+    was measured.
+
+    Pinned against the registry as well, so a connector added later is not
+    silently proxied and a proxied one has to actually exist.
     """
+    from agent.connectors import CONNECTOR_NAMES
     from agent.nodes.gather import _PROXIED_CONNECTORS
 
     assert frozenset({"web_crawler"}) == _PROXIED_CONNECTORS
-    assert "serp" not in _PROXIED_CONNECTORS
     assert "transparency" not in _PROXIED_CONNECTORS
+    assert set(CONNECTOR_NAMES) >= _PROXIED_CONNECTORS
 
 
 def test_no_browser_path_is_proxied() -> None:

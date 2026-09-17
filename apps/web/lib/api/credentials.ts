@@ -10,7 +10,6 @@ export type CredentialKind =
   | "openrouter"
   | "google_ads"
   | "dataforseo"
-  | "brightdata"
   | "webshare"
   | "smtp";
 export type CredentialScope = "workspace" | "project" | "user";
