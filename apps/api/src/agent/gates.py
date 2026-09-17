@@ -17,16 +17,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from agent.db.models import ApprovalRequiredRole
+from agent.orchestrator.approvals import GATE_ASSIGNEES, GATE_SLA_HOURS
 from agent.orchestrator.registry import get_registry
 
-#: Where the default approver per gate is stored. Fixed by
-#: `orchestrator.approvals.GATE_ASSIGNEES` — it is the reader, this is the
-#: writer, and they have to name the same key.
-SETTINGS_ASSIGNEES = "gate_assignees"
-
-#: The optional per-gate SLA (PRD §13.4 step 4). Nothing consumes it yet:
-#: reminders are P8, which is also what will read this.
-SETTINGS_SLA = "gate_sla_hours"
+#: Where the wizard writes the default approver and the optional SLA per gate.
+#: Re-exported from the *reader* rather than spelled again here — P6 shipped a
+#: wizard that wrote `approvals` while P3's machinery read `gate_assignees`, and
+#: the only symptom was runs halting on nobody. Two names for one JSONB key is
+#: how that happens; an alias cannot drift.
+SETTINGS_ASSIGNEES = GATE_ASSIGNEES
+SETTINGS_SLA = GATE_SLA_HOURS
 
 
 @dataclass(frozen=True, slots=True)

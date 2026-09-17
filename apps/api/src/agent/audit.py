@@ -61,6 +61,17 @@ class AuditAction(StrEnum):
     APPROVAL_DECIDED = "approval.decided"
     APPROVAL_REASSIGNED = "approval.reassigned"
 
+    # P8 — unattended work. `RUN_REAPED` and `BACKUP_WRITTEN` have no human
+    # actor by construction, which is the case §15 NF5c carves out: an action
+    # still resolves to *something*, and `meta` says which job it was.
+    SCHEDULE_CREATED = "schedule.created"
+    SCHEDULE_UPDATED = "schedule.updated"
+    SCHEDULE_DELETED = "schedule.deleted"
+    RUN_REAPED = "run.reaped"
+    APPROVAL_REMINDED = "approval.reminded"
+    BACKUP_WRITTEN = "backup.written"
+    RETENTION_PRUNED = "retention.pruned"
+
 
 class AuditTarget(StrEnum):
     WORKSPACE = "workspace"
@@ -73,6 +84,8 @@ class AuditTarget(StrEnum):
     EVIDENCE = "evidence"
     EXPORT = "export"
     APPROVAL = "approval"
+    SCHEDULE = "schedule"
+    BACKUP = "backup"
 
 
 def write_audit(
@@ -89,7 +102,8 @@ def write_audit(
     """Stage an audit row. The caller commits it along with its own change.
 
     `actor_id` is None only for actions with no signed-in actor: bootstrap, a
-    failed login, and (from P4) the scheduler.
+    failed login, and (from P8) every job that runs on the worker's cron —
+    scheduled runs, the reaper, SLA reminders, backups and retention.
     """
     row = AuditLog(
         workspace_id=workspace_id,

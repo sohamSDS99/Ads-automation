@@ -25,6 +25,8 @@ from agent.db.models import (
     Project,
     Report,
     Run,
+    RunStatus,
+    Schedule,
     User,
     UserRole,
     UserStatus,
@@ -141,6 +143,37 @@ class RunRepo(WorkspaceScopedRepo[Run]):
             .order_by(Run.started_at.desc().nullslast(), Run.id.desc())
             .limit(limit)
         )
+        return list(result.scalars().all())
+
+    async def latest_succeeded(self, project_id: uuid.UUID) -> Run | None:
+        """The newest run of this project that produced a report.
+
+        `parent_run_id` points here, so the Report Viewer's compare toggle is
+        only ever offered against a run that has something to compare. A failed
+        or cancelled run wrote no report.
+        """
+        result = await self.session.execute(
+            self.select()
+            .where(Run.project_id == project_id, Run.status == RunStatus.SUCCEEDED)
+            .order_by(Run.finished_at.desc().nullslast(), Run.id.desc())
+            .limit(1)
+        )
+        return result.scalar_one_or_none()
+
+
+class ScheduleRepo(WorkspaceScopedRepo[Schedule]):
+    """Recurring runs. The poller reaches these through its own claim query —
+    it runs on the worker with no session, so it has no workspace to scope to
+    and instead narrows by the `Schedule` row's own `workspace_id` when it
+    launches."""
+
+    model = Schedule
+
+    async def all_ordered(self, *, project_id: uuid.UUID | None = None) -> list[Schedule]:
+        stmt = self.select()
+        if project_id is not None:
+            stmt = stmt.where(Schedule.project_id == project_id)
+        result = await self.session.execute(stmt.order_by(Schedule.next_at.asc().nullslast()))
         return list(result.scalars().all())
 
 

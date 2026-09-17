@@ -33,9 +33,11 @@ from starlette.responses import StreamingResponse
 
 from agent.api import problems
 from agent.api.schemas_report import ExportAccepted, ExportJob, ReportResponse
+from agent.api.throttle import throttle
 from agent.api.worker_files import WorkerClient, open_upstream, signed_url
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
+from agent.auth.ratelimit import EXPORT_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import Settings, get_settings
 from agent.db.models import Export, ExportFormat, ExportStatus, Project, Report, Run
@@ -133,6 +135,7 @@ async def get_report(run_id: uuid.UUID, me: AnyMember, db: Db) -> ReportResponse
     response_model=ExportAccepted,
     status_code=status.HTTP_202_ACCEPTED,
     summary="Generate an export of a report",
+    dependencies=[Depends(throttle(EXPORT_QUOTA))],
 )
 async def request_export(
     run_id: uuid.UUID,

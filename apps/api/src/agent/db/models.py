@@ -351,7 +351,12 @@ class Run(Base):
     """One execution of the research DAG."""
 
     __tablename__ = "run"
-    __table_args__ = (sa.Index("ix_run_project_started", "project_id", sa.text("started_at DESC")),)
+    __table_args__ = (
+        sa.Index("ix_run_project_started", "project_id", sa.text("started_at DESC")),
+        # The reaper's sweep has no project to narrow by, so the composite index
+        # above cannot serve it (PRD §16, "Worker killed").
+        sa.Index("ix_run_status", "status"),
+    )
 
     id: Mapped[uuid.UUID] = _pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(
@@ -512,6 +517,13 @@ class Approval(Base):
     )
     decided_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     due_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: Which SLA milestones have already been nudged for — `["half"]`, then
+    #: `["due", "half"]`. On the row rather than in Redis because a reminder
+    #: re-sent after a cache flush reads to the recipient as a broken system,
+    #: and because "has this been chased?" is a fact about the approval.
+    reminders_sent: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -587,6 +599,11 @@ class Schedule(Base):
     """A recurring run. Polled once a minute by the worker's arq cron (PRD §5.2)."""
 
     __tablename__ = "schedule"
+    __table_args__ = (
+        # Partial: a disabled schedule is never an answer to "what is due?", so
+        # it has no business in the index the poller hits sixty times an hour.
+        sa.Index("ix_schedule_due", "next_at", postgresql_where=sa.text("enabled")),
+    )
 
     id: Mapped[uuid.UUID] = _pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(

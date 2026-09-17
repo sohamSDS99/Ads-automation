@@ -1,8 +1,9 @@
 "use client";
 
-import { FileText, Info } from "lucide-react";
-import { useMemo } from "react";
+import { FileText, GitCompare, Info } from "lucide-react";
+import { useMemo, useState } from "react";
 
+import { ComparePanel } from "@/components/report/compare";
 import { ExportButton } from "@/components/report/export-button";
 import { ReadinessBadge } from "@/components/report/readiness-badge";
 import {
@@ -18,15 +19,16 @@ import {
   SummarySection,
 } from "@/components/report/sections";
 import { Toc } from "@/components/report/toc";
+import { DegradedBanner } from "@/components/run/degraded-banner";
 import { Alert } from "@/components/ui/alert";
+import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
-import { SOURCE_LABEL, type EvidenceSource } from "@/lib/api/evidence";
 import { citedEvidenceIds } from "@/lib/api/reports";
 import { useCitations } from "@/lib/citations";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
-import { errorMessage, useReport } from "@/lib/queries";
+import { errorMessage, useReport, useRun, useRunDiff } from "@/lib/queries";
 
 /**
  * The report viewer (PRD §13.4 C).
@@ -36,12 +38,25 @@ import { errorMessage, useReport } from "@/lib/queries";
  * rests on. The export button is the only thing on the page that is not the
  * report itself.
  *
- * `Compare with previous run` is not here. It needs `GET /runs/{id}/diff`,
- * which PRD §17 assigns to P8 along with delta runs; rendering a toggle for an
- * endpoint that does not exist would be the one dishonest control on the page.
+ * `Compare with previous run` sits in the header rather than beside a section,
+ * because what changed is a question about the whole document. It is off by
+ * default and fetches nothing until it is switched on: most readers open a
+ * report to read it, and the diff walks two full payloads.
  */
-export function ReportViewer({ runId, projectId }: { runId: string; projectId: string }) {
+export function ReportViewer({
+  runId,
+  projectId,
+  compareByDefault = false,
+}: {
+  runId: string;
+  projectId: string;
+  /** Set by the run history's "Changes" link, which lands here already comparing. */
+  compareByDefault?: boolean;
+}) {
   const report = useReport(runId);
+  const run = useRun(runId);
+  const [comparing, setComparing] = useState(compareByDefault);
+  const diff = useRunDiff(runId, undefined, comparing);
   const payload = report.data?.payload;
   const citedIds = useMemo(() => (payload ? citedEvidenceIds(payload) : []), [payload]);
   const citations = useCitations(projectId, citedIds);
@@ -70,7 +85,11 @@ export function ReportViewer({ runId, projectId }: { runId: string; projectId: s
     );
   }
 
-  const degraded = payload.degraded_sources ?? [];
+  // From the run, not from the report's own `degraded_sources`: the run carries
+  // the structured version, with the connector's own words about what broke.
+  // The report's list is prose written for the PDF.
+  const degraded = run.data?.degraded_sources ?? [];
+  const canCompare = Boolean(run.data?.parent_run_id) || comparing;
 
   return (
     <div className="flex flex-col gap-6">
@@ -92,19 +111,29 @@ export function ReportViewer({ runId, projectId }: { runId: string; projectId: s
             <span className="font-mono text-xs">{payload.schema_version}</span>
           </p>
         </div>
-        <ExportButton runId={runId} />
+        <div className="flex shrink-0 items-center gap-2">
+          {canCompare ? (
+            <Button
+              variant="secondary"
+              onClick={() => setComparing((on) => !on)}
+              aria-pressed={comparing}
+            >
+              <GitCompare aria-hidden />
+              {comparing ? "Hide changes" : "Compare with previous run"}
+            </Button>
+          ) : null}
+          <ExportButton runId={runId} />
+        </div>
       </header>
 
-      {degraded.length > 0 ? (
-        <Alert tone="warning" title="Some sources were incomplete">
-          <p>
-            {degraded
-              .map((source) => SOURCE_LABEL[source as EvidenceSource] ?? source)
-              .join(", ")}{" "}
-            returned less than a full answer during this run. Everything below still holds — it is
-            simply based on less.
-          </p>
-        </Alert>
+      <DegradedBanner sources={degraded} />
+
+      {comparing ? (
+        <ComparePanel
+          diff={diff.data}
+          pending={diff.isPending}
+          error={diff.error instanceof ApiError ? diff.error.detail : null}
+        />
       ) : null}
 
       <div className="flex gap-8">

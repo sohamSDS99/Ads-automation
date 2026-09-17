@@ -35,6 +35,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+# `pg_dump` for the nightly backup (PRD §17, P8). Version 16 specifically, from
+# PGDG rather than Ubuntu's archive: jammy ships client 14, and pg_dump refuses
+# outright to dump a newer server ("server version 16.x; pg_dump version 14.x").
+# The database is `pgvector/pgvector:pg16`, so client 14 would mean the backup
+# job fails every night and only says so in a log nobody reads.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+        -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 

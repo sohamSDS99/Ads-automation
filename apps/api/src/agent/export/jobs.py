@@ -95,9 +95,14 @@ def filename_for(fmt: ExportFormat, *, project_name: str | None, generated_at: d
     return "-".join(parts) + f".{EXTENSIONS[fmt]}"
 
 
+#: The prefix every rendered export lives under. Named so the retention job
+#: prunes the same tree this writes to rather than a string that looks like it.
+EXPORT_PREFIX = "exports"
+
+
 def storage_key(run_id: uuid.UUID, filename: str) -> str:
     """PRD §12: output lands at `$STORAGE_DIR/exports/{run_id}/`."""
-    return f"exports/{run_id}/{filename}"
+    return f"{EXPORT_PREFIX}/{run_id}/{filename}"
 
 
 def render(

@@ -5,8 +5,8 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 \
-        browser browser-p6 browser-p7 typecheck lint fmt contracts health clean
+        verify-p6 verify-p7 verify-p8 eval coverage \
+        browser browser-p6 browser-p7 browser-p8 typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -88,6 +88,18 @@ verify-p6: ## Run P6's exit criteria against the running stack
 verify-p7: ## Run P7's exit criteria against the running stack
 	./scripts/verify-p7.sh
 
+verify-p8: ## Run P8's exit criteria against the running stack
+	./scripts/verify-p8.sh
+
+eval: ## Run the eval harness (10 golden fixtures x schema + groundedness)
+	cd $(API) && uv run pytest tests/eval -q
+
+coverage: ## Measure coverage on the packages PRD §15 NF9 names
+	cd $(API) && uv run pytest tests -q --ignore=tests/integration \
+		--cov=agent.orchestrator --cov=agent.nodes --cov=agent.export --cov=agent.auth \
+		--cov=agent.scheduling \
+		--cov-report=term-missing:skip-covered --cov-fail-under=80
+
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
@@ -100,6 +112,13 @@ browser-p6: ## Drive the P6 screens as an admin and as an operator, at 1440 and 
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p6.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-p8: ## Drive the P8 screens (schedules, storage, compare, banners) at 1440 and 390
+	@docker compose cp scripts/browser-check-p8.py worker:/tmp/browser-check-p8.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p8.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p7: ## Drive the P7 screens as four roles, at 1440 and 390

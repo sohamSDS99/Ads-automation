@@ -1,0 +1,51 @@
+{
+  "node_id": "1.2.1",
+  "why": "A winner and a loser that cite the same account history, with the verdict stated.",
+  "gathered": [
+    "48fdce40-e130-5663-b02b-99c490c7c380",
+    "e733d9ce-6972-542a-af4a-6237388b7f9d",
+    "9ec20e46-8c38-5128-a6b0-b89ed89b1ed6"
+  ],
+  "output": {
+    "winners": [
+      {
+        "campaign": "Brand \u2014 Exact \u2014 EU",
+        "verdict": "winner",
+        "why": "Lowest CPA in the account and the only one under target.",
+        "period": "2025-09-01..2026-08-31",
+        "cost": 41200.0,
+        "conversions": 128.0,
+        "conversion_value": 812000.0,
+        "cpa": 321.9,
+        "roas": 19.7,
+        "metric_delta": -18.4,
+        "evidence_ids": [
+          "48fdce40-e130-5663-b02b-99c490c7c380"
+        ]
+      }
+    ],
+    "losers": [
+      {
+        "campaign": "Generic \u2014 Broad \u2014 Worldwide",
+        "verdict": "loser",
+        "why": "Broad match pulled unrelated chemistry traffic; no conversions in six months.",
+        "period": "2025-09-01..2026-08-31",
+        "cost": 58900.0,
+        "conversions": 3.0,
+        "conversion_value": 12400.0,
+        "cpa": 19633.3,
+        "roas": 0.2,
+        "metric_delta": 240.0,
+        "evidence_ids": [
+          "e733d9ce-6972-542a-af4a-6237388b7f9d",
+          "9ec20e46-8c38-5128-a6b0-b89ed89b1ed6"
+        ]
+      }
+    ],
+    "neutral": [],
+    "structural_findings": [
+      "Brand and generic share one budget, so generic starves brand at month end."
+    ],
+    "coverage": []
+  }
+}

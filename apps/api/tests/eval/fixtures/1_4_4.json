@@ -1,0 +1,39 @@
+{
+  "node_id": "1.4.4",
+  "why": "A blocklist is a spending decision, so each entry names the evidence class it came from.",
+  "gathered": [
+    "0474779e-bcbf-595c-a506-e9eb4cfcb598",
+    "0f4281f5-e06b-564e-8860-96a94ccdf0be"
+  ],
+  "output": {
+    "negatives": [
+      {
+        "term": "free",
+        "match_type": "broad",
+        "reason": "Every free-intent term in the account converted zero times.",
+        "source": "wasteful_terms"
+      },
+      {
+        "term": "jobs",
+        "match_type": "phrase",
+        "reason": "Careers traffic, consistently marked irrelevant at classification.",
+        "source": "intent_irrelevant"
+      },
+      {
+        "term": "too expensive",
+        "match_type": "exact",
+        "reason": "Named as the lost reason on 18 closed-lost deals.",
+        "source": "lost_reasons"
+      }
+    ],
+    "withheld": [
+      "sds"
+    ],
+    "counts_by_source": {
+      "wasteful_terms": 1,
+      "intent_irrelevant": 1,
+      "lost_reasons": 1
+    },
+    "coverage": []
+  }
+}

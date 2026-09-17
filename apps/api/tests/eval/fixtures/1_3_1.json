@@ -1,0 +1,58 @@
+{
+  "node_id": "1.3.1",
+  "why": "Overlap is a relative rank, not a percentage \u2014 the case that broke P5b's renderer.",
+  "gathered": [
+    "4d4ac78b-6933-599d-8258-a6ffc37f79ae",
+    "da408f53-5a1d-539d-ac3d-3b10bc8c1f02"
+  ],
+  "output": {
+    "competitors": [
+      {
+        "domain": "chemwatch.net",
+        "name": "Chemwatch",
+        "positioning": "Enterprise chemical compliance suite.",
+        "threat": "direct",
+        "overlap_score": 84.0,
+        "overlap_basis": [
+          "Appears on 31 of 40 checked terms"
+        ],
+        "paid_keyword_overlap": 31,
+        "paid_keyword_count": 412,
+        "est_paid_traffic_cost": 41000.0,
+        "avg_position": 2.1,
+        "serp_hits": 31,
+        "serp_terms": [
+          "sds management software",
+          "chemical inventory software"
+        ],
+        "evidence_ids": [
+          "4d4ac78b-6933-599d-8258-a6ffc37f79ae"
+        ]
+      },
+      {
+        "domain": "verisk3e.com",
+        "name": "Verisk 3E",
+        "positioning": "Regulatory data and content licensing.",
+        "threat": "adjacent",
+        "overlap_score": 41.0,
+        "overlap_basis": [
+          "Bids on regulatory terms, not on management terms"
+        ],
+        "paid_keyword_overlap": 12,
+        "paid_keyword_count": 288,
+        "est_paid_traffic_cost": 18500.0,
+        "avg_position": 3.4,
+        "serp_hits": 12,
+        "serp_terms": [
+          "reach compliance software"
+        ],
+        "evidence_ids": [
+          "da408f53-5a1d-539d-ac3d-3b10bc8c1f02"
+        ]
+      }
+    ],
+    "serp_terms_checked": 40,
+    "competitors_omitted": 6,
+    "coverage": []
+  }
+}

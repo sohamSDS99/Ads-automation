@@ -2,7 +2,8 @@
 
 import { ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { useSearchParams } from "next/navigation";
+import { Suspense, use } from "react";
 
 import { ReportViewer } from "@/components/report/viewer";
 import { useProject } from "@/lib/queries";
@@ -36,7 +37,23 @@ export default function ReportPage({
         </h1>
       </div>
 
-      <ReportViewer runId={runId} projectId={id} />
+      {/* `useSearchParams` opts the subtree into client-side rendering, so it
+          needs a boundary of its own or the whole page renders as a fallback
+          during prerender. */}
+      <Suspense fallback={null}>
+        <ViewerWithCompareParam runId={runId} projectId={id} />
+      </Suspense>
     </div>
+  );
+}
+
+function ViewerWithCompareParam({ runId, projectId }: { runId: string; projectId: string }) {
+  const params = useSearchParams();
+  return (
+    <ReportViewer
+      runId={runId}
+      projectId={projectId}
+      compareByDefault={params.get("compare") === "1"}
+    />
   );
 }

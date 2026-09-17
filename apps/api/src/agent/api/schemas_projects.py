@@ -224,6 +224,13 @@ class RunSummary(BaseModel):
     triggered_by_name: str | None = Field(
         default=None, description="Null for a scheduled run, which has no actor"
     )
+    parent_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The run this one followed. PRD §13.3 gives the history a "
+            "diff-vs-previous column, and this is what decides whether the row has one."
+        ),
+    )
     started_at: datetime | None = None
     finished_at: datetime | None = None
     cost_usd: Decimal = Decimal("0")

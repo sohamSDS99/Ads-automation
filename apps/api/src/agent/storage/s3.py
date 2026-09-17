@@ -6,7 +6,10 @@ loudly rather than silently writing nowhere.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
 from typing import IO
+
+from agent.storage.backend import ObjectInfo, StorageUsage
 
 
 class S3Storage:
@@ -34,4 +37,10 @@ class S3Storage:
         raise NotImplementedError
 
     def url_for(self, key: str) -> str:
+        raise NotImplementedError
+
+    def iter_objects(self, prefix: str = "") -> Iterator[ObjectInfo]:
+        raise NotImplementedError
+
+    def usage(self) -> StorageUsage:
         raise NotImplementedError

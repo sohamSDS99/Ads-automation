@@ -18,6 +18,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
+from agent.api.logging_middleware import bind_actor_role
 from agent.auth.rbac import Permission, permissions_for
 from agent.auth.sessions import SessionRecord, SessionStore
 from agent.db.models import User, UserStatus
@@ -80,6 +81,7 @@ async def current_user(
         log.info("auth.session_revoked_inactive_user", user_id=str(user.id), status=user.status)
         raise problems.unauthenticated("This account is no longer active.")
 
+    bind_actor_role(user.role.value)
     return Principal(user=user, session=record, permissions=permissions_for(user.role))
 
 

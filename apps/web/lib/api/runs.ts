@@ -40,6 +40,21 @@ export type NodeState = {
 
 export type DagEdge = { source: string; target: string };
 
+/**
+ * A source that did not fully answer during a run (PRD §15 NF4).
+ *
+ * `degraded` means a connector broke mid-run and `detail` carries its own words
+ * — for the Transparency Center, the selector that stopped matching.
+ * `unavailable` means nothing of that kind is connected, which is a setup state
+ * and not a fault.
+ */
+export type DegradedSource = {
+  kind: string;
+  nodes: string[];
+  detail: string | null;
+  severity: "degraded" | "unavailable";
+};
+
 export type RunDetail = {
   id: string;
   project_id: string;
@@ -48,6 +63,11 @@ export type RunDetail = {
   trigger: "manual" | "schedule";
   triggered_by: string | null;
   triggered_by_name: string | null;
+  /**
+   * The run this one follows. Null for a project's first run, which is what the
+   * Report Viewer checks before offering to compare.
+   */
+  parent_run_id: string | null;
   selected_node_ids: string[];
   cost_usd: string;
   token_in: number;
@@ -57,6 +77,11 @@ export type RunDetail = {
   error: Record<string, unknown> | null;
   nodes: NodeState[];
   edges: DagEdge[];
+  /**
+   * Derived from the nodes' own `coverage` output, so it is durable: the banner
+   * is still there after a reload, unlike anything only announced over SSE.
+   */
+  degraded_sources: DegradedSource[];
 };
 
 export type NodeRunDetail = {

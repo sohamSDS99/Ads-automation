@@ -1,0 +1,45 @@
+{
+  "node_id": "1.4.1",
+  "why": "Every term traces to the source that produced it; a term with no citation is invented.",
+  "gathered": [
+    "9509e75c-5fae-5a32-a386-90be0356e010",
+    "7834ffcc-7986-57bf-8374-aca433fa256f"
+  ],
+  "output": {
+    "keywords": [
+      {
+        "term": "sds management software",
+        "source": [
+          "dataforseo",
+          "google_ads"
+        ],
+        "market": [
+          "DE",
+          "DK"
+        ],
+        "evidence_ids": [
+          "9509e75c-5fae-5a32-a386-90be0356e010"
+        ]
+      },
+      {
+        "term": "chemical inventory system",
+        "source": [
+          "dataforseo"
+        ],
+        "market": [
+          "DE"
+        ],
+        "evidence_ids": [
+          "7834ffcc-7986-57bf-8374-aca433fa256f"
+        ]
+      }
+    ],
+    "total_terms": 2,
+    "source_counts": {
+      "dataforseo": 2,
+      "google_ads": 1
+    },
+    "terms_omitted": 0,
+    "coverage": []
+  }
+}

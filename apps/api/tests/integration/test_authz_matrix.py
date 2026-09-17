@@ -193,6 +193,36 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
     ),
     ("DELETE", "/credentials/{credential_id}", "/credentials/{target}", Permission.READ, None),
     ("GET", "/models", "/models", Permission.SETTINGS_WRITE, None),
+    # P8. Schedules are written by settings holders rather than by run
+    # operators: a schedule is a standing instruction to spend unattended, which
+    # is a different act from launching one run you are present for.
+    ("GET", "/schedules", "/schedules", Permission.READ, None),
+    (
+        "POST",
+        "/schedules/preview",
+        "/schedules/preview",
+        Permission.READ,
+        {"cron": "0 3 * * *", "timezone": "UTC"},
+    ),
+    (
+        "POST",
+        "/schedules",
+        "/schedules",
+        Permission.SETTINGS_WRITE,
+        {"project_id": "00000000-0000-0000-0000-000000000000", "cron": "0 3 * * *"},
+    ),
+    (
+        "PATCH",
+        "/schedules/{schedule_id}",
+        "/schedules/{run}",
+        Permission.SETTINGS_WRITE,
+        {"enabled": False},
+    ),
+    ("DELETE", "/schedules/{schedule_id}", "/schedules/{run}", Permission.SETTINGS_WRITE, None),
+    ("GET", "/runs/{run_id}/diff", "/runs/{run}/diff", Permission.READ, None),
+    # Admin-only for the same reason `GET /models` is: its only consumer is the
+    # admin settings screen.
+    ("GET", "/storage", "/storage", Permission.SETTINGS_WRITE, None),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

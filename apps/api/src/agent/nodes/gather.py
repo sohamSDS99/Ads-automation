@@ -108,6 +108,38 @@ class Gathered:
         return [row.id for row in self.evidence]
 
 
+#: The two shapes a coverage note takes. They are constants, and `parse_note`
+#: below reads them back, because these strings leave the process: every node
+#: copies them onto its `coverage` output, the report folds them into
+#: `degraded_sources`, and P8's banners parse them to say *which* source and
+#: *why* (PRD §16, "surface a red banner in UI with the failing selector name").
+#: One module owning both directions is what stops the writer and the reader
+#: drifting; `test_gather_coverage.py` round-trips every shape.
+UNAVAILABLE_SUFFIX = ": unavailable"
+PARTIAL_INFIX = ": partial — "
+
+
+@dataclass(frozen=True, slots=True)
+class CoverageNote:
+    """A parsed coverage line: which kind of evidence, and what went wrong."""
+
+    kind: str
+    #: `unavailable` — nothing of this kind could be read at all.
+    #: `partial` — some of it arrived, and `detail` says what was lost.
+    status: str
+    detail: str | None = None
+
+    @property
+    def is_degraded(self) -> bool:
+        """Whether a connector malfunctioned, as opposed to never being configured.
+
+        PRD §15 NF4 is about the first case. A source nobody connected is not a
+        degradation and must not raise a red banner — it is the setup wizard's
+        business, and `/settings` already reports it.
+        """
+        return self.status == "partial"
+
+
 def coverage_notes(found: Gathered) -> list[str]:
     """The sources a node could not read, in a form its output can carry.
 
@@ -115,9 +147,22 @@ def coverage_notes(found: Gathered) -> list[str]:
     rather than quietly present a thinner answer as a complete one, so every
     node copies this onto its own `coverage` field.
     """
-    notes = [f"{kind}: unavailable" for kind in found.missing]
-    notes.extend(f"{kind}: partial — {reason}" for kind, reason in found.degraded.items())
+    notes = [f"{kind}{UNAVAILABLE_SUFFIX}" for kind in found.missing]
+    notes.extend(
+        f"{kind}{PARTIAL_INFIX}{reason}" for kind, reason in sorted(found.degraded.items())
+    )
     return notes
+
+
+def parse_note(note: str) -> CoverageNote | None:
+    """Read one coverage line back. None for anything this module did not write."""
+    text = note.strip()
+    if PARTIAL_INFIX in text:
+        kind, _, detail = text.partition(PARTIAL_INFIX)
+        return CoverageNote(kind=kind.strip(), status="partial", detail=detail.strip() or None)
+    if text.endswith(UNAVAILABLE_SUFFIX):
+        return CoverageNote(kind=text[: -len(UNAVAILABLE_SUFFIX)].strip(), status="unavailable")
+    return None
 
 
 async def collect(ctx: RunContext, *needs: Need) -> Gathered:
@@ -127,13 +172,13 @@ async def collect(ctx: RunContext, *needs: Need) -> Gathered:
         rows = await _stored(ctx, need)
         if need.connector and (not rows or need.refresh):
             pulled = await _pull(ctx, need)
-            if pulled:
+            if pulled.wrote:
                 rows = await _stored(ctx, need)
-            elif pulled is False:
-                # A refresh that failed still leaves the stored rows in play —
-                # stale evidence is worth more than none — but the run is told
-                # that is what it is looking at.
-                result.degraded[need.kind] = f"{need.connector} could not be reached"
+            if pulled.degraded:
+                # A refresh that failed, or half-failed, still leaves the stored
+                # rows in play — stale evidence is worth more than none — but
+                # the run is told that is what it is looking at, and told *why*.
+                result.degraded[need.kind] = pulled.reason or "the source could not be reached"
         if rows:
             result.evidence.extend(rows)
         else:
@@ -152,20 +197,37 @@ async def _stored(ctx: RunContext, need: Need) -> list[Evidence]:
     return list(rows.scalars().all())
 
 
-async def _pull(ctx: RunContext, need: Need) -> bool | None:
-    """Fetch one kind through its connector.
+@dataclass(frozen=True, slots=True)
+class PullResult:
+    """What one connector pull did, and why if it did not do it.
 
-    Returns True when something was written, None when the pull was skipped
-    (already attempted this run, or no credential is stored), and False when it
-    was attempted and failed — the caller reports only the last case as
-    degraded, because a source nobody configured is not a malfunction.
+    Replaces the `bool | None` this used to return. That signature could say
+    "failed" but had nowhere to put *how*, so `ConnectorDegraded.reason` — which
+    carries the failing selector name, the one thing PRD §16 asks be shown to a
+    person — was logged and then dropped. The banner had nothing to render.
     """
+
+    #: True when evidence was written.
+    wrote: bool = False
+    #: True when the pull was skipped rather than attempted (no credential,
+    #: already tried this run). A source nobody configured is not a malfunction.
+    skipped: bool = False
+    #: Present when the connector malfunctioned. Rendered to the user verbatim.
+    reason: str | None = None
+
+    @property
+    def degraded(self) -> bool:
+        return self.reason is not None
+
+
+async def _pull(ctx: RunContext, need: Need) -> PullResult:
+    """Fetch one kind through its connector, reporting what happened to it."""
     if need.connector is None:  # pragma: no cover — callers check before calling
-        return None
+        return PullResult(skipped=True)
     attempted: set[str] = ctx.scratch.setdefault(PULLED_KEY, set())
     token = need.pull_key or f"{need.connector}:{need.kind}"
     if token in attempted:
-        return None
+        return PullResult(skipped=True)
 
     credentials = await _credentials(ctx, need.connector)
     if credentials is None:
@@ -173,7 +235,7 @@ async def _pull(ctx: RunContext, need: Need) -> bool | None:
         # again three nodes later.
         attempted.add(token)
         log.info("gather.no_credential", connector=need.connector, kind=need.kind)
-        return None
+        return PullResult(skipped=True)
 
     # Recorded before the attempt, not after: a connector that raises must not
     # be retried by the next node in the same run.
@@ -188,18 +250,23 @@ async def _pull(ctx: RunContext, need: Need) -> bool | None:
         ),
     )
     drafts: list[EvidenceDraft]
+    degraded_reason: str | None = None
     try:
         drafts = await connector.fetch({**need.params, "kinds": [need.kind]})
     except ConnectorDegraded as exc:
-        # Partial success is still success for whatever came back (PRD §9.2).
+        # Partial success is still success for whatever came back (PRD §9.2) —
+        # and the reason travels with it, because it names what broke.
         log.warning("gather.degraded", connector=need.connector, reason=exc.reason)
         drafts = exc.drafts
+        degraded_reason = f"{need.connector}: {exc.reason}"
     except ConnectorError as exc:
         log.warning("gather.pull_failed", connector=need.connector, error=str(exc))
-        return False
+        return PullResult(reason=f"{need.connector} could not be reached: {exc}")
 
     if not drafts:
-        return False
+        return PullResult(
+            reason=degraded_reason or f"{need.connector} returned nothing for {need.kind}"
+        )
 
     store = EvidenceStore(ctx.db, ctx.run.workspace_id)
     written = await store.write(drafts, project_id=ctx.project.id, run_id=ctx.run.id)
@@ -211,7 +278,7 @@ async def _pull(ctx: RunContext, need: Need) -> bool | None:
         inserted=written.inserted,
         duplicates=written.duplicates,
     )
-    return written.total > 0
+    return PullResult(wrote=written.total > 0, reason=degraded_reason)
 
 
 async def _credentials(ctx: RunContext, connector: str) -> dict[str, str] | None:

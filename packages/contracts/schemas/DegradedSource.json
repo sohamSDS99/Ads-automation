@@ -1,0 +1,47 @@
+{
+  "description": "One source that did not fully answer during this run (PRD \u00a715 NF4).\n\nThe console renders these as a banner and the report repeats them, so\n`detail` carries the connector's own words \u2014 for the Transparency Center\nthat is the name of the selector that stopped matching, which is the whole\npoint of PRD \u00a716's first row.",
+  "properties": {
+    "kind": {
+      "description": "The kind of evidence that came back thin, e.g. `creative`.",
+      "title": "Kind",
+      "type": "string"
+    },
+    "nodes": {
+      "description": "Which nodes hit it. Sorted, for a stable banner.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Nodes",
+      "type": "array"
+    },
+    "detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "What the connector said went wrong. Shown verbatim.",
+      "title": "Detail"
+    },
+    "severity": {
+      "default": "degraded",
+      "description": "`degraded` \u2014 a connector malfunctioned mid-run and the report is thinner for it. `unavailable` \u2014 nothing of this kind is connected, which is a setup state and not a fault.",
+      "enum": [
+        "degraded",
+        "unavailable"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "title": "DegradedSource",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -58,6 +58,8 @@ export type RunSummary = {
   trigger: "manual" | "schedule";
   triggered_by: string | null;
   triggered_by_name: string | null;
+  /** The run this one followed. Null means there is nothing to compare against. */
+  parent_run_id: string | null;
   started_at: string | null;
   finished_at: string | null;
   cost_usd: string;

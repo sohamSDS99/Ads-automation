@@ -1,0 +1,58 @@
+{
+  "node_id": "1.5.4",
+  "why": "Sizing is the most tempting place to invent a number; the whole node cites its inputs.",
+  "gathered": [
+    "48fdce40-e130-5663-b02b-99c490c7c380",
+    "e733d9ce-6972-542a-af4a-6237388b7f9d",
+    "9ec20e46-8c38-5128-a6b0-b89ed89b1ed6",
+    "9509e75c-5fae-5a32-a386-90be0356e010",
+    "7834ffcc-7986-57bf-8374-aca433fa256f"
+  ],
+  "output": {
+    "scenarios": [
+      {
+        "budget_usd_month": 10000.0,
+        "est_clicks": 1180.0,
+        "est_conv": 21.2,
+        "est_cpa": 471.7,
+        "est_revenue": 131440.0,
+        "assumptions": [
+          "Click-through and conversion rates from the trailing 12 months",
+          "Blended CPC from the priced keyword list"
+        ],
+        "confidence_interval": "14-28 conversions",
+        "demand_capped": false,
+        "risk": "Assumes the generic campaign is restructured first."
+      },
+      {
+        "budget_usd_month": 25000.0,
+        "est_clicks": 2400.0,
+        "est_conv": 38.0,
+        "est_cpa": 657.9,
+        "est_revenue": 235600.0,
+        "assumptions": [
+          "Demand caps out before budget does in DK"
+        ],
+        "confidence_interval": "24-47 conversions",
+        "demand_capped": true,
+        "risk": "Above the point where incremental spend buys broader, worse traffic."
+      }
+    ],
+    "baseline": {
+      "cpc": 8.47,
+      "cvr": 0.018,
+      "aov": 6200.0
+    },
+    "blockers": [
+      "Conversion tracking has not fired in 41 days"
+    ],
+    "evidence_ids": [
+      "48fdce40-e130-5663-b02b-99c490c7c380",
+      "e733d9ce-6972-542a-af4a-6237388b7f9d",
+      "9ec20e46-8c38-5128-a6b0-b89ed89b1ed6",
+      "9509e75c-5fae-5a32-a386-90be0356e010",
+      "7834ffcc-7986-57bf-8374-aca433fa256f"
+    ],
+    "coverage": []
+  }
+}

@@ -319,6 +319,20 @@
           "description": "Null for a scheduled run, which has no actor",
           "title": "Triggered By Name"
         },
+        "parent_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The run this one followed. PRD \u00a713.3 gives the history a diff-vs-previous column, and this is what decides whether the row has one.",
+          "title": "Parent Run Id"
+        },
         "started_at": {
           "anyOf": [
             {

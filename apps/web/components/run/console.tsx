@@ -9,6 +9,7 @@ import { DagCanvas } from "@/components/run/dag-canvas";
 import { LogDrawer } from "@/components/run/log-drawer";
 import { NodeDot, NodeStatusLabel } from "@/components/run/node-status";
 import { NodePanel } from "@/components/run/node-panel";
+import { DegradedBanner } from "@/components/run/degraded-banner";
 import { PresenceRow } from "@/components/run/presence-row";
 import { RunControls } from "@/components/run/run-controls";
 import { StageRail } from "@/components/run/stage-rail";
@@ -166,6 +167,15 @@ export function RunConsole({ runId, projectId }: { runId: string; projectId: str
           </Link>
         </div>
       </header>
+
+      {detail.degraded_sources.length > 0 ? (
+        // Above the gate strip and below the header: it is a fact about the
+        // whole run, and it has to be seen before anyone reads a node's output
+        // and concludes the competitor section is simply short.
+        <div className="border-b px-4 py-3">
+          <DegradedBanner sources={detail.degraded_sources} />
+        </div>
+      ) : null}
 
       {openGates.length > 0 && !openGates.some((gate) => gate.node_id === selectedNode?.id) ? (
         <div className="border-b px-4 py-2">
