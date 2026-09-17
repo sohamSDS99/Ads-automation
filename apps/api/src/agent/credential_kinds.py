@@ -142,6 +142,39 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         connector="google_ads",
         where="sources",
     ),
+    CredentialKind.BRIGHTDATA: KindSpec(
+        kind=CredentialKind.BRIGHTDATA,
+        label="Bright Data SERP proxy",
+        description=(
+            "Live Google result pages: who ranks, who is bidding, what their ads say, "
+            "and what else people search for."
+        ),
+        fields=(
+            FieldSpec(
+                name="username",
+                label="Proxy username",
+                secret=False,
+                hint="The zone user, e.g. brd-customer-hl_xxxxxxxx-zone-serp1",
+            ),
+            FieldSpec(name="password", label="Zone password"),
+            FieldSpec(
+                name="host",
+                label="Proxy host",
+                required=False,
+                secret=False,
+                hint="Leave blank for brd.superproxy.io",
+            ),
+            FieldSpec(
+                name="port",
+                label="Proxy port",
+                required=False,
+                secret=False,
+                hint="Leave blank for 33335, the SERP endpoint",
+            ),
+        ),
+        connector="serp",
+        where="sources",
+    ),
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
         label="DataForSEO",

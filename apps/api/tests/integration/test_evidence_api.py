@@ -116,11 +116,18 @@ async def test_a_forged_cursor_is_refused(admin: ApiClient) -> None:
     assert response.headers["content-type"].startswith("application/problem+json")
 
 
-async def test_the_connector_catalogue_lists_all_five(admin: ApiClient) -> None:
+async def test_the_connector_catalogue_lists_every_source(admin: ApiClient) -> None:
     body = (await admin.get("/connectors")).json()
-    assert len(body["connectors"]) == 5
+    assert {c["name"] for c in body["connectors"]} == {
+        "google_ads",
+        "transparency",
+        "serp",
+        "dataforseo",
+        "web_crawler",
+        "csv_ingest",
+    }
     needing = {c["name"] for c in body["connectors"] if c["requires_credential"]}
-    assert needing == {"google_ads", "dataforseo"}
+    assert needing == {"google_ads", "dataforseo", "serp"}
 
 
 # --- CSV upload ----------------------------------------------------------

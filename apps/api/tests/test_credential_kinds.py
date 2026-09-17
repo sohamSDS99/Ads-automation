@@ -18,6 +18,7 @@ GOOGLE_ADS = {
     "refresh_token": "refresh-token",
     "customer_id": "123-456-7890",
 }
+BRIGHTDATA = {"username": "brd-customer-hl_abc123-zone-serp1", "password": "zone-password"}
 
 
 def test_a_single_field_kind_seals_the_bare_value() -> None:
@@ -42,6 +43,7 @@ def test_a_multi_field_kind_seals_json_that_gather_can_read() -> None:
         (CredentialKind.OPENROUTER, OPENROUTER),
         (CredentialKind.DATAFORSEO, DATAFORSEO),
         (CredentialKind.GOOGLE_ADS, GOOGLE_ADS),
+        (CredentialKind.BRIGHTDATA, BRIGHTDATA),
     ],
 )
 def test_sealing_then_unsealing_returns_the_connector_shape(
@@ -77,6 +79,31 @@ def test_an_unknown_field_is_dropped_rather_than_sealed() -> None:
     spec = spec_for(CredentialKind.DATAFORSEO)
     cleaned = spec.validate({**DATAFORSEO, "api_key_v3": "something-new"})
     assert cleaned == DATAFORSEO
+
+
+def test_a_serp_account_connects_without_naming_a_proxy() -> None:
+    """Host and port are optional, and `config.Settings` supplies both.
+
+    Most workspaces are on Bright Data's published endpoint. Requiring them to
+    retype it would make a typo in an address nobody chose a reason for the
+    connector to fail.
+    """
+    spec = spec_for(CredentialKind.BRIGHTDATA)
+    cleaned = spec.validate(BRIGHTDATA)
+
+    assert cleaned == BRIGHTDATA
+    assert spec.connector == "serp"
+    assert unseal(spec, spec.seal(cleaned)) == BRIGHTDATA
+
+
+def test_a_serp_accounts_zone_is_showable_but_its_password_is_not() -> None:
+    """Which zone is connected is the one thing `/settings` has to be able to say."""
+    spec = spec_for(CredentialKind.BRIGHTDATA)
+    meta = spec.meta(BRIGHTDATA)
+
+    assert meta["username"] == BRIGHTDATA["username"]
+    assert meta["last4"] == "word"
+    assert BRIGHTDATA["password"] not in set(map(str, meta.values()))
 
 
 def test_smtp_is_not_writable_through_the_interface() -> None:

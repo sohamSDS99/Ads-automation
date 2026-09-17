@@ -63,6 +63,7 @@ class CredentialKind(StrEnum):
     OPENROUTER = "openrouter"
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
+    BRIGHTDATA = "brightdata"
     SMTP = "smtp"
 
 
@@ -104,6 +105,7 @@ class EvidenceSource(StrEnum):
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
     TRANSPARENCY = "transparency"
+    SERP = "serp"
     WEB = "web"
     CSV = "csv"
     DERIVED = "derived"

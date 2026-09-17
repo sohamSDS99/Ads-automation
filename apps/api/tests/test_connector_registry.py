@@ -23,10 +23,13 @@ from agent.db.models import CredentialKind, EvidenceSource
 TEST_KEY = "dW5pdC10ZXN0LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
 
 
-def test_all_five_prd_connectors_are_registered() -> None:
+def test_every_prd_connector_is_registered() -> None:
+    """PRD §9's five, plus `serp` — the live result page the PRD's §9.3 asks for
+    and the keyword vendor only half answers."""
     assert set(CONNECTOR_NAMES) == {
         "google_ads",
         "transparency",
+        "serp",
         "dataforseo",
         "web_crawler",
         "csv_ingest",
@@ -45,10 +48,10 @@ def test_every_declared_source_is_a_real_enum_member() -> None:
     assert {source_for(name) for name in CONNECTOR_NAMES} <= set(EvidenceSource)
 
 
-def test_only_the_two_paid_apis_need_a_credential() -> None:
+def test_only_the_paid_apis_need_a_credential() -> None:
     """`transparency` and `web_crawler` read public pages; `csv_ingest` reads an upload."""
     needing = {name for name in CONNECTOR_NAMES if credential_kind_for(name)}
-    assert needing == {"google_ads", "dataforseo"}
+    assert needing == {"google_ads", "dataforseo", "serp"}
 
 
 def test_credential_kinds_match_the_schema_enum() -> None:
