@@ -1,0 +1,25 @@
+{
+  "additionalProperties": false,
+  "description": "Which fields to work out now. Empty means whichever are switched on.",
+  "properties": {
+    "fields": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 4,
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fields"
+    }
+  },
+  "title": "AutofillRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

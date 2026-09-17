@@ -1,0 +1,20 @@
+{
+  "description": "Which step-1 fields this project asks the agent to work out.\n\nA preference, not a value: the field it fills is the ordinary one, editable\nafterwards like anything typed by hand. Turning it off leaves whatever was\nfound in place, because deleting a person's markets because they stopped\nwanting help would be a surprise.",
+  "properties": {
+    "site_url": {
+      "default": false,
+      "description": "Find where the domain actually lands",
+      "title": "Site Url",
+      "type": "boolean"
+    },
+    "markets": {
+      "default": false,
+      "description": "Read the countries off the CRM and the site",
+      "title": "Markets",
+      "type": "boolean"
+    }
+  },
+  "title": "AutofillSettings",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

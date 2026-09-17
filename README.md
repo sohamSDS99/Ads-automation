@@ -122,6 +122,41 @@ every range carries the `method` that produced it, the `basis` it used and a
 confidence that drops to `low` when the only signal is how many ads we saw. With
 no signal at all it returns `insufficient_evidence` rather than a number.
 
+## Fields the agent works out
+
+Two of the setup wizard's step-1 fields are things the system can read for
+itself, so each carries an offer to do it: **Site to crawl** and **Markets**.
+Ticking the box calls `POST /projects/{id}/autofill`, which answers immediately
+and writes an ordinary project field — editable, removable, exactly as if it had
+been typed.
+
+- **Site to crawl** follows the domain's redirects and keeps where they land.
+  `sdsmanager.com` becomes `https://sdsmanager.com/us`, which is the page the
+  crawler should read rather than the language picker it would otherwise hit.
+- **Markets** reads two sources in a deliberate order. First the CRM export
+  already uploaded to this project, because that is where revenue actually came
+  from; then the site's own `hreflang` links, because a site publishing
+  `en-GB → /uk/` is declaring a market in machine-readable form. Locales with a
+  page of their own outrank ones sharing a regional page — measured on
+  sdsmanager.com, whose 64 language links include 26 pointing at one `/eu/`
+  page, and where document order would have proposed six of those over the five
+  countries with real pages.
+
+Three properties hold it together, and all three are tested:
+
+- **No model is involved.** Redirects and `hreflang` have one reading, and PRD
+  §18 law 3 puts that work in Python. A model asked to name a company's markets
+  will always answer, which is the failure mode this avoids.
+- **Nothing is invented.** A country with no currency on file is reported, not
+  given a guessed one — every CPC in the report would inherit it. When nothing
+  can be read, the field is left exactly as it was and the screen says why.
+- **What is left out is counted.** The proposal caps at six markets, and the
+  number dropped is shown. A capped list that reads as a complete one is the
+  quiet way to get this wrong.
+
+`make browser-autofill PROJECT_ID=<uuid>` drives the whole thing in a real
+browser against the real site.
+
 ## Connecting Google Ads
 
 `connectors/google_ads.py` is the only source that reads *our own* history:

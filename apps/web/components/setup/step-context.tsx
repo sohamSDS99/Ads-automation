@@ -1,6 +1,6 @@
 "use client";
 
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Sparkles, Trash2 } from "lucide-react";
 
 import { DocumentUpload } from "@/components/setup/document-upload";
 import { Button } from "@/components/ui/button";
@@ -9,7 +9,14 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { TagInput } from "@/components/ui/tag-input";
 import { Textarea } from "@/components/ui/textarea";
-import type { Market, ProductContext } from "@/lib/api/projects";
+import { Spinner } from "@/components/ui/spinner";
+import type {
+  AutofillField,
+  AutofillFinding,
+  AutofillSettings,
+  Market,
+  ProductContext,
+} from "@/lib/api/projects";
 
 /**
  * Step 1 — what we sell, and where.
@@ -32,6 +39,11 @@ export function StepContext({
   onContextChange,
   onMarketsChange,
   disabled,
+  autofill,
+  findings,
+  onAutofill,
+  onAutofillOff,
+  autofilling,
 }: {
   projectId: string;
   context: ProductContext;
@@ -39,7 +51,16 @@ export function StepContext({
   onContextChange: (context: ProductContext) => void;
   onMarketsChange: (markets: Market[]) => void;
   disabled: boolean;
+  /** Which of these two fields this project has handed to the agent. */
+  autofill: AutofillSettings;
+  /** What the last run of it read, so the proposal can be judged, not just received. */
+  findings: AutofillFinding[];
+  onAutofill: (field: AutofillField) => void;
+  onAutofillOff: (field: AutofillField) => void;
+  /** The field currently being worked out, if any. */
+  autofilling: AutofillField | null;
 }) {
+  const findingFor = (field: AutofillField) => findings.find((item) => item.field === field);
   const set = <K extends keyof ProductContext>(key: K, value: ProductContext[K]) =>
     onContextChange({ ...context, [key]: value });
 
@@ -122,16 +143,115 @@ export function StepContext({
 
       <DocumentUpload projectId={projectId} disabled={disabled} />
 
-      <Field
-        label="Site to crawl"
-        value={context.site_url}
-        disabled={disabled}
-        onChange={(event) => set("site_url", event.target.value)}
-        placeholder="https://sdsmanager.com"
-        hint="Optional. The crawler reads landing pages, CTAs and forms from here."
-      />
+      <div className="space-y-2">
+        <Field
+          label="Site to crawl"
+          value={context.site_url}
+          disabled={disabled || autofilling === "site_url"}
+          onChange={(event) => set("site_url", event.target.value)}
+          placeholder="https://sdsmanager.com"
+          hint="Optional. The crawler reads landing pages, CTAs and forms from here."
+        />
+        <AgentOption
+          field="site_url"
+          label="Let the agent find it"
+          explanation="It follows the domain's redirects and keeps wherever they land — the www, the country path, the lot."
+          on={autofill.site_url}
+          busy={autofilling === "site_url"}
+          disabled={disabled}
+          finding={findingFor("site_url")}
+          onAutofill={onAutofill}
+          onAutofillOff={onAutofillOff}
+        />
+      </div>
 
-      <Markets markets={markets} onChange={onMarketsChange} disabled={disabled} />
+      <div className="space-y-2">
+        <Markets
+          markets={markets}
+          onChange={onMarketsChange}
+          disabled={disabled || autofilling === "markets"}
+        />
+        <AgentOption
+          field="markets"
+          label="Let the agent work these out"
+          explanation="It counts the countries in your CRM export and reads the language links your own site publishes. It proposes; nothing is invented, and you can edit or remove any of them."
+          on={autofill.markets}
+          busy={autofilling === "markets"}
+          disabled={disabled}
+          finding={findingFor("markets")}
+          onAutofill={onAutofill}
+          onAutofillOff={onAutofillOff}
+        />
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The offer to hand one field to the agent.
+ *
+ * A checkbox rather than a silent default, and it acts immediately rather than
+ * promising to act at launch. Markets size the whole research run, so a scope
+ * chosen without anyone seeing it is a scope nobody got the chance to disagree
+ * with — the proposal belongs on the screen while it can still be corrected.
+ */
+function AgentOption({
+  field,
+  label,
+  explanation,
+  on,
+  busy,
+  disabled,
+  finding,
+  onAutofill,
+  onAutofillOff,
+}: {
+  field: AutofillField;
+  label: string;
+  explanation: string;
+  on: boolean;
+  busy: boolean;
+  disabled: boolean;
+  finding: AutofillFinding | undefined;
+  onAutofill: (field: AutofillField) => void;
+  onAutofillOff: (field: AutofillField) => void;
+}) {
+  if (disabled) return null;
+  return (
+    <div className="rounded-[var(--radius)] border border-dashed px-3 py-2.5">
+      <label className="flex cursor-pointer items-start gap-2.5 text-sm">
+        <input
+          type="checkbox"
+          className="mt-0.5 size-4 shrink-0 accent-[var(--accent)]"
+          checked={on}
+          disabled={busy}
+          onChange={(event) => (event.target.checked ? onAutofill(field) : onAutofillOff(field))}
+        />
+        <span className="min-w-0">
+          <span className="flex items-center gap-1.5 font-medium text-fg">
+            {busy ? <Spinner label="Working it out" /> : <Sparkles className="size-3.5" aria-hidden />}
+            {label}
+          </span>
+          <span className="mt-0.5 block text-xs text-fg-muted">{explanation}</span>
+        </span>
+      </label>
+      {finding ? (
+        <p
+          className={`mt-2 border-t pt-2 text-xs ${finding.found ? "text-fg-muted" : "text-status-failed"}`}
+        >
+          {finding.found ? "Read: " : "Nothing to read: "}
+          {finding.source}
+        </p>
+      ) : null}
+      {on && !busy ? (
+        <button
+          type="button"
+          className="mt-2 text-xs text-fg-muted underline underline-offset-2 hover:text-fg"
+          onClick={() => onAutofill(field)}
+        >
+          Work it out again
+        </button>
+      ) : null}
     </div>
   );
 }

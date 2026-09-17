@@ -329,7 +329,10 @@ async def project(db: AsyncSession, admin_user: Any) -> Any:
         name="SDS Manager",
         domain="sdsmanager.com",
         product_context={"pitch": "safety data sheet management"},
-        markets=[{"country": "US", "language": "en"}],
+        # With the currency: `Market` requires one, so a fixture without it is a
+        # project whose own detail response cannot be built. Nothing noticed
+        # until a test read this project back instead of overwriting it first.
+        markets=[{"country": "US", "language": "en", "currency": "USD"}],
         settings={},
     )
     db.add(row)

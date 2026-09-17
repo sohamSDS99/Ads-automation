@@ -200,6 +200,13 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         {"name": "Matrix probe"},
     ),
     ("GET", "/projects/{project_id}/runs", "/projects/{project}/runs", Permission.READ, None),
+    (
+        "POST",
+        "/projects/{project_id}/autofill",
+        "/projects/{project}/autofill",
+        Permission.PROJECT_WRITE,
+        {"fields": ["site_url"]},
+    ),
     ("GET", "/credentials", "/credentials", Permission.READ, None),
     (
         "POST",
