@@ -101,14 +101,14 @@ class ConnectorContext:
     project_id: str | None = None
     #: The exit to crawl ordinary sites through, resolved by
     #: `connectors/proxy.proxy_url` from the workspace's Webshare key. None
-    #: means crawl direct, which is the correct behaviour for a deployment
-    #: with no proxy account rather than an error.
+    #: means crawl direct, which is the right behaviour for a deployment with
+    #: no proxy account rather than an error.
     #:
-    #: It sits beside `credentials` rather than inside it because it is not this
-    #: connector's credential: one Webshare account serves every connector that
-    #: fetches a page, and `web_crawler` must not have to hold a key it does not
-    #: own in order to be handed a transport. `require()` therefore never sees
-    #: it, and a connector that ignores it still works.
+    #: It sits beside `credentials` rather than inside it because it is not
+    #: this connector's credential: one Webshare account serves every
+    #: connector that fetches a page, and `web_crawler` must not have to hold
+    #: a key it does not own in order to be handed a transport. `require()`
+    #: therefore never sees it, and a connector that ignores it still works.
     crawl_proxy: str | None = None
 
     def require(self, *names: str) -> tuple[str, ...]:
@@ -127,7 +127,7 @@ def build_client(
     `proxy` is the Webshare exit a crawl leaves through (`connectors/proxy.py`).
     It is a keyword of its own rather than one more passthrough kwarg because
     the value carries a password in its userinfo, and a named parameter is what
-    lets a reader see, at every call site, whether that URL is being handed to
+    lets a reader see, at each call site, whether that URL is being handed to
     an upstream this repo has decided may see our traffic.
     """
     headers = {"User-Agent": settings.connector_user_agent, **kwargs.pop("headers", {})}

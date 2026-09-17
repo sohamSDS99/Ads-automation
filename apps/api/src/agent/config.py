@@ -125,7 +125,8 @@ class Settings(BaseSettings):
     # webshare: the exit IP an outbound crawl leaves through — `connectors/proxy.py`
     # explains which connectors use it and, more importantly, which measured
     # reasons keep `serp`, `transparency` and the vitals pass off it. Shape, not
-    # secret: the account is `CredentialKind.WEBSHARE` and it is one API key.
+    # secret: the account itself is `CredentialKind.WEBSHARE` — one API key,
+    # from the vault or from `WEBSHARE_API_KEY` below.
     webshare_api_url: str = "https://proxy.webshare.io/api/v2"
     #: The rotating endpoint — one address, a new exit per request. The
     #: thousand-row proxy list is the alternative and it makes us the balancer.

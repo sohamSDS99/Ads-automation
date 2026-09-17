@@ -315,8 +315,8 @@ Three things to know:
 - **A SERP zone serves search engines, not arbitrary sites.** Asked for a
   competitor's homepage it answers `400 This target URL isn't supported with
   SERP API, use the Web Unlocker product for targeting this URL`. So it does
-  not double as an unblocker: `web_crawler` and the Transparency Center still
-  go out directly, and giving them a proxy means a second Bright Data zone.
+  not double as an unblocker: the Transparency Center still goes out directly,
+  and `web_crawler` has its own exit pool — see *The crawl proxy* below.
 - **TLS is verified normally.** This used to be the one connection where it was
   not: reaching the zone through the proxy meant accepting a certificate signed
   by Bright Data's own CA, and shipping `SERP_VERIFY_TLS=false` to allow it.
@@ -326,6 +326,56 @@ Three things to know:
 the project's SERP evidence first, so the pull has to happen again rather than
 reading the previous run's rows back.
 
+## The crawl proxy
+
+`connectors/proxy.py` turns one Webshare API key into the exit `web_crawler`
+leaves through. The key reads `/proxy/config/` for the proxy username and
+password; the rotating endpoint supplies the address, and gives a different
+exit IP per request. That is the whole point: a 500-URL pass (§9.4's cap) that
+goes out directly arrives at one host as 500 requests from one address.
+
+**It is not a replacement for the SERP source, and that was measured rather
+than assumed.** Through three separate Webshare exits, `google.com/search`
+never completes a navigation in Chromium; a plain fetch of it returns a
+redirect shell with no organic results and no ads, and under load Google
+answers the exits with `429` outright. `adstransparency.google.com` behaves the
+same way through the proxy and answers normally without it. Bright Data SERP is
+an *API* that returns Google's page already parsed into `organic`, `top_ads`
+and `people_also_ask`; Webshare is a pool of proxies that returns whatever the
+target hands back. Different capabilities, so both are configured.
+
+What that leaves is an allowlist, `gather._PROXIED_CONNECTORS`, currently one
+name long:
+
+| Fetch | Through the proxy | Why |
+| --- | --- | --- |
+| `web_crawler` pages | **yes** | bulk HTTP against many hosts — the budget §9.4 spends most of |
+| `measure_vitals` | no | the hop's latency would land in LCP and TBT as if it were the page's |
+| `probe_conversion_tags` | no | it loads *our own* conversion page, and a `networkidle` load through an exit did not finish inside 30s |
+| `transparency` | no | a Google property; it does not answer through the proxy at all |
+| `serp` | no | Bright Data's own network, and it returns the page already parsed |
+
+Every browser path is therefore direct, which is asserted on the signatures in
+`test_no_browser_path_is_proxied` rather than left to a comment.
+
+Two more things to know:
+
+- **The account is one API key** (`webshare`), from the Sources step or from
+  `WEBSHARE_API_KEY` like the keys above. Unlike every other kind it is
+  *optional*: with no key, every crawl goes out directly and nothing degrades.
+  A key that is present but unusable is logged and also falls back to direct —
+  losing a whole research run to a lapsed proxy subscription is the worse
+  failure.
+- **The exit country is `WEBSHARE_COUNTRY`** (default `us`). A country the plan
+  has not allocated is dropped from the request rather than sent, because
+  Webshare answers an unowned country code as an authentication failure —
+  which would otherwise read as "your key is wrong" three retries later.
+
+`scripts/verify-webshare.py` proves the whole path against the live account: the
+key, the exits, a real crawl of a real page through one of them, and — every
+run — that Google still returns nothing through it. It needs no stack.
+
+    WEBSHARE_API_KEY=... make verify-webshare
 ## Keys from the environment
 
 Every source key can come from the deployment's own environment instead of the
@@ -335,6 +385,7 @@ Sources screen:
 OPENROUTER_API_KEY=sk-or-…
 BRIGHTDATA_API_KEY=…          # Bright Data -> Account settings -> API keys
 DATAFORSEO_API_KEY=…          # the Basic token, or login:password
+WEBSHARE_API_KEY=…            # the crawl proxy, and the only optional one
 ```
 
 `credentials.resolve_secret` looks in the vault first and falls back to these,
@@ -349,7 +400,7 @@ Two things that are easy to miss:
 
 - **`docker-compose.yml` is an allow-list.** A variable that is not named in
   `x-api-env` never reaches the container, however carefully it was set in
-  `.env`. All three are listed there.
+  `.env`. All four are listed there.
 - **`google_ads` has no environment path, and cannot.** Its secret is an OAuth
   refresh token that consent mints against a specific Google account; there is
   nothing for a person to paste. It stays a vault credential, written by the

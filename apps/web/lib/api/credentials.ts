@@ -6,7 +6,13 @@
  */
 import { apiFetch } from "@/lib/api";
 
-export type CredentialKind = "openrouter" | "google_ads" | "dataforseo" | "brightdata" | "smtp";
+export type CredentialKind =
+  | "openrouter"
+  | "google_ads"
+  | "dataforseo"
+  | "brightdata"
+  | "webshare"
+  | "smtp";
 export type CredentialScope = "workspace" | "project" | "user";
 
 export type CredentialField = {

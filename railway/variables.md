@@ -58,6 +58,7 @@ Start command: `redis-server --appendonly yes --requirepass $REDIS_PASSWORD`.
 | `APP_ENV` | fixed | `production` |
 | `LOG_LEVEL` | fixed | `INFO` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | manual | optional; without them invites are copyable links |
+| `WEBSHARE_*` | — | leave unset. Shape only. The Webshare account is a vault credential (`webshare`) stored from the Sources step, never an environment variable — and it is optional: with no key every crawl goes out directly |
 | `SERP_*` | — | leave unset. Shape only, and every one defaults correctly in `config.Settings`. The Bright Data account itself is a vault credential (`brightdata`), stored from the setup wizard — **not** an environment variable, so it is never set here |
 
 Generate both secrets with:

@@ -10,9 +10,12 @@ and a plain HTTP fetch of it returns a 92 KB JavaScript redirect shell holding
 zero results and zero ads. `adstransparency.google.com` behaves the same way
 through the proxy and answers normally without it. So every Google-owned
 surface in this codebase — `serp` and `transparency` — deliberately does **not**
-route through here, and `measure_vitals` does not either: a rotating datacenter
-hop adds latency to every request, and LCP measured through it is a number
-about the proxy, not about the page.
+route through here — and neither does anything that drives a browser.
+`measure_vitals` times the page, so a rotating hop's latency would land in LCP
+as if it were the page's; `probe_conversion_tags` loads *our own* conversion
+page, where there is no exit worth hiding, and a full `networkidle` load
+through one did not finish inside 30s when it was tried. What is left proxied
+is bulk HTTP against many hosts, which is the case a pool is for.
 
 What is left is what the proxy is actually good at, and what §9.4 spends its
 request budget on: fetching ordinary sites. Our own pages, competitor landing

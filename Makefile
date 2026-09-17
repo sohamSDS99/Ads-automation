@@ -98,6 +98,9 @@ verify-serp: ## Prove the SERP source and the OpenRouter key against both live a
 verify-google-ads: ## Prove our own account history against the live Google Ads API
 	./scripts/verify-google-ads.sh
 
+verify-webshare: ## Prove the crawl proxy against the live Webshare account (no stack needed)
+	uv run --project $(API) python scripts/verify-webshare.py
+
 google-ads-oauth: ## Mint a Google Ads refresh token and list the accounts it reaches
 	python3 scripts/google-ads-oauth.py --write-env
 

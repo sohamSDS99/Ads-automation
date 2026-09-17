@@ -50,6 +50,7 @@ from agent.config import get_settings
 from agent.connectors import connector_class
 from agent.connectors.base import ConnectorContext, ConnectorStatus
 from agent.connectors.google_ads import GoogleAdsConnector
+from agent.connectors.proxy import probe as proxy_probe
 from agent.credential_kinds import KIND_SPECS, KindSpec, spec_for, unseal
 from agent.credentials import (
     MissingCredential,
@@ -691,8 +692,14 @@ async def _run_test(
 ) -> ConnectorStatus:
     """Dispatch to whichever upstream can answer cheapest."""
     settings = get_settings()
+    if kind is CredentialKind.WEBSHARE:
+        # Neither a connector nor a model surface: a transport that several
+        # connectors borrow. `proxy.probe` proves the key, then proves that
+        # bytes actually return through the exit — the half a `/proxy/config/`
+        # read alone would miss.
+        return await proxy_probe(values.get("api_key", ""), settings)
     if connector is None:
-        # The only kind with no connector is OpenRouter, which is not an
+        # The remaining kind with no connector is OpenRouter, which is not an
         # evidence source — it is the model surface every node runs through.
         async with httpx.AsyncClient(timeout=httpx.Timeout(20.0, connect=10.0)) as client:
             try:

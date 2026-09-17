@@ -99,6 +99,18 @@ async def browser_page(settings: Settings | None = None) -> AsyncIterator[Any]:
 
     One page at a time by design — §9.2 says one concurrent page, and the
     politeness budget is the point rather than a limitation to engineer around.
+
+    **Never through the Webshare crawl proxy**, and this was tried. Each of the
+    three callers rejects it for its own reason. `transparency` reaches
+    `adstransparency.google.com`, which answers in 2.6 MB direct and does not
+    complete a navigation at all through the proxy. `measure_vitals` times the
+    page, so the hop's latency would land in LCP and TBT as if it were the
+    page's. `probe_conversion_tags` loads *our own* conversion page — node
+    1.5.2 passes the page it was configured with — so there is no exit to hide
+    from, and measured against a real one, a full `networkidle` load through a
+    rotating exit did not finish inside 30s. The crawl in `web_crawler` is
+    proxied because it is bulk HTTP against many hosts; a browser here is one
+    page against a known one, which is the opposite case.
     """
     settings = settings or get_settings()
     try:
@@ -128,7 +140,14 @@ async def browser_page(settings: Settings | None = None) -> AsyncIterator[Any]:
 async def measure_vitals(
     urls: list[str], settings: Settings | None = None
 ) -> dict[str, dict[str, Any]]:
-    """Core Web Vitals per URL. A page that fails to load is omitted, not faked."""
+    """Core Web Vitals per URL. A page that fails to load is omitted, not faked.
+
+    No proxy, on purpose. Every request would gain the exit hop's latency, and
+    it would land in LCP and TBT — a slower number that says nothing about the
+    page, reported to a node whose whole job is to judge the page. The crawl
+    that reads the same URLs *does* go through the proxy, because bytes are
+    bytes; timings are not.
+    """
     settings = settings or get_settings()
     measured: dict[str, dict[str, Any]] = {}
     if not urls:

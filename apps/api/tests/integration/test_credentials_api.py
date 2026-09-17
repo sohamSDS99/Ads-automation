@@ -15,6 +15,7 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.credential_kinds import KIND_SPECS
 from agent.credentials import open_credential
 from agent.db.models import AuditLog, Credential, CredentialKind, CredentialScope
 from agent.llm.openrouter import KeyStatus, OpenRouterError
@@ -106,7 +107,10 @@ async def test_the_catalogue_of_kinds_travels_with_the_list(admin: ApiClient) ->
     body = (await admin.get("/credentials")).json()
     kinds = {kind["kind"]: kind for kind in body["kinds"]}
 
-    assert set(kinds) == {"openrouter", "google_ads", "dataforseo", "brightdata"}
+    # Derived from the registry, not listed: a hardcoded set here fails a
+    # correct change that adds a kind (`webshare` was that change) while
+    # proving nothing the registry does not already say.
+    assert set(kinds) == {kind.value for kind in KIND_SPECS}
     google = {field["name"] for field in kinds["google_ads"]["fields"]}
     assert {"developer_token", "refresh_token", "customer_id"} <= google
     assert kinds["google_ads"]["fields"][0]["secret"] is True
@@ -116,7 +120,7 @@ async def test_the_catalogue_of_kinds_travels_with_the_list(admin: ApiClient) ->
     assert typed == {"developer_token"}
 
     # And every other kind is a single key, with nothing showable beside it.
-    for kind in ("openrouter", "brightdata", "dataforseo"):
+    for kind in {spec.kind.value for spec in KIND_SPECS.values()} - {"google_ads"}:
         fields = kinds[kind]["fields"]
         assert [field["name"] for field in fields] == ["api_key"], kind
         assert fields[0]["secret"] is True, kind

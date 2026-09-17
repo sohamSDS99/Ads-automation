@@ -146,9 +146,7 @@ class WebCrawlerConnector(BaseConnector):
         if not target.startswith(("http://", "https://")):
             target = "https://" + target
         try:
-            payload = await probe_conversion_tags(
-                target, self.settings, proxy=self.context.crawl_proxy
-            )
+            payload = await probe_conversion_tags(target, self.settings)
         except BrowserUnavailable as exc:
             return [], [f"conversion_probe: {exc}"]
         return [self.draft("conversion_probe", payload, source_url=target)], []
@@ -164,12 +162,10 @@ class WebCrawlerConnector(BaseConnector):
         owned = self.context.client is None
         # `crawl_proxy` is the one transport decision this connector does not
         # make for itself: `gather._pull` resolves it once per run from the
-        # workspace's Webshare key and None means direct. A borrowed client
+        # workspace's Webshare key, and None means direct. A borrowed client
         # (tests) is left exactly as the caller built it — pointing a
         # `MockTransport` at a proxy would test the mock, not the route.
-        client = self.context.client or build_client(
-            self.settings, proxy=self.context.crawl_proxy
-        )
+        client = self.context.client or build_client(self.settings, proxy=self.context.crawl_proxy)
         if owned and self.context.crawl_proxy:
             log.info("web_crawler.through_proxy", root=root)
         drafts: list[EvidenceDraft] = []

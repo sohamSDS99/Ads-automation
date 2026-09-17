@@ -88,12 +88,10 @@ def test_every_source_asks_a_person_for_exactly_one_value() -> None:
     render, so it is what this asserts on. `google_ads` still holds six values;
     five of them arrive from consent, and the sixth is the developer token.
     """
-    for kind in (
-        CredentialKind.OPENROUTER,
-        CredentialKind.BRIGHTDATA,
-        CredentialKind.DATAFORSEO,
-        CredentialKind.GOOGLE_ADS,
-    ):
+    # Derived, not listed: a hardcoded tuple here passes a correct change that
+    # adds a kind — `webshare` was the case that found this — by not looking
+    # at it at all.
+    for kind in KIND_SPECS:
         spec = spec_for(kind)
         typed = spec.typed_fields
         assert len(typed) == 1, f"{kind.value} asks for {[f.name for f in typed]}"
