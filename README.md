@@ -326,6 +326,39 @@ Three things to know:
 the project's SERP evidence first, so the pull has to happen again rather than
 reading the previous run's rows back.
 
+## Keys from the environment
+
+Every source key can come from the deployment's own environment instead of the
+Sources screen:
+
+```bash
+OPENROUTER_API_KEY=sk-or-…
+BRIGHTDATA_API_KEY=…          # Bright Data -> Account settings -> API keys
+DATAFORSEO_API_KEY=…          # the Basic token, or login:password
+```
+
+`credentials.resolve_secret` looks in the vault first and falls back to these,
+so the order is **user > project > workspace > environment**. That way round on
+purpose: someone who stored a key for one workspace meant it to be used, and an
+environment variable is the default a deployment ships with rather than an
+override of a choice a person made. A card whose key comes from the environment
+says so, shows the last four characters, and offers *Override for this
+workspace* instead of a form.
+
+Two things that are easy to miss:
+
+- **`docker-compose.yml` is an allow-list.** A variable that is not named in
+  `x-api-env` never reaches the container, however carefully it was set in
+  `.env`. All three are listed there.
+- **`google_ads` has no environment path, and cannot.** Its secret is an OAuth
+  refresh token that consent mints against a specific Google account; there is
+  nothing for a person to paste. It stays a vault credential, written by the
+  callback.
+
+`POST /credentials/kinds/{kind}/test` proves whichever of the two is actually in
+play and says which one answered — `/credentials/{id}/test` can only test a row,
+which is no help to a deployment that has none.
+
 ## Approval gates
 
 Two of the seventeen nodes are gates: `1.1.5 compliance_guardrails` (legal —

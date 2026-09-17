@@ -28,6 +28,11 @@ export type CredentialKindInfo = {
   /** When set, this kind can be connected by consent instead of by typing. */
   oauth_provider: string | null;
   oauth_ready: boolean;
+  /** The variable that supplies this kind when no row overrides it. */
+  env_var: string | null;
+  /** Whether that variable actually has a value in this deployment. */
+  env_configured: boolean;
+  env_last4: string | null;
   /** The fields consent supplies, which the form must therefore not ask for. */
   oauth_fields: string[];
 };
@@ -86,6 +91,24 @@ export function createCredential(body: {
  * caller may want to handle the failure (no OAuth client configured, say)
  * without having left the page.
  */
+/**
+ * Test whatever currently supplies a kind — a stored row if the workspace has
+ * one, the deployment's environment variable otherwise.
+ *
+ * `testCredential` needs an id, which an environment-supplied key does not
+ * have. Asking "does my key work" should not require storing one first.
+ */
+export function testCredentialKind(kind: string): Promise<{
+  kind: string;
+  source: "vault" | "environment";
+  ok: boolean;
+  detail: string;
+  meta: Record<string, unknown>;
+  tested_at: string;
+}> {
+  return apiFetch(`/credentials/kinds/${kind}/test`, { method: "POST" });
+}
+
 export function startGoogleAdsOauth(body: {
   developer_token: string;
   return_to: string;

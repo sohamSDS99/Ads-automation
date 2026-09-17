@@ -37,6 +37,28 @@ class CredentialKindInfo(BaseModel):
     description: str
     where: str = Field(description="Which screen configures it: `settings` or `sources`")
     fields: list[CredentialFieldInfo]
+    env_var: str | None = Field(
+        default=None,
+        description=(
+            "The environment variable that supplies this kind when no workspace row "
+            "overrides it. None means the vault is the only source."
+        ),
+    )
+    env_configured: bool = Field(
+        default=False,
+        description=(
+            "Whether that variable actually has a value in this deployment. True means "
+            "the source works with nothing typed, and the form is an override rather "
+            "than a requirement."
+        ),
+    )
+    env_last4: str | None = Field(
+        default=None,
+        description=(
+            "Last four characters of the environment value, so a screen can say which "
+            "key is in use without showing it"
+        ),
+    )
     oauth_provider: str | None = Field(
         default=None,
         description="When set, offer a Connect button for this provider instead of a form",
@@ -128,6 +150,22 @@ class CreateCredentialRequest(BaseModel):
         if self.kind not in KIND_SPECS:
             raise ValueError(f"{self.kind.value} is not configured through the interface")
         return self
+
+
+class KindTestResponse(BaseModel):
+    """The outcome of testing whatever currently supplies a kind.
+
+    Separate from `CredentialTestResponse` because there may be no row to name:
+    an environment-supplied key is not a `Credential`, so it has no id and no
+    `last_tested_at` to write the verdict back to.
+    """
+
+    kind: CredentialKind
+    source: str = Field(description="`vault` or `environment` — which one answered")
+    ok: bool
+    detail: str
+    meta: dict[str, Any] = Field(default_factory=dict)
+    tested_at: datetime
 
 
 class CredentialTestResponse(BaseModel):
