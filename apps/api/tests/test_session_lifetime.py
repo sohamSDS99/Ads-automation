@@ -27,31 +27,31 @@ WORKSPACE = uuid.uuid4()
 
 
 class FakePipeline:
-    def __init__(self, redis: "FakeRedis") -> None:
+    def __init__(self, redis: FakeRedis) -> None:
         self._redis = redis
         self._queued: list[tuple[str, tuple[Any, ...]]] = []
 
-    def set(self, key: str, value: str, ex: Any = None) -> "FakePipeline":
+    def set(self, key: str, value: str, ex: Any = None) -> FakePipeline:
         self._queued.append(("set", (key, value, ex)))
         return self
 
-    def sadd(self, key: str, member: str) -> "FakePipeline":
+    def sadd(self, key: str, member: str) -> FakePipeline:
         self._queued.append(("sadd", (key, member)))
         return self
 
-    def expire(self, key: str, ttl: Any) -> "FakePipeline":
+    def expire(self, key: str, ttl: Any) -> FakePipeline:
         self._queued.append(("expire", (key, ttl)))
         return self
 
-    def persist(self, key: str) -> "FakePipeline":
+    def persist(self, key: str) -> FakePipeline:
         self._queued.append(("persist", (key,)))
         return self
 
-    def delete(self, key: str) -> "FakePipeline":
+    def delete(self, key: str) -> FakePipeline:
         self._queued.append(("delete", (key,)))
         return self
 
-    def srem(self, key: str, member: str) -> "FakePipeline":
+    def srem(self, key: str, member: str) -> FakePipeline:
         self._queued.append(("srem", (key, member)))
         return self
 

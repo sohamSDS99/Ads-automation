@@ -5,7 +5,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 verify-p8 verify-serp eval coverage \
+        verify-p6 verify-p7 verify-p8 verify-serp verify-session eval coverage \
         browser browser-p6 browser-p7 browser-p8 browser-serp typecheck lint fmt contracts \
         health clean
 
@@ -94,6 +94,9 @@ verify-p8: ## Run P8's exit criteria against the running stack
 
 verify-serp: ## Prove the SERP source and the OpenRouter key against both live accounts
 	./scripts/verify-serp.sh
+
+verify-session: ## Prove a session outlives everything but signing out
+	./scripts/verify-session.sh
 
 browser-serp: ## Render the Sources step and assert the SERP card at 1440 and 390
 	@docker compose cp scripts/browser-check-serp.py worker:/tmp/browser-check-serp.py
