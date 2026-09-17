@@ -292,7 +292,11 @@ function NewSchedule({ projects }: { projects: ProjectSummary[] }) {
         ))}
       </div>
 
-      <SchedulePreviewPanel preview={preview.data} pending={preview.pending} />
+      <SchedulePreviewPanel
+        preview={preview.data}
+        pending={preview.pending}
+        invalid={Boolean(preview.error)}
+      />
 
       <div className="flex gap-2">
         <Button
@@ -319,14 +323,22 @@ function NewSchedule({ projects }: { projects: ProjectSummary[] }) {
 function SchedulePreviewPanel({
   preview,
   pending,
+  invalid,
 }: {
   preview: SchedulePreview | null;
   pending: boolean;
+  invalid: boolean;
 }) {
   if (!preview) {
     return (
       <div className="rounded-[var(--radius)] border border-dashed px-4 py-3 text-sm text-fg-muted">
-        {pending ? "Checking…" : "Enter an expression to see when it runs."}
+        {pending
+          ? "Checking…"
+          : invalid
+            ? // "Enter an expression" when one is already entered reads as the
+              // field being ignored. The field itself carries the reason.
+              "Fix the expression above to see when it runs."
+            : "Enter an expression to see when it runs."}
       </div>
     );
   }

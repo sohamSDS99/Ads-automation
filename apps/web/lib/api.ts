@@ -14,6 +14,13 @@ const CSRF_COOKIE = "csrf";
 const CSRF_HEADER = "X-CSRF-Token";
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
+/** One field the API refused, from a `validation-failed` problem. */
+export type ValidationError = {
+  loc: (string | number)[];
+  msg: string;
+  type: string;
+};
+
 /** An RFC 9457 problem document. Every error this API emits takes this shape. */
 export type Problem = {
   type: string;
@@ -24,7 +31,16 @@ export type Problem = {
   missing_permission?: Permission;
   retry_after_seconds?: number;
   state?: string;
+  errors?: ValidationError[];
 };
+
+/**
+ * Pydantic prefixes a message raised from a validator with "Value error, ".
+ * The sentence after it is the one written for a person to read.
+ */
+function fieldMessage(error: ValidationError): string {
+  return error.msg.replace(/^Value error,\s*/i, "");
+}
 
 export class ApiError extends Error {
   readonly status: number;
@@ -37,9 +53,24 @@ export class ApiError extends Error {
     this.problem = problem;
   }
 
-  /** The sentence to show the person who triggered this. */
+  /**
+   * The sentence to show the person who triggered this.
+   *
+   * A validation failure carries the generic "did not match the expected shape"
+   * in `detail` and the useful message in `errors[]`. Showing the generic one
+   * throws away the only part a person can act on — the schedule editor said
+   * "the request body did not match the expected shape" where the API had
+   * written "'60' is outside 0-59 for minute".
+   */
   get detail(): string {
+    const first = this.problem?.errors?.[0];
+    if (first) return fieldMessage(first);
     return this.problem?.detail ?? this.message;
+  }
+
+  /** Every field the API refused, for a form that marks more than one. */
+  get fieldErrors(): ValidationError[] {
+    return this.problem?.errors ?? [];
   }
 
   get missingPermission(): Permission | undefined {

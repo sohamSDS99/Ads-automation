@@ -63,21 +63,6 @@ export function deleteSchedule(id: string): Promise<void> {
   return apiFetch(`/schedules/${id}`, { method: "DELETE" });
 }
 
-/**
- * Timezones offered in the picker.
- *
- * `Intl.supportedValuesOf` is the browser's own list, which is the same IANA
- * database the server validates against. The fallback is for the handful of
- * engines that do not implement it; the field accepts free text either way, so
- * a zone missing from the list is a longer path, not a wall.
- */
-export function timezoneOptions(): string[] {
-  const supported =
-    typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
-  if (supported.length) return supported;
-  return ["UTC", "Europe/Copenhagen", "Europe/London", "America/New_York", "Asia/Kolkata"];
-}
-
 /** The viewer's own zone, so the editor opens on the one they think in. */
 export function localTimezone(): string {
   try {
@@ -85,6 +70,27 @@ export function localTimezone(): string {
   } catch {
     return "UTC";
   }
+}
+
+/**
+ * Timezones offered in the picker.
+ *
+ * `Intl.supportedValuesOf` is the browser's own list, drawn from the same IANA
+ * database the server validates against. The fallback is for the handful of
+ * engines that do not implement it.
+ */
+export function timezoneOptions(): string[] {
+  const supported =
+    typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  const fallback = ["Europe/Copenhagen", "Europe/London", "America/New_York", "Asia/Kolkata"];
+  // `Intl.supportedValuesOf` returns canonical zone names and omits "UTC",
+  // which is every `Schedule` row's default. A `<select>` whose value is not
+  // among its options silently displays the first one instead — the editor
+  // opened on "Africa/Abidjan" while its state still said "UTC", so the zone
+  // shown and the zone about to be saved disagreed with nobody told.
+  const zones = new Set<string>(["UTC", localTimezone()]);
+  for (const zone of supported.length ? supported : fallback) zones.add(zone);
+  return [...zones].sort((a, b) => (a === "UTC" ? -1 : b === "UTC" ? 1 : a.localeCompare(b)));
 }
 
 /** A few starting points, so nobody has to remember field order to get going. */

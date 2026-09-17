@@ -18,6 +18,12 @@ Three things learned the hard way and repeated here on purpose:
   polls every 10s, by design. Wait for content.
 * `full_page=True` screenshots a tall blank page: the scroll container is
   `<main>`, not the document. Shoot the viewport and scroll `main.scrollTop`.
+* **The same fact makes `documentElement.scrollWidth` the wrong ruler for
+  sideways overflow.** The shell is `h-dvh overflow-hidden` and `<main>` scrolls
+  inside it, so `<html>` reports the width of a descendant's layout box even
+  when every ancestor clips it correctly — a table scrolling properly inside its
+  own `overflow-x-auto` container measured as 694px of page overflow that no
+  user could ever reach. Measure the elements that actually scroll.
 * Playwright text selectors find hidden `<option>`s first. Filter a container.
 """
 
@@ -95,9 +101,29 @@ def seed():
     )
     from agent.db.session import get_sessionmaker
 
+    def report_body(project_id, run_id, verdict, questions):
+        """A minimal §11 report.
+
+        Built here rather than read from `tests/fixtures/`: the worker image
+        ships no test tree, and a production image is the right place for that
+        boundary to hold. The compare panel only needs a verdict that moves and
+        a record that appears.
+        """
+        return {
+            "schema_version": "1.0",
+            "project_id": str(project_id),
+            "run_id": str(run_id),
+            "generated_at": datetime.now(UTC).isoformat(),
+            "executive_summary": (
+                "Paid search is viable in DK and DE once conversion tracking is repaired. "
+                "Two competitors hold the audit-readiness message; the compliance angle is open."
+            ),
+            "launch_readiness": verdict,
+            "open_questions": questions,
+        }
+
     async def main():
         marker = uuid.uuid4().hex[:8]
-        golden = json.loads(open("/app/tests/fixtures/report_golden.json").read())
         async with get_sessionmaker()() as session:
             admin = (
                 await session.execute(sa.select(User).where(User.email == ADMIN[0]))
@@ -127,6 +153,7 @@ def seed():
             )
 
             runs = []
+            questions = [[], ["Is the new pricing live?"]]
             for index, verdict in enumerate(("go_with_fixes", "no_go")):
                 run = Run(
                     workspace_id=admin.workspace_id,
@@ -160,14 +187,7 @@ def seed():
                         },
                     )
                 )
-                body = dict(
-                    golden,
-                    run_id=str(run.id),
-                    project_id=str(project.id),
-                    launch_readiness=verdict,
-                )
-                if index:
-                    body["open_questions"] = [*golden["open_questions"], "Is the new pricing live?"]
+                body = report_body(project.id, run.id, verdict, questions[index])
                 session.add(
                     Report(run_id=run.id, schema_version="1.0", payload=body, markdown="# report")
                 )
@@ -194,7 +214,9 @@ def shoot(page: Page, name: str) -> None:
 
 def check_settings(page: Page) -> None:
     page.goto(f"{WEB}/settings")
-    page.wait_for_selector("text=Scheduled runs", timeout=20_000)
+    # The card title renders before its query resolves. Wait for the row — a
+    # heading is not evidence that anything loaded behind it.
+    page.wait_for_selector("text=0 7 * * 1-5", timeout=20_000)
 
     panel = page.locator("section").filter(has_text="Scheduled runs").first
     check("the schedule panel renders", panel.is_visible())
@@ -228,12 +250,33 @@ def check_settings(page: Page) -> None:
         preview.count(":") >= 2,
     )
 
+    # The zone the form holds has to be the zone the form shows. A `<select>`
+    # whose value is absent from its options displays the first one instead,
+    # which had the editor reading "Africa/Abidjan" over a state of "UTC".
+    zone_select = panel.locator("select").last
+    check(
+        "the timezone shown is the timezone that will be saved",
+        zone_select.input_value() in {"UTC", "Etc/UTC"},
+        f"select shows {zone_select.input_value()!r}",
+    )
+
     field.fill("60 3 * * *")
     page.wait_for_timeout(900)
+    message = panel.inner_text()
     check(
         "a bad expression names the field that is wrong",
-        "minute" in panel.inner_text().lower(),
-        panel.inner_text()[-300:],
+        "minute" in message.lower(),
+        message[-300:],
+    )
+    check(
+        "and says what is wrong with it, not that a body was malformed",
+        "0-59" in message and "expected shape" not in message.lower(),
+        message[-300:],
+    )
+    check(
+        "the preview does not ask for an expression that is already there",
+        "Enter an expression" not in message,
+        message[-200:],
     )
     check(
         "and the create button is unavailable while it is wrong",
@@ -259,7 +302,9 @@ def check_settings(page: Page) -> None:
 
 def check_console(page: Page, project_id: str, run_id: str) -> None:
     page.goto(f"{WEB}/projects/{project_id}/runs/{run_id}")
-    page.wait_for_selector("text=Triggered by", timeout=20_000)
+    # "Scheduled run", not "Triggered by": a cron run has no person behind it and
+    # the header says so instead of inventing one (PRD §13.4 B).
+    page.wait_for_selector("text=Scheduled run", timeout=20_000)
 
     body = page.inner_text("body")
     check(
@@ -277,7 +322,8 @@ def check_console(page: Page, project_id: str, run_id: str) -> None:
     )
     check(
         "a scheduled run is attributed to the schedule, not to a person",
-        "Schedule" in body,
+        "Scheduled run" in body and "Triggered by" not in body,
+        body[:200],
     )
     shoot(page, "p8-console-degraded")
 
@@ -316,29 +362,58 @@ def check_report(page: Page, project_id: str, run_id: str) -> None:
 
 def check_history(page: Page, project_id: str) -> None:
     page.goto(f"{WEB}/projects/{project_id}/runs")
-    page.wait_for_selector("text=Run history", timeout=20_000)
+    # Same rule: wait for a row, not for the page heading.
+    page.wait_for_selector("table tbody tr", timeout=20_000)
     body = page.inner_text("body")
     check("the history offers a diff against the previous run", "Changes" in body, body[:300])
     check("and names the schedule as the trigger", "Schedule" in body)
     shoot(page, "p8-run-history")
 
 
+#: `<main>` is what scrolls and `<body>` is what would grow if something escaped
+#: the shell. Neither may move sideways. `<html>` is deliberately not consulted —
+#: see the module docstring.
+SIDEWAYS_OVERFLOW = """() => {
+  const main = document.querySelector('main');
+  return {
+    main: main ? main.scrollWidth - main.clientWidth : 0,
+    body: document.body.scrollWidth - document.documentElement.clientWidth,
+  };
+}"""
+
+
+def check_no_sideways_scroll(page: Page, label: str) -> None:
+    measured = page.evaluate(SIDEWAYS_OVERFLOW)
+    check(
+        label,
+        measured["main"] <= 1 and measured["body"] <= 1,
+        f"main +{measured['main']}px, body +{measured['body']}px",
+    )
+
+
 def check_mobile(page: Page, project_id: str, run_id: str) -> None:
     page.set_viewport_size(MOBILE)
     page.goto(f"{WEB}/settings")
-    page.wait_for_selector("text=Scheduled runs", timeout=20_000)
-    overflow = page.evaluate(
-        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
+    page.wait_for_selector("text=0 7 * * 1-5", timeout=20_000)
+    check_no_sideways_scroll(page, "settings does not scroll sideways at 390px")
+    # The schedule table is wider than a phone by design. What must hold is that
+    # it scrolls inside its own container rather than taking the page with it.
+    scroller = page.evaluate("""() => {
+      const t = document.querySelector('table');
+      if (!t) return null;
+      const box = t.closest('div');
+      return {inner: box.scrollWidth - box.clientWidth, overflowX: getComputedStyle(box).overflowX};
+    }""")
+    check(
+        "a table too wide for a phone scrolls itself, not the page",
+        bool(scroller) and scroller["overflowX"] == "auto" and scroller["inner"] > 0,
+        str(scroller),
     )
-    check("settings does not scroll sideways at 390px", overflow <= 1, f"{overflow}px of overflow")
     shoot(page, "p8-settings-390")
 
     page.goto(f"{WEB}/projects/{project_id}/runs/{run_id}/report?compare=1")
     page.wait_for_selector("text=Changes since the previous run", timeout=20_000)
-    overflow = page.evaluate(
-        "() => document.documentElement.scrollWidth - document.documentElement.clientWidth"
-    )
-    check("the comparison fits at 390px", overflow <= 1, f"{overflow}px of overflow")
+    check_no_sideways_scroll(page, "the comparison fits at 390px")
     shoot(page, "p8-report-compare-390")
     page.set_viewport_size(DESKTOP)
 
@@ -352,15 +427,44 @@ def main() -> int:
     scheduled_run = runs[1]
 
     errors: list[str] = []
+    bad_responses: list[str] = []
+
+    def record_console(message) -> None:
+        if message.type != "error":
+            return
+        # Chromium logs this at error level on every non-HTTPS origin. The
+        # header is correct and does apply in production, where the app is
+        # served over TLS; treating it as a defect here would train us to
+        # ignore the list.
+        if "Cross-Origin-Opener-Policy header has been ignored" in message.text:
+            return
+        # Chromium reports a 4xx as a console error with no URL attached. The
+        # `response` handler below is what judges those, with the URL in hand.
+        if "Failed to load resource" in message.text:
+            return
+        errors.append(message.text)
+
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch()
         context = browser.new_context(viewport=DESKTOP)
         page = context.new_page()
-        page.on(
-            "console",
-            lambda message: errors.append(message.text) if message.type == "error" else None,
-        )
+        page.on("console", record_console)
         page.on("pageerror", lambda error: errors.append(str(error)))
+        # A failing request is more useful named than as "Failed to load resource".
+        # Two failures are the product working. `POST /schedules/preview` is
+        # *given* an invalid expression, to prove the editor shows the reason;
+        # `GET /models` 409s when no OpenRouter key is stored, which is this
+        # stack. Everything else is a defect.
+        expected = ("/schedules/preview", "/models")
+
+        def record_response(response) -> None:
+            if response.status < 400:
+                return
+            if any(path in response.url for path in expected):
+                return
+            bad_responses.append(f"{response.status} {response.url}")
+
+        page.on("response", record_response)
 
         sign_in(page)
         check_settings(page)
@@ -372,6 +476,7 @@ def main() -> int:
         browser.close()
 
     check("no console errors", not errors, "; ".join(errors[:3]))
+    check("no failing requests", not bad_responses, "; ".join(sorted(set(bad_responses))[:4]))
 
     for line in passes:
         print(f"  PASS {line}")
