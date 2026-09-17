@@ -6,7 +6,14 @@
  */
 import { API_BASE, apiFetch } from "@/lib/api";
 
-export type EvidenceSource = "google_ads" | "dataforseo" | "transparency" | "web" | "csv" | "derived";
+export type EvidenceSource =
+  | "google_ads"
+  | "dataforseo"
+  | "transparency"
+  | "web"
+  | "csv"
+  | "upload"
+  | "derived";
 
 export type EvidenceItem = {
   id: string;
@@ -55,6 +62,7 @@ export const SOURCE_LABEL: Record<EvidenceSource, string> = {
   transparency: "Transparency Center",
   web: "Site crawl",
   csv: "CRM upload",
+  upload: "Business context",
   derived: "Computed",
 };
 

@@ -1,0 +1,105 @@
+{
+  "description": "One uploaded document, as the wizard lists it.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "media_type": {
+      "title": "Media Type",
+      "type": "string"
+    },
+    "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+    },
+    "char_count": {
+      "description": "Characters of text extracted and stored",
+      "title": "Char Count",
+      "type": "integer"
+    },
+    "passage_count": {
+      "description": "Citable evidence rows this document became",
+      "title": "Passage Count",
+      "type": "integer"
+    },
+    "unit": {
+      "default": "",
+      "description": "What `unit_count` counts: page, row, paragraph",
+      "title": "Unit",
+      "type": "string"
+    },
+    "unit_count": {
+      "default": 0,
+      "title": "Unit Count",
+      "type": "integer"
+    },
+    "warnings": {
+      "description": "What the extractor could not read. Empty is the normal case.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "preview": {
+      "default": "",
+      "description": "The first few lines of the extracted text",
+      "title": "Preview",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "uploaded_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uploaded By"
+    },
+    "uploaded_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uploaded By Name"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "filename",
+    "media_type",
+    "bytes",
+    "char_count",
+    "passage_count",
+    "created_at"
+  ],
+  "title": "DocumentSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

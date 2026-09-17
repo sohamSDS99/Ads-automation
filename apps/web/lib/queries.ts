@@ -40,6 +40,7 @@ export const keys = {
   evidence: (query: EvidenceQuery) => ["evidence", query] as const,
   schedules: (projectId?: string) => ["schedules", projectId ?? "all"] as const,
   storage: ["storage"] as const,
+  documents: (projectId: string) => ["projects", projectId, "documents"] as const,
   runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
 };
 

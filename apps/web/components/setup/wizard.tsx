@@ -182,6 +182,7 @@ export function SetupWizard({ project }: { project: ProjectDetail }) {
         <CardBody>
           {step === 0 ? (
             <StepContext
+              projectId={project.id}
               context={context}
               markets={markets}
               onContextChange={setContext}

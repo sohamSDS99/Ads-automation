@@ -21,6 +21,7 @@ from agent.api.routes_approvals import router as approvals_router
 from agent.api.routes_audit import router as audit_router
 from agent.api.routes_auth import router as auth_router
 from agent.api.routes_credentials import router as credentials_router
+from agent.api.routes_documents import router as documents_router
 from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
@@ -118,6 +119,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         approvals_router,
         evidence_router,
         sources_router,
+        documents_router,
         reports_router,
     ):
         app.include_router(router, prefix=API_PREFIX)

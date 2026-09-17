@@ -74,6 +74,13 @@ class Need:
     #: discovering a universe and one pricing it, and the second must not be
     #: silently skipped because the first already ran.
     pull_key: str | None = None
+    #: Absent is normal for this kind, so do not report it as a gap. The
+    #: default is right for a source a project is expected to have: silence
+    #: about a missing Google Ads pull would be a lie by omission. It is wrong
+    #: for an optional one — nobody uploading no business-context documents has
+    #: degraded anything, and a `brand_doc: unavailable` note on every node
+    #: would put "insufficient evidence" in a report that has plenty.
+    optional: bool = False
     #: Pull even when the store already holds rows of this kind. The default is
     #: right for a source that answers one question — a second node wanting
     #: `campaign_perf` wants the same rows the first pulled. It is wrong for a
@@ -181,7 +188,7 @@ async def collect(ctx: RunContext, *needs: Need) -> Gathered:
                 result.degraded[need.kind] = pulled.reason or "the source could not be reached"
         if rows:
             result.evidence.extend(rows)
-        else:
+        elif not need.optional:
             result.missing.append(need.kind)
     return result
 

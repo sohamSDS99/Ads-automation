@@ -6,7 +6,8 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 eval coverage \
-        browser browser-p6 browser-p7 browser-p8 typecheck lint fmt contracts health clean
+        browser browser-p6 browser-p7 browser-p8 browser-documents \
+        typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -119,6 +120,13 @@ browser-p8: ## Drive the P8 screens (schedules, storage, compare, banners) at 14
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p8.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-documents: ## Upload a real PDF into step 1 and assert on what the screen says
+	@docker compose cp scripts/browser-check-documents.py worker:/tmp/browser-check-documents.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-documents.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p7: ## Drive the P7 screens as four roles, at 1440 and 390

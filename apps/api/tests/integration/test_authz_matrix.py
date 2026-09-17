@@ -116,6 +116,30 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PROJECT_WRITE,
         None,
     ),
+    # The business-context library. Reading it is READ — a viewer looking at a
+    # project should be able to see what the run was told — and writing it is
+    # PROJECT_WRITE, the same permission that governs the CSV import above.
+    (
+        "GET",
+        "/projects/{project_id}/documents",
+        "/projects/{target}/documents",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/documents",
+        "/projects/{target}/documents",
+        Permission.PROJECT_WRITE,
+        None,
+    ),
+    (
+        "DELETE",
+        "/projects/{project_id}/documents/{document_id}",
+        "/projects/{target}/documents/{target}",
+        Permission.PROJECT_WRITE,
+        None,
+    ),
     # P5a. Reports and exports are READ for every role — PRD §4.1 grants both
     # "read reports" and "export PDF/DOCX/CSV/JSON" to all four, so a `viewer`
     # may export. The POST is guarded by READ on purpose: it creates a job, so

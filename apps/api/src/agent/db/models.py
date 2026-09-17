@@ -107,6 +107,12 @@ class EvidenceSource(StrEnum):
     WEB = "web"
     CSV = "csv"
     DERIVED = "derived"
+    #: A document a person uploaded as business context (migration 0007). Kept
+    #: apart from `CSV`, which means a mapped CRM export and nothing else: these
+    #: two arrive through the same kind of form and answer completely different
+    #: questions, and an evidence filter that conflated them would show a
+    #: pricing PDF under "closed-won deals".
+    UPLOAD = "upload"
 
 
 class ApprovalStatus(StrEnum):
@@ -299,6 +305,58 @@ class Project(Base):
     )
     settings: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+
+
+class ProjectDocument(Base):
+    """A business-context file someone uploaded, as text.
+
+    The row is the *record* of the upload; the readable content lives twice, on
+    purpose. `text` here is what the screen shows and what a re-chunk would
+    start from, and the passages in `evidence` are what a node may cite. One
+    without the other gives you either a library nothing reads or evidence rows
+    whose provenance nobody can inspect.
+
+    The original bytes are not kept. Railway attaches the Volume to `worker`
+    alone (PRD §5.2), so storing them from `api` would mean a cross-service hop
+    on every upload to hold a file whose only use — producing this text — has
+    already happened.
+    """
+
+    __tablename__ = "project_document"
+    __table_args__ = (
+        # The same file twice is a mistake, not an update. Uploading it again
+        # answers 409 with the existing row rather than doubling every passage
+        # of it in the evidence the nodes read.
+        sa.UniqueConstraint("project_id", "sha256", name="uq_project_document_sha"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    uploaded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL")
+    )
+    filename: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    byte_size: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: The extracted text, already truncated to `document_max_chars`.
+    text: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    char_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
+    passage_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
+    #: "page", "row", "paragraph" — whatever the format counts in — and how many
+    #: of them the file held before any budget was applied.
+    unit: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="")
+    unit_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default="0")
+    #: What the extractor could not do: pages with no text layer, a file cut off
+    #: at the character budget. Shown next to the file, never swallowed.
+    warnings: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
 
 
@@ -641,4 +699,5 @@ ALL_TABLES: tuple[str, ...] = (
     "report",
     "export",
     "schedule",
+    "project_document",
 )
