@@ -129,6 +129,21 @@ FROM customer
 LIMIT 1
 """
 
+#: The accounts a manager holds. `listAccessibleCustomers` answers with what the
+#: signed-in user can reach *directly*, which for anyone working out of an MCC is
+#: the MCC and nothing else — and a manager account holds no campaigns, so a
+#: grant like that used to resolve to an account with nothing in it. Expanding
+#: the manager is what turns one consent into the real ad accounts underneath it,
+#: and it is also where `login_customer_id` comes from: the manager we asked.
+#: `level > 0` drops the manager's own row from its own client list.
+CLIENT_ACCOUNTS = """
+SELECT customer_client.id, customer_client.descriptive_name,
+       customer_client.manager, customer_client.currency_code,
+       customer_client.status, customer_client.level
+FROM customer_client
+WHERE customer_client.level > 0
+"""
+
 USER_LISTS = """
 SELECT user_list.id, user_list.name, user_list.description, user_list.type,
        user_list.membership_status, user_list.membership_life_span,
@@ -595,9 +610,24 @@ class GoogleAdsConnector(BaseConnector):
                 )
             listing.raise_for_status()
             accounts: list[dict[str, Any]] = []
+            seen: set[str] = set()
             for resource in listing.json().get("resourceNames") or []:
                 customer_id = str(resource).rsplit("/", 1)[-1]
-                accounts.append(await self._describe(client, base, token, customer_id))
+                if customer_id in seen:
+                    continue
+                seen.add(customer_id)
+                account = await self._describe(client, base, token, customer_id)
+                accounts.append(account)
+                if not account["manager"]:
+                    continue
+                # A manager is kept in the list — it is genuinely reachable, and
+                # naming it is how the interface can say which MCC was used —
+                # but the accounts under it are the ones that hold campaigns.
+                for child in await self._clients(client, base, token, customer_id):
+                    if child["customer_id"] in seen:
+                        continue
+                    seen.add(child["customer_id"])
+                    accounts.append(child)
             return accounts
         finally:
             if owned:
@@ -612,6 +642,8 @@ class GoogleAdsConnector(BaseConnector):
             "name": None,
             "manager": False,
             "currency": None,
+            # Reached directly, so no `login-customer-id` header is owed.
+            "via_manager": None,
         }
         try:
             # `login-customer-id` set to the account itself: that is what a
@@ -634,6 +666,59 @@ class GoogleAdsConnector(BaseConnector):
             account["manager"] = bool(customer.get("manager"))
             account["currency"] = customer.get("currencyCode")
         return account
+
+    async def _clients(
+        self, client: httpx.AsyncClient, base: str, token: str, manager_id: str
+    ) -> list[dict[str, Any]]:
+        """The accounts under one manager, each tagged with the manager to call through.
+
+        A manager that will not list its clients returns nothing rather than
+        raising: the grant may still reach a usable account another way, and one
+        unreadable MCC must not cost a person the whole connection.
+
+        Cancelled and suspended clients are dropped here rather than downstream.
+        They would be picked as the account to connect — `status` is the only
+        thing distinguishing them from a live account — and then every pull
+        against them would come back empty.
+        """
+        try:
+            response = await client.post(
+                f"{base}/customers/{manager_id}/googleAds:searchStream",
+                headers={**self._headers(token), "login-customer-id": manager_id},
+                json={"query": CLIENT_ACCOUNTS.strip()},
+            )
+            if response.status_code >= 400:
+                log.info(
+                    "google_ads.clients_unavailable",
+                    manager_id=manager_id,
+                    status=response.status_code,
+                )
+                return []
+            body = response.json()
+            chunks = body if isinstance(body, list) else [body]
+            rows = [row for chunk in chunks for row in (chunk.get("results") or [])]
+        except (httpx.HTTPError, ValueError) as exc:
+            log.info("google_ads.clients_failed", manager_id=manager_id, error=str(exc))
+            return []
+
+        clients: list[dict[str, Any]] = []
+        for row in rows:
+            child = row.get("customerClient") or {}
+            child_id = str(child.get("id") or "").strip()
+            if not child_id:
+                continue
+            if str(child.get("status") or "ENABLED").upper() not in ("ENABLED", "UNSPECIFIED"):
+                continue
+            clients.append(
+                {
+                    "customer_id": child_id,
+                    "name": child.get("descriptiveName"),
+                    "manager": bool(child.get("manager")),
+                    "currency": child.get("currencyCode"),
+                    "via_manager": manager_id,
+                }
+            )
+        return clients
 
     async def test_connection(self) -> ConnectorStatus:
         """One cheap GAQL row. Proves the token, the developer token and the customer id."""

@@ -1,4 +1,4 @@
-"""Live Google result pages, read through the Bright Data SERP proxy (PRD §9.3).
+"""Live Google result pages, read through the Bright Data SERP API (PRD §9.3).
 
 PRD §9.3 asks two things of the demand side: what a phrase is worth, and who
 already owns the page it lands on. `dataforseo.py` answers the first well and
@@ -7,7 +7,7 @@ down to `type == "organic"`, so the *ads* on the page, which are the whole point
 of a paid-ads research agent, never reach the evidence store at all.
 
 This connector answers the second question properly. It asks Google itself,
-through a proxy that returns the page already parsed, and keeps four things off
+through a service that returns the page already parsed, and keeps four things off
 each result page:
 
 - `serp_snapshot` — the organic ranking, in exactly the payload shape
@@ -20,23 +20,27 @@ each result page:
 - `serp_question` and `serp_related` — People Also Ask and the related searches.
   Demand phrasing straight from the engine, and node 1.4.1 seeds on both.
 
-**Why a proxy and not an API.** The proxy terminates TLS with its own CA, so
-`serp_verify_tls` is false by default and the reason is written out in
-`config.py`. What travels through the tunnel is a public search query; the
-account secret goes to the proxy in a `Proxy-Authorization` header and never
-enters it.
+**Why the API and not the proxy.** Bright Data offers the same zone two ways: a
+proxy that takes a username and a password, and `POST /request` that takes an
+API key. They return the same page. The API is the one used here because it is
+one value instead of four, and because the proxy terminates TLS with its own CA
+— reaching it at all meant shipping `serp_verify_tls=False`, which is a setting
+this connector no longer has to own.
+
+The zone name the API wants alongside the key is discovered, not asked for: see
+`_zone`. It is an account detail, and the key can read it back.
 
 **Why only this connector uses it.** A SERP zone is scoped to search engines.
 Pointed at a competitor's homepage it answers `400 This target URL isn't
 supported with SERP API, use the Web Unlocker product for targeting this URL` —
-so `web_crawler` and `transparency` cannot borrow this account, and routing
-them through a proxy is a second zone, not a config flag.
+so `web_crawler` and `transparency` cannot borrow this account, and routing them
+through this key is a second zone, not a config flag.
 
 **Why the vendor is not hidden behind a Protocol.** `KeywordProvider` in
 `dataforseo.py` exists because nodes ask a *vendor* for volume and CPC, and
 PRD §9.3 wants that vendor swappable. Nothing in here is vendor-shaped: the
 evidence is a Google result page, and a second implementation would differ only
-in which proxy fetched it. The seam that matters is already `EvidenceDraft`.
+in which account fetched it. The seam that matters is already `EvidenceDraft`.
 """
 
 from __future__ import annotations
@@ -44,7 +48,7 @@ from __future__ import annotations
 import asyncio
 import datetime as dt
 from typing import Any
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import urlencode, urlsplit
 
 import httpx
 import structlog
@@ -75,8 +79,28 @@ AD_BLOCKS: dict[str, str] = {"top_ads": "top", "bottom_ads": "bottom", "ads": "u
 #: full-text indexed along with everything else if it were left in.
 NOISE_KEYS = frozenset({"icon", "snippet_highlighted_words", "image", "thumbnail"})
 
-#: What the proxy asks for after it has refused a query, in seconds.
+#: What Bright Data asks for after it has refused a query, in seconds.
 RETRY_AFTER_S = 15.0
+
+
+def _detail(response: httpx.Response) -> str:
+    """Bright Data's own words on a refusal, short enough to put in an error.
+
+    The body is JSON on a good day and a bare sentence on a bad one, and the bad
+    one is exactly when a person needs to read it.
+    """
+    text = (response.text or "").strip()
+    if not text:
+        return f"no detail, HTTP {response.status_code}"
+    try:
+        body = response.json()
+    except ValueError:
+        return text[:200]
+    if isinstance(body, dict):
+        for key in ("error", "message", "detail", "description"):
+            if body.get(key):
+                return str(body[key])[:200]
+    return text[:200]
 
 
 class SerpConnector(BaseConnector):
@@ -85,42 +109,81 @@ class SerpConnector(BaseConnector):
     name = "serp"
     source = EvidenceSource.SERP
 
-    CREDENTIAL_FIELDS = ("username", "password")
+    CREDENTIAL_FIELDS = ("api_key",)
+
+    def __init__(self, context: Any = None) -> None:
+        super().__init__(context)
+        #: Resolved once per connector, by `_zone`. A fetch of 25 keywords must
+        #: not ask the account what its zones are 25 times.
+        self._zone_name: str | None = None
 
     # --- transport ---------------------------------------------------------
 
-    def _proxy_url(self) -> str:
-        """`http://user:pass@host:port`, with the credential's own host if it set one.
-
-        Both halves are percent-encoded: a zone password is generated, not
-        chosen, and one containing an `@` would otherwise silently retarget the
-        request at a host that does not exist.
-        """
-        username, password = self.context.require(*self.CREDENTIAL_FIELDS)
-        host = self.context.credentials.get("host") or self.settings.serp_proxy_host
-        port = self.context.credentials.get("port") or self.settings.serp_proxy_port
-        return f"http://{quote(username, safe='')}:{quote(password, safe='')}@{host}:{port}"
+    def _headers(self) -> dict[str, str]:
+        """Bearer the one value this connector has."""
+        (api_key,) = self.context.require(*self.CREDENTIAL_FIELDS)
+        return {
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        }
 
     def _client(self) -> tuple[httpx.AsyncClient, bool]:
         """The borrowed client if a caller supplied one, otherwise our own.
 
         A borrowed client comes from a test, and it already points wherever that
-        test wants — a `MockTransport`, usually — so the proxy is configured
-        only on the client this connector builds for itself. Nothing in the
-        product hands one over: `gather._pull` and `routes_credentials._run_test`
-        both leave `context.client` unset precisely so that the transport under
-        test is the transport a run uses.
+        test wants — a `MockTransport`, usually. Nothing in the product hands
+        one over: `gather._pull` and `routes_credentials._run_test` both leave
+        `context.client` unset precisely so that the transport under test is the
+        transport a run uses.
         """
         if self.context.client is not None:
             return self.context.client, False
-        return (
-            build_client(
-                self.settings,
-                proxy=self._proxy_url(),
-                verify=self.settings.serp_verify_tls,
-            ),
-            True,
-        )
+        return build_client(self.settings), True
+
+    async def _zone(self, client: httpx.AsyncClient) -> str:
+        """Which zone to bill the request to, asked rather than typed.
+
+        The API needs a zone name alongside the key, and a zone name is not a
+        secret — it is an account detail the key itself can read back. Asking
+        for it is what keeps this credential at one field.
+
+        Three answers, in order: the deployment pinned one, the account's own
+        first SERP zone, or `serp_zone_fallback`. The last is a real fallback,
+        not a failure — an account whose key cannot list zones (the listing
+        endpoint is not part of every plan) still has a zone, and a wrong guess
+        surfaces as a clear 400 from the next call rather than as silence here.
+        """
+        if self._zone_name:
+            return self._zone_name
+        if self.settings.serp_zone:
+            self._zone_name = self.settings.serp_zone
+            return self._zone_name
+
+        zone = ""
+        try:
+            response = await client.get(self.settings.serp_zones_url, headers=self._headers())
+            if response.status_code < 400:
+                rows = response.json()
+                if isinstance(rows, list):
+                    names = [
+                        str(row.get("name"))
+                        for row in rows
+                        if isinstance(row, dict) and row.get("name")
+                    ]
+                    serp = [
+                        str(row.get("name"))
+                        for row in rows
+                        if isinstance(row, dict)
+                        and row.get("name")
+                        and "serp" in f"{row.get('type', '')}{row.get('name', '')}".lower()
+                    ]
+                    zone = (serp or names or [""])[0]
+        except (httpx.HTTPError, ValueError) as exc:
+            log.info("serp.zone_discovery_failed", error=str(exc))
+
+        self._zone_name = zone or self.settings.serp_zone_fallback
+        log.info("serp.zone_resolved", zone=self._zone_name, discovered=bool(zone))
+        return self._zone_name
 
     def _search_url(self, keyword: str, *, country: str, language: str) -> str:
         """The page a person would open, plus the flag that returns it parsed.
@@ -144,13 +207,22 @@ class SerpConnector(BaseConnector):
             language=language or self.settings.serp_language,
         )
         client, owned = self._client()
+        zone = await self._zone(client)
 
         async def call() -> dict[str, Any]:
-            response = await client.get(url)
-            if response.status_code in (401, 403, 407):
+            # `format: raw` returns the page body untouched, and `brd_json=1` on
+            # the target URL is what makes that body the parsed result page
+            # rather than Google's HTML. The alternative, `format: json`, wraps
+            # the same bytes in an envelope this connector would only unwrap.
+            response = await client.post(
+                self.settings.serp_api_url,
+                headers=self._headers(),
+                json={"zone": zone, "url": url, "format": "raw"},
+            )
+            if response.status_code in (401, 403):
                 raise ConnectorAuthError(
-                    f"the SERP proxy rejected the account ({response.status_code}) — "
-                    "check the zone username and password"
+                    f"Bright Data rejected the API key ({response.status_code}) — "
+                    f"{_detail(response)}"
                 )
             if response.status_code == 429:
                 # Bright Data's own words on this status: "This query recently
@@ -159,21 +231,30 @@ class SerpConnector(BaseConnector):
                 # about a second, which spends two more retries to be told the
                 # same thing, so the vendor's number is used instead of ours.
                 raise ConnectorRateLimited(
-                    "the SERP proxy put this query in cooldown", retry_after_s=RETRY_AFTER_S
+                    "Bright Data put this query in cooldown", retry_after_s=RETRY_AFTER_S
+                )
+            if response.status_code == 400:
+                # The zone is the one thing here that was guessed rather than
+                # given, so it is named in the error: "bad request" against a
+                # zone that does not exist is otherwise an hour of looking at
+                # the key.
+                raise ConnectorError(
+                    f"Bright Data refused the request against zone `{zone}` — {_detail(response)}"
                 )
             response.raise_for_status()
             try:
                 body = response.json()
             except ValueError as exc:
-                # A proxy error arrives as an HTML page with a 200 on it. Saying
-                # "no results" here would reach a node as "nobody advertises on
-                # this term", which is the one answer that must never be faked.
+                # An upstream error arrives as an HTML page with a 200 on it.
+                # Saying "no results" here would reach a node as "nobody
+                # advertises on this term", which is the one answer that must
+                # never be faked.
                 raise ConnectorError(
-                    f"the SERP proxy returned {response.headers.get('content-type', 'no')} "
-                    f"content, not JSON ({exc})"
+                    f"Bright Data returned {response.headers.get('content-type', 'no')} "
+                    f"content, not a parsed result page ({exc})"
                 ) from exc
             if not isinstance(body, dict):
-                raise ConnectorError("the SERP proxy returned JSON that is not a result page")
+                raise ConnectorError("Bright Data returned JSON that is not a result page")
             return body
 
         try:
@@ -207,7 +288,7 @@ class SerpConnector(BaseConnector):
 
         client, owned = self._client()
         # One connection pool for the whole fetch, shared by every sub-call, so
-        # 25 keywords do not open 25 proxy sessions.
+        # 25 keywords do not open 25 connections to Bright Data.
         self.context.client = client
         semaphore = asyncio.Semaphore(max(1, self.settings.serp_concurrency))
 
@@ -379,7 +460,7 @@ class SerpConnector(BaseConnector):
         return drafts
 
     async def test_connection(self) -> ConnectorStatus:
-        """One cheap search. Proves the zone, the password and the parse at once."""
+        """One cheap search. Proves the key, the zone and the parse at once."""
         try:
             page = await self.search("safety data sheet software")
         except ConnectorError as exc:
@@ -391,7 +472,7 @@ class SerpConnector(BaseConnector):
             return ConnectorStatus(
                 ok=False,
                 detail=(
-                    "the proxy answered but the page had no results — "
+                    "Bright Data answered but the page had no results — "
                     "the parse or the zone is wrong"
                 ),
             )

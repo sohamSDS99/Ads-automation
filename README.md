@@ -174,12 +174,20 @@ there is a verification script.
   read. That one is minted from a `client_id`/`client_secret`/`refresh_token`
   trio, and it is the part that cannot be typed from memory.
 
-**The normal way in is a button.** The Sources step shows *Continue with
-Google*: whoever owns the Ads account types the developer token, signs in with
-their own Google account, approves read access, and the refresh token is sealed
-into the vault by the callback. They never see a token, and neither does anyone
-else — which matters, because the person with the Ads login is usually not the
-person who installed this, and the alternative is asking them to run a terminal.
+**The normal way in is a button, and it asks for one value.** The Sources step
+shows *Continue with Google*: whoever owns the Ads account types the developer
+token, signs in with their own Google account, approves read access, and the
+refresh token is sealed into the vault by the callback. They never see a token,
+and neither does anyone else — which matters, because the person with the Ads
+login is usually not the person who installed this, and the alternative is
+asking them to run a terminal.
+
+The developer token is the only box on the card. The customer id and the
+manager (MCC) id are *discovered*, not typed: the callback asks the grant which
+accounts it reaches, expands any manager into the accounts underneath it, and
+stores the first one that holds campaigns along with the manager to call
+through. A manager id typed by hand was the commonest way to get a working
+token and an empty report.
 
 That needs one thing from the deployment: an OAuth client, in the environment
 rather than the vault (it belongs to the installation, not to the workspace —
@@ -213,14 +221,20 @@ make verify-google-ads     # proves the whole path against the live account
 redirect on a loopback port, exchanges the code for an *offline* refresh token,
 then asks `customers:listAccessibleCustomers` which accounts that consent
 actually reaches and names each one — so the customer id that gets stored is one
-you have seen answer, not one copied off a dashboard. The card keeps a *Paste
-all values instead* toggle for the five values it prints.
+you have seen answer, not one copied off a dashboard. A *Paste all values
+instead* toggle appears on the card only where consent cannot run at all — a
+deployment with no OAuth client configured. Where the button works, the form
+with five boxes is a worse way to do the same thing and is not offered.
 
 Both paths pick the account the same way: the first accessible account that is
 **not** a manager. A manager account holds no campaigns, so connecting one would
-report success and then find nothing. Every account the grant reaches is
-recorded in the credential's hints, so a workspace with several can see what it
-chose between.
+report success and then find nothing — and for anyone working out of an MCC the
+manager is the *only* thing `listAccessibleCustomers` returns, which is why the
+manager gets expanded into its client accounts before the choice is made.
+Cancelled and suspended clients are dropped there; they are indistinguishable
+from live ones until every pull comes back empty. Every account the grant
+reaches is recorded in the credential's hints, so a workspace with several can
+see what it chose between.
 
 Two things that are easy to get wrong, and both fail quietly:
 
@@ -255,19 +269,22 @@ page we were bidding into never reached the evidence store at all.
 
 Three things to know:
 
-- **The account is a vault credential** (`brightdata`), configured in the setup
-  wizard's Sources step like any other. Host and port are optional and default
-  to Bright Data's published SERP endpoint.
+- **The account is one API key** (`brightdata`), configured in the setup
+  wizard's Sources step like any other. Bright Data offers the same zone as a
+  proxy (username, password, host, port) and as `POST /request` with a bearer
+  token; this uses the second, because it is one value instead of four. The
+  zone name that call needs is read off the account with the same key — see
+  `SerpConnector._zone` — and `SERP_ZONE` pins it only if discovery picks wrong
+  on an account with several.
 - **A SERP zone serves search engines, not arbitrary sites.** Asked for a
   competitor's homepage it answers `400 This target URL isn't supported with
   SERP API, use the Web Unlocker product for targeting this URL`. So it does
   not double as an unblocker: `web_crawler` and the Transparency Center still
   go out directly, and giving them a proxy means a second Bright Data zone.
-- **TLS is not verified on that one connection.** The proxy terminates TLS with
-  its own CA, so a verifying client fails the handshake. The tunnel carries a
-  public search query; the account secret goes to the proxy in a
-  `Proxy-Authorization` header and never enters it. `SERP_VERIFY_TLS=true` once
-  Bright Data's CA is in the image's trust store.
+- **TLS is verified normally.** This used to be the one connection where it was
+  not: reaching the zone through the proxy meant accepting a certificate signed
+  by Bright Data's own CA, and shipping `SERP_VERIFY_TLS=false` to allow it.
+  The API endpoint is an ordinary HTTPS host, so that setting is gone.
 
 `make verify-serp` proves the whole path against both live accounts — it deletes
 the project's SERP evidence first, so the pull has to happen again rather than

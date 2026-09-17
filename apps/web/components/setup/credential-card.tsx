@@ -103,6 +103,10 @@ export function CredentialCard({
    * needs no change here.
    */
   const byConsent = Boolean(spec.oauth_provider) && !byHand;
+  // A deployment with a Google OAuth client configured never shows the
+  // paste-everything fallback: consent supplies five of the six values, and
+  // offering a form for them alongside is offering a worse way to do the same
+  // thing. It reappears only where consent cannot run at all.
   const asked = byConsent
     ? spec.fields.filter((field) => !spec.oauth_fields.includes(field.name))
     : spec.fields;
@@ -111,7 +115,6 @@ export function CredentialCard({
     mutationFn: () =>
       startGoogleAdsOauth({
         developer_token: values.developer_token ?? "",
-        login_customer_id: values.login_customer_id ?? "",
         // Come back to this screen, not to a default one: this card renders in
         // the setup wizard and in settings, and landing on the wrong one after
         // consent reads as having lost your place.
@@ -216,7 +219,7 @@ export function CredentialCard({
                 {connected ? "Replace and test" : "Connect and test"}
               </Button>
             )}
-            {spec.oauth_provider ? (
+            {spec.oauth_provider && !spec.oauth_ready ? (
               <Button
                 type="button"
                 variant="ghost"

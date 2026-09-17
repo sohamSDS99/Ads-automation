@@ -1,8 +1,9 @@
 """What each credential kind is made of, and how to prove it works.
 
-The vault stores one sealed string per row. Most of these secrets are not one
-string — `google_ads` needs five values — so a multi-field kind is sealed as a
-JSON object and a single-field kind as the bare value. That split is not a
+The vault stores one sealed string per row. Every kind here asks a person for
+exactly one value, but `google_ads` still *holds* six, because consent supplies
+the other five; a multi-field kind is sealed as a JSON object and a single-field
+kind as the bare value. That split is not a
 preference: `orchestrator/executor.py` resolves the OpenRouter secret and hands
 it straight to `build_gateway(api_key=...)`, and `nodes/gather.py` JSON-decodes
 a connector secret into `ConnectorContext.credentials`. Both already exist, so
@@ -53,10 +54,12 @@ class KindSpec:
     #: provider's consent screen instead of asking them to paste values. The
     #: interface reads it rather than hardcoding which kinds have a button.
     oauth_provider: str | None = None
-    #: The fields that consent supplies. The form must not ask for these — a
-    #: refresh token is not something a person has to hand — but they are still
-    #: real fields, because an operator pasting all five by hand is still a
-    #: supported way to connect.
+    #: The fields that consent supplies, and therefore the fields the form must
+    #: never ask for. A refresh token is not something a person has to hand, and
+    #: neither is a manager id: `accessible_accounts()` is already talking to
+    #: the account list that names it. They stay real fields because the sealed
+    #: secret still carries them and the connector still reads them — the only
+    #: claim being made here is that nobody types them.
     oauth_fields: tuple[str, ...] = ()
 
     @property
@@ -156,36 +159,26 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         connector="google_ads",
         where="sources",
         oauth_provider="google",
-        oauth_fields=("client_id", "client_secret", "refresh_token", "customer_id"),
+        oauth_fields=(
+            "client_id",
+            "client_secret",
+            "refresh_token",
+            "customer_id",
+            "login_customer_id",
+        ),
     ),
     CredentialKind.BRIGHTDATA: KindSpec(
         kind=CredentialKind.BRIGHTDATA,
-        label="Bright Data SERP proxy",
+        label="Bright Data SERP",
         description=(
             "Live Google result pages: who ranks, who is bidding, what their ads say, "
             "and what else people search for."
         ),
         fields=(
             FieldSpec(
-                name="username",
-                label="Proxy username",
-                secret=False,
-                hint="The zone user, e.g. brd-customer-hl_xxxxxxxx-zone-serp1",
-            ),
-            FieldSpec(name="password", label="Zone password"),
-            FieldSpec(
-                name="host",
-                label="Proxy host",
-                required=False,
-                secret=False,
-                hint="Leave blank for brd.superproxy.io",
-            ),
-            FieldSpec(
-                name="port",
-                label="Proxy port",
-                required=False,
-                secret=False,
-                hint="Leave blank for 33335, the SERP endpoint",
+                name="api_key",
+                label="API key",
+                hint="The key from Account settings → API keys. That is the whole credential.",
             ),
         ),
         connector="serp",
@@ -196,8 +189,11 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         label="DataForSEO",
         description="Keyword volume, CPC, competition and 12 months of seasonality.",
         fields=(
-            FieldSpec(name="login", label="Login", secret=False, hint="The account email"),
-            FieldSpec(name="password", label="Password"),
+            FieldSpec(
+                name="api_key",
+                label="API key",
+                hint="The Basic token on the API Access page. A login:password pair works too.",
+            ),
         ),
         connector="dataforseo",
         where="sources",
@@ -222,13 +218,20 @@ def unseal(spec: KindSpec, secret: str) -> dict[str, str]:
 
     Mirrors `nodes/gather._credentials`: a JSON object becomes the value map, a
     bare string becomes the kind's single field.
+
+    The JSON branch is tried for every kind rather than only the multi-field
+    ones, because a kind that used to hold several values and now holds one
+    still has rows in the vault sealed the old way. Nothing is risked by
+    trying: a real single value never parses as a JSON object — an OpenRouter
+    key, a Bright Data token and a base64 Basic blob all fail on the first
+    character — so the fallback still catches every single-field credential,
+    and a connector that was connected before this change keeps working
+    without anyone retyping it.
     """
-    if not spec.multi_field:
-        return {spec.fields[0].name: secret}
     try:
         parsed = json.loads(secret)
     except ValueError:
-        return {spec.fields[0].name: secret}
-    if not isinstance(parsed, dict):
-        return {spec.fields[0].name: secret}
-    return {str(key): str(value) for key, value in parsed.items() if value is not None}
+        parsed = None
+    if isinstance(parsed, dict):
+        return {str(key): str(value) for key, value in parsed.items() if value is not None}
+    return {spec.fields[0].name: secret}

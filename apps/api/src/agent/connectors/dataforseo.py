@@ -90,14 +90,28 @@ class DataForSEOConnector(BaseConnector):
     name = "dataforseo"
     source = EvidenceSource.DATAFORSEO
 
-    CREDENTIAL_FIELDS = ("login", "password")
+    CREDENTIAL_FIELDS = ("api_key",)
 
     # --- transport ---------------------------------------------------------
 
     def _auth_header(self) -> str:
-        login, password = self.context.require("login", "password")
-        token = base64.b64encode(f"{login}:{password}".encode()).decode()
-        return f"Basic {token}"
+        """`Basic <token>`, whichever of the two shapes the key arrived in.
+
+        DataForSEO has no API key in the usual sense — every call is HTTP Basic
+        over the API login and password. What its dashboard *shows* under "API
+        key", though, is exactly the thing that header needs: those two values,
+        joined by a colon and base64-encoded. So one field is not a shortcut
+        here, it is the vendor's own copy-paste value.
+
+        Both shapes are accepted because both are things a person plausibly
+        pastes: the encoded blob off the dashboard, and the `login:password` it
+        decodes to. A colon is what tells them apart — base64 has no colon in
+        its alphabet, so a value containing one has not been encoded yet.
+        """
+        (api_key,) = self.context.require(*self.CREDENTIAL_FIELDS)
+        if ":" in api_key:
+            return f"Basic {base64.b64encode(api_key.encode()).decode()}"
+        return f"Basic {api_key}"
 
     async def _post(
         self, client: httpx.AsyncClient, endpoint: str, tasks: list[dict[str, Any]]
@@ -116,7 +130,7 @@ class DataForSEOConnector(BaseConnector):
             if response.status_code == 429:
                 raise ConnectorRateLimited("DataForSEO rate limit")
             if response.status_code == 401:
-                raise ConnectorAuthError("DataForSEO rejected the login")
+                raise ConnectorAuthError("DataForSEO rejected the API key")
             response.raise_for_status()
             body = response.json()
             returned = body.get("tasks") or []
@@ -404,7 +418,7 @@ class DataForSEOConnector(BaseConnector):
         )
 
     async def test_connection(self) -> ConnectorStatus:
-        """One keyword's volume. The cheapest call that proves the login works."""
+        """One keyword's volume. The cheapest call that proves the key works."""
         client, owned = self._client()
         try:
             rows = await self._post(

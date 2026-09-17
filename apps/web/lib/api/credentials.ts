@@ -27,6 +27,7 @@ export type CredentialKindInfo = {
   fields: CredentialField[];
   /** When set, this kind can be connected by consent instead of by typing. */
   oauth_provider: string | null;
+  oauth_ready: boolean;
   /** The fields consent supplies, which the form must therefore not ask for. */
   oauth_fields: string[];
 };
@@ -87,7 +88,6 @@ export function createCredential(body: {
  */
 export function startGoogleAdsOauth(body: {
   developer_token: string;
-  login_customer_id?: string;
   return_to: string;
 }): Promise<{ url: string }> {
   return apiFetch("/credentials/google-ads/authorize", {

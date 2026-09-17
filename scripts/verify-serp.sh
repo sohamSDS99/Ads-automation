@@ -15,7 +15,7 @@
 # Needs both live accounts. Either set them in the environment, or put them in
 # `.env` and this script will read them from there:
 #
-#   OPENROUTER_API_KEY, BRIGHTDATA_PROXY_USERNAME, BRIGHTDATA_PROXY_PASSWORD
+#   OPENROUTER_API_KEY, BRIGHTDATA_API_KEY
 #
 # Everything goes through the browser's path (web -> rewrite -> private network
 # -> FastAPI), because `api` has no ingress.
@@ -31,8 +31,7 @@ ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-me-at-least-12-chars}
 APPROVER_EMAIL=${APPROVER_EMAIL:-serp-approver@example.com}
 MEMBER_PASSWORD=${MEMBER_PASSWORD:-quarry-lantern-98-fog}
 OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-BRIGHTDATA_PROXY_USERNAME=${BRIGHTDATA_PROXY_USERNAME:-}
-BRIGHTDATA_PROXY_PASSWORD=${BRIGHTDATA_PROXY_PASSWORD:-}
+BRIGHTDATA_API_KEY=${BRIGHTDATA_API_KEY:-}
 
 PASS=0; FAIL=0
 ok(){ printf "  \033[32mPASS\033[0m %s\n" "$1"; PASS=$((PASS+1)); }
@@ -56,9 +55,9 @@ psql_(){ $COMPOSE exec -T postgres psql -qtAX -U agent -d agent -c "$1"; }
 echo "── 0. both accounts are present ────────────────────────────────────────"
 [ -n "$OPENROUTER_API_KEY" ] && ok "an OpenRouter key to store" \
   || { no "OPENROUTER_API_KEY is unset"; exit 1; }
-[ -n "$BRIGHTDATA_PROXY_USERNAME" ] && [ -n "$BRIGHTDATA_PROXY_PASSWORD" ] \
+[ -n "$BRIGHTDATA_API_KEY" ] \
   && ok "a Bright Data SERP account to store" \
-  || { no "BRIGHTDATA_PROXY_USERNAME / _PASSWORD are unset"; exit 1; }
+  || { no "BRIGHTDATA_API_KEY is unset"; exit 1; }
 chk "POST /auth/login as admin" "$(login "$A" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")" "admin"
 [ "$PASS" -ge 3 ] || { echo "cannot continue without a session"; exit 1; }
 
@@ -70,25 +69,24 @@ store(){ # kind, values-json -> id
   send "$A" POST "/credentials" "{\"kind\":\"$1\",\"values\":$2}" | jq_ 'd["id"]'
 }
 KEY_ID=$(store openrouter "{\"api_key\":\"$OPENROUTER_API_KEY\"}")
-BRD_ID=$(store brightdata \
-  "{\"username\":\"$BRIGHTDATA_PROXY_USERNAME\",\"password\":\"$BRIGHTDATA_PROXY_PASSWORD\"}")
+BRD_ID=$(store brightdata "{\"api_key\":\"$BRIGHTDATA_API_KEY\"}")
 [ -n "$KEY_ID" ] && ok "the OpenRouter key is stored" || no "the OpenRouter key is stored"
 [ -n "$BRD_ID" ] && ok "the Bright Data account is stored" || no "the Bright Data account is stored"
 
 BODY=$(get "$A" "/credentials")
 sealed(){ # a function, not an inline `case`: `*)` inside $( ) is a parse error
   case "$1" in
-    *"$OPENROUTER_API_KEY"* | *"$BRIGHTDATA_PROXY_PASSWORD"*) echo leaked ;;
+    *"$OPENROUTER_API_KEY"* | *"$BRIGHTDATA_API_KEY"*) echo leaked ;;
     *) echo sealed ;;
   esac
 }
 chk "no response carries either secret" "$(sealed "$BODY")" "sealed"
-chk "the vault remembers which zone is connected" \
-    "$(printf '%s' "$BODY" | jq_ "([c['meta'].get('username') for c in d['credentials'] if c['id']=='$BRD_ID'] or [''])[0]")" \
-    "$BRIGHTDATA_PROXY_USERNAME"
+chk "the vault shows the key's last 4 and nothing more" \
+    "$(printf '%s' "$BODY" | jq_ "([c['meta'].get('last4') for c in d['credentials'] if c['id']=='$BRD_ID'] or [''])[0]")" \
+    "${BRIGHTDATA_API_KEY: -4}"
 
 # Both tests are live calls, not shape checks: the first spends an OpenRouter
-# round-trip, the second buys one result page through the proxy.
+# round-trip, the second buys one result page from Bright Data.
 OR_TEST=$(send "$A" POST "/credentials/$KEY_ID/test" '{}')
 chk "the OpenRouter key answers to OpenRouter" "$(printf '%s' "$OR_TEST" | jq_ 'str(d["ok"]).lower()')" "true"
 printf "        %s\n" "$(printf '%s' "$OR_TEST" | jq_ 'd["detail"]')"

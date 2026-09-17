@@ -1,16 +1,10 @@
 {
-  "description": "Begin a Google Ads consent, carrying the one value consent cannot supply.",
+  "description": "Begin a Google Ads consent, carrying the one value consent cannot supply.\n\nThe developer token is that value and the only one: the manager id used to\nbe asked for here, and is now read back off the account list the grant\nitself unlocks (`GoogleAdsConnector.accessible_accounts`).",
   "properties": {
     "developer_token": {
       "maxLength": 8192,
       "minLength": 1,
       "title": "Developer Token",
-      "type": "string"
-    },
-    "login_customer_id": {
-      "default": "",
-      "description": "Manager (MCC) id, only when the account is reached through one",
-      "title": "Login Customer Id",
       "type": "string"
     },
     "return_to": {
