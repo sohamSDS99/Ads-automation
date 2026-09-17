@@ -18,7 +18,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"campaign": {"id": "111", "name": "Brand \u2014 Exact",
@@ -40,7 +40,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"searchTermView": {"searchTerm": "safety data sheet
@@ -62,7 +62,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"adGroupAd": {"ad": {"id": "9001", "type": "RESPONSIVE_SEARCH_AD",
@@ -82,7 +82,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"changeEvent": {"changeDateTime": "2025-06-11 09:14:22",
@@ -99,7 +99,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"adGroupCriterion": {"keyword": {"text": "sds software",
@@ -117,7 +117,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"conversionAction": {"id": "555000111", "name": "Demo request", "status": "ENABLED", "type": "WEBPAGE", "category": "SUBMIT_LEAD_FORM", "countingType": "ONE_PER_CLICK", "primaryForGoal": true, "tagSnippets": [{"type": "WEBPAGE", "pageFormat": "HTML", "globalSiteTag": "<script async src=\"https://www.googletagmanager.com/gtag/js?id=AW-987654321\"></script>", "eventSnippet": "<!-- Event snippet for Demo request conversion page -->\\n<script>gtag(''event'', ''conversion'', {''send_to'': ''AW-987654321/AbC-D_efGhIjKlM'', ''value'': 1.0});</script>"}]}, "segments": {"date": "2025-06-10"}, "metrics": {"allConversions": 14.0}}, {"conversionAction": {"id": "555000111", "name": "Demo request", "status": "ENABLED", "type": "WEBPAGE", "category": "SUBMIT_LEAD_FORM", "countingType": "ONE_PER_CLICK", "primaryForGoal": true, "tagSnippets": []}, "segments": {"date": "2025-06-11"}, "metrics": {"allConversions": 9.0}}, {"conversionAction": {"id": "555000222", "name": "Newsletter signup (legacy)", "status": "REMOVED", "type": "WEBPAGE", "category": "SIGN_UP", "countingType": "ONE_PER_CLICK", "primaryForGoal": false, "tagSnippets": []}, "segments": {"date": "2025-06-10"}, "metrics": {"allConversions": 0.0}}]}]'
@@ -131,7 +131,7 @@ interactions:
     body: null
     headers: {}
     method: POST
-    uri: https://googleads.googleapis.com/v18/customers/1234567890/googleAds:searchStream
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
   response:
     body:
       string: '[{"results": [{"userList": {"id": "777000111", "name": "All converters \u2014 540 days", "description": "Anyone who submitted the demo form", "type": "REMARKETING", "membershipStatus": "OPEN", "membershipLifeSpan": "540", "sizeForDisplay": "48200", "sizeForSearch": "39100", "eligibleForSearch": true, "eligibleForDisplay": true}}, {"userList": {"id": "777000222", "name": "CRM upload \u2014 EU customers", "description": "Customer match list uploaded from the CRM", "type": "CRM_BASED", "membershipStatus": "OPEN", "membershipLifeSpan": "10000", "sizeForDisplay": "0", "sizeForSearch": "1200", "eligibleForSearch": true, "eligibleForDisplay": false, "closingReason": "UNSPECIFIED"}}]}]'

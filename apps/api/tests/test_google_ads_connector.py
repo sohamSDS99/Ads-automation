@@ -7,6 +7,7 @@ says must happen in Python rather than in a model.
 
 from __future__ import annotations
 
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -57,13 +58,34 @@ def test_every_declared_pull_is_present() -> None:
 def test_the_conversion_window_is_shorter_than_the_history_window() -> None:
     """Conversion actions are pulled per *day*. Two years of daily rows per
     action is a large answer to a question the last quarter answers."""
-    start, end, change_start, recent_start = connector()._window({"end": "2025-06-30"})
+    start, end, change_start, change_end, recent_start = connector()._window({"end": "2025-06-30"})
     assert start < recent_start < end
     assert recent_start == "2025-04-01"
-    assert change_start.startswith(recent_start)
     assert "{recent_start}" not in QUERIES["conversion_action"].format(
-        start=start, end=end, change_start=change_start, recent_start=recent_start
+        start=start,
+        end=end,
+        change_start=change_start,
+        change_end=change_end,
+        recent_start=recent_start,
     )
+
+
+def test_the_change_log_asks_only_for_the_thirty_days_google_keeps() -> None:
+    """Google: change-event queries "must filter by date within the past 30 days
+    and be limited to a maximum of 10,000 rows". Ninety days is not a longer
+    history, it is a rejected query — and `fetch` degrades a failed pull, so the
+    cost of getting this wrong is a silently missing change log."""
+    _, _, change_start, change_end, _ = connector()._window({"end": "2025-06-30"})
+    today = datetime.now(UTC).date()
+    # Measured from today, not from `end`: the backfill date must not drag the
+    # window out of the thirty days Google will answer for.
+    assert date.fromisoformat(change_start.split(" ")[0]) >= today - timedelta(days=30)
+    assert change_end.startswith(today.isoformat())
+    query = QUERIES["change_log"].format(
+        start="", end="", change_start=change_start, change_end=change_end, recent_start=""
+    )
+    assert "{" not in query, "every bound is interpolated"
+    assert "LIMIT 10000" in query
 
 
 def test_micros_conversion() -> None:

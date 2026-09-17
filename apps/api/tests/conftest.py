@@ -31,6 +31,10 @@ def _clean_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
                 "CORS_",
                 "EMBEDDING_",
                 "CONNECTOR_",
+                # Whether this machine has a Google OAuth client is the
+                # deployment's business, and a test that asks what happens
+                # *without* one must not pass or fail on the answer.
+                "GOOGLE_",
             )
         ):
             monkeypatch.delenv(name, raising=False)

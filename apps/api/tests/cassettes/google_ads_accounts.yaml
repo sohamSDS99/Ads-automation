@@ -1,0 +1,85 @@
+# Hand-authored to the documented shape of `listAccessibleCustomers` and a
+# `customer` query — not recorded. It proves that a grant reaching a manager and
+# an ads account is read the right way round, which is the thing the connect
+# flow gets wrong if nobody looks: a manager account holds no campaigns.
+interactions:
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://oauth2.googleapis.com/token
+  response:
+    body:
+      string: '{"access_token": "ya29.cassette-access-token", "expires_in": 3599,
+        "token_type": "Bearer"}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: GET
+    uri: https://googleads.googleapis.com/v25/customers:listAccessibleCustomers
+  response:
+    body:
+      string: '{"resourceNames": ["customers/7788990011", "customers/1234567890",
+        "customers/5550001111"]}'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v25/customers/7788990011/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"customer": {"id": "7788990011", "descriptiveName":
+        "SDS Manager MCC", "manager": true, "currencyCode": "USD", "timeZone":
+        "America/New_York"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v25/customers/1234567890/googleAds:searchStream
+  response:
+    body:
+      string: '[{"results": [{"customer": {"id": "1234567890", "descriptiveName":
+        "SDS Manager — US Search", "manager": false, "currencyCode": "USD",
+        "timeZone": "America/New_York"}}]}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 200
+      message: OK
+# An account the grant reaches that will not describe itself. It is still a real
+# account, so it is still returned — unnamed.
+- request:
+    body: null
+    headers: {}
+    method: POST
+    uri: https://googleads.googleapis.com/v25/customers/5550001111/googleAds:searchStream
+  response:
+    body:
+      string: '[{"error": {"code": 403, "message": "The caller does not have
+        permission", "status": "PERMISSION_DENIED"}}]'
+    headers:
+      Content-Type:
+      - application/json
+    status:
+      code: 403
+      message: Forbidden
+version: 1

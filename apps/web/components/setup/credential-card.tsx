@@ -2,7 +2,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { CircleCheck, CircleX, Plug, Trash2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
@@ -13,7 +13,9 @@ import { ApiError } from "@/lib/api";
 import {
   createCredential,
   deleteCredential,
+  startGoogleAdsOauth,
   testCredential,
+  type AccessibleAccount,
   type CredentialKindInfo,
   type CredentialScope,
   type CredentialSummary,
@@ -50,6 +52,9 @@ export function CredentialCard({
   const queryClient = useQueryClient();
   const [values, setValues] = useState<Record<string, string>>({});
   const [editing, setEditing] = useState(false);
+  //: The escape hatch. Consent is the path for the account's owner; an operator
+  //: holding five values from `scripts/google-ads-oauth.py` still needs a form.
+  const [byHand, setByHand] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -90,11 +95,42 @@ export function CredentialCard({
     },
   });
 
+  /**
+   * Whether this kind is connected by consent rather than by typing.
+   *
+   * Read off the kind, not hardcoded: the API says which kinds have a provider
+   * and which of their fields that provider supplies, so a second OAuth source
+   * needs no change here.
+   */
+  const byConsent = Boolean(spec.oauth_provider) && !byHand;
+  const asked = byConsent
+    ? spec.fields.filter((field) => !spec.oauth_fields.includes(field.name))
+    : spec.fields;
+
+  const connect = useMutation({
+    mutationFn: () =>
+      startGoogleAdsOauth({
+        developer_token: values.developer_token ?? "",
+        login_customer_id: values.login_customer_id ?? "",
+        // Come back to this screen, not to a default one: this card renders in
+        // the setup wizard and in settings, and landing on the wrong one after
+        // consent reads as having lost your place.
+        return_to: `${window.location.pathname}${window.location.search}`,
+      }),
+    onSuccess: (started) => {
+      // A full navigation, not a popup: Google refuses to render consent in an
+      // iframe, and a popup is the thing browsers block.
+      window.location.assign(started.url);
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.detail : "Google could not be reached."),
+  });
+
+  useOauthOutcome(spec, invalidate);
+
   const connected = Boolean(credential);
   const showForm = canWrite && (editing || !connected);
-  const missingRequired = spec.fields.some(
-    (field) => field.required && !values[field.name]?.trim(),
-  );
+  const missingRequired = asked.some((field) => field.required && !values[field.name]?.trim());
 
   return (
     <div className="rounded-[var(--radius)] border bg-surface-raised">
@@ -144,7 +180,7 @@ export function CredentialCard({
           }}
         >
           <div className="grid gap-3 sm:grid-cols-2">
-            {spec.fields.map((field) => (
+            {asked.map((field) => (
               <Field
                 key={field.name}
                 label={field.label}
@@ -160,17 +196,51 @@ export function CredentialCard({
             ))}
           </div>
           {error ? <p className="text-xs text-status-failed">{error}</p> : null}
-          <div className="flex items-center gap-2">
-            <Button type="submit" size="sm" disabled={save.isPending || missingRequired}>
-              {save.isPending ? <Spinner label="Saving" /> : null}
-              {connected ? "Replace and test" : "Connect and test"}
-            </Button>
+          <div className="flex flex-wrap items-center gap-2">
+            {byConsent ? (
+              <Button
+                type="button"
+                size="sm"
+                disabled={connect.isPending || missingRequired}
+                onClick={() => {
+                  setError(null);
+                  connect.mutate();
+                }}
+              >
+                {connect.isPending ? <Spinner label="Opening Google" /> : null}
+                Continue with Google
+              </Button>
+            ) : (
+              <Button type="submit" size="sm" disabled={save.isPending || missingRequired}>
+                {save.isPending ? <Spinner label="Saving" /> : null}
+                {connected ? "Replace and test" : "Connect and test"}
+              </Button>
+            )}
+            {spec.oauth_provider ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setError(null);
+                  setByHand((on) => !on);
+                }}
+              >
+                {byHand ? "Use Google sign-in" : "Paste all values instead"}
+              </Button>
+            ) : null}
             {connected ? (
               <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(false)}>
                 Cancel
               </Button>
             ) : null}
           </div>
+          {byConsent ? (
+            <p className="text-xs text-fg-subtle">
+              The account owner signs in with their own Google account and approves read access.
+              The token is stored here — they never see it, and neither do you.
+            </p>
+          ) : null}
         </form>
       ) : null}
 
@@ -197,6 +267,41 @@ export function CredentialCard({
   );
 }
 
+/**
+ * Report what came back from a consent round trip, once.
+ *
+ * The callback redirects here with `?google_ads=connected|error`, so the
+ * outcome arrives in the URL rather than in a response. It is read from
+ * `window.location` rather than `useSearchParams` so this component does not
+ * drag a Suspense boundary onto every screen that renders a card, and the
+ * parameters are stripped afterwards so a refresh does not re-announce it.
+ */
+function useOauthOutcome(spec: CredentialKindInfo, invalidate: () => Promise<void>) {
+  const provider = spec.oauth_provider;
+  useEffect(() => {
+    if (!provider) return;
+    const params = new URLSearchParams(window.location.search);
+    const outcome = params.get("google_ads");
+    if (!outcome) return;
+
+    if (outcome === "connected") {
+      toast.success(`${spec.label} connected`, {
+        description: params.get("account") ?? undefined,
+      });
+      void invalidate();
+    } else {
+      toast.error(`${spec.label} was not connected`, {
+        description: params.get("reason") ?? undefined,
+      });
+    }
+    params.delete("google_ads");
+    params.delete("account");
+    params.delete("reason");
+    const query = params.toString();
+    window.history.replaceState({}, "", `${window.location.pathname}${query ? `?${query}` : ""}`);
+  }, [provider, spec.label, invalidate]);
+}
+
 function ConnectionState({ credential }: { credential: CredentialSummary | undefined }) {
   if (!credential) {
     return <span className="text-xs text-fg-subtle">Not connected</span>;
@@ -220,6 +325,19 @@ function ConnectionState({ credential }: { credential: CredentialSummary | undef
   return <span className="text-xs text-fg-muted">Stored, never tested</span>;
 }
 
+/**
+ * One hint, rendered.
+ *
+ * Not every hint is a scalar: a Google Ads grant records every account it
+ * reaches, and `String(list)` would put `[object Object]` on the card.
+ */
+function hintValue(key: string, value: string | number | boolean | null | AccessibleAccount[]) {
+  if (Array.isArray(value)) {
+    return value.length === 1 ? "1 account" : `${value.length} accounts`;
+  }
+  return key === "last4" ? `••••${String(value)}` : String(value);
+}
+
 /** The masked hints the vault is allowed to show. Never the secret. */
 function Hints({ credential }: { credential: CredentialSummary }) {
   const entries = Object.entries(credential.meta).filter(([, value]) => value !== null);
@@ -228,9 +346,7 @@ function Hints({ credential }: { credential: CredentialSummary }) {
       {entries.map(([key, value]) => (
         <div key={key} className="flex items-center gap-1.5">
           <dt className="text-fg-subtle">{key.replace(/_/g, " ")}</dt>
-          <dd className="font-mono text-fg-muted">
-            {key === "last4" ? `••••${String(value)}` : String(value)}
-          </dd>
+          <dd className="font-mono text-fg-muted">{hintValue(key, value)}</dd>
         </div>
       ))}
       {credential.last_tested_at ? (

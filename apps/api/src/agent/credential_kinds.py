@@ -49,6 +49,20 @@ class KindSpec:
     #: Where in the product this credential is configured, so the two screens
     #: that write credentials can each show only their own.
     where: str
+    #: When set, this credential can be obtained by sending someone to a
+    #: provider's consent screen instead of asking them to paste values. The
+    #: interface reads it rather than hardcoding which kinds have a button.
+    oauth_provider: str | None = None
+    #: The fields that consent supplies. The form must not ask for these — a
+    #: refresh token is not something a person has to hand — but they are still
+    #: real fields, because an operator pasting all five by hand is still a
+    #: supported way to connect.
+    oauth_fields: tuple[str, ...] = ()
+
+    @property
+    def typed_fields(self) -> tuple[FieldSpec, ...]:
+        """The fields a person still has to supply when consent supplies the rest."""
+        return tuple(field for field in self.fields if field.name not in self.oauth_fields)
 
     @property
     def multi_field(self) -> bool:
@@ -141,6 +155,8 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         ),
         connector="google_ads",
         where="sources",
+        oauth_provider="google",
+        oauth_fields=("client_id", "client_secret", "refresh_token", "customer_id"),
     ),
     CredentialKind.BRIGHTDATA: KindSpec(
         kind=CredentialKind.BRIGHTDATA,

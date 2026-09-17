@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import __version__
+from agent.api import API_PREFIX as _API_PREFIX
 from agent.api.logging_middleware import RequestContextMiddleware
 from agent.api.middleware import (
     SecurityHeadersMiddleware,
@@ -41,7 +42,7 @@ from agent.logging_setup import configure_logging
 from agent.queue import close_arq_pool
 from agent.redis_client import close_redis
 
-API_PREFIX = "/api/v1"
+API_PREFIX = _API_PREFIX
 
 
 @asynccontextmanager

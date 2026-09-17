@@ -9,6 +9,7 @@ live here so a writer cannot pick a different AAD from the reader's.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -46,9 +47,14 @@ def new_credential(
     scope: CredentialScope = CredentialScope.WORKSPACE,
     project_id: uuid.UUID | None = None,
     user_id: uuid.UUID | None = None,
-    meta: dict[str, str] | None = None,
+    meta: dict[str, Any] | None = None,
 ) -> Credential:
-    """Seal `secret` into an unsaved `Credential`. The id is minted first — it is the AAD."""
+    """Seal `secret` into an unsaved `Credential`. The id is minted first — it is the AAD.
+
+    `meta` is `dict[str, Any]` because the column is JSON and the hints are not
+    all strings: the Google Ads connect flow records every account the grant
+    reaches, which is a list.
+    """
     credential_id = uuid.uuid4()
     ciphertext, nonce = encrypt(secret, aad=credential_aad(credential_id))
     return Credential(

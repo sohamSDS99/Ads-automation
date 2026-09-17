@@ -15,17 +15,22 @@ spend would be attributed to a person who never supplied a key.
 
 from __future__ import annotations
 
+import json
+import secrets
 import uuid
+from base64 import b64decode, b64encode
 from datetime import UTC, datetime
 from typing import Annotated
+from urllib.parse import urlencode
 
 import httpx
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.api import problems
+from agent.api import API_PREFIX, problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_credentials import (
     CreateCredentialRequest,
@@ -34,6 +39,8 @@ from agent.api.schemas_credentials import (
     CredentialListResponse,
     CredentialSummary,
     CredentialTestResponse,
+    GoogleAdsAuthorizeRequest,
+    GoogleAdsAuthorizeResponse,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
@@ -41,11 +48,14 @@ from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.connectors import connector_class
 from agent.connectors.base import ConnectorContext, ConnectorStatus
+from agent.connectors.google_ads import GoogleAdsConnector
 from agent.credential_kinds import KIND_SPECS, spec_for, unseal
 from agent.credentials import new_credential, open_credential
+from agent.crypto import DecryptionError, decrypt_str, encrypt
 from agent.db.models import Credential, CredentialKind, CredentialScope, Project, User
 from agent.db.session import get_session
 from agent.llm.openrouter import OpenRouterError, probe_key
+from agent.redis_client import get_redis
 
 log = structlog.get_logger(__name__)
 
@@ -116,6 +126,8 @@ async def list_credentials(me: AnyMember, db: Db) -> CredentialListResponse:
                     )
                     for field in spec.fields
                 ],
+                oauth_provider=spec.oauth_provider,
+                oauth_fields=list(spec.oauth_fields),
             )
             for spec in KIND_SPECS.values()
         ],
@@ -279,6 +291,264 @@ async def delete_credential(
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+# --- Google's consent screen -------------------------------------------------
+#
+# Why this exists next to the form: the Google Ads account belongs to whoever
+# runs the advertising, and that is rarely the person who installed this. Asking
+# them to produce a refresh token means asking them to run a terminal. Asking
+# them for a click means the token never exists outside this process — nobody
+# reads it out, pastes it into chat, or leaves it in a downloads folder.
+#
+# The OAuth *client* is the deployment's (env), the *grant* is the workspace's
+# (vault). The developer token is neither: it is typed once here, carried
+# through the round trip sealed, and sealed again with the rest at the end.
+
+GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 — an endpoint
+GOOGLE_ADS_SCOPE = "https://www.googleapis.com/auth/adwords"
+OAUTH_STATE_PREFIX = "google-ads-oauth:"
+#: Long enough to read a consent screen and choose an account; short enough that
+#: a state abandoned in a closed tab is not a standing invitation.
+OAUTH_STATE_TTL_S = 900
+
+
+def _oauth_redirect_uri() -> str:
+    """Where Google sends the browser back.
+
+    Built from `app_base_url`, not from the incoming request: Google compares
+    this string byte for byte against the registered one, and the API itself has
+    no ingress — every browser request arrives through the web app's rewrite, so
+    the app's own base URL is the only address that is actually reachable.
+    """
+    return f"{get_settings().app_base_url}{API_PREFIX}/credentials/google-ads/callback"
+
+
+def _safe_return_to(path: str) -> str:
+    """A path on this app, or the settings screen.
+
+    `return_to` arrives from the browser and leaves in a `Location` header, so
+    anything that could name another origin — an absolute URL, a
+    protocol-relative `//host` — is replaced rather than sanitised.
+    """
+    candidate = (path or "").strip()
+    if not candidate.startswith("/") or candidate.startswith("//"):
+        return "/settings"
+    return candidate
+
+
+def _back(return_to: str, **params: str) -> RedirectResponse:
+    """Send the browser back to the screen it started from, carrying the outcome."""
+    separator = "&" if "?" in return_to else "?"
+    target = f"{get_settings().app_base_url}{return_to}{separator}{urlencode(params)}"
+    # 303: the browser must GET the screen, whatever method got it here.
+    return RedirectResponse(target, status_code=status.HTTP_303_SEE_OTHER)
+
+
+@router.post(
+    "/credentials/google-ads/authorize",
+    response_model=GoogleAdsAuthorizeResponse,
+    summary="Begin a Google Ads consent",
+)
+async def authorize_google_ads(
+    body: GoogleAdsAuthorizeRequest, me: AnyMember
+) -> GoogleAdsAuthorizeResponse:
+    """Mint a one-use state and hand back the consent URL to send the browser to."""
+    _assert_may_write(me, CredentialScope.WORKSPACE)
+    settings = get_settings()
+    if not settings.google_ads_oauth_client_id or not settings.google_ads_oauth_client_secret:
+        raise problems.unprocessable(
+            "This deployment has no Google OAuth client configured. Set "
+            "GOOGLE_ADS_OAUTH_CLIENT_ID and GOOGLE_ADS_OAUTH_CLIENT_SECRET, or store all "
+            "five values directly instead.",
+            fields=["developer_token"],
+        )
+
+    state = secrets.token_urlsafe(32)
+    payload = json.dumps(
+        {
+            "workspace_id": str(me.workspace_id),
+            "user_id": str(me.user.id),
+            "developer_token": body.developer_token,
+            "login_customer_id": body.login_customer_id.replace("-", "").strip(),
+            "return_to": _safe_return_to(body.return_to),
+        }
+    )
+    # Sealed with the vault's own key and bound to this state: fifteen minutes
+    # in Redis is still a secret at rest (PRD §15 NF5).
+    ciphertext, nonce = encrypt(payload, aad=state.encode())
+    await get_redis().setex(
+        f"{OAUTH_STATE_PREFIX}{state}",
+        OAUTH_STATE_TTL_S,
+        json.dumps({"c": b64encode(ciphertext).decode(), "n": b64encode(nonce).decode()}),
+    )
+
+    query = urlencode(
+        {
+            "client_id": settings.google_ads_oauth_client_id,
+            "redirect_uri": _oauth_redirect_uri(),
+            "response_type": "code",
+            "scope": GOOGLE_ADS_SCOPE,
+            # Offline or there is no refresh token; `consent` or Google reissues
+            # one only on a first-ever grant; `select_account` because a browser
+            # already signed in as the wrong Google user would otherwise skip
+            # the chooser and authorise an account with no Google Ads at all.
+            "access_type": "offline",
+            "prompt": "consent select_account",
+            "state": state,
+        }
+    )
+    log.info("google_ads.oauth_started", workspace_id=str(me.workspace_id))
+    return GoogleAdsAuthorizeResponse(url=f"{GOOGLE_AUTH_URL}?{query}")
+
+
+@router.get(
+    "/credentials/google-ads/callback",
+    summary="Finish a Google Ads consent",
+    response_class=RedirectResponse,
+    status_code=status.HTTP_303_SEE_OTHER,
+)
+async def google_ads_callback(
+    me: AnyMember,
+    db: Db,
+    request: Request,
+    code: Annotated[str, Query(description="Google's authorisation code")] = "",
+    state: Annotated[str, Query(description="The one-use state from /authorize")] = "",
+    error: Annotated[str, Query(description="Set when the person declined")] = "",
+) -> RedirectResponse:
+    """Exchange the code, find the account, and seal the grant into the vault.
+
+    Every failure here ends as a redirect rather than a problem document: the
+    caller is a person's browser arriving from Google, and a JSON error is a
+    dead end for them. The reason travels as a query parameter so the screen
+    they started from can say what happened.
+    """
+    _assert_may_write(me, CredentialScope.WORKSPACE)
+    raw = await get_redis().getdel(f"{OAUTH_STATE_PREFIX}{state}") if state else None
+    if raw is None:
+        # Expired, already used, or never ours. All three mean: start again.
+        return _back("/settings", google_ads="error", reason="This consent link has expired.")
+
+    envelope = json.loads(raw)
+    try:
+        payload = json.loads(
+            decrypt_str(b64decode(envelope["c"]), b64decode(envelope["n"]), aad=state.encode())
+        )
+    except (DecryptionError, KeyError, ValueError):
+        return _back("/settings", google_ads="error", reason="That consent could not be read.")
+
+    return_to = _safe_return_to(payload.get("return_to", ""))
+    if payload.get("workspace_id") != str(me.workspace_id):
+        # The state is unguessable, but it is not a capability: whoever finishes
+        # a consent must be in the workspace that started it.
+        return _back(return_to, google_ads="error", reason="That consent belongs elsewhere.")
+    if error or not code:
+        return _back(return_to, google_ads="error", reason=error or "Google sent no code.")
+
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+        exchange = await client.post(
+            GOOGLE_TOKEN_URL,
+            data={
+                "code": code,
+                "client_id": settings.google_ads_oauth_client_id,
+                "client_secret": settings.google_ads_oauth_client_secret,
+                "redirect_uri": _oauth_redirect_uri(),
+                "grant_type": "authorization_code",
+            },
+        )
+    if exchange.status_code >= 400:
+        log.warning("google_ads.oauth_exchange_failed", status=exchange.status_code)
+        return _back(return_to, google_ads="error", reason="Google refused the authorisation.")
+    refresh_token = str(exchange.json().get("refresh_token") or "")
+    if not refresh_token:
+        return _back(
+            return_to,
+            google_ads="error",
+            reason=(
+                "Google returned no refresh token. Remove this app at "
+                "myaccount.google.com/permissions and connect again."
+            ),
+        )
+
+    values = {
+        "developer_token": str(payload["developer_token"]),
+        "client_id": settings.google_ads_oauth_client_id,
+        "client_secret": settings.google_ads_oauth_client_secret,
+        "refresh_token": refresh_token,
+    }
+    if payload.get("login_customer_id"):
+        values["login_customer_id"] = str(payload["login_customer_id"])
+
+    try:
+        accounts = await GoogleAdsConnector(
+            ConnectorContext(credentials=values, settings=settings)
+        ).accessible_accounts()
+    except Exception as exc:  # noqa: BLE001 — an upstream refusal is not a 500
+        log.warning("google_ads.oauth_accounts_failed", error=str(exc))
+        return _back(return_to, google_ads="error", reason=str(exc)[:300])
+
+    # A manager account holds no campaigns, so it is the last thing to fall back
+    # to rather than the first thing to pick.
+    chosen = next(
+        (row for row in accounts if not row["manager"]), accounts[0] if accounts else None
+    )
+    if chosen is None:
+        return _back(
+            return_to,
+            google_ads="error",
+            reason="That Google account reaches no Google Ads accounts.",
+        )
+    values["customer_id"] = str(chosen["customer_id"])
+
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    credential = new_credential(
+        workspace_id=me.workspace_id,
+        kind=CredentialKind.GOOGLE_ADS,
+        secret=spec.seal(spec.validate(values)),
+        created_by=uuid.UUID(str(payload["user_id"])),
+        scope=CredentialScope.WORKSPACE,
+        meta={
+            **spec.meta(values),
+            "connected_by": "google_oauth",
+            "account_name": chosen["name"] or "",
+            # Every account the grant reaches, so a workspace with more than one
+            # can see what it chose between rather than wondering.
+            "accessible": [
+                {"customer_id": row["customer_id"], "name": row["name"], "manager": row["manager"]}
+                for row in accounts
+            ],
+        },
+    )
+    db.add(credential)
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.CREDENTIAL_CREATED,
+        target_type=AuditTarget.CREDENTIAL,
+        target_id=credential.id,
+        meta={
+            "kind": CredentialKind.GOOGLE_ADS.value,
+            "scope": CredentialScope.WORKSPACE.value,
+            "via": "google_oauth",
+            "hints": credential.meta,
+        },
+        ip=client_ip(request),
+    )
+    await db.commit()
+    log.info(
+        "google_ads.oauth_connected",
+        workspace_id=str(me.workspace_id),
+        customer_id=values["customer_id"],
+        accounts=len(accounts),
+    )
+    return _back(
+        return_to,
+        google_ads="connected",
+        account=chosen["name"] or values["customer_id"],
+    )
 
 
 def _assert_may_write(me: Principal, scope: CredentialScope) -> None:

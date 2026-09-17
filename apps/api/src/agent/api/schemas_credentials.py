@@ -37,6 +37,33 @@ class CredentialKindInfo(BaseModel):
     description: str
     where: str = Field(description="Which screen configures it: `settings` or `sources`")
     fields: list[CredentialFieldInfo]
+    oauth_provider: str | None = Field(
+        default=None,
+        description="When set, offer a Connect button for this provider instead of a form",
+    )
+    oauth_fields: list[str] = Field(
+        default_factory=list,
+        description="Fields the consent flow supplies, so the form does not ask for them",
+    )
+
+
+class GoogleAdsAuthorizeRequest(BaseModel):
+    """Begin a Google Ads consent, carrying the one value consent cannot supply."""
+
+    developer_token: SecretValue
+    login_customer_id: str = Field(
+        default="", description="Manager (MCC) id, only when the account is reached through one"
+    )
+    return_to: str = Field(
+        default="/settings",
+        description="Where to send the browser afterwards; a path on this app, never a URL",
+    )
+
+
+class GoogleAdsAuthorizeResponse(BaseModel):
+    """Where to send the browser."""
+
+    url: str = Field(description="Google's consent screen, carrying a one-use state")
 
 
 class CredentialSummary(BaseModel):
