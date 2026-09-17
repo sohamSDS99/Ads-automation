@@ -273,6 +273,19 @@
       ],
       "title": "Triggered By"
     },
+    "triggered_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Display name behind `triggered_by`. Null for a scheduled run, which has no actor, and for a person since removed from the workspace.",
+      "title": "Triggered By Name"
+    },
     "selected_node_ids": {
       "items": {
         "type": "string"

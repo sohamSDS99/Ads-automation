@@ -1,15 +1,14 @@
 "use client";
 
-import { ShieldCheck } from "lucide-react";
-
+import { ApprovalsInbox } from "@/components/approvals/inbox";
 import { Guarded } from "@/components/auth/guarded";
-import { EmptyState } from "@/components/ui/empty-state";
 
 /**
- * The approvals inbox is built in the next phase, along with the gate
- * mechanics it lists. The route exists now so the navigation an approver signs
- * in to is not a dead link — an empty destination is a truthful answer, a 404
- * is not.
+ * `/approvals` — the cross-project approvals inbox (PRD §13.3, §13.4 F).
+ *
+ * Reachable by anyone holding `approval_decide`; the rows themselves say
+ * whether this particular person may act on them, because a gate can be
+ * assigned to one approver while another is looking at it.
  */
 export default function ApprovalsPage() {
   return (
@@ -23,11 +22,7 @@ export default function ApprovalsPage() {
       </header>
 
       <Guarded permission="approval_decide" what="the approvals inbox">
-        <EmptyState
-          icon={ShieldCheck}
-          title="Nothing waiting on you"
-          description="Gates arrive here when a run reaches one. Deciding them, and the run console behind them, ships in the next phase — you can already be assigned to a gate from a project's setup screen."
-        />
+        <ApprovalsInbox />
       </Guarded>
     </div>
   );

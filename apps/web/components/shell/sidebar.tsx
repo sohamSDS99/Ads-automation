@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import type { Permission } from "@/lib/permissions";
+import { APPROVAL_POLL_MS, useApprovals } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -25,6 +26,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const { has } = useSession();
   const visible = NAV.filter((item) => has(item.permission));
+  const waiting = useWaitingCount(has("approval_decide"));
 
   return (
     <nav aria-label="Main" className="flex h-full w-14 shrink-0 flex-col border-r bg-surface md:w-56">
@@ -52,11 +54,30 @@ export function Sidebar() {
                     : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                 )}
               >
-                <Icon className="size-4 shrink-0" aria-hidden />
+                <span className="relative flex shrink-0">
+                  <Icon className="size-4" aria-hidden />
+                  {/* On the narrow rail there is no room for a count, so the
+                      same fact becomes a dot on the icon. */}
+                  {href === "/approvals" && waiting > 0 ? (
+                    <span
+                      aria-hidden
+                      className="absolute -top-0.5 -right-0.5 size-1.5 rounded-full bg-status-gate md:hidden"
+                    />
+                  ) : null}
+                </span>
                 {/* `sr-only` rather than `hidden`: on the narrow rail the
                     label is the link's accessible name, and an icon with no
                     name is an unlabelled link. */}
                 <span className="sr-only md:not-sr-only">{label}</span>
+                {href === "/approvals" && waiting > 0 ? (
+                  <span
+                    data-numeric
+                    className="ml-auto hidden rounded-full bg-status-gate/15 px-1.5 py-0.5 text-xs font-medium text-fg md:inline"
+                  >
+                    {waiting}
+                    <span className="sr-only"> waiting on you</span>
+                  </span>
+                ) : null}
               </Link>
             </li>
           );
@@ -66,4 +87,16 @@ export function Sidebar() {
       <p className="hidden px-4 py-3 text-xs text-fg-subtle md:block">Stage 01 · Research</p>
     </nav>
   );
+}
+
+/**
+ * How many gates are waiting on this person.
+ *
+ * Polled once a minute (PRD §13.4 F) and invalidated by the run console the
+ * moment a gate opens over SSE, so someone already watching a run sees the
+ * badge move without waiting for the next poll.
+ */
+function useWaitingCount(enabled: boolean): number {
+  const query = useApprovals({ mine: true, status: "pending" }, { pollMs: APPROVAL_POLL_MS, enabled });
+  return query.data?.items.length ?? 0;
 }

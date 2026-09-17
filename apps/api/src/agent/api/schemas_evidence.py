@@ -29,6 +29,14 @@ class EvidenceItem(BaseModel):
     content_text: str | None = Field(default=None, description="What was embedded and indexed")
     payload: dict[str, Any] = Field(default_factory=dict)
     fetched_at: datetime
+    has_screenshot: bool = Field(
+        default=False,
+        description=(
+            "A creative capture is stored for this row and can be fetched from "
+            "`GET /evidence/{id}/screenshot`. Derived, so the gallery does not have to "
+            "know which payload key holds a storage path."
+        ),
+    )
 
     score: float = Field(default=0.0, description="Fused relevance; 0 when not a ranked query")
     matched_by: Literal["vector", "text", "both", "filter"] = Field(

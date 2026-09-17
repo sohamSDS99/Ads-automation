@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "RunViewer": {
+      "description": "One person with this run's console open (PRD \u00a713.4 B).",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "name"
+      ],
+      "title": "RunViewer",
+      "type": "object"
+    }
+  },
+  "description": "`POST /runs/{id}/presence` \u2014 check in, and see who else is here.\n\n`total` counts everyone watching; `viewers` is capped, because a console\ndrawing forty avatars is not telling anyone anything.",
+  "properties": {
+    "viewers": {
+      "items": {
+        "$ref": "#/$defs/RunViewer"
+      },
+      "title": "Viewers",
+      "type": "array"
+    },
+    "total": {
+      "title": "Total",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "viewers",
+    "total"
+  ],
+  "title": "PresenceResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

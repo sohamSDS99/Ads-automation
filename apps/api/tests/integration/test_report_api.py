@@ -115,7 +115,7 @@ def api_dependency_overrides(worker_files: httpx.AsyncClient) -> dict[Any, Any]:
     URL building and token signing running — the parts most likely to be wrong,
     and the only part of the download path that is a security control.
     """
-    from agent.api.routes_reports import get_worker_client
+    from agent.api.worker_files import get_worker_client
 
     async def override() -> httpx.AsyncClient:
         return worker_files

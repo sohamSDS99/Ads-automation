@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 from typing import Any
 
@@ -41,6 +42,20 @@ class UserRepo(WorkspaceScopedRepo[User]):
     async def all_ordered(self) -> list[User]:
         result = await self.session.execute(self.select().order_by(User.created_at.asc()))
         return list(result.scalars().all())
+
+    async def names(self, ids: Collection[uuid.UUID] | None = None) -> dict[uuid.UUID, str]:
+        """Id → display name, for the whole workspace or just the ids asked for.
+
+        One query for a whole page of rows. A join per row would read more
+        tidily and would issue a query per project on a list of thirty.
+        """
+        if ids is not None and not ids:
+            return {}
+        statement = sa.select(User.id, User.name).where(User.workspace_id == self.workspace_id)
+        if ids is not None:
+            statement = statement.where(User.id.in_(list(ids)))
+        rows = await self.session.execute(statement)
+        return {row[0]: row[1] for row in rows.all()}
 
     async def lock_active_admins(self) -> list[User]:
         """Row-lock every active admin, then return them.

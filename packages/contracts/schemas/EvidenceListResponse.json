@@ -70,6 +70,12 @@
           "title": "Fetched At",
           "type": "string"
         },
+        "has_screenshot": {
+          "default": false,
+          "description": "A creative capture is stored for this row and can be fetched from `GET /evidence/{id}/screenshot`. Derived, so the gallery does not have to know which payload key holds a storage path.",
+          "title": "Has Screenshot",
+          "type": "boolean"
+        },
         "score": {
           "default": 0.0,
           "description": "Fused relevance; 0 when not a ranked query",

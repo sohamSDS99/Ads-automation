@@ -85,11 +85,23 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.RUN_EXECUTE,
         None,
     ),
+    # P7. Checking in as a viewer of a run is a POST that grants nothing: it
+    # writes a 30-second presence mark and reads the set back, so `read` is the
+    # permission a `viewer` watching a console needs to hold.
+    ("POST", "/runs/{run_id}/presence", "/runs/{run}/presence", Permission.READ, None),
     # P2. The CSV routes take multipart, not JSON — which is fine here: the
     # permission dependency is resolved before the body is, so a role without
     # `project_write` gets its 403 without the request ever being parsed.
     ("GET", "/evidence", "/evidence", Permission.READ, None),
     ("GET", "/connectors", "/connectors", Permission.READ, None),
+    # P7. The creative gallery reads a capture off the worker's Volume.
+    (
+        "GET",
+        "/evidence/{evidence_id}/screenshot",
+        "/evidence/{target}/screenshot",
+        Permission.READ,
+        None,
+    ),
     (
         "POST",
         "/projects/{project_id}/sources/csv",

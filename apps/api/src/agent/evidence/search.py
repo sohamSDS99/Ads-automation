@@ -19,6 +19,7 @@ domains, SKUs. Vector search alone would miss a search for `sds-manager.com`.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Literal
@@ -134,8 +135,15 @@ class EvidenceSearch:
         source: EvidenceSource | None,
         kind: str | None,
         run_id: uuid.UUID | None,
+        ids: Collection[uuid.UUID] | None = None,
+        fetched_from: datetime | None = None,
+        fetched_to: datetime | None = None,
     ) -> sa.Select[Any]:
         statement = self._scoped()
+        if ids is not None:
+            # An empty list is a real filter — "these ids", of which there are
+            # none — and must not fall through to "no filter at all".
+            statement = statement.where(Evidence.id.in_(list(ids)))
         if project_id is not None:
             statement = statement.where(Evidence.project_id == project_id)
         if source is not None:
@@ -144,6 +152,10 @@ class EvidenceSearch:
             statement = statement.where(Evidence.kind == kind)
         if run_id is not None:
             statement = statement.where(Evidence.run_id == run_id)
+        if fetched_from is not None:
+            statement = statement.where(Evidence.fetched_at >= fetched_from)
+        if fetched_to is not None:
+            statement = statement.where(Evidence.fetched_at <= fetched_to)
         return statement
 
     @staticmethod
@@ -167,12 +179,23 @@ class EvidenceSearch:
         source: EvidenceSource | None = None,
         kind: str | None = None,
         run_id: uuid.UUID | None = None,
+        ids: Collection[uuid.UUID] | None = None,
+        fetched_from: datetime | None = None,
+        fetched_to: datetime | None = None,
         query: str | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> SearchPage:
         """Filter, and — when `query` is given — rank by fused relevance."""
-        base = self._filtered(project_id=project_id, source=source, kind=kind, run_id=run_id)
+        base = self._filtered(
+            project_id=project_id,
+            source=source,
+            kind=kind,
+            run_id=run_id,
+            ids=ids,
+            fetched_from=fetched_from,
+            fetched_to=fetched_to,
+        )
         if not query or not query.strip():
             return await self._browse(base, limit=limit, offset=offset)
         return await self._hybrid(base, query.strip(), limit=limit, offset=offset)

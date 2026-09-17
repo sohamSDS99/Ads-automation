@@ -64,7 +64,7 @@ from agent.db.models import (
     UserRole,
     UserStatus,
 )
-from agent.db.repos import ProjectRepo, RunRepo
+from agent.db.repos import ProjectRepo, RunRepo, UserRepo
 from agent.db.session import get_session
 from agent.gates import SETTINGS_ASSIGNEES, SETTINGS_SLA, GateSpec, gates
 from agent.orchestrator.state import TERMINAL_STATUSES
@@ -355,13 +355,8 @@ async def _assert_assignees_exist(
 
 
 async def _user_names(db: AsyncSession, workspace_id: uuid.UUID) -> dict[uuid.UUID, str]:
-    """Id → display name for everyone in the workspace.
-
-    One query for the whole page. A join per row would be tidier to read and
-    would issue a query per project on a list of thirty.
-    """
-    rows = await db.execute(sa.select(User.id, User.name).where(User.workspace_id == workspace_id))
-    return {row[0]: row[1] for row in rows.all()}
+    """Id → display name for everyone in the workspace."""
+    return await UserRepo(db, workspace_id).names()
 
 
 async def _run_rollup(

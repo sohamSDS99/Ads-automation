@@ -15,7 +15,8 @@ The download is the one route that leaves this process. `api` cannot read the
 Volume (PRD §5.2 — it attaches to `worker`), so it mints a signed capability for
 that one storage key, fetches the object from the worker's internal file server,
 and relays the bytes. It never buffers the file: a 15 MB PDF through an API
-process is fine once and a memory problem at ten concurrent downloads.
+process is fine once and a memory problem at ten concurrent downloads. That hop
+lives in `agent.api.worker_files`, which the evidence screenshots share.
 """
 
 from __future__ import annotations
@@ -24,7 +25,6 @@ import uuid
 from typing import Annotated
 from urllib.parse import quote
 
-import httpx
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,6 +33,7 @@ from starlette.responses import StreamingResponse
 
 from agent.api import problems
 from agent.api.schemas_report import ExportAccepted, ExportJob, ReportResponse
+from agent.api.worker_files import WorkerClient, open_upstream, signed_url
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
@@ -42,7 +43,6 @@ from agent.db.repos import ExportRepo, ProjectRepo, ReportRepo, RunRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
 from agent.export.jobs import MEDIA_TYPES, filename_for
-from agent.export.tokens import sign
 from agent.queue import enqueue_export
 
 log = structlog.get_logger(__name__)
@@ -51,48 +51,6 @@ router = APIRouter(tags=["reports"])
 
 Db = Annotated[AsyncSession, Depends(get_session)]
 AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
-
-#: How long `api` waits on the worker for a download. Generous, because the hop
-#: is a file stream over a private network and the worker may be mid-render on
-#: another job; short enough that a wedged worker does not hold the connection
-#: open indefinitely.
-DOWNLOAD_TIMEOUT = httpx.Timeout(connect=5.0, read=60.0, write=10.0, pool=5.0)
-
-
-_worker_client: httpx.AsyncClient | None = None
-
-
-async def get_worker_client() -> httpx.AsyncClient:
-    """The client `api` uses to reach the worker's file server.
-
-    One client for the process, opened on first use and closed in the app
-    lifespan — the same shape as the arq pool and the Redis client, and for the
-    same reason: connection reuse to one known host.
-
-    It is deliberately **not** a `yield` dependency. FastAPI finalises those once
-    the response is handed off, which for a StreamingResponse is before the body
-    has finished streaming; the client would be closed out from under the
-    download. Its lifetime belongs to the process, not the request.
-
-    It is a dependency at all so the integration suite can override it with a
-    client bound to the file-server ASGI app, and exercise the real token check
-    without a second process listening on a port.
-    """
-    global _worker_client
-    if _worker_client is None:
-        _worker_client = httpx.AsyncClient(timeout=DOWNLOAD_TIMEOUT)
-    return _worker_client
-
-
-async def close_worker_client() -> None:
-    global _worker_client
-    if _worker_client is not None:
-        await _worker_client.aclose()
-        _worker_client = None
-
-
-WorkerClient = Annotated[httpx.AsyncClient, Depends(get_worker_client)]
-
 
 # ---------------------------------------------------------------------------
 # reading a report
@@ -246,43 +204,6 @@ def _content_disposition(filename: str) -> str:
     return f"attachment; filename=\"{ascii_name or 'export'}\"; filename*=UTF-8''{quote(filename)}"
 
 
-async def _open_upstream(
-    client: httpx.AsyncClient, url: str, *, export_id: uuid.UUID
-) -> httpx.Response:
-    """Begin the worker fetch and prove it succeeded before we answer the caller.
-
-    The status is checked here, with nothing yet written to the client, so a
-    worker that cannot serve the object produces a clean 502. Checking it inside
-    the streaming generator instead would mean the 200 and its headers had
-    already gone out, and the only remaining signal would be an aborted
-    connection — which most clients save to disk as a truncated file.
-    """
-    try:
-        upstream = await client.send(client.build_request("GET", url), stream=True)
-    except httpx.HTTPError as exc:
-        log.error("export.download_unreachable", export_id=str(export_id), error=str(exc))
-        raise problems.Problem(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            title="Export could not be read",
-            detail="The worker that stores this export is unreachable.",
-        ) from exc
-
-    if upstream.status_code != httpx.codes.OK:
-        await upstream.aread()
-        await upstream.aclose()
-        log.error(
-            "export.download_upstream_failed",
-            export_id=str(export_id),
-            status=upstream.status_code,
-        )
-        raise problems.Problem(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            title="Export could not be read",
-            detail="The worker did not return the export file.",
-        )
-    return upstream
-
-
 @router.get(
     "/exports/{export_id}/download",
     summary="Download a generated export",
@@ -321,10 +242,8 @@ async def download_export(
         generated_at=export.created_at,
     )
 
-    token = sign(export.path, settings=settings)
-    url = f"{settings.worker_internal_url.rstrip('/')}/files/{quote(export.path)}?token={token}"
-
-    upstream = await _open_upstream(client, url, export_id=export_id)
+    url = signed_url(export.path, settings=settings)
+    upstream = await open_upstream(client, url, subject="export", export_id=str(export_id))
 
     headers = {
         "Content-Disposition": _content_disposition(filename),

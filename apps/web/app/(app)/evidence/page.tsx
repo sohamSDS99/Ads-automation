@@ -1,16 +1,23 @@
 "use client";
 
-import { FileSearch } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Suspense } from "react";
 
-import { EmptyState } from "@/components/ui/empty-state";
+import { EvidenceExplorer } from "@/components/evidence/explorer";
+import { Skeleton } from "@/components/ui/skeleton";
+import type { EvidenceSource } from "@/lib/api/evidence";
 
 /**
- * The evidence explorer is built in the next phase. The route exists now so the
- * navigation every role sees leads somewhere that explains itself.
+ * `/evidence` — every fact this workspace holds, across projects.
+ *
+ * The project-scoped twin at `/projects/[id]/evidence` is the same explorer
+ * with one filter pinned. PRD §13.3 names only the scoped route; this one is
+ * where the navigation every role sees has always pointed, and a citation from
+ * a report can land in either.
  */
 export default function EvidencePage() {
   return (
-    <div className="mx-auto flex max-w-3xl flex-col gap-6">
+    <div className="mx-auto flex h-full max-w-6xl flex-col gap-6">
       <header>
         <h1 className="text-[length:var(--text-xl)] font-semibold tracking-tight">Evidence</h1>
         <p className="mt-1 max-w-prose text-sm text-fg-muted">
@@ -19,11 +26,30 @@ export default function EvidencePage() {
         </p>
       </header>
 
-      <EmptyState
-        icon={FileSearch}
-        title="The explorer ships in the next phase"
-        description="Evidence is already being collected — CSV imports on a project's setup screen write rows today. Searching and reading them gets its own screen alongside the run console."
-      />
+      <Suspense fallback={<Skeleton className="h-64 w-full" />}>
+        <FromUrl />
+      </Suspense>
     </div>
+  );
+}
+
+/**
+ * The explorer, opened on whatever the link asked for.
+ *
+ * Its own component because `useSearchParams` suspends, and suspending the
+ * whole page would blank the heading every time a citation is followed.
+ */
+function FromUrl() {
+  const params = useSearchParams();
+  const ids = params.getAll("ids");
+  return (
+    <EvidenceExplorer
+      className="min-h-0 flex-1"
+      initial={{
+        ids: ids.length > 0 ? ids : undefined,
+        runId: params.get("run_id") ?? undefined,
+        source: (params.get("source") as EvidenceSource | null) ?? undefined,
+      }}
+    />
   );
 }

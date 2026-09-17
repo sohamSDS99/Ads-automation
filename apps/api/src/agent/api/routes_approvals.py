@@ -36,9 +36,19 @@ from agent.api.schemas_approvals import (
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
-from agent.db.models import Approval, ApprovalStatus, Run, RunStatus, User, UserRole, UserStatus
-from agent.db.repos import ApprovalRepo
+from agent.db.models import (
+    Approval,
+    ApprovalStatus,
+    Project,
+    Run,
+    RunStatus,
+    User,
+    UserRole,
+    UserStatus,
+)
+from agent.db.repos import ApprovalRepo, UserRepo
 from agent.db.session import get_session
+from agent.gates import SETTINGS_SLA
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.registry import get_registry
@@ -407,10 +417,29 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
             .all()
         }
 
+    # The cross-project inbox (PRD §13.4 F) is one row per gate: which project,
+    # who is waiting on it, and how long they have. Resolved here, in two
+    # queries, because the alternative is the inbox fetching every project and
+    # every run itself.
+    projects = {
+        project.id: project
+        for project in (
+            await db.execute(
+                sa.select(Project).where(Project.id.in_({run.project_id for run in runs.values()}))
+            )
+        )
+        .scalars()
+        .all()
+    }
+    launched_by = await UserRepo(db, me.workspace_id).names(
+        {run.triggered_by for run in runs.values() if run.triggered_by is not None}
+    )
+
     items: list[ApprovalItem] = []
     for row in rows:
         run = runs.get(row.run_id)
         spec = registry.spec(row.node_id) if row.node_id in registry else None
+        project = projects.get(run.project_id) if run else None
         items.append(
             ApprovalItem(
                 id=row.id,
@@ -429,7 +458,28 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
                 decided_at=row.decided_at,
                 created_at=row.created_at,
                 run_status=run.status if run else RunStatus.FAILED,
+                project_name=project.name if project else None,
+                run_triggered_by_name=(
+                    launched_by.get(run.triggered_by) if run and run.triggered_by else None
+                ),
+                sla_hours=_sla_hours(project, row.node_id),
                 can_decide=row.status is ApprovalStatus.PENDING and _can_decide(row, me),
             )
         )
     return items
+
+
+def _sla_hours(project: Project | None, node_id: str) -> int | None:
+    """The gate's allowance, if the project set one.
+
+    Stored by the setup wizard under `gate_sla_hours`, keyed by node id. Read
+    defensively: settings are a JSON column, and a hand-edited row should cost
+    a countdown, not the whole inbox.
+    """
+    if project is None:
+        return None
+    stored = project.settings.get(SETTINGS_SLA) if isinstance(project.settings, dict) else None
+    if not isinstance(stored, dict):
+        return None
+    value = stored.get(node_id)
+    return value if isinstance(value, int) and value > 0 else None

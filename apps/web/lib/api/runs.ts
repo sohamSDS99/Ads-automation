@@ -1,0 +1,134 @@
+/**
+ * One run: its DAG, its nodes, the controls, and who is watching.
+ *
+ * The console reads this once on open and then again on every SSE reconnect —
+ * PRD §13.5 #2 makes the full state the reconciliation point, because a stream
+ * that dropped events is invisible from the events themselves.
+ */
+import { apiFetch } from "@/lib/api";
+import type { RunStatus } from "@/lib/api/projects";
+
+export type NodeStatus =
+  | "queued"
+  | "running"
+  | "awaiting_approval"
+  | "succeeded"
+  | "failed"
+  | "skipped";
+
+export type TaskClass = "extract" | "classify" | "synthesize" | "critique";
+
+export type NodeState = {
+  id: string;
+  name: string;
+  stage: string;
+  task_class: TaskClass;
+  depends_on: string[];
+  gate: boolean;
+  /** Null until the run reaches this node — "not started" is not a status. */
+  status: NodeStatus | null;
+  attempt: number | null;
+  model: string | null;
+  token_in: number | null;
+  token_out: number | null;
+  cost_usd: string | null;
+  latency_ms: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: Record<string, unknown> | null;
+};
+
+export type DagEdge = { source: string; target: string };
+
+export type RunDetail = {
+  id: string;
+  project_id: string;
+  status: RunStatus;
+  mode: "full" | "partial";
+  trigger: "manual" | "schedule";
+  triggered_by: string | null;
+  triggered_by_name: string | null;
+  selected_node_ids: string[];
+  cost_usd: string;
+  token_in: number;
+  token_out: number;
+  started_at: string | null;
+  finished_at: string | null;
+  error: Record<string, unknown> | null;
+  nodes: NodeState[];
+  edges: DagEdge[];
+};
+
+export type NodeRunDetail = {
+  run_id: string;
+  node_id: string;
+  name: string;
+  stage: string;
+  status: NodeStatus;
+  attempt: number;
+  input_hash: string | null;
+  output: Record<string, unknown> | null;
+  evidence_ids: string[];
+  prompt: string | null;
+  model: string | null;
+  token_in: number;
+  token_out: number;
+  cost_usd: string;
+  latency_ms: number | null;
+  started_at: string | null;
+  finished_at: string | null;
+  error: Record<string, unknown> | null;
+};
+
+export type RunViewer = { id: string; name: string };
+export type Presence = { viewers: RunViewer[]; total: number };
+
+export function getRun(runId: string): Promise<RunDetail> {
+  return apiFetch(`/runs/${runId}`);
+}
+
+export function getNodeRun(runId: string, nodeId: string): Promise<NodeRunDetail> {
+  return apiFetch(`/runs/${runId}/nodes/${encodeURIComponent(nodeId)}`);
+}
+
+export function cancelRun(runId: string): Promise<RunDetail> {
+  return apiFetch(`/runs/${runId}/cancel`, { method: "POST" });
+}
+
+export function retryFailed(runId: string): Promise<RunDetail> {
+  return apiFetch(`/runs/${runId}/retry-failed`, { method: "POST" });
+}
+
+/** Say "I have this console open", and learn who else does (PRD §13.4 B). */
+export function checkIn(runId: string): Promise<Presence> {
+  return apiFetch(`/runs/${runId}/presence`, { method: "POST" });
+}
+
+const TERMINAL: ReadonlySet<RunStatus> = new Set(["succeeded", "failed", "cancelled"]);
+
+/** Whether this run is still capable of producing an event. */
+export function isLive(status: RunStatus): boolean {
+  return !TERMINAL.has(status);
+}
+
+/**
+ * `offer_economics` → `Offer economics`.
+ *
+ * Node names are identifiers in the registry, and the registry is right to keep
+ * them that way. This is the only place they become a label.
+ */
+export function nodeLabel(name: string): string {
+  const words = name.replace(/_/g, " ").trim();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
+/** Every stage present in this run, in DAG order, with its nodes. */
+export function byStage(nodes: NodeState[]): { stage: string; nodes: NodeState[] }[] {
+  const stages: { stage: string; nodes: NodeState[] }[] = [];
+  for (const node of nodes) {
+    const current = stages.at(-1);
+    if (current?.stage === node.stage) current.nodes.push(node);
+    else stages.push({ stage: node.stage, nodes: [node] });
+  }
+  return stages;
+}

@@ -6,13 +6,17 @@
  */
 "use client";
 
-import { useQuery, type UseQueryResult } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
 
 import { listAudit, type AuditFilters } from "@/lib/api/audit";
 import { listSessions } from "@/lib/api/account";
+import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listCredentials } from "@/lib/api/credentials";
+import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import { getModels } from "@/lib/api/models";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
+import { getReport } from "@/lib/api/reports";
+import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
 import { listUsers } from "@/lib/api/users";
 import { getWorkspace } from "@/lib/api/workspace";
 
@@ -26,7 +30,15 @@ export const keys = {
   workspace: ["workspace"] as const,
   audit: (filters: AuditFilters) => ["audit", filters] as const,
   sessions: ["sessions"] as const,
+  run: (runId: string) => ["runs", runId] as const,
+  nodeRun: (runId: string, nodeId: string) => ["runs", runId, "nodes", nodeId] as const,
+  approvals: (filters: ApprovalFilters) => ["approvals", filters] as const,
+  report: (runId: string) => ["reports", runId] as const,
+  evidence: (query: EvidenceQuery) => ["evidence", query] as const,
 };
+
+/** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
+export const APPROVAL_POLL_MS = 60_000;
 
 export function useProjects() {
   return useQuery({ queryKey: keys.projects, queryFn: listProjects });
@@ -85,3 +97,65 @@ export function errorMessage(query: UseQueryResult<unknown, unknown>): string | 
   const error = query.error;
   return error instanceof Error ? error.message : "Something went wrong.";
 }
+
+/**
+ * One run, with its DAG and every node's state.
+ *
+ * No polling interval: a live run is pushed over SSE, and the console refetches
+ * this on every reconnect. Polling as well would be a second source of truth
+ * arriving at a different time.
+ */
+export function useRun(runId: string) {
+  return useQuery({ queryKey: keys.run(runId), queryFn: () => getRun(runId) });
+}
+
+export function useNodeRun(runId: string, nodeId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.nodeRun(runId, nodeId ?? ""),
+    queryFn: () => getNodeRun(runId, nodeId as string),
+    enabled: enabled && Boolean(nodeId),
+    // A node that has not run yet 404s, and asking four more times does not
+    // change that. The console refetches on the SSE event instead.
+    retry: false,
+  });
+}
+
+/**
+ * The approvals feed.
+ *
+ * Polled only when asked to: the inbox badge wants a heartbeat, a console
+ * already has one over SSE and would be asking for the same rows twice.
+ */
+export function useApprovals(
+  filters: ApprovalFilters,
+  options: { pollMs?: number; enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.approvals(filters),
+    queryFn: () => listApprovals(filters),
+    refetchInterval: options.pollMs ?? false,
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useReport(runId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.report(runId),
+    queryFn: () => getReport(runId),
+    enabled,
+    retry: false,
+  });
+}
+
+/** A page at a time, because the evidence table is the one screen with volume. */
+export function useEvidence(query: EvidenceQuery, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: keys.evidence(query),
+    queryFn: ({ pageParam }) => listEvidence({ ...query, cursor: pageParam }),
+    initialPageParam: null as string | null,
+    getNextPageParam: (page) => page.next_cursor,
+    enabled,
+  });
+}
+
+export { isLive };
