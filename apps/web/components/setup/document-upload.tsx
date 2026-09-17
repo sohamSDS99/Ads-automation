@@ -17,11 +17,12 @@ import {
   listDocuments,
   uploadDocument,
   type ProjectDocument,
+  type SkippedEntry,
 } from "@/lib/api/documents";
 import { keys } from "@/lib/queries";
 
 /** Fallback while the server's own list is in flight. */
-const ACCEPT = [".pdf", ".docx", ".csv", ".tsv", ".txt", ".md"];
+const ACCEPT = [".pdf", ".docx", ".csv", ".tsv", ".txt", ".md", ".zip"];
 
 /**
  * The other half of the business context: the documents the brand already has.
@@ -42,6 +43,9 @@ export function DocumentUpload({ projectId, disabled }: { projectId: string; dis
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragging, setDragging] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Kept until the next upload: what a zip left behind is the thing a person
+  // has to act on, and a toast that has already faded cannot be acted on.
+  const [skipped, setSkipped] = useState<SkippedEntry[]>([]);
   const [pending, setPending] = useState<ProjectDocument | null>(null);
 
   const library = useQuery({
@@ -53,11 +57,22 @@ export function DocumentUpload({ projectId, disabled }: { projectId: string; dis
     mutationFn: (file: File) => uploadDocument(projectId, file),
     onSuccess: async (result) => {
       setError(null);
-      const { document } = result;
-      const note = document.warnings[0];
-      toast.success(`${document.filename} added`, {
-        description: note ?? `${documentScale(document)} the run can now cite.`,
-      });
+      setSkipped(result.skipped);
+      const [first, ...rest] = result.documents;
+      if (!first) {
+        // An archive whose every member was refused. Nothing was stored, so a
+        // success toast would be a lie; the reasons are listed below the box.
+        setError("Nothing in that archive could be read. See the list below.");
+      } else if (rest.length) {
+        toast.success(`${result.documents.length} files added`, {
+          description: `${result.passages_written} passages the run can now cite.`,
+        });
+      } else {
+        const note = first.warnings[0];
+        toast.success(`${first.filename} added`, {
+          description: note ?? `${documentScale(first)} the run can now cite.`,
+        });
+      }
       await queryClient.invalidateQueries({ queryKey: keys.documents(projectId) });
     },
     onError: (err) =>
@@ -87,6 +102,7 @@ export function DocumentUpload({ projectId, disabled }: { projectId: string; dis
   /** One at a time: each file is read, split and embedded server-side. */
   async function send(files: FileList | File[]) {
     setError(null);
+    setSkipped([]);
     for (const file of Array.from(files)) {
       try {
         await upload.mutateAsync(file);
@@ -164,6 +180,24 @@ export function DocumentUpload({ projectId, disabled }: { projectId: string; dis
       {error ? (
         <Alert tone="error" title="That file was not added">
           {error}
+        </Alert>
+      ) : null}
+
+      {skipped.length ? (
+        <Alert
+          tone="warning"
+          title={`${skipped.length} file${skipped.length === 1 ? "" : "s"} in that archive ${
+            skipped.length === 1 ? "was" : "were"
+          } not added`}
+        >
+          <ul className="mt-1 space-y-1">
+            {skipped.map((item) => (
+              <li key={`${item.filename}:${item.reason}`} className="text-sm">
+                <span className="font-medium">{item.filename}</span>
+                <span className="text-fg-muted"> — {item.reason}</span>
+              </li>
+            ))}
+          </ul>
         </Alert>
       ) : null}
 

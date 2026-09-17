@@ -37,10 +37,19 @@ export type DocumentList = {
   accepted_extensions: string[];
 };
 
+/** One member of an archive that was not stored, and why. */
+export type SkippedEntry = {
+  filename: string;
+  reason: string;
+};
+
 export type DocumentUpload = {
-  document: ProjectDocument;
+  /** Everything this upload stored. One entry for a plain file, many for a zip. */
+  documents: ProjectDocument[];
   passages_written: number;
   duplicates: number;
+  /** Archive members that were left out. Named, never silently dropped. */
+  skipped: SkippedEntry[];
 };
 
 export function listDocuments(projectId: string): Promise<DocumentList> {

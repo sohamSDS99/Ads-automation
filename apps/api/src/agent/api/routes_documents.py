@@ -37,17 +37,19 @@ from agent.api.schemas_documents import (
     DocumentListResponse,
     DocumentSummary,
     DocumentUploadResponse,
+    SkippedEntry,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
-from agent.config import get_settings
+from agent.config import Settings, get_settings
 from agent.db.models import Evidence, ProjectDocument, User
 from agent.db.session import get_session
 from agent.documents import BRAND_DOC, DocumentError, extract, passages, to_drafts
+from agent.documents.archive import ARCHIVE_SUFFIX, ArchiveError, is_archive, read_archive
 from agent.documents.chunk import MAX_PASSAGES
 from agent.documents.extract import supported_extensions
-from agent.evidence.store import EvidenceScopeError, EvidenceStore
+from agent.evidence.store import EvidenceScopeError, EvidenceStore, StoreResult
 
 log = structlog.get_logger(__name__)
 
@@ -84,7 +86,9 @@ async def list_documents(me: AnyMember, db: Db, project_id: uuid.UUID) -> Docume
         total_chars=sum(document.char_count for document, _ in rows),
         max_documents=settings.document_max_per_project,
         max_bytes=settings.document_max_bytes,
-        accepted_extensions=supported_extensions(),
+        # The archive is offered alongside the types it may contain, because
+        # the file picker is the only place a person learns a zip is allowed.
+        accepted_extensions=[*supported_extensions(), ARCHIVE_SUFFIX],
     )
 
 
@@ -92,15 +96,26 @@ async def list_documents(me: AnyMember, db: Db, project_id: uuid.UUID) -> Docume
     "/projects/{project_id}/documents",
     response_model=DocumentUploadResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Upload a document as business context",
+    summary="Upload a document, or a zip of them, as business context",
 )
 async def upload_document(
     me: ProjectWriter,
     db: Db,
+    response: Response,
     project_id: uuid.UUID,
-    file: Annotated[UploadFile, File(description="PDF, Word (.docx), CSV or text")],
+    file: Annotated[
+        UploadFile, File(description="PDF, Word (.docx), CSV, text — or a .zip of them")
+    ],
 ) -> DocumentUploadResponse:
-    """Read the file, store its text, and write its passages as evidence."""
+    """Read the file, store its text, and write its passages as evidence.
+
+    A `.zip` is the same job repeated. It is worth saying why it is one endpoint
+    rather than two: what a person has is a folder of context, and whether they
+    happened to compress it before dragging it in is not a distinction the
+    product should hold an opinion about. What differs is only the failure
+    shape — one bad file in an archive is that file's problem and the rest still
+    land, where one bad file on its own is the whole request.
+    """
     settings = get_settings()
     store = EvidenceStore(db, me.workspace_id)
     try:
@@ -109,9 +124,20 @@ async def upload_document(
         raise problems.not_found(str(exc)) from exc
 
     content = await file.read()
+    filename = file.filename or "document"
+    if is_archive(filename):
+        unpacked = await _ingest_archive(
+            db, me, project_id, filename, content, settings=settings, store=store
+        )
+        if not unpacked.documents:
+            # Every member was refused. The reasons are the answer, and 201
+            # Created would be a lie about what happened.
+            response.status_code = status.HTTP_200_OK
+        return unpacked
+
     if len(content) > settings.document_max_bytes:
         raise problems.Problem(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             title="File too large",
             detail=(
                 f"That file is {_megabytes(len(content))}; the limit is "
@@ -119,34 +145,184 @@ async def upload_document(
             ),
             type_=problems.TYPE_VALIDATION,
         )
+    await _assert_room(db, project_id, settings, taking=1)
 
+    try:
+        document, written = await _ingest(
+            db, me, project_id, filename, content, settings=settings, store=store
+        )
+    except _Rejected as exc:
+        raise exc.as_problem() from exc
+
+    await db.commit()
+    await db.refresh(document)
+    return DocumentUploadResponse(
+        documents=[_summary(document, me.user.name)],
+        passages_written=written.inserted,
+        duplicates=written.duplicates,
+    )
+
+
+async def _ingest_archive(
+    db: Db,
+    me: Principal,
+    project_id: uuid.UUID,
+    filename: str,
+    content: bytes,
+    *,
+    settings: Settings,
+    store: EvidenceStore,
+) -> DocumentUploadResponse:
+    """Every readable document in the archive, and the name of everything else."""
+    try:
+        contents = read_archive(
+            content,
+            supported=set(supported_extensions()),
+            max_entries=settings.archive_max_entries,
+            max_entry_bytes=settings.document_max_bytes,
+            max_total_bytes=settings.archive_max_total_bytes,
+            max_ratio=settings.archive_max_ratio,
+        )
+    except ArchiveError as exc:
+        raise problems.unprocessable(str(exc), title="Could not read that archive") from exc
+
+    room = await _room_left(db, project_id, settings)
+    stored: list[DocumentSummary] = []
+    skipped = [
+        SkippedEntry(filename=item.filename, reason=item.reason) for item in contents.skipped
+    ]
+    passages_written = 0
+    duplicates = 0
+
+    for entry in contents.entries:
+        if len(stored) >= room:
+            skipped.append(
+                SkippedEntry(
+                    filename=entry.filename,
+                    reason=(
+                        f"this project already holds the most documents it can "
+                        f"({settings.document_max_per_project})"
+                    ),
+                )
+            )
+            continue
+        try:
+            document, written = await _ingest(
+                db, me, project_id, entry.filename, entry.content, settings=settings, store=store
+            )
+        except _Rejected as exc:
+            # One member failing is that member's problem. The alternative —
+            # failing the upload — throws away nine good files because the tenth
+            # was a password-protected spreadsheet.
+            skipped.append(SkippedEntry(filename=entry.filename, reason=exc.reason))
+            continue
+        await db.flush()
+        stored.append(_summary(document, me.user.name))
+        passages_written += written.inserted
+        duplicates += written.duplicates
+
+    await db.commit()
+    log.info(
+        "document.archive_uploaded",
+        project_id=str(project_id),
+        filename=filename,
+        stored=len(stored),
+        skipped=len(skipped),
+    )
+    return DocumentUploadResponse(
+        documents=stored,
+        passages_written=passages_written,
+        duplicates=duplicates,
+        skipped=skipped,
+    )
+
+
+class _Rejected(Exception):
+    """This one file cannot be stored.
+
+    Carries the HTTP shape a direct upload needs and the sentence an archive
+    member needs, so the two paths cannot drift into describing the same
+    refusal differently.
+    """
+
+    def __init__(
+        self,
+        reason: str,
+        *,
+        status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT,
+        title: str = "Could not read that file",
+        existing: ProjectDocument | None = None,
+    ) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.status_code = status_code
+        self.title = title
+        self.existing = existing
+
+    def as_problem(self) -> problems.Problem:
+        if self.existing is not None:
+            return _already_uploaded(self.existing)
+        if self.status_code == status.HTTP_413_CONTENT_TOO_LARGE:
+            return problems.Problem(
+                status_code=self.status_code,
+                title=self.title,
+                detail=self.reason,
+                type_=problems.TYPE_VALIDATION,
+            )
+        return problems.unprocessable(self.reason, title=self.title)
+
+
+async def _room_left(db: Db, project_id: uuid.UUID, settings: Settings) -> int:
     held = await db.scalar(
         sa.select(sa.func.count())
         .select_from(ProjectDocument)
         .where(ProjectDocument.project_id == project_id)
     )
-    if (held or 0) >= settings.document_max_per_project:
-        raise problems.Problem(
-            status_code=status.HTTP_409_CONFLICT,
-            title="Too many documents",
-            detail=(
-                f"This project already holds {held} documents, which is the limit. "
-                "Remove one before adding another."
-            ),
-            type_=problems.TYPE_CONFLICT,
+    return max(0, settings.document_max_per_project - (held or 0))
+
+
+async def _assert_room(db: Db, project_id: uuid.UUID, settings: Settings, *, taking: int) -> None:
+    if await _room_left(db, project_id, settings) >= taking:
+        return
+    raise problems.Problem(
+        status_code=status.HTTP_409_CONFLICT,
+        title="Too many documents",
+        detail=(
+            f"This project already holds {settings.document_max_per_project} documents, "
+            "which is the limit. Remove one before adding another."
+        ),
+        type_=problems.TYPE_CONFLICT,
+    )
+
+
+async def _ingest(
+    db: Db,
+    me: Principal,
+    project_id: uuid.UUID,
+    filename: str,
+    content: bytes,
+    *,
+    settings: Settings,
+    store: EvidenceStore,
+) -> tuple[ProjectDocument, StoreResult]:
+    """Store one file's text and passages. The single path both uploads take."""
+    if len(content) > settings.document_max_bytes:
+        raise _Rejected(
+            f"it is {_megabytes(len(content))}, over the "
+            f"{_megabytes(settings.document_max_bytes)} limit",
+            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+            title="File too large",
         )
 
     digest = hashlib.sha256(content).hexdigest()
     existing = await _same_contents(db, project_id, digest)
     if existing is not None:
-        raise _already_uploaded(existing)
+        raise _Rejected(f"the same file is already here as {existing.filename}", existing=existing)
 
     try:
-        extracted = extract(
-            file.filename or "document", content, max_chars=settings.document_max_chars
-        )
+        extracted = extract(filename, content, max_chars=settings.document_max_chars)
     except DocumentError as exc:
-        raise problems.unprocessable(str(exc), title="Could not read that file") from exc
+        raise _Rejected(str(exc)) from exc
 
     document = ProjectDocument(
         project_id=project_id,
@@ -177,7 +353,9 @@ async def upload_document(
         duplicate = await _same_contents(db, project_id, digest)
         if duplicate is None:
             raise
-        raise _already_uploaded(duplicate) from exc
+        raise _Rejected(
+            f"the same file is already here as {duplicate.filename}", existing=duplicate
+        ) from exc
 
     found = passages(extracted)
     document.passage_count = len(found)
@@ -209,14 +387,7 @@ async def upload_document(
             "warnings": document.warnings,
         },
     )
-    await db.commit()
-    await db.refresh(document)
-
-    return DocumentUploadResponse(
-        document=_summary(document, me.user.name),
-        passages_written=written.inserted,
-        duplicates=written.duplicates,
-    )
+    return document, written
 
 
 @router.delete(

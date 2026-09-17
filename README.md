@@ -122,6 +122,42 @@ every range carries the `method` that produced it, the `basis` it used and a
 confidence that drops to `low` when the only signal is how many ads we saw. With
 no signal at all it returns `insufficient_evidence` rather than a number.
 
+## Uploading a folder of context
+
+The document uploader takes a `.zip` as well as a file. What a person has is
+usually a folder — the pricing sheet, the positioning one-pager, the objection
+doc — and whether they compressed it before dragging it in is not a distinction
+this product should hold an opinion about. One endpoint, one code path: each
+readable member goes through the same extraction, dedupe and passage-writing a
+direct upload does.
+
+What differs is the shape of failure. One bad file on its own is the whole
+request; one bad file inside an archive is that file's problem and the other
+nine still land. Everything refused is **named on the screen** with the reason —
+a zip of twelve files that quietly becomes three is worse than an error, because
+nothing says the other nine are missing.
+
+An archive is an untrusted description of files that do not exist yet, so three
+of its claims are checked rather than believed (`documents/archive.py`):
+
+- **The size it declares.** Both the total and the compression ratio are checked
+  *before* anything is decompressed — a zip bomb is a few hundred kilobytes
+  describing a few gigabytes, and the way a service finds that out is by
+  unpacking it. A folder of PDFs expands three or four times; the ceiling is
+  120×. Each member is then read one byte past its cap, so an index that lies
+  about a size costs one byte rather than the machine.
+- **The paths it declares.** `../../etc/passwd` is a legal entry name. Nothing
+  is ever written to disk — members are read into memory and handed to the same
+  extractor — so it has nowhere to land, and only the basename is kept.
+- **The types it declares.** Filtered to what the extractor can actually read.
+  Archives inside archives are not opened, and `__MACOSX/` and `.DS_Store` are
+  skipped silently, because telling someone their Mac put those in the zip is
+  noise about something they did not do.
+
+Limits live in `config.Settings`: `archive_max_entries` (50),
+`archive_max_total_bytes` (200 MB), `archive_max_ratio` (120), with each member
+still bound by `document_max_bytes`.
+
 ## Connecting Google Ads
 
 `connectors/google_ads.py` is the only source that reads *our own* history:

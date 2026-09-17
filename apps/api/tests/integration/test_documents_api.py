@@ -54,7 +54,7 @@ async def test_an_upload_becomes_passages_a_node_can_cite(
     assert response.status_code == 201, response.text
 
     body = response.json()
-    document = body["document"]
+    document = body["documents"][0]
     assert document["filename"] == "brand.md"
     assert document["char_count"] > 200
     assert document["passage_count"] >= 1
@@ -110,14 +110,14 @@ async def test_a_word_file_arrives_as_text(admin: ApiClient, project_id: uuid.UU
         files={"file": ("objections.docx", content, "application/octet-stream")},
     )
     assert response.status_code == 201, response.text
-    assert "two weeks with our importer" in response.json()["document"]["preview"]
+    assert "two weeks with our importer" in response.json()["documents"][0]["preview"]
 
 
 async def test_deleting_a_document_takes_its_passages_with_it(
     admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
 ) -> None:
     created = await admin.post(f"/projects/{project_id}/documents", **upload())
-    document_id = created.json()["document"]["id"]
+    document_id = created.json()["documents"][0]["id"]
 
     removed = await admin.delete(f"/projects/{project_id}/documents/{document_id}")
     assert removed.status_code == 204
@@ -135,7 +135,7 @@ async def test_both_actions_are_audited(
     admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
 ) -> None:
     created = await admin.post(f"/projects/{project_id}/documents", **upload())
-    await admin.delete(f"/projects/{project_id}/documents/{created.json()['document']['id']}")
+    await admin.delete(f"/projects/{project_id}/documents/{created.json()['documents'][0]['id']}")
 
     actions = (
         (
@@ -169,7 +169,7 @@ async def test_the_same_file_twice_is_refused_rather_than_doubled(
 
     again = await admin.post(f"/projects/{project_id}/documents", **upload(filename="copy.md"))
     assert again.status_code == 409
-    assert again.json()["document_id"] == first.json()["document"]["id"]
+    assert again.json()["document_id"] == first.json()["documents"][0]["id"]
 
     held = await db.scalar(
         sa.select(sa.func.count())

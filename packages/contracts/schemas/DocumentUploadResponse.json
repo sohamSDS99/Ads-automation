@@ -103,12 +103,36 @@
       ],
       "title": "DocumentSummary",
       "type": "object"
+    },
+    "SkippedEntry": {
+      "description": "One file in an archive that was not taken, and why.\n\nNamed rather than dropped: a zip of twelve files that quietly becomes three\ndocuments is worse than an error, because nothing on the screen says the\nother nine are missing.",
+      "properties": {
+        "filename": {
+          "title": "Filename",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "filename",
+        "reason"
+      ],
+      "title": "SkippedEntry",
+      "type": "object"
     }
   },
-  "description": "What one upload produced.",
+  "description": "What one upload produced \u2014 one document, or the contents of an archive.",
   "properties": {
-    "document": {
-      "$ref": "#/$defs/DocumentSummary"
+    "documents": {
+      "description": "Everything stored by this upload. One entry for a plain file.",
+      "items": {
+        "$ref": "#/$defs/DocumentSummary"
+      },
+      "title": "Documents",
+      "type": "array"
     },
     "passages_written": {
       "description": "New evidence rows. Fewer than `passage_count` means some already existed.",
@@ -119,10 +143,18 @@
       "default": 0,
       "title": "Duplicates",
       "type": "integer"
+    },
+    "skipped": {
+      "description": "Archive members that were not stored, and why",
+      "items": {
+        "$ref": "#/$defs/SkippedEntry"
+      },
+      "title": "Skipped",
+      "type": "array"
     }
   },
   "required": [
-    "document",
+    "documents",
     "passages_written"
   ],
   "title": "DocumentUploadResponse",

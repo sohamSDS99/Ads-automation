@@ -51,11 +51,28 @@ class DocumentListResponse(BaseModel):
     accepted_extensions: list[str]
 
 
-class DocumentUploadResponse(BaseModel):
-    """What one upload produced."""
+class SkippedEntry(BaseModel):
+    """One file in an archive that was not taken, and why.
 
-    document: DocumentSummary
+    Named rather than dropped: a zip of twelve files that quietly becomes three
+    documents is worse than an error, because nothing on the screen says the
+    other nine are missing.
+    """
+
+    filename: str
+    reason: str
+
+
+class DocumentUploadResponse(BaseModel):
+    """What one upload produced — one document, or the contents of an archive."""
+
+    documents: list[DocumentSummary] = Field(
+        description="Everything stored by this upload. One entry for a plain file."
+    )
     passages_written: int = Field(
         description="New evidence rows. Fewer than `passage_count` means some already existed."
     )
     duplicates: int = 0
+    skipped: list[SkippedEntry] = Field(
+        default_factory=list, description="Archive members that were not stored, and why"
+    )
