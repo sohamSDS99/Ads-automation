@@ -1,19 +1,22 @@
 # ads-research-agent
 
 Self-hosted **Paid Ads Research Agent** — Stage 01 of the SDS Manager marketing
-pipeline. It runs a deterministic 21-node research DAG over four evidence
+pipeline. It runs a deterministic 23-node research DAG over four evidence
 sources and emits a versioned, citation-backed Research Report.
 
 One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
 for the full specification.
 
-> **Status: Phase P4 (Stages 1.3 + 1.4).** Everything P0/P0b/P1/P2/P3 shipped,
-> plus nine more nodes: the competitor set, the Playwright creative corpus with
-> stored screenshots, spend estimation, the second gate (1.3.4), and the demand
-> half — a ≥2,000-term keyword universe, batched intent classification, the
-> DataForSEO demand join, the negative blocklist and the keyword→page map.
-> Seventeen of the twenty-one nodes now exist. Stage 1.5 and the report itself
-> are P5. Phase table: PRD §17.
+> **Status: Phase P5b (Stage 1.5 + the report).** Everything P0 through P6
+> shipped, plus the six nodes that finish the DAG: the landing-page audit, the
+> tracking probe with its synthetic conversion check, the audience-consent gate,
+> opportunity sizing, and the two report nodes — `report_synthesis` writes the
+> `ResearchReport`, `report_critique` reads it back with a different model
+> family. **The graph is complete: twenty-three registered nodes**, which is
+> PRD §10's twenty-one research nodes plus the two report nodes §17's
+> "21-node run" does not count. A full run now ends with a stored report and
+> five downloadable formats. P7 (the run console, report viewer, evidence
+> explorer and approvals inbox) is next. Phase table: PRD §17.
 
 ## Setup
 
@@ -58,6 +61,7 @@ make guards        # fail if any route lacks its require(Permission)
 make verify        # PRD §19.1's acceptance list against the running stack
 make verify-p4     # P4's exit criteria end to end (needs a live OpenRouter key)
 make verify-p5a    # P5a's acceptance list: five formats, rendered and downloaded
+make verify-p5b    # P5b: the whole DAG, three gates, a report, five exports
 make verify-p6     # P6's acceptance list against the running stack
 make browser       # render the auth screens in Chromium and assert on them
 make browser-p6    # drive the P6 screens as admin and as operator, 1440 + 390
@@ -257,8 +261,8 @@ railway/      provisioning runbook + the full env-var table
 
 ## Known limits of P4
 
-- **Four of the twenty-one nodes do not exist yet.** Stage 1.5 (readiness) and
-  the two report nodes are P5. A "full" run today is stages 1.1 through 1.4.
+- ~~Four of the twenty-one nodes do not exist yet.~~ **Closed by P5b**: the DAG
+  is complete at twenty-three nodes.
 - **`overlap_basis` can never say `auction`.** PRD §10 names it first, but the
   Google Ads API exposes no auction-insights resource — it is a UI-only report.
   The value stays in the vocabulary so a future source slots in without a schema
@@ -281,10 +285,9 @@ railway/      provisioning runbook + the full env-var table
 
 ## Known limits of P5a
 
-- **Nothing writes a report yet.** Nodes 1.5.\*, `report_synthesis` (1.6.1) and
-  `report_critique` (1.6.2) are P5b, so `GET /reports/{run_id}` answers with a
-  404 naming the run's status until one exists. `scripts/verify-p5a.sh` seeds a
-  report to prove the rest of the path.
+- ~~Nothing writes a report yet.~~ **Closed by P5b**: 1.6.1 writes one at the
+  end of every run. `GET /reports/{run_id}` still 404s — correctly — for a run
+  that has not reached the report node.
 - **The charts do not use matplotlib.** PRD §12 names its svg backend;
   `export/charts.py` builds the SVG directly, because matplotlib embeds font
   metrics and glyph paths and the same report would render to different bytes on
@@ -297,6 +300,81 @@ railway/      provisioning runbook + the full env-var table
   that closes on the terminal event will miss it; `GET /exports/{job_id}` is the
   reliable answer.
 - **The Report Viewer is P7.** This phase is the API and the files.
+
+## Readiness and the report (P5b)
+
+The last six nodes, and the two ideas they are built on.
+
+**Measurement is not a model's job.** Two of stage 1.5's four nodes make no LLM
+call at all. A page's LCP, a conversion action's staleness and a synthetic
+probe's verdict are facts with published thresholds, and every one of them lives
+in `nodes/readiness.py` — pure functions over evidence payloads, unit-tested
+without a database or a browser. The model is asked only what measurement cannot
+answer: whether a page keeps the promise its keywords make (1.5.1), and the
+lawful basis an audience may be used under (1.5.3). `nodes/synthesis.py` is the
+same division at report scale — it *assembles* every section from node output
+and asks a model only for the executive summary, the cited claims and the open
+questions.
+
+**The launch verdict is computed, not written.** `synthesis.verdict()` derives
+`go` / `go_with_fixes` / `no_go` from the findings, and each blocker carries the
+evidence that establishes it. A model asked for a go/no-go over twenty pages of
+input will occasionally answer `go` under a critical blocker it summarised
+correctly two paragraphs earlier; that is the single worst thing this report
+could get wrong, so the rubric is code you can read and argue with. Node 1.6.2
+still checks that the prose agrees with the verdict — which is the failure that
+actually happens — and one blocking issue buys exactly one re-synthesis.
+
+| Node | What it measures | Model call |
+| --- | --- | --- |
+| 1.5.1 `landing_page_audit` | LCP, CLS, mobile, form length, trust markers, HTTP status of the pages 1.4.5 mapped | message match only |
+| 1.5.2 `tracking_probe` | conversion actions, staleness, and a real browser loading the conversion page to see whether a beacon fires | none |
+| 1.5.3 ⛳ `audience_consent_check` | list sizes and eligibility from the account | lawful basis, then a data officer decides |
+| 1.5.4 `opportunity_sizing` | clicks, conversions, CPA and revenue per budget, capped by the demand that exists | assumptions prose only |
+| 1.6.1 `report_synthesis` | assembles §11's contract, renders the markdown, writes the `report` row | summary and claims |
+| 1.6.2 `report_critique` | unsupported claims, contradictions, dead citations, verdict consistency | yes, cross-family |
+
+Three things worth knowing before changing any of it.
+
+- **The synthetic check never claims a round trip it did not observe.** Google
+  reports conversions hours late, so a probe fired now cannot be confirmed in the
+  API now. What the probe *can* confirm is that a beacon fired and that its
+  `send_to` matches a conversion action the account is actually receiving
+  conversions on. `latency_min` stays `null` unless a conversion genuinely
+  post-dates the probe.
+- **Node 1.6.1 gathers exactly what the report cites.** The executor fails any
+  node citing evidence it did not gather, and the report is a fold of nineteen
+  nodes' findings — so 1.6.1 loads the union of their citations, which is what
+  makes that check meaningful for the report too.
+- **A row that does not fit the contract is dropped, named and counted.** Nineteen
+  node output models feed one contract and the two will drift; `dropped_rows` on
+  1.6.1's output is where that shows up. Losing one row of one section is always
+  better than losing a forty-minute run at its very last node.
+
+## Known limits of P5b
+
+- **The conversion page is a project setting nothing writes yet.** 1.5.2 probes
+  `settings["conversion_probe_url"]`; without it the synthetic check is
+  `inconclusive` and says which setting to fill in. The wizard field is P7's.
+- **`latency_min` is usually `null`,** for the reason above. It is filled in only
+  when a later run resolves an earlier probe.
+- **1.6.1's re-run happens inside 1.6.2.** PRD §10 says "1.6.1 re-runs once"; the
+  executor is a wavefront with no facility for a node to send another node round
+  again, so the *function* is re-run and the same `report` row is rewritten. The
+  only visible difference is that the second call's cost lands on 1.6.2's
+  `NodeRun`.
+- **`depends_on` for 1.6.1 is written out, not derived.** It is read at import
+  time and the registry is what imports the module. `test_stage_1_6.py` asserts
+  the tuple equals every non-report node the registry knows, so a node added in
+  a later phase fails the suite rather than silently never reaching the report.
+- **Two shipped components disagreed and were reconciled in `synthesis.py`, not
+  in either of them**: 1.2.1 reports `metric_delta` as a number where §11 wants a
+  label, and 1.3.1's `overlap_score` is a relative rank where §11 wants the 0–1
+  the report renders as a percentage. Both are converted at the boundary, with
+  the raw figure carried along. Flagged for a ruling.
+- **Opportunity sizing refuses to forecast without a measured conversion rate.**
+  An account with no history gets no scenarios and a blocker saying why, rather
+  than a confident-looking projection built on an invented number.
 
 ## The interface (P6)
 
@@ -338,17 +416,17 @@ Three things are worth knowing before changing any of it.
 
 ## Known limits of P6
 
-- **Stage 1.5's gate does not appear in the wizard yet**, because its node is
-  not registered yet. The list comes from the DAG, so it arrives on its own when
-  P5 lands — nothing here needs changing for it.
+- ~~Stage 1.5's gate does not appear in the wizard yet.~~ **Closed by P5b**:
+  1.5.3 registered, the wizard's list derives from the DAG, and the gate
+  appeared with no change to the frontend. That was the design working.
 - **The per-gate SLA is stored and not yet used.** It lands in
   `settings["gate_sla_hours"]`; reminders are P8, which is what will read it.
 - The run console, report viewer, evidence explorer and approvals inbox are P7.
   `/approvals` and `/evidence` render what they are and when they arrive rather
   than 404ing out of a navigation item every role can see.
-- **The overview shows setup readiness, not the report's `GO` / `NO-GO`.** That
-  verdict is part of the `ResearchReport` contract, which P5 writes; reading it
-  early would mean guessing at a key that does not exist yet.
+- **The overview shows setup readiness, not the report's `GO` / `NO-GO`.** The
+  verdict now exists — `payload.launch_readiness` on a stored report — but the
+  screen that surfaces it is the Report Viewer, which is P7.
 - `GET /models` needs `settings_write`, because the only screen that consumes it
   is the admin-only routing step. An operator's read-only view of that step
   renders the ids already stored on the project.

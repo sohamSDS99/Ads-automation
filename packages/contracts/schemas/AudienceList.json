@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.5.3 \u26f3 `audience_consent_check` \u2014 gated on an `approver` (data officer).",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "name": {
       "title": "Name",
       "type": "string"

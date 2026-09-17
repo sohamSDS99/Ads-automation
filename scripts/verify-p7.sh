@@ -305,7 +305,16 @@ chk "GET /runs/{id}/nodes/{node} returns the output" "$(printf '%s' "$NODE" | jq
 chk "  the prompt"  "$(printf '%s' "$NODE" | jq_ 'd["prompt"] is not None')" "True"
 chk "  the metrics" "$(printf '%s' "$NODE" | jq_ 'd["model"] is not None and d["token_in"] > 0')" "True"
 chk "  and what it cited" "$(printf '%s' "$NODE" | jq_ 'len(d["evidence_ids"]) > 0')" "True"
-chk "a node that has not run is a 404, not an empty body" "$(code "$A" "/runs/$RUN_ID/nodes/1.4.5")" "404"
+# Which node has not run is not a constant: this script is re-runnable, the
+# gate it decides re-queues the run, and a node that was untouched last time has
+# a row this time. Ask the run itself rather than naming one and hoping.
+UNRUN=$(printf '%s' "$RUN" | jq_ "([n['id'] for n in d['nodes'] if n['status'] is None] or [''])[0]")
+if [ -n "$UNRUN" ]; then
+  chk "a node that has not run is a 404, not an empty body" \
+      "$(code "$A" "/runs/$RUN_ID/nodes/$UNRUN")" "404"
+else
+  ok "a node that has not run is a 404 (skipped — every node of this run has a row)"
+fi
 
 echo "── 4. the feed replays what was missed ─────────────────────────────────"
 SSE=$(curl -s -N --max-time 6 -b "$A" "$B/runs/$RUN_ID/events" 2>/dev/null | head -60)
@@ -319,11 +328,18 @@ has "  and the gate opening" "$SSE" "event: approval.required"
 has "  each frame carrying its cursor" "$SSE" "id: "
 
 echo "── 5. presence ─────────────────────────────────────────────────────────"
-chk "POST /runs/{id}/presence returns the caller" \
-    "$(send "$A" POST "/runs/$RUN_ID/presence" "" | jq_ 'd["total"]')" "1"
+# On identity, not on a count: a check-in lasts 30 seconds, so re-running this
+# script inside that window still sees the last run's viewer. "Am I listed"
+# is the question presence actually answers, and it survives a warm TTL.
+ADMIN_NAME=$(get "$A" "/auth/me" | jq_ 'd["name"]')
+VIEWER_NAME=$(get "$V" "/auth/me" | jq_ 'd["name"]')
+chk "POST /runs/{id}/presence lists the caller" \
+    "$(send "$A" POST "/runs/$RUN_ID/presence" "" | jq_ "any(v['name'] == '$ADMIN_NAME' for v in d['viewers'])")" "True"
 send "$V" POST "/runs/$RUN_ID/presence" "" >/dev/null
-chk "  and both consoles once a second one checks in" \
-    "$(send "$A" POST "/runs/$RUN_ID/presence" "" | jq_ 'd["total"]')" "2"
+BOTH=$(send "$A" POST "/runs/$RUN_ID/presence" "")
+chk "  and the second console alongside it" \
+    "$(printf '%s' "$BOTH" | jq_ "{'$ADMIN_NAME', '$VIEWER_NAME'} <= {v['name'] for v in d['viewers']}")" "True"
+chk "  counted honestly" "$(printf '%s' "$BOTH" | jq_ 'd["total"] >= 2')" "True"
 chk "  a viewer may announce themselves" "$(send_code "$V" POST "/runs/$RUN_ID/presence" "")" "200"
 
 echo "── 6. the inbox, and a decision made from it ───────────────────────────"

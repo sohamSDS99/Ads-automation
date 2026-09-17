@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.2.2 `search_term_pnl`, wasteful side.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "term": {
       "title": "Term",
       "type": "string"

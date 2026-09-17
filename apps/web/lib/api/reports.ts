@@ -47,13 +47,15 @@ export type Product = {
   acv?: number | null;
   gross_margin_pct?: number | null;
   delivery_cost_notes?: string | null;
+  evidence_ids?: string[];
 };
 
 export type IcpSegment = {
   label: string;
   /**
-   * A sentence in some runs, a map of traits in others — node 1.1.2 asks for
-   * prose and the contract accepts both. Render whichever arrived.
+   * A sentence in some runs, a map of traits in others. The contract declares
+   * the union deliberately: 1.1.2 asks the model for prose, a CRM rollup
+   * produces a map, and both are legitimate. Render whichever arrived.
    */
   firmographics?: string | Record<string, unknown> | null;
   triggers?: string[];
@@ -67,6 +69,7 @@ export type IcpExclusion = {
   disqualifier: string;
   observable_signal?: string | null;
   suggested_negative_terms?: string[];
+  evidence_ids?: string[];
 };
 
 export type MarketCoverage = {
@@ -75,6 +78,7 @@ export type MarketCoverage = {
   currency?: string | null;
   demand_months?: number[];
   dead_months?: number[];
+  evidence_ids?: string[];
 };
 
 export type ComplianceGuardrails = {
@@ -124,6 +128,7 @@ export type FailedExperiment = {
   when?: string | null;
   outcome?: string | null;
   do_not_repeat_reason?: string | null;
+  evidence_ids?: string[];
 };
 
 export type AccountLearnings = {
@@ -192,6 +197,7 @@ export type NegativeKeyword = {
   match_type?: "broad" | "phrase" | "exact";
   reason?: string | null;
   source?: string | null;
+  evidence_ids?: string[];
 };
 
 export type KeywordPageMapping = {
@@ -199,6 +205,7 @@ export type KeywordPageMapping = {
   best_url?: string | null;
   relevance_score?: number | null;
   verdict: MappingVerdict;
+  evidence_ids?: string[];
 };
 
 export type DemandMap = {
@@ -271,6 +278,7 @@ export type Scenario = {
   est_revenue?: number | null;
   assumptions?: string[];
   confidence_interval?: string | null;
+  evidence_ids?: string[];
 };
 
 export type Readiness = {

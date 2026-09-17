@@ -129,7 +129,14 @@ export function BusinessSection({ report, citations, projectId }: Props) {
             <tbody>
               {products.map((product) => (
                 <Tr key={product.name}>
-                  <Td>{product.name}</Td>
+                  <Td>
+                    {product.name}
+                    <CiteGroup
+                      ids={product.evidence_ids}
+                      citations={citations}
+                      projectId={projectId}
+                    />
+                  </Td>
                   <Td className="text-fg-muted">{product.price_model ?? "—"}</Td>
                   <Td data-numeric className="text-right">
                     {product.acv === null || product.acv === undefined ? "—" : usd(product.acv, 0)}
@@ -410,7 +417,10 @@ export function DemandSection({ report, citations, projectId }: Props) {
             <tbody>
               {mapping.slice(0, 25).map((row) => (
                 <Tr key={row.term_cluster}>
-                  <Td>{row.term_cluster}</Td>
+                  <Td>
+                    {row.term_cluster}
+                    <CiteGroup ids={row.evidence_ids} citations={citations} projectId={projectId} />
+                  </Td>
                   <Td className="max-w-80 truncate">
                     {row.best_url ? (
                       <a
@@ -609,6 +619,11 @@ export function ReadinessSection({ report, citations, projectId }: Props) {
                 <Tr key={scenario.budget_usd_month}>
                   <Td data-numeric className="text-right">
                     {usd(scenario.budget_usd_month, 0)}
+                    <CiteGroup
+                      ids={scenario.evidence_ids}
+                      citations={citations}
+                      projectId={projectId}
+                    />
                   </Td>
                   <Td data-numeric className="text-right text-fg-muted">
                     {compactNumber(scenario.est_clicks ?? null)}

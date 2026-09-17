@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import pytest
 
+from agent.nodes.stage_1_6 import ALL_RESEARCH_NODES
 from agent.orchestrator.dag import Dag, DagError, get_dag
 
-#: PRD §10's edge list for stages 1.1-1.4, transcribed rather than derived.
+#: PRD §10's edge list for stages 1.1-1.5, transcribed rather than derived.
 #: Deriving it from the registry would make this test assert that the code
 #: agrees with itself; the point is that it agrees with the document.
 PRD_EDGES: tuple[tuple[str, str], ...] = (
@@ -29,6 +30,22 @@ PRD_EDGES: tuple[tuple[str, str], ...] = (
     ("1.2.2", "1.4.4"),
     ("1.4.2", "1.4.5"),
     ("1.4.3", "1.4.5"),
+    ("1.4.5", "1.5.1"),
+    # 1.5.2 has no dependencies: the account's tracking can be read before any
+    # of the research happens, and PRD §10 writes it as `1.5.2←{}`.
+    ("1.1.4", "1.5.3"),
+    ("1.4.3", "1.5.4"),
+    ("1.1.1", "1.5.4"),
+    ("1.2.1", "1.5.4"),
+    ("1.6.1", "1.6.2"),
+)
+
+#: `1.6.1←{all}` — twenty-one edges that are the same statement twenty-one
+#: times. Transcribing them would test typing, not agreement with the document;
+#: what matters is that *every* research node is in the set, and
+#: `test_stage_1_6.py` asserts that against the registry.
+REPORT_EDGES: tuple[tuple[str, str], ...] = tuple(
+    (node_id, "1.6.1") for node_id in ALL_RESEARCH_NODES
 )
 
 #: One documented deviation, argued in `stage_1_3.py`: 1.3.3 names 1.3.1 as well
@@ -38,7 +55,7 @@ EXTRA_EDGES: tuple[tuple[str, str], ...] = (("1.3.1", "1.3.3"),)
 
 
 def test_the_real_dag_matches_the_prd_edge_list() -> None:
-    """PRD §10, stages 1.1 through 1.4."""
+    """PRD §10, the whole graph."""
     dag = get_dag()
     assert set(dag.node_ids) == {
         "1.1.1",
@@ -58,17 +75,26 @@ def test_the_real_dag_matches_the_prd_edge_list() -> None:
         "1.4.3",
         "1.4.4",
         "1.4.5",
+        "1.5.1",
+        "1.5.2",
+        "1.5.3",
+        "1.5.4",
+        "1.6.1",
+        "1.6.2",
     }
     assert sorted((edge.source, edge.target) for edge in dag.edges) == sorted(
-        PRD_EDGES + EXTRA_EDGES
+        PRD_EDGES + REPORT_EDGES + EXTRA_EDGES
     )
     assert dag.waves() == [
-        ("1.1.1", "1.1.2", "1.1.3", "1.2.1", "1.2.2", "1.2.3"),
+        ("1.1.1", "1.1.2", "1.1.3", "1.2.1", "1.2.2", "1.2.3", "1.5.2"),
         ("1.1.4", "1.1.5", "1.3.1"),
-        ("1.3.2",),
+        ("1.3.2", "1.5.3"),
         ("1.3.3", "1.3.4", "1.4.1"),
         ("1.4.2", "1.4.3"),
-        ("1.4.4", "1.4.5"),
+        ("1.4.4", "1.4.5", "1.5.4"),
+        ("1.5.1",),
+        ("1.6.1",),
+        ("1.6.2",),
     ]
 
 

@@ -1,0 +1,17 @@
+{
+  "additionalProperties": true,
+  "description": "A record that carries the evidence behind it.\n\nThe field has to be **declared**, not left to `extra=\"allow\"`, and the\ndifference is not cosmetic. An undeclared `evidence_ids` survives as a list\nof strings, `ResearchReport.evidence_ids()` collects only `UUID` instances,\nand the whole readiness and competitive half of the report loses its\ncitations the moment the payload round-trips through JSON \u2014 which it does,\non every read of the stored report. Declaring it makes the round trip\nlossless and the citation index complete.",
+  "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "title": "CitedModel",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

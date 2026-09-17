@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.4.4 `negative_blocklist`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "term": {
       "title": "Term",
       "type": "string"

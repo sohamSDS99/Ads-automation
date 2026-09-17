@@ -18,6 +18,7 @@ segmented by month.
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
 
@@ -39,6 +40,11 @@ from agent.db.models import EvidenceSource
 log = structlog.get_logger(__name__)
 
 TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 — an endpoint, not a secret
+
+#: How far back the per-day pulls reach. Ninety days answers "is this
+#: conversion action still receiving conversions" without asking for two
+#: years of daily rows per action.
+RECENT_DAYS = 90
 
 #: Google reports money in micros. Every currency amount crosses this boundary
 #: exactly once, here, so no node ever has to remember the factor.
@@ -93,6 +99,25 @@ FROM keyword_view
 WHERE segments.date BETWEEN '{start}' AND '{end}'
 """
 
+CONVERSION_ACTIONS = """
+SELECT conversion_action.id, conversion_action.name, conversion_action.status,
+       conversion_action.type, conversion_action.category,
+       conversion_action.counting_type, conversion_action.primary_for_goal,
+       conversion_action.tag_snippets,
+       segments.date, metrics.all_conversions
+FROM conversion_action
+WHERE segments.date BETWEEN '{recent_start}' AND '{end}'
+"""
+
+USER_LISTS = """
+SELECT user_list.id, user_list.name, user_list.description, user_list.type,
+       user_list.membership_status, user_list.membership_life_span,
+       user_list.size_for_display, user_list.size_for_search,
+       user_list.eligible_for_search, user_list.eligible_for_display,
+       user_list.closing_reason
+FROM user_list
+"""
+
 #: query → the `Evidence.kind` its rows become.
 QUERIES: dict[str, str] = {
     "campaign_perf": CAMPAIGN_PERFORMANCE,
@@ -100,7 +125,15 @@ QUERIES: dict[str, str] = {
     "creative_history": CREATIVE_HISTORY,
     "change_log": CHANGE_EVENTS,
     "keyword_impression_share": IMPRESSION_SHARE,
+    "conversion_action": CONVERSION_ACTIONS,
+    "audience_list": USER_LISTS,
 }
+
+#: The `send_to` target inside a conversion action's event snippet. It is the
+#: only thing that ties a tag firing in a browser (node 1.5.2's probe) to a
+#: *named* conversion action in the account — without it the probe can say a tag
+#: fired but not which conversion it was supposed to record.
+SEND_TO = re.compile(r"AW-\d+/[A-Za-z0-9_-]+")
 
 
 def _micros(value: Any) -> float:
@@ -117,6 +150,19 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+def _send_to(snippets: Any) -> str | None:
+    """The `AW-<id>/<label>` a conversion action's event snippet fires against."""
+    if not isinstance(snippets, list):
+        return None
+    for snippet in snippets:
+        if not isinstance(snippet, dict):
+            continue
+        match = SEND_TO.search(str(snippet.get("eventSnippet") or ""))
+        if match:
+            return match.group(0)
+    return None
+
+
 def _dig(row: dict[str, Any], path: str) -> Any:
     """Read `a.b.c` out of the nested JSON the REST API returns."""
     current: Any = row
@@ -128,7 +174,7 @@ def _dig(row: dict[str, Any], path: str) -> Any:
 
 
 class GoogleAdsConnector(BaseConnector):
-    """24 months of our own account, as five kinds of evidence."""
+    """24 months of our own account, as seven kinds of evidence."""
 
     name = "google_ads"
     source = EvidenceSource.GOOGLE_ADS
@@ -194,12 +240,24 @@ class GoogleAdsConnector(BaseConnector):
 
     # --- fetching ----------------------------------------------------------
 
-    def _window(self, params: dict[str, Any]) -> tuple[str, str, str]:
+    def _window(self, params: dict[str, Any]) -> tuple[str, str, str, str]:
+        """The four date bounds the query templates interpolate.
+
+        `recent_start` is deliberately not `start`: conversion actions are asked
+        for *per day* so node 1.5.2 can compute staleness, and two years of daily
+        rows per action is a large answer to a question only the last quarter can
+        answer. Ninety days is the same window the change log uses.
+        """
         end = date.fromisoformat(params["end"]) if params.get("end") else datetime.now(UTC).date()
         months = int(params.get("months") or self.settings.google_ads_lookback_months)
         start = end - timedelta(days=months * 30)
-        change_start = (end - timedelta(days=90)).isoformat() + " 00:00:00"
-        return start.isoformat(), end.isoformat(), change_start
+        recent = end - timedelta(days=RECENT_DAYS)
+        return (
+            start.isoformat(),
+            end.isoformat(),
+            recent.isoformat() + " 00:00:00",
+            recent.isoformat(),
+        )
 
     async def _search(
         self, client: httpx.AsyncClient, customer_id: str, query: str
@@ -235,7 +293,7 @@ class GoogleAdsConnector(BaseConnector):
         )
 
     async def fetch(self, params: dict[str, Any]) -> list[EvidenceDraft]:
-        """Run the five pulls. A pull that fails degrades the run, it does not end it."""
+        """Run the wanted pulls. A pull that fails degrades the run, it does not end it."""
         customer_id = str(
             params.get("customer_id") or self.context.credentials.get("customer_id") or ""
         ).replace("-", "")
@@ -243,7 +301,7 @@ class GoogleAdsConnector(BaseConnector):
             raise ConnectorAuthError("missing credential values: customer_id")
         self.context.require(*self.CREDENTIAL_FIELDS)
 
-        start, end, change_start = self._window(params)
+        start, end, change_start, recent_start = self._window(params)
         wanted = params.get("kinds") or list(QUERIES)
         drafts: list[EvidenceDraft] = []
         failures: list[str] = []
@@ -256,7 +314,9 @@ class GoogleAdsConnector(BaseConnector):
                 if template is None:
                     failures.append(f"{kind}: unknown query")
                     continue
-                query = template.format(start=start, end=end, change_start=change_start)
+                query = template.format(
+                    start=start, end=end, change_start=change_start, recent_start=recent_start
+                )
                 try:
                     rows = await self._search(client, customer_id, query)
                 except ConnectorAuthError:
@@ -285,6 +345,8 @@ class GoogleAdsConnector(BaseConnector):
             "creative_history": self._creative,
             "change_log": self._change,
             "keyword_impression_share": self._keyword,
+            "conversion_action": self._conversion_action,
+            "audience_list": self._user_list,
         }[kind]
         url = f"https://ads.google.com/aw/overview?ocid={customer_id}"
         return [self.draft(kind, builder(row), source_url=url) for row in rows]
@@ -368,6 +430,49 @@ class GoogleAdsConnector(BaseConnector):
             "cost": _micros(_dig(row, "metrics.costMicros")),
             "conversions": _number(_dig(row, "metrics.conversions")),
             "impressions": _number(_dig(row, "metrics.impressions")),
+        }
+
+    def _conversion_action(self, row: dict[str, Any]) -> dict[str, Any]:
+        """One conversion action on one day.
+
+        The row is per-day on purpose: "when did this last record a conversion"
+        is the question node 1.5.2 asks, and it is answerable from dated rows
+        and not from a lifetime total.
+        """
+        snippets = _dig(row, "conversionAction.tagSnippets") or []
+        return {
+            "conversion_action_id": _dig(row, "conversionAction.id"),
+            "name": _dig(row, "conversionAction.name"),
+            "status": _dig(row, "conversionAction.status"),
+            "action_type": _dig(row, "conversionAction.type"),
+            "category": _dig(row, "conversionAction.category"),
+            "counting_type": _dig(row, "conversionAction.countingType"),
+            "primary_for_goal": _dig(row, "conversionAction.primaryForGoal"),
+            "send_to": _send_to(snippets),
+            "date": _dig(row, "segments.date"),
+            "conversions": _number(_dig(row, "metrics.allConversions")),
+        }
+
+    def _user_list(self, row: dict[str, Any]) -> dict[str, Any]:
+        """One audience list, as the account describes it.
+
+        Note what is *not* here: consent basis. The API has no such field, and
+        inventing one would be the exact failure node 1.5.3's gate exists to
+        prevent — so the connector reports size, type and eligibility, and a
+        data officer supplies the lawful basis.
+        """
+        return {
+            "user_list_id": _dig(row, "userList.id"),
+            "name": _dig(row, "userList.name"),
+            "description": _dig(row, "userList.description"),
+            "list_type": _dig(row, "userList.type"),
+            "membership_status": _dig(row, "userList.membershipStatus"),
+            "membership_life_span_days": _dig(row, "userList.membershipLifeSpan"),
+            "size_for_display": _dig(row, "userList.sizeForDisplay"),
+            "size_for_search": _dig(row, "userList.sizeForSearch"),
+            "eligible_for_search": _dig(row, "userList.eligibleForSearch"),
+            "eligible_for_display": _dig(row, "userList.eligibleForDisplay"),
+            "closing_reason": _dig(row, "userList.closingReason"),
         }
 
     async def test_connection(self) -> ConnectorStatus:

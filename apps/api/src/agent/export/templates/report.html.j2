@@ -125,7 +125,7 @@
       <span class="cite">{{ cite.markers(segment.evidence_ids) }}</span></h4>
     <ul>
       {% if segment.firmographics %}
-      <li><strong>Firmographics:</strong> {% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}</li>
+      <li><strong>Firmographics:</strong> {% if segment.firmographics is mapping %}{% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}{% else %}{{ segment.firmographics }}{% endif %}</li>
       {% endif %}
       {% if segment.triggers %}<li><strong>Buying triggers:</strong> {{ segment.triggers|commalist }}</li>{% endif %}
       {% if segment.jobs_to_be_done %}<li><strong>Jobs to be done:</strong> {{ segment.jobs_to_be_done|commalist }}</li>{% endif %}

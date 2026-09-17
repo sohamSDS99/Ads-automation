@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.4.5 `keyword_to_page_map`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "term_cluster": {
       "title": "Term Cluster",
       "type": "string"

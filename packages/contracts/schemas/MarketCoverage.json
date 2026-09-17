@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.1.4 `market_coverage`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "country": {
       "title": "Country",
       "type": "string"

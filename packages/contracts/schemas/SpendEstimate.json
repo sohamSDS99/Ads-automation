@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.3.3 `spend_estimation`.\n\n`method` is required: PRD \u00a710 says an estimate must state its method and is\nnever to be presented as fact. The renderers print it next to the number.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "competitor": {
       "title": "Competitor",
       "type": "string"
