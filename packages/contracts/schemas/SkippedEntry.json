@@ -1,0 +1,20 @@
+{
+  "description": "One file in an archive that was not taken, and why.\n\nNamed rather than dropped: a zip of twelve files that quietly becomes three\ndocuments is worse than an error, because nothing on the screen says the\nother nine are missing.",
+  "properties": {
+    "filename": {
+      "title": "Filename",
+      "type": "string"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    }
+  },
+  "required": [
+    "filename",
+    "reason"
+  ],
+  "title": "SkippedEntry",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

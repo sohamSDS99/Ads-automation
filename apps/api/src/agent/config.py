@@ -151,6 +151,13 @@ class Settings(BaseSettings):
     #: Files per project. A library larger than this is a content strategy, not
     #: a business context, and the nodes can only read a fraction of it anyway.
     document_max_per_project: int = 25
+    # An archive is one upload that becomes many documents, so it needs its own
+    # ceilings. The ratio is the zip-bomb guard: a folder of PDFs and Word files
+    # is already compressed and expands maybe three or four times, so 120 is far
+    # past anything honest and far below what a bomb needs to hurt.
+    archive_max_entries: int = 50
+    archive_max_total_bytes: int = 200 * 1024 * 1024
+    archive_max_ratio: int = 120
     csv_max_rows: int = 200_000
 
     # --- storage ------------------------------------------------------------
