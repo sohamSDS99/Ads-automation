@@ -24,18 +24,21 @@ from agent.api.schemas_runs import (
     LaunchRunRequest,
     NodeRunDetail,
     NodeState,
+    PresenceResponse,
     RunResponse,
+    RunViewer,
 )
 from agent.api.sse import cursor_from, sse_response
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
 from agent.db.models import NodeRun, Run, RunMode, RunStatus, RunTrigger
-from agent.db.repos import ProjectRepo, RunRepo
+from agent.db.repos import ProjectRepo, RunRepo, UserRepo
 from agent.db.session import get_session
 from agent.orchestrator.approvals import expire_pending
 from agent.orchestrator.dag import Dag, DagError, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
+from agent.orchestrator.presence import MAX_VIEWERS, RunPresence
 from agent.orchestrator.registry import NodeRegistry, get_registry
 from agent.orchestrator.state import (
     TERMINAL_STATUSES,
@@ -221,6 +224,31 @@ async def get_node_run(run_id: uuid.UUID, node_id: str, me: AnyMember, db: Db) -
     )
 
 
+@router.post(
+    "/runs/{run_id}/presence",
+    response_model=PresenceResponse,
+    summary="Check in as a viewer of this run",
+)
+async def check_in(run_id: uuid.UUID, me: AnyMember, db: Db) -> PresenceResponse:
+    """Say "I am watching this run", and get back everyone else who is.
+
+    A POST that grants nothing: it writes a 30-second mark in Redis and reads
+    the set back. `READ` is the right permission because a `viewer` watching a
+    run is precisely who this exists to show — anything stricter would make the
+    avatars a privilege rather than a courtesy.
+    """
+    run = await _load_run(db, run_id, me)
+    watching = await RunPresence(get_redis(), run.id).check_in(me.user.id)
+    names = await UserRepo(db, me.workspace_id).names(watching)
+    # Ordered by the name people read, not by Redis's lexicographic uuid order,
+    # so the row does not reshuffle itself every time someone checks in.
+    viewers = sorted(
+        (RunViewer(id=user_id, name=names[user_id]) for user_id in watching if user_id in names),
+        key=lambda viewer: viewer.name.casefold(),
+    )
+    return PresenceResponse(viewers=viewers[:MAX_VIEWERS], total=len(viewers))
+
+
 # ---------------------------------------------------------------------------
 # control
 # ---------------------------------------------------------------------------
@@ -370,6 +398,12 @@ async def _run_response(
 ) -> RunResponse:
     latest = await RunStore(db).latest_by_node(run.id)
     selected = set(_selected_ids(run, dag))
+    # The console header reads "Triggered by {name}", and a uuid is not a name.
+    # Resolved here rather than joined onto the run so a deleted user degrades
+    # to "Unknown" instead of taking the whole response down.
+    names = await UserRepo(db, run.workspace_id).names(
+        [run.triggered_by] if run.triggered_by else []
+    )
     nodes = [
         _node_state(registry, node_id, latest.get(node_id))
         for node_id in dag.node_ids
@@ -382,6 +416,7 @@ async def _run_response(
         mode=run.mode,
         trigger=run.trigger,
         triggered_by=run.triggered_by,
+        triggered_by_name=names.get(run.triggered_by) if run.triggered_by else None,
         selected_node_ids=sorted(selected),
         cost_usd=run.cost_usd,
         token_in=run.token_in,

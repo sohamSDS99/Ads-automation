@@ -89,8 +89,8 @@ export default function ProjectRunsPage({ params }: { params: Promise<{ id: stri
       ) : null}
 
       <p className="text-xs text-fg-subtle">
-        The live run console, node-by-node output and the report arrive in the next phase. Until
-        then this table is how a run is followed.
+        Open a run to follow it node by node, read what each one produced, and decide the gates it
+        stops on.
       </p>
     </div>
   );
@@ -108,9 +108,14 @@ function RunRow({ run, highlighted }: { run: RunSummary; highlighted: boolean })
       )}
     >
       <Td className="whitespace-nowrap">
-        <span id={`run-${run.id}`} className="block">
+        <Link
+          id={`run-${run.id}`}
+          href={`/projects/${run.project_id}/runs/${run.id}`}
+          className="block rounded-[var(--radius)]"
+        >
           <StatusPill status={run.status} />
-        </span>
+          <span className="sr-only">Open the console for this run</span>
+        </Link>
       </Td>
       <Td className="whitespace-nowrap text-fg-muted" title={absoluteTime(run.started_at)}>
         {relativeTime(run.started_at)}
@@ -131,6 +136,13 @@ function RunRow({ run, highlighted }: { run: RunSummary; highlighted: boolean })
       <Td className="max-w-80">
         {error ? (
           <span className="text-fg-muted">{error.message ?? error.code ?? "Failed"}</span>
+        ) : run.status === "succeeded" ? (
+          <Link
+            href={`/projects/${run.project_id}/runs/${run.id}/report`}
+            className="text-accent hover:underline"
+          >
+            Report
+          </Link>
         ) : (
           <span className="text-fg-subtle">
             {run.mode === "partial" ? "Partial run" : "Full run"}

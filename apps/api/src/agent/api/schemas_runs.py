@@ -71,6 +71,13 @@ class RunResponse(BaseModel):
     mode: RunMode
     trigger: RunTrigger
     triggered_by: uuid.UUID | None
+    triggered_by_name: str | None = Field(
+        default=None,
+        description=(
+            "Display name behind `triggered_by`. Null for a scheduled run, which has no "
+            "actor, and for a person since removed from the workspace."
+        ),
+    )
     selected_node_ids: list[str]
     cost_usd: Decimal
     token_in: int
@@ -103,3 +110,21 @@ class NodeRunDetail(BaseModel):
     started_at: datetime | None
     finished_at: datetime | None
     error: dict[str, Any] | None
+
+
+class RunViewer(BaseModel):
+    """One person with this run's console open (PRD §13.4 B)."""
+
+    id: uuid.UUID
+    name: str
+
+
+class PresenceResponse(BaseModel):
+    """`POST /runs/{id}/presence` — check in, and see who else is here.
+
+    `total` counts everyone watching; `viewers` is capped, because a console
+    drawing forty avatars is not telling anyone anything.
+    """
+
+    viewers: list[RunViewer]
+    total: int

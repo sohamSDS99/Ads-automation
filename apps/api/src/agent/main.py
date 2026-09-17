@@ -21,12 +21,12 @@ from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
 from agent.api.routes_models import router as models_router
 from agent.api.routes_projects import router as projects_router
-from agent.api.routes_reports import close_worker_client
 from agent.api.routes_reports import router as reports_router
 from agent.api.routes_runs import router as runs_router
 from agent.api.routes_sources import router as sources_router
 from agent.api.routes_users import router as users_router
 from agent.api.routes_workspace import router as workspace_router
+from agent.api.worker_files import close_worker_client
 from agent.auth.bootstrap import bootstrap_from_environment
 from agent.config import Settings, get_settings
 from agent.db.session import dispose_engine, get_sessionmaker

@@ -151,6 +151,44 @@
     "run_status": {
       "$ref": "#/$defs/RunStatus"
     },
+    "project_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Project Name"
+    },
+    "run_triggered_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Who launched the run this gate belongs to; null for a scheduled run.",
+      "title": "Run Triggered By Name"
+    },
+    "sla_hours": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Hours the project allows this gate before it is late, from `project.settings['gate_sla_hours']`. The inbox counts down against it; P8's reminder job reads the same key.",
+      "title": "Sla Hours"
+    },
     "can_decide": {
       "description": "Whether the caller may decide this gate. Server-computed and advisory \u2014 the route enforces it independently (PRD \u00a718 law 6).",
       "title": "Can Decide",

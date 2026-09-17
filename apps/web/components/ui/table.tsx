@@ -1,4 +1,4 @@
-import type { ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
+import type { HTMLAttributes, ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -45,6 +45,6 @@ export function Td({ className, ...props }: TdHTMLAttributes<HTMLTableCellElemen
   return <td className={cn("border-b px-4 py-3 align-middle text-fg", className)} {...props} />;
 }
 
-export function Tr({ className, children }: { className?: string; children: ReactNode }) {
-  return <tr className={cn("hover:bg-surface-hover/60", className)}>{children}</tr>;
+export function Tr({ className, ...props }: HTMLAttributes<HTMLTableRowElement>) {
+  return <tr className={cn("hover:bg-surface-hover/60", className)} {...props} />;
 }

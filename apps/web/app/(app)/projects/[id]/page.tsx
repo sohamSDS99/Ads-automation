@@ -96,12 +96,29 @@ function Overview({ project }: { project: ProjectDetail }) {
         <Stat label="Last run">
           {run ? (
             <div className="space-y-1.5">
-              <StatusPill status={run.status} />
+              {/* The pill is the way in: the console is where a run is read,
+                  and hunting for it through the history table is a step
+                  nobody needs. */}
+              <Link
+                href={`/projects/${project.id}/runs/${run.id}`}
+                className="inline-flex rounded-full"
+              >
+                <StatusPill status={run.status} />
+                <span className="sr-only">Open the run console</span>
+              </Link>
               <p className="text-xs text-fg-subtle" title={absoluteTime(run.started_at)}>
                 {relativeTime(run.started_at)}
                 {run.triggered_by_name ? ` · ${run.triggered_by_name}` : ""}
                 {run.trigger === "schedule" ? " · Schedule" : ""}
               </p>
+              {run.status === "succeeded" ? (
+                <Link
+                  href={`/projects/${project.id}/runs/${run.id}/report`}
+                  className="text-xs text-accent hover:underline"
+                >
+                  Read the report
+                </Link>
+              ) : null}
             </div>
           ) : (
             <p className="text-sm text-fg-muted">Never run</p>

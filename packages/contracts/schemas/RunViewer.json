@@ -1,0 +1,21 @@
+{
+  "description": "One person with this run's console open (PRD \u00a713.4 B).",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "name"
+  ],
+  "title": "RunViewer",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

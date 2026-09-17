@@ -32,6 +32,19 @@ class ApprovalItem(BaseModel):
     decided_at: datetime | None = None
     created_at: datetime
     run_status: RunStatus
+    project_name: str | None = None
+    run_triggered_by_name: str | None = Field(
+        default=None,
+        description="Who launched the run this gate belongs to; null for a scheduled run.",
+    )
+    sla_hours: int | None = Field(
+        default=None,
+        description=(
+            "Hours the project allows this gate before it is late, from "
+            "`project.settings['gate_sla_hours']`. The inbox counts down against it; "
+            "P8's reminder job reads the same key."
+        ),
+    )
     can_decide: bool = Field(
         description=(
             "Whether the caller may decide this gate. Server-computed and advisory — "
