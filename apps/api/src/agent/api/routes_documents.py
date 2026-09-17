@@ -28,6 +28,7 @@ from typing import Annotated
 import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, File, Response, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
@@ -136,19 +137,9 @@ async def upload_document(
         )
 
     digest = hashlib.sha256(content).hexdigest()
-    existing = await db.scalar(
-        sa.select(ProjectDocument).where(
-            ProjectDocument.project_id == project_id, ProjectDocument.sha256 == digest
-        )
-    )
+    existing = await _same_contents(db, project_id, digest)
     if existing is not None:
-        raise problems.Problem(
-            status_code=status.HTTP_409_CONFLICT,
-            title="Already uploaded",
-            detail=f"{existing.filename} has the same contents and is already in this project.",
-            type_=problems.TYPE_CONFLICT,
-            document_id=str(existing.id),
-        )
+        raise _already_uploaded(existing)
 
     try:
         extracted = extract(
@@ -174,7 +165,19 @@ async def upload_document(
     # The passages carry this id, so the row has to have one before they are
     # built. `flush` assigns it without ending the transaction the audit entry
     # and the evidence write still have to join.
-    await db.flush()
+    try:
+        await db.flush()
+    except IntegrityError as exc:
+        # `uq_project_document_sha`, from a second upload of the same file that
+        # got past the check above while this one was still reading. A
+        # double-clicked button is the ordinary way that happens, and the
+        # person who did it should see the same 409 the slower path gives them
+        # rather than a 500.
+        await db.rollback()
+        duplicate = await _same_contents(db, project_id, digest)
+        if duplicate is None:
+            raise
+        raise _already_uploaded(duplicate) from exc
 
     found = passages(extracted)
     document.passage_count = len(found)
@@ -292,6 +295,28 @@ async def _assert_project(db: AsyncSession, me: Principal, project_id: uuid.UUID
         await EvidenceStore(db, me.workspace_id).assert_project(project_id)
     except EvidenceScopeError as exc:
         raise problems.not_found(str(exc)) from exc
+
+
+async def _same_contents(
+    db: AsyncSession, project_id: uuid.UUID, digest: str
+) -> ProjectDocument | None:
+    """The document in this project with these exact bytes, if there is one."""
+    found: ProjectDocument | None = await db.scalar(
+        sa.select(ProjectDocument).where(
+            ProjectDocument.project_id == project_id, ProjectDocument.sha256 == digest
+        )
+    )
+    return found
+
+
+def _already_uploaded(existing: ProjectDocument) -> problems.Problem:
+    return problems.Problem(
+        status_code=status.HTTP_409_CONFLICT,
+        title="Already uploaded",
+        detail=f"{existing.filename} has the same contents and is already in this project.",
+        type_=problems.TYPE_CONFLICT,
+        document_id=str(existing.id),
+    )
 
 
 def _summary(document: ProjectDocument, uploader: str | None) -> DocumentSummary:

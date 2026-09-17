@@ -130,7 +130,9 @@ def csv_bytes(rows: list[list[str]]) -> bytes:
 
 
 def test_a_pdf_becomes_one_section_per_page() -> None:
-    document = extract("pricing.pdf", pdf_bytes(["Tier one is 49 EUR", "Tier two is 99 EUR"]), max_chars=100_000)
+    document = extract(
+        "pricing.pdf", pdf_bytes(["Tier one is 49 EUR", "Tier two is 99 EUR"]), max_chars=100_000
+    )
 
     assert [section.label for section in document.sections] == ["page 1", "page 2"]
     assert "Tier one is 49 EUR" in document.sections[0].text
@@ -252,7 +254,9 @@ def test_the_character_budget_drops_whole_pages_and_says_so() -> None:
 
 
 def test_passages_stay_inside_a_section_and_keep_reading_order() -> None:
-    document = extract("brand.md", (f"# One\n{LOREM * 8}\n\n# Two\n{LOREM * 8}").encode(), max_chars=100_000)
+    document = extract(
+        "brand.md", (f"# One\n{LOREM * 8}\n\n# Two\n{LOREM * 8}").encode(), max_chars=100_000
+    )
     found = passages(document)
 
     assert len(found) > 2

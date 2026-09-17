@@ -119,3 +119,47 @@ class _EmptyStore:
         self.db = _EmptyDb()
         self.project = SimpleNamespace(id=uuid.uuid4())
         self.scratch: dict[str, object] = {}
+
+
+def test_a_real_node_prompt_carries_the_passages_and_the_permission_to_cite_them() -> None:
+    """The wiring, proved at the far end.
+
+    `documents_block` working says nothing about whether any node calls it. This
+    builds the prompt node 1.1.5 would send — the compliance gate, the node most
+    likely to be reading a policy document someone uploaded — and looks for the
+    passage text, the id, and the line that tells the model it may cite it.
+    """
+    from agent.db.models import Project
+    from agent.nodes.stage_1_1 import ComplianceGuardrailsNode
+
+    rows = [
+        passage("policy.pdf", "page 2", 2, "We never claim a product is OSHA approved."),
+        passage("policy.pdf", "page 1", 1, "Every regulated claim needs written substantiation."),
+    ]
+    node = ComplianceGuardrailsNode()
+    ctx = SimpleNamespace(
+        project=Project(
+            id=uuid.uuid4(),
+            name="SDS Manager",
+            domain="sdsmanager.com",
+            product_context={},
+            markets=[],
+            settings={},
+        ),
+        scratch={node.spec.id: Gathered(evidence=rows)},
+        outputs={"1.1.1": {"products": []}},
+        node_id=node.spec.id,
+        output_of=lambda node_id: {"products": []},
+    )
+
+    prompt = node.user_prompt(ctx, rows)  # type: ignore[arg-type]
+
+    assert "Every regulated claim needs written substantiation." in prompt
+    assert str(rows[1].id) in prompt
+    assert prompts.DOCUMENTS_LABEL in prompt
+    # Reading order, in the prompt a model actually receives.
+    assert prompt.index("page 1") < prompt.index("page 2")
+    # And the absence case leaves no dangling heading or citation instruction.
+    ctx.scratch[node.spec.id] = Gathered(evidence=[])
+    empty = node.user_prompt(ctx, [])  # type: ignore[arg-type]
+    assert prompts.DOCUMENTS_LABEL not in empty

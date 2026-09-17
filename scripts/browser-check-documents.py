@@ -190,7 +190,17 @@ def sign_in(page: Page) -> None:
     page.wait_for_url(lambda url: "/login" not in url, timeout=20_000)
 
 
-def shoot(page: Page, name: str) -> None:
+def shoot(page: Page, name: str, focus: object | None = None) -> None:
+    """A viewport shot, scrolled so the thing being proved is in it.
+
+    `full_page=True` photographs a tall blank page here: the scroll container
+    is `<main>`, not the document. Scrolling the subject into view first is the
+    difference between a screenshot of the feature and a screenshot of the
+    header above it.
+    """
+    if focus is not None:
+        focus.scroll_into_view_if_needed()  # type: ignore[attr-defined]
+        page.wait_for_timeout(250)
     page.screenshot(path=f"{SHOT}/{name}.png")
 
 
@@ -214,7 +224,7 @@ def check_upload(page: Page, project_id: str, files: dict[str, str]) -> None:
         ".pdf" in panel.inner_text() and ".docx" in panel.inner_text(),
         panel.inner_text()[:200],
     )
-    shoot(page, "documents-empty")
+    shoot(page, "documents-empty", panel)
 
     upload(page, files["pricing.pdf"])
     page.wait_for_selector("text=pricing.pdf", timeout=30_000)
@@ -234,7 +244,7 @@ def check_upload(page: Page, project_id: str, files: dict[str, str]) -> None:
     row = library(page).inner_text()
     check("a CSV is accepted as context too", "plans.csv" in row)
     check("counted in rows, not pages", "3 rows" in row, row[:400])
-    shoot(page, "documents-two-files")
+    shoot(page, "documents-two-files", library(page))
 
     upload(page, files["scan.pdf"])
     page.wait_for_selector("text=no text layer", timeout=30_000)
@@ -245,7 +255,7 @@ def check_upload(page: Page, project_id: str, files: dict[str, str]) -> None:
         body[body.find("no text layer") - 120 : body.find("no text layer") + 160],
     )
     check("and it is not listed as if it had worked", "scan.pdf" not in library(page).inner_text())
-    shoot(page, "documents-scan-refused")
+    shoot(page, "documents-scan-refused", library(page))
 
     upload(page, files["pricing.pdf"])
     page.wait_for_selector("text=already in this project", timeout=30_000)
@@ -319,7 +329,7 @@ def check_mobile(page: Page, project_id: str) -> None:
         " return m ? m.scrollWidth - m.clientWidth : 0; }"
     )
     check("and nothing overflows sideways", overflow <= 1, f"main overflows by {overflow}px")
-    shoot(page, "documents-mobile")
+    shoot(page, "documents-mobile", library(page))
     page.set_viewport_size(DESKTOP)
 
 
