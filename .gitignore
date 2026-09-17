@@ -26,3 +26,6 @@ data/
 
 # generated from packages/contracts/schemas by `pnpm --dir packages/contracts generate`
 packages/contracts/zod/
+
+# local-only compose overrides (never committed)
+docker-compose.override.yml

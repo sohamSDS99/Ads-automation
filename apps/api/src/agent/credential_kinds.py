@@ -50,6 +50,13 @@ class KindSpec:
     #: Where in the product this credential is configured, so the two screens
     #: that write credentials can each show only their own.
     where: str
+    #: The environment variable that supplies this credential when no workspace
+    #: row overrides it, and the name the interface shows instead of a form.
+    #: The settings field is this name lowercased — `config.Settings` derives
+    #: its own names the same way, so the two cannot drift apart silently.
+    #: None means the vault is the only source: `google_ads` is that case,
+    #: because consent mints a refresh token that has to be stored somewhere.
+    env_var: str | None = None
     #: When set, this credential can be obtained by sending someone to a
     #: provider's consent screen instead of asking them to paste values. The
     #: interface reads it rather than hardcoding which kinds have a button.
@@ -132,6 +139,7 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         ),
         connector=None,
         where="settings",
+        env_var="OPENROUTER_API_KEY",
     ),
     CredentialKind.GOOGLE_ADS: KindSpec(
         kind=CredentialKind.GOOGLE_ADS,
@@ -183,6 +191,7 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         ),
         connector="serp",
         where="sources",
+        env_var="BRIGHTDATA_API_KEY",
     ),
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
@@ -197,6 +206,32 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         ),
         connector="dataforseo",
         where="sources",
+        env_var="DATAFORSEO_API_KEY",
+    ),
+    CredentialKind.WEBSHARE: KindSpec(
+        kind=CredentialKind.WEBSHARE,
+        label="Webshare",
+        description=(
+            "The exit IPs a crawl leaves through, so a 500-page pass does not "
+            "arrive at one host as 500 requests from one address."
+        ),
+        fields=(
+            FieldSpec(
+                name="api_key",
+                label="API key",
+                hint=(
+                    "The key from the Webshare dashboard. The proxy username, "
+                    "password and host are read from it, so this is the whole credential."
+                ),
+            ),
+        ),
+        # Tested by `connectors/proxy.probe`, not by a connector: the thing
+        # being proven is a transport several connectors share, and no single
+        # one of them owns it. `routes_credentials._run_test` dispatches on the
+        # kind for exactly this reason.
+        connector=None,
+        where="sources",
+        env_var="WEBSHARE_API_KEY",
     ),
 }
 

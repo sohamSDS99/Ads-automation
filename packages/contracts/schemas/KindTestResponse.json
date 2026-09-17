@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "CredentialKind": {
+      "enum": [
+        "openrouter",
+        "google_ads",
+        "dataforseo",
+        "brightdata",
+        "smtp"
+      ],
+      "title": "CredentialKind",
+      "type": "string"
+    }
+  },
+  "description": "The outcome of testing whatever currently supplies a kind.\n\nSeparate from `CredentialTestResponse` because there may be no row to name:\nan environment-supplied key is not a `Credential`, so it has no id and no\n`last_tested_at` to write the verdict back to.",
+  "properties": {
+    "kind": {
+      "$ref": "#/$defs/CredentialKind"
+    },
+    "source": {
+      "description": "`vault` or `environment` \u2014 which one answered",
+      "title": "Source",
+      "type": "string"
+    },
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "meta": {
+      "additionalProperties": true,
+      "title": "Meta",
+      "type": "object"
+    },
+    "tested_at": {
+      "format": "date-time",
+      "title": "Tested At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "source",
+    "ok",
+    "detail",
+    "tested_at"
+  ],
+  "title": "KindTestResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -41,6 +41,7 @@ from agent.api.schemas_credentials import (
     CredentialTestResponse,
     GoogleAdsAuthorizeRequest,
     GoogleAdsAuthorizeResponse,
+    KindTestResponse,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
@@ -50,7 +51,13 @@ from agent.connectors import connector_class
 from agent.connectors.base import ConnectorContext, ConnectorStatus
 from agent.connectors.google_ads import GoogleAdsConnector
 from agent.credential_kinds import KIND_SPECS, KindSpec, spec_for, unseal
-from agent.credentials import new_credential, open_credential
+from agent.credentials import (
+    MissingCredential,
+    env_secret,
+    new_credential,
+    open_credential,
+    resolve_secret,
+)
 from agent.crypto import DecryptionError, decrypt_str, encrypt
 from agent.db.models import Credential, CredentialKind, CredentialScope, Project, User
 from agent.db.session import get_session
@@ -129,10 +136,24 @@ async def list_credentials(me: AnyMember, db: Db) -> CredentialListResponse:
                 oauth_provider=spec.oauth_provider,
                 oauth_ready=_oauth_ready(spec),
                 oauth_fields=list(spec.oauth_fields),
+                env_var=spec.env_var,
+                env_configured=env_secret(spec.kind) is not None,
+                env_last4=_env_last4(spec.kind),
             )
             for spec in KIND_SPECS.values()
         ],
     )
+
+
+def _env_last4(kind: CredentialKind) -> str | None:
+    """Enough of the environment's key to recognise it, and no more.
+
+    The same four characters the vault shows for a stored secret, so a person
+    comparing "what is in my file" with "what is this deployment using" is
+    comparing like with like.
+    """
+    secret = env_secret(kind)
+    return secret[-4:] if secret else None
 
 
 def _oauth_ready(spec: KindSpec) -> bool:
@@ -272,6 +293,68 @@ async def test_credential(
         detail=outcome.detail,
         meta=_showable(outcome.meta),
         tested_at=tested_at,
+    )
+
+
+@router.post(
+    "/credentials/kinds/{kind}/test",
+    response_model=KindTestResponse,
+    summary="Prove whatever currently supplies a kind",
+)
+async def test_kind(
+    kind: CredentialKind,
+    me: AnyMember,
+    request: Request,
+    db: Db,
+) -> KindTestResponse:
+    """Test the key this workspace would actually run with.
+
+    `/credentials/{id}/test` can only test a row, which leaves the case this
+    endpoint exists for: a deployment that configured its sources in a file and
+    has no rows at all. Asking "does my key work" should not require storing one
+    first.
+
+    It resolves through `resolve_secret`, so it answers for whatever would be
+    used — a workspace override if one exists, the environment otherwise — and
+    says which of the two it found.
+    """
+    _assert_may_write(me, CredentialScope.WORKSPACE)
+    spec = spec_for(kind)
+    try:
+        secret = await resolve_secret(db, workspace_id=me.workspace_id, kind=kind)
+    except MissingCredential:
+        raise problems.unprocessable(
+            f"Nothing supplies {spec.label} in this workspace — no stored credential"
+            + (f" and no {spec.env_var}." if spec.env_var else "."),
+            fields=[spec.fields[0].name],
+        ) from None
+
+    from_env = env_secret(kind) == secret
+    outcome = await _run_test(kind, spec.connector, unseal(spec, secret))
+
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.CREDENTIAL_TESTED,
+        target_type=AuditTarget.CREDENTIAL,
+        target_id=None,
+        meta={
+            "kind": kind.value,
+            "ok": outcome.ok,
+            "detail": outcome.detail,
+            "source": "environment" if from_env else "vault",
+        },
+        ip=client_ip(request),
+    )
+    await db.commit()
+    return KindTestResponse(
+        kind=kind,
+        source="environment" if from_env else "vault",
+        ok=outcome.ok,
+        detail=outcome.detail,
+        meta=_showable(outcome.meta),
+        tested_at=datetime.now(UTC),
     )
 
 

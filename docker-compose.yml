@@ -37,6 +37,13 @@ x-api-env: &api-env
   # locally means the button says so rather than opening a dead consent screen.
   GOOGLE_ADS_OAUTH_CLIENT_ID: ${GOOGLE_ADS_OAUTH_CLIENT_ID:-}
   GOOGLE_ADS_OAUTH_CLIENT_SECRET: ${GOOGLE_ADS_OAUTH_CLIENT_SECRET:-}
+  # The source keys, when the deployment supplies them rather than the Sources
+  # screen. This list is an allow-list — a variable absent from here never
+  # reaches the container, however carefully it was set in `.env`. A workspace
+  # credential still overrides whatever is set (`credentials.resolve_secret`).
+  OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+  BRIGHTDATA_API_KEY: ${BRIGHTDATA_API_KEY:-}
+  DATAFORSEO_API_KEY: ${DATAFORSEO_API_KEY:-}
 
 services:
   postgres:
@@ -130,6 +137,13 @@ services:
       COOKIE_SECURE: "false"
       BOOTSTRAP_ADMIN_EMAIL: ""
       BOOTSTRAP_ADMIN_PASSWORD: ""
+      # Blanked for the same reason as the bootstrap admin: `<<: *api-env` pulls
+      # whatever is in `.env`, and a suite that can see a real key stops testing
+      # the unconfigured path. `test_models_api` asserts a 409 when nothing
+      # supplies OpenRouter — with a live key inherited here it got a 200.
+      OPENROUTER_API_KEY: ""
+      BRIGHTDATA_API_KEY: ""
+      DATAFORSEO_API_KEY: ""
     volumes:
       - ./apps/api/src:/app/src
       - ./apps/api/tests:/app/tests

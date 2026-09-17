@@ -15,6 +15,7 @@ import {
   deleteCredential,
   startGoogleAdsOauth,
   testCredential,
+  testCredentialKind,
   type AccessibleAccount,
   type CredentialKindInfo,
   type CredentialScope,
@@ -57,6 +58,10 @@ export function CredentialCard({
   const [byHand, setByHand] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  //: Only for the environment-supplied case. A stored credential carries its own
+  //: `last_test_ok`; a variable in a file has nowhere to write one back to, so
+  //: the verdict lives for as long as the screen does and no longer.
+  const [envVerdict, setEnvVerdict] = useState<"ok" | "failed" | null>(null);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.credentials });
 
@@ -78,6 +83,20 @@ export function CredentialCard({
     mutationFn: (id: string) => testCredential(id),
     onSuccess: async (result) => {
       await invalidate();
+      if (result.ok) toast.success(`${spec.label} is working`, { description: result.detail });
+      else toast.error(`${spec.label} did not answer`, { description: result.detail });
+    },
+    onError: (err) =>
+      toast.error("The test could not run", {
+        description: err instanceof ApiError ? err.detail : "Try again in a moment.",
+      }),
+  });
+
+  //: The environment's key has no id, so it cannot go through `testCredential`.
+  const testFromEnv = useMutation({
+    mutationFn: () => testCredentialKind(spec.kind),
+    onSuccess: (result) => {
+      setEnvVerdict(result.ok ? "ok" : "failed");
       if (result.ok) toast.success(`${spec.label} is working`, { description: result.detail });
       else toast.error(`${spec.label} did not answer`, { description: result.detail });
     },
@@ -132,7 +151,17 @@ export function CredentialCard({
   useOauthOutcome(spec, invalidate);
 
   const connected = Boolean(credential);
-  const showForm = canWrite && (editing || !connected);
+  /**
+   * This source works with nothing typed, because the deployment put its key in
+   * the environment and no workspace row overrides it.
+   *
+   * A stored credential still wins — `resolve_secret` looks in the vault first —
+   * so this is only ever the state of a card with no row behind it.
+   */
+  const fromEnv = !connected && Boolean(spec.env_configured);
+  // The form is not the default when the environment already answered: it is
+  // the override, and it opens on request.
+  const showForm = canWrite && (editing || (!connected && !fromEnv));
   const missingRequired = asked.some((field) => field.required && !values[field.name]?.trim());
 
   return (
@@ -141,11 +170,47 @@ export function CredentialCard({
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="font-medium text-fg">{spec.label}</h3>
-            <ConnectionState credential={credential} />
+            <ConnectionState credential={credential} fromEnv={fromEnv} />
           </div>
           <p className="mt-1 max-w-prose text-sm text-fg-muted">{spec.description}</p>
           {credential ? <Hints credential={credential} /> : null}
+          {fromEnv ? (
+            <p className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-fg-muted">
+              <span>
+                Using <code className="font-mono">{spec.env_var}</code> from the environment
+              </span>
+              {spec.env_last4 ? (
+                <span className="font-mono">••••{spec.env_last4}</span>
+              ) : null}
+              {envVerdict ? (
+                <span
+                  className={
+                    envVerdict === "ok" ? "text-status-succeeded" : "text-status-failed"
+                  }
+                >
+                  {envVerdict === "ok" ? "Working" : "Last test failed"}
+                </span>
+              ) : null}
+            </p>
+          ) : null}
         </div>
+
+        {fromEnv && canWrite ? (
+          <div className="flex shrink-0 items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={testFromEnv.isPending}
+              onClick={() => testFromEnv.mutate()}
+            >
+              {testFromEnv.isPending ? <Spinner label="Testing" /> : <Plug aria-hidden />}
+              Test
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setEditing((on) => !on)}>
+              {editing ? "Cancel" : "Override for this workspace"}
+            </Button>
+          </div>
+        ) : null}
 
         {connected && canWrite ? (
           <div className="flex shrink-0 items-center gap-2">
@@ -305,8 +370,20 @@ function useOauthOutcome(spec: CredentialKindInfo, invalidate: () => Promise<voi
   }, [provider, spec.label, invalidate]);
 }
 
-function ConnectionState({ credential }: { credential: CredentialSummary | undefined }) {
+function ConnectionState({
+  credential,
+  fromEnv,
+}: {
+  credential: CredentialSummary | undefined;
+  fromEnv?: boolean;
+}) {
   if (!credential) {
+    // "Not connected" next to a source the deployment already configured is
+    // simply false: the run would use it. The line below the description names
+    // the variable, so the state here says configured and leaves it at that.
+    if (fromEnv) {
+      return <span className="text-xs text-fg-muted">Configured</span>;
+    }
     return <span className="text-xs text-fg-subtle">Not connected</span>;
   }
   if (credential.last_test_ok === true) {

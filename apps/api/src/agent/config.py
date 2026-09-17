@@ -122,6 +122,22 @@ class Settings(BaseSettings):
     serp_max_keywords: int = 25
     serp_max_results: int = 20
     serp_concurrency: int = 4
+    # webshare: the exit IP an outbound crawl leaves through — `connectors/proxy.py`
+    # explains which connectors use it and, more importantly, which measured
+    # reasons keep `serp`, `transparency` and the vitals pass off it. Shape, not
+    # secret: the account is `CredentialKind.WEBSHARE` and it is one API key.
+    webshare_api_url: str = "https://proxy.webshare.io/api/v2"
+    #: The rotating endpoint — one address, a new exit per request. The
+    #: thousand-row proxy list is the alternative and it makes us the balancer.
+    webshare_proxy_host: str = "p.webshare.io"
+    webshare_proxy_port: int = 80
+    #: Which country crawl traffic leaves from. Empty means anywhere in the
+    #: pool; a country the plan has not allocated is ignored with a log line
+    #: rather than sent, because Webshare answers that as an auth failure.
+    webshare_country: str = "us"
+    #: How long a resolved proxy pair is reused. A 500-URL crawl must resolve
+    #: the account once, and the credential cannot change inside a run.
+    webshare_cache_ttl_s: float = 900.0
     # web_crawler: PRD §9.4 caps — 500 URLs, depth 3.
     crawl_max_urls: int = 500
     crawl_max_depth: int = 3
@@ -190,6 +206,21 @@ class Settings(BaseSettings):
 
     # --- budget -------------------------------------------------------------
     max_run_cost_usd: Decimal = Decimal("15.00")
+
+    # --- source keys supplied by the deployment ----------------------------
+    # Every one of these is the same credential the Sources screen can hold, but
+    # named here so an operator can configure a deployment without opening the
+    # interface at all. A workspace row still wins when one exists: see
+    # `credentials.resolve_secret`. `google_ads` is deliberately absent — its
+    # secret is a refresh token that consent mints, so there is nothing for a
+    # person to paste into a file.
+    #
+    # The names are not free: `credential_kinds.KindSpec.env_var` lowercased is
+    # the field read here, so these four must keep matching those four.
+    openrouter_api_key: SecretStr | None = None
+    brightdata_api_key: SecretStr | None = None
+    dataforseo_api_key: SecretStr | None = None
+    webshare_api_key: SecretStr | None = None
 
     # --- smtp (all optional; without it invites fall back to copyable links)
     smtp_host: str | None = None

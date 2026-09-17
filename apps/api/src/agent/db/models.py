@@ -64,6 +64,7 @@ class CredentialKind(StrEnum):
     GOOGLE_ADS = "google_ads"
     DATAFORSEO = "dataforseo"
     BRIGHTDATA = "brightdata"
+    WEBSHARE = "webshare"
     SMTP = "smtp"
 
 
