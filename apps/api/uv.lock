@@ -33,6 +33,7 @@ dependencies = [
     { name = "selectolax" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "structlog" },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
     { name = "weasyprint" },
 ]
@@ -73,6 +74,7 @@ requires-dist = [
     { name = "selectolax", specifier = ">=0.3.21" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.36" },
     { name = "structlog", specifier = ">=24.4.0" },
+    { name = "tzdata", specifier = ">=2025.2" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34.0" },
     { name = "weasyprint", specifier = ">=63.1" },
 ]

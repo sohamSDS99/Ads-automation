@@ -29,6 +29,9 @@ no(){ printf "  \033[31mFAIL\033[0m %s — %s\n" "$1" "${2:-}"; FAIL=$((FAIL+1))
 chk(){ [ "$2" = "$3" ] && ok "$1" || no "$1" "expected $3, got $2"; }
 ne(){ [ "$2" != "$3" ] && ok "$1" || no "$1" "did not expect $3"; }
 has(){ case "$2" in *"$3"*) ok "$1";; *) no "$1" "missing: $3";; esac; }
+# Headers come back in the server's own casing. Lowercasing both sides is the
+# only comparison that is actually about the header being present.
+hasi(){ has "$1" "$(printf '%s' "$2" | tr 'A-Z' 'a-z')" "$(printf '%s' "$3" | tr 'A-Z' 'a-z')"; }
 jq_(){ python3 -c "import sys,json;d=json.load(sys.stdin);print($1)" 2>/dev/null; }
 
 A=$(mktemp)
@@ -44,7 +47,11 @@ send(){ curl -s -b "$1" -c "$1" -X "$2" -H "X-CSRF-Token: $(csrf "$1")" \
 send_code(){ curl -s -o /dev/null -w '%{http_code}' -b "$1" -c "$1" -X "$2" \
         -H "X-CSRF-Token: $(csrf "$1")" -H 'Content-Type: application/json' ${4:+-d "$4"} "$B$3"; }
 worker(){ $COMPOSE exec -T worker "$@"; }
-pysh(){ worker uv run python -c "$1"; }
+# Errors are never swallowed: a setup step that fails silently turns the check
+# it was preparing into a false negative, and the whole point of this file is
+# that a quiet failure is the one to be afraid of.
+pysh(){ worker uv run python -c "$1" 2>&1 | grep -v "^Bytecode compiled"; }
+pysh_last(){ pysh "$1" | tail -1; }
 
 echo "── 0. sign in ──────────────────────────────────────────────────────────"
 ROLE=$(login "$A" "$ADMIN_EMAIL" "$ADMIN_PASSWORD" | jq_ 'd["role"]')
@@ -59,15 +66,16 @@ ne "a project exists to schedule" "$PROJECT" ""
 
 echo "── 1. security headers (PRD §17 P8, security pass) ─────────────────────"
 H=$(curl -s -D - -o /dev/null "$B/health")
-has "CSP denies everything on the API" "$H" "default-src 'none'"
-has "frame-ancestors is none" "$H" "frame-ancestors 'none'"
-has "Permissions-Policy names the features we never use" "$H" "camera=()"
-has "Cross-Origin-Opener-Policy is same-origin" "$H" "same-origin"
-has "workspace data is never cached by an intermediary" "$H" "no-store"
-has "every response carries a request id" "$H" "x-request-id"
+hasi "CSP denies everything on the API" "$H" "default-src 'none'"
+hasi "frame-ancestors is none" "$H" "frame-ancestors 'none'"
+hasi "Permissions-Policy names the features we never use" "$H" "camera=()"
+hasi "Cross-Origin-Opener-Policy is same-origin" "$H" "same-origin"
+hasi "workspace data is never cached by an intermediary" "$H" "no-store"
+hasi "every response carries a request id" "$H" "x-request-id"
 
 HTML=$(curl -s -D - -o /dev/null "$BASE/login")
-has "the document has its own CSP" "$HTML" "content-security-policy"
+hasi "the document has its own CSP" "$HTML" "content-security-policy"
+hasi "the document CSP confines scripts to this origin" "$HTML" "script-src 'self'"
 has "the app refuses to be framed" "$HTML" "frame-ancestors 'none'"
 case "$HTML" in *"x-powered-by"*) no "the framework version is not advertised" "X-Powered-By present";; *) ok "the framework version is not advertised";; esac
 
@@ -94,18 +102,22 @@ ne "resuming restores it" \
 echo "── 3. a scheduled run executes unattended ──────────────────────────────"
 # Make it due, then run one poll tick inside the worker — the process that owns
 # the cron in production.
-pysh "
-import asyncio, datetime as dt, sqlalchemy as sa
+DUE=$(pysh_last "
+import asyncio, uuid, datetime as dt, sqlalchemy as sa
 from agent.db.session import get_sessionmaker
 from agent.db.models import Schedule
 async def main():
     async with get_sessionmaker()() as s:
-        await s.execute(sa.update(Schedule).where(Schedule.id=='$SCHED').values(
+        # uuid.UUID, not the string: the column is UUID and a text comparison
+        # matches nothing, silently, leaving the poller with nothing to find.
+        r = await s.execute(sa.update(Schedule).where(Schedule.id==uuid.UUID('$SCHED')).values(
             enabled=True, next_at=dt.datetime.now(dt.UTC) - dt.timedelta(minutes=1)))
         await s.commit()
+        print(r.rowcount)
 asyncio.run(main())
-" >/dev/null 2>&1
-POLL=$(pysh "
+")
+chk "the schedule was made due" "$DUE" "1"
+POLL=$(pysh_last "
 import asyncio, json
 from agent.db.session import get_sessionmaker
 from agent.redis_client import get_redis
@@ -115,7 +127,7 @@ async def main():
         out = await poll_schedules(s, get_redis())
         print(json.dumps({'launched':[str(r) for r in out.launched],'busy':len(out.skipped_busy)}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 RUN_ID=$(echo "$POLL" | jq_ 'd["launched"][0] if d["launched"] else ""')
 ne "the poller launched a run" "$RUN_ID" ""
 
@@ -130,7 +142,7 @@ if [ -n "$RUN_ID" ]; then
 fi
 
 echo "── 4. the reaper ───────────────────────────────────────────────────────"
-REAPED=$(pysh "
+REAPED=$(pysh_last "
 import asyncio, json, uuid, datetime as dt
 from agent.db.session import get_sessionmaker
 from agent.db.models import Run, RunStatus, RunTrigger, Project
@@ -149,13 +161,29 @@ async def main():
         print(json.dumps({'reaped': str(rid) in [str(x) for x in out.orphaned],
                           'status': run.status.value, 'code': (run.error or {}).get('code')}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 chk "a run with no heartbeat is reaped" "$(echo "$REAPED" | jq_ 'str(d["reaped"])')" "True"
 chk "and is left in a terminal state" "$(echo "$REAPED" | jq_ 'd["status"]')" "failed"
 chk "with a reason a person can act on" "$(echo "$REAPED" | jq_ 'd["code"]')" "reaped"
 
 echo "── 5. an SLA reminder fires ────────────────────────────────────────────"
-REMIND=$(pysh "
+# `notify_targets` deliberately does not mail admins, so a workspace whose only
+# member is the bootstrap admin has nobody to remind. Make one.
+APPROVER_EMAIL="p8-approver@example.com"
+EXISTS=$(get "$A" "/users" | jq_ "sum(1 for u in d['users'] if u['email']=='$APPROVER_EMAIL')")
+if [ "$EXISTS" = "0" ]; then
+  LINK=$(send "$A" POST "/users/invite" \
+    "{\"email\":\"$APPROVER_EMAIL\",\"name\":\"P8 Approver\",\"role\":\"approver\"}" | jq_ 'd["link"]')
+  TOKEN=${LINK##*/}
+  J=$(mktemp)
+  curl -s -c "$J" -b "$J" -H "X-CSRF-Token: $(csrf "$J")" -H 'Content-Type: application/json' \
+    -d "{\"name\":\"P8 Approver\",\"password\":\"verify-p8-approver-passphrase\"}" \
+    "$B/invites/$TOKEN/accept" >/dev/null
+  rm -f "$J"
+fi
+ne "an approver exists to be reminded" "$(get "$A" "/users" | jq_ "sum(1 for u in d['users'] if u['role']=='approver')")" "0"
+
+REMIND=$(pysh_last "
 import asyncio, json, datetime as dt, sqlalchemy as sa
 from agent.db.session import get_sessionmaker
 from agent.db.models import Approval, ApprovalStatus, ApprovalRequiredRole, Run, RunStatus, RunTrigger, Project
@@ -177,7 +205,7 @@ async def main():
         print(json.dumps({'first': [m for _i, m in first.sent], 'second': len(second.sent),
                           'recorded': a.reminders_sent, 'still_pending': a.status.value}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 has "a gate past half its SLA is nudged" "$(echo "$REMIND" | jq_ 'd["first"]')" "half"
 chk "a milestone fires exactly once" "$(echo "$REMIND" | jq_ 'd["second"]')" "0"
 has "the nudge is recorded on the approval" "$(echo "$REMIND" | jq_ 'd["recorded"]')" "half"
@@ -187,14 +215,14 @@ echo "── 6. pg_dump lands in /data/backups/ ──────────�
 chk "pg_dump is on the worker's PATH" "$(worker sh -c 'command -v pg_dump >/dev/null && echo yes || echo no' 2>/dev/null | tr -d '\r')" "yes"
 CLIENT=$(worker sh -c 'pg_dump --version' 2>/dev/null | tr -d '\r')
 has "and is new enough for a PG16 server" "$CLIENT" "16."
-BACKUP=$(pysh "
+BACKUP=$(pysh_last "
 import asyncio, json
 from agent.scheduling.backups import run_backup
 async def main():
     r = await run_backup()
     print(json.dumps({'key': r.key, 'bytes': r.bytes}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 has "ACCEPTANCE: the dump lands under backups/" "$(echo "$BACKUP" | jq_ 'd["key"]')" "backups/"
 LANDED=$(worker sh -c 'ls -1 /data/backups/*.dump 2>/dev/null | wc -l' 2>/dev/null | tr -d ' \r')
 ne "the file is on the Volume" "$LANDED" "0"
@@ -202,7 +230,7 @@ SIZE=$(echo "$BACKUP" | jq_ 'd["bytes"]')
 [ "${SIZE:-0}" -gt 1000 ] && ok "and it is not an empty dump ($SIZE bytes)" || no "and it is not an empty dump" "got ${SIZE:-0} bytes"
 
 echo "── 7. retention prunes, and tells the database it did ──────────────────"
-PRUNE=$(pysh "
+PRUNE=$(pysh_last "
 import asyncio, json, os, time
 from agent.config import get_settings
 from agent.db.session import get_sessionmaker
@@ -221,7 +249,7 @@ async def main():
                       'new_kept': st.exists('debug/transparency/verify-p8-new.html'),
                       'objects': out.usage.objects if out.usage else 0}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 chk "an aged-out dump is deleted" "$(echo "$PRUNE" | jq_ 'str(d["old_gone"])')" "True"
 chk "a fresh one is kept" "$(echo "$PRUNE" | jq_ 'str(d["new_kept"])')" "True"
 
@@ -233,35 +261,48 @@ ne "it reports objects on the Volume" "$(echo "$USAGE" | jq_ 'd["objects"]')" "0
 has "and the retention windows behind them" "$(echo "$USAGE" | jq_ 'sorted(d["retention"])')" "screenshots"
 
 echo "── 9. the diff endpoint ────────────────────────────────────────────────"
-DIFF=$(pysh "
-import asyncio, json, uuid, datetime as dt, sqlalchemy as sa
-from pathlib import Path
+DIFF=$(pysh_last "
+import asyncio, json, datetime as dt, sqlalchemy as sa
 from agent.db.session import get_sessionmaker
 from agent.db.models import Project, Report, Run, RunStatus, RunTrigger
 async def main():
-    payload = json.loads(Path('tests/fixtures/report_golden.json').read_text())
+    # Built from the contract rather than read from tests/fixtures: the worker
+    # image ships no test tree, and a production image is the right place for
+    # that boundary to hold.
     async with get_sessionmaker()() as s:
         p = (await s.execute(sa.select(Project).limit(1))).scalar_one()
         made = []
-        for verdict in ('go_with_fixes', 'no_go'):
+        for verdict, questions in (('go_with_fixes', []), ('no_go', ['Is the new pricing live?'])):
             run = Run(workspace_id=p.workspace_id, project_id=p.id, trigger=RunTrigger.MANUAL,
                       status=RunStatus.SUCCEEDED, finished_at=dt.datetime.now(dt.UTC),
                       parent_run_id=made[0] if made else None)
             s.add(run); await s.flush()
-            body = dict(payload, run_id=str(run.id), project_id=str(p.id),
-                        launch_readiness=verdict)
+            body = {
+                'schema_version': '1.0',
+                'project_id': str(p.id),
+                'run_id': str(run.id),
+                'generated_at': dt.datetime.now(dt.UTC).isoformat(),
+                'executive_summary': 'A verification report for the diff endpoint.',
+                'launch_readiness': verdict,
+                'open_questions': questions,
+            }
             s.add(Report(run_id=run.id, schema_version='1.0', payload=body, markdown='#'))
             made.append(run.id)
         await s.commit()
         print(json.dumps({'first': str(made[0]), 'second': str(made[1])}))
 asyncio.run(main())
-" 2>/dev/null | tail -1)
+")
 SECOND=$(echo "$DIFF" | jq_ 'd["second"]')
+ne "two comparable runs were seeded" "$SECOND" ""
 if [ -n "$SECOND" ]; then
   D=$(get "$A" "/runs/$SECOND/diff")
   chk "GET /runs/{id}/diff answers" "$(code "$A" "/runs/$SECOND/diff")" "200"
   chk "it defaults to the run's parent" "$(echo "$D" | jq_ 'str(d["against_is_parent"])')" "True"
-  has "and names the verdict that moved" "$(echo "$D" | jq_ '[c["field"] for c in d["scalars"]]')" "Launch readiness"
+  # Single quotes inside, double outside: the reverse nests a backslash-escaped
+  # quote into Python and `jq_` swallows the SyntaxError, which reads as a
+  # missing field rather than as a broken check.
+  has "and names the verdict that moved" "$(echo "$D" | jq_ "[c['field'] for c in d['scalars']]")" "Launch readiness"
+  has "and the record that was added" "$(echo "$D" | jq_ "[i['label'] for s in d['sections'] for i in s['items']]")" "Is the new pricing live?"
   chk "a first run has nothing to compare against" \
       "$(code "$A" "/runs/$(echo "$DIFF" | jq_ 'd["first"]')/diff")" "422"
 fi
