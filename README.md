@@ -122,6 +122,89 @@ every range carries the `method` that produced it, the `basis` it used and a
 confidence that drops to `low` when the only signal is how many ads we saw. With
 no signal at all it returns `insufficient_evidence` rather than a number.
 
+## Connecting Google Ads
+
+`connectors/google_ads.py` is the only source that reads *our own* history:
+twenty-four months of campaign P&L, search terms, past creative, the change log,
+impression share, conversion actions and audience lists. Four nodes read it, and
+PRD §16 says a missing account degrades rather than fails — so an unconnected or
+half-connected account costs a thinner report and no error at all. That is why
+there is a verification script.
+
+**Google Ads has no API key.** A call carries two separate things:
+
+- a **developer token**, issued once in the manager account under Tools &
+  Settings -> API Center, which says this tool may use the API at all;
+- an **OAuth access token** for a Google user, which says whose accounts it may
+  read. That one is minted from a `client_id`/`client_secret`/`refresh_token`
+  trio, and it is the part that cannot be typed from memory.
+
+**The normal way in is a button.** The Sources step shows *Continue with
+Google*: whoever owns the Ads account types the developer token, signs in with
+their own Google account, approves read access, and the refresh token is sealed
+into the vault by the callback. They never see a token, and neither does anyone
+else — which matters, because the person with the Ads login is usually not the
+person who installed this, and the alternative is asking them to run a terminal.
+
+That needs one thing from the deployment: an OAuth client, in the environment
+rather than the vault (it belongs to the installation, not to the workspace —
+same rule as SMTP, PRD §18 law 9).
+
+```bash
+GOOGLE_ADS_OAUTH_CLIENT_ID=…apps.googleusercontent.com
+GOOGLE_ADS_OAUTH_CLIENT_SECRET=GOCSPX-…
+```
+
+Register this exact redirect URI on it, or Google refuses before the consent
+screen renders:
+
+```
+<APP_BASE_URL>/api/v1/credentials/google-ads/callback
+```
+
+In production that means an OAuth client of type **Web application**. A
+**Desktop app** client also works while `APP_BASE_URL` is a localhost address,
+because Google treats that as a loopback redirect — which is why local
+development needs no second client.
+
+**The operator's way in is the script**, for when nobody is available to click:
+
+```bash
+make google-ads-oauth      # consent in the browser -> refresh token + account ids
+make verify-google-ads     # proves the whole path against the live account
+```
+
+`scripts/google-ads-oauth.py` opens the same consent screen, catches the
+redirect on a loopback port, exchanges the code for an *offline* refresh token,
+then asks `customers:listAccessibleCustomers` which accounts that consent
+actually reaches and names each one — so the customer id that gets stored is one
+you have seen answer, not one copied off a dashboard. The card keeps a *Paste
+all values instead* toggle for the five values it prints.
+
+Both paths pick the account the same way: the first accessible account that is
+**not** a manager. A manager account holds no campaigns, so connecting one would
+report success and then find nothing. Every account the grant reaches is
+recorded in the credential's hints, so a workspace with several can see what it
+chose between.
+
+Two things that are easy to get wrong, and both fail quietly:
+
+- **The API version is pinned and versions are retired on a schedule.**
+  `google_ads_api_version` is `v25` (sunset August 2027). A retired version does
+  not answer with a Google Ads error — it answers with the front end's HTML 404,
+  which is why the connector names the version in that case rather than passing
+  on a parse failure.
+- **The change log is windowed by Google, not by us.** Change events must be
+  asked for inside the last 30 days and with a `LIMIT` of at most 10,000. A
+  wider window is a rejected query rather than a longer history, and because a
+  failed pull degrades the run instead of ending it, the only symptom would be a
+  report that never mentions what changed in the account.
+
+`scripts/google_ads_pull.py` (inside the `api` container) pulls history on
+demand — the same vault credential, connector and evidence store a node's pull
+uses, without waiting for a run. `--dry-run` fetches without writing, which is
+the quickest way to answer "does this credential actually work".
+
 ## The SERP source
 
 `connectors/serp.py` buys one live Google result page per money term through a

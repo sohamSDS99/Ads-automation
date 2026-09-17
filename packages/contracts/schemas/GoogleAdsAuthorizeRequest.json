@@ -1,0 +1,29 @@
+{
+  "description": "Begin a Google Ads consent, carrying the one value consent cannot supply.",
+  "properties": {
+    "developer_token": {
+      "maxLength": 8192,
+      "minLength": 1,
+      "title": "Developer Token",
+      "type": "string"
+    },
+    "login_customer_id": {
+      "default": "",
+      "description": "Manager (MCC) id, only when the account is reached through one",
+      "title": "Login Customer Id",
+      "type": "string"
+    },
+    "return_to": {
+      "default": "/settings",
+      "description": "Where to send the browser afterwards; a path on this app, never a URL",
+      "title": "Return To",
+      "type": "string"
+    }
+  },
+  "required": [
+    "developer_token"
+  ],
+  "title": "GoogleAdsAuthorizeRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

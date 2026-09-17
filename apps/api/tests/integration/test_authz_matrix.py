@@ -216,6 +216,23 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         None,
     ),
     ("DELETE", "/credentials/{credential_id}", "/credentials/{target}", Permission.READ, None),
+    # The Google Ads consent pair declares `read` and narrows to
+    # `credential_write` inside, like every other route that writes a shared
+    # credential. `test_google_ads_oauth_api.py` covers that narrowing.
+    (
+        "POST",
+        "/credentials/google-ads/authorize",
+        "/credentials/google-ads/authorize",
+        Permission.READ,
+        {"developer_token": "matrix-probe", "return_to": "/settings"},
+    ),
+    (
+        "GET",
+        "/credentials/google-ads/callback",
+        "/credentials/google-ads/callback",
+        Permission.READ,
+        None,
+    ),
     ("GET", "/models", "/models", Permission.SETTINGS_WRITE, None),
     # P8. Schedules are written by settings holders rather than by run
     # operators: a schedule is a standing instruction to spend unattended, which

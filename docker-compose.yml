@@ -33,6 +33,10 @@ x-api-env: &api-env
   WORKER_INTERNAL_URL: http://worker:8081
   MAX_RUN_COST_USD: ${MAX_RUN_COST_USD:-15.00}
   CORS_ORIGINS: http://localhost:3000
+  # The OAuth client the Sources screen's "Continue with Google" uses. Unset
+  # locally means the button says so rather than opening a dead consent screen.
+  GOOGLE_ADS_OAUTH_CLIENT_ID: ${GOOGLE_ADS_OAUTH_CLIENT_ID:-}
+  GOOGLE_ADS_OAUTH_CLIENT_SECRET: ${GOOGLE_ADS_OAUTH_CLIENT_SECRET:-}
 
 services:
   postgres:

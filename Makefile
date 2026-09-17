@@ -95,6 +95,20 @@ verify-p8: ## Run P8's exit criteria against the running stack
 verify-serp: ## Prove the SERP source and the OpenRouter key against both live accounts
 	./scripts/verify-serp.sh
 
+verify-google-ads: ## Prove our own account history against the live Google Ads API
+	./scripts/verify-google-ads.sh
+
+google-ads-oauth: ## Mint a Google Ads refresh token and list the accounts it reaches
+	python3 scripts/google-ads-oauth.py --write-env
+
+browser-google-ads: ## Assert the Sources step offers Google sign-in, at 1440 and 390
+	@docker compose cp scripts/browser-check-google-ads.py worker:/tmp/browser-check-google-ads.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+		-e PROJECT_ID="$(PROJECT_ID)" worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-google-ads.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
 browser-serp: ## Render the Sources step and assert the SERP card at 1440 and 390
 	@docker compose cp scripts/browser-check-serp.py worker:/tmp/browser-check-serp.py
 	@docker compose exec -T worker mkdir -p /tmp/shots

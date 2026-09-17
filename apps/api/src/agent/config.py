@@ -85,8 +85,18 @@ class Settings(BaseSettings):
     connector_max_retries: int = 3
 
     # google_ads: the REST surface, not the gRPC SDK. See `connectors/google_ads.py`.
-    google_ads_api_version: str = "v18"
+    # v18 was retired: `POST /v18/customers/…/googleAds:searchStream` answers 404
+    # (an HTML one, from the front end — not a JSON API error). Measured
+    # 2026-09-17: v17-v21 are gone, v22+ answer 401. v25 is the newest
+    # *released* version (sunset August 2027, the longest runway on offer).
+    google_ads_api_version: str = "v25"
     google_ads_base_url: str = "https://googleads.googleapis.com"
+    # The OAuth *client* belongs to the deployment, not to the workspace — the
+    # same reason SMTP is read from the environment and is not a vault kind
+    # (PRD §18 law 9). What the workspace owns is the grant a person makes
+    # against it, and that is sealed in the vault like any other secret.
+    google_ads_oauth_client_id: str = ""
+    google_ads_oauth_client_secret: str = ""
     google_ads_lookback_months: int = 24
 
     dataforseo_base_url: str = "https://api.dataforseo.com/v3"

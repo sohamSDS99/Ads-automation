@@ -25,6 +25,17 @@ export type CredentialKindInfo = {
   /** Which screen configures it: `settings` or `sources`. */
   where: "settings" | "sources";
   fields: CredentialField[];
+  /** When set, this kind can be connected by consent instead of by typing. */
+  oauth_provider: string | null;
+  /** The fields consent supplies, which the form must therefore not ask for. */
+  oauth_fields: string[];
+};
+
+/** One account a Google Ads grant reaches, as the callback recorded it. */
+export type AccessibleAccount = {
+  customer_id: string;
+  name: string | null;
+  manager: boolean;
 };
 
 export type CredentialSummary = {
@@ -33,7 +44,8 @@ export type CredentialSummary = {
   scope: CredentialScope;
   project_id: string | null;
   user_id: string | null;
-  meta: Record<string, string | number | boolean | null>;
+  /** Masked hints only. `accessible` is a list, everything else is a scalar. */
+  meta: Record<string, string | number | boolean | null | AccessibleAccount[]>;
   created_at: string;
   created_by: string;
   created_by_name: string | null;
@@ -64,6 +76,24 @@ export function createCredential(body: {
   values: Record<string, string>;
 }): Promise<CredentialSummary> {
   return apiFetch("/credentials", { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * Begin a Google Ads consent.
+ *
+ * Returns the URL to send the browser to — this does not navigate, because the
+ * caller may want to handle the failure (no OAuth client configured, say)
+ * without having left the page.
+ */
+export function startGoogleAdsOauth(body: {
+  developer_token: string;
+  login_customer_id?: string;
+  return_to: string;
+}): Promise<{ url: string }> {
+  return apiFetch("/credentials/google-ads/authorize", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 }
 
 export function testCredential(id: string): Promise<CredentialTest> {
