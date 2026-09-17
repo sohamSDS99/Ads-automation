@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.2.3 `failed_experiments` \u2014 the institutional memory that stops a repeat.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "what": {
       "title": "What",
       "type": "string"

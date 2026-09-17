@@ -4,6 +4,14 @@
       "additionalProperties": true,
       "description": "1.5.3 \u26f3 `audience_consent_check` \u2014 gated on an `approver` (data officer).",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -68,6 +76,14 @@
       "additionalProperties": true,
       "description": "1.5.2 `tracking_probe`.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "name": {
           "title": "Name",
           "type": "string"
@@ -120,6 +136,14 @@
       "additionalProperties": true,
       "description": "1.5.1 `landing_page_audit`.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "url": {
           "title": "Url",
           "type": "string"
@@ -218,6 +242,14 @@
       "additionalProperties": true,
       "description": "1.5.4 `opportunity_sizing` \u2014 arithmetic in Python, assumptions from the model.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "budget_usd_month": {
           "minimum": 0,
           "title": "Budget Usd Month",

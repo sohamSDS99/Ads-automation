@@ -39,15 +39,31 @@ def by_kind(drafts: list[Any], kind: str) -> list[Any]:
     return [draft for draft in drafts if draft.kind == kind]
 
 
-def test_all_five_prd_pulls_are_declared() -> None:
-    """PRD §9.1 lists five; a missing one is a silently narrower research corpus."""
+def test_every_declared_pull_is_present() -> None:
+    """PRD §9.1 lists five; stage 1.5 needs two more, and a missing one is a
+    silently narrower research corpus rather than a visible failure."""
     assert set(QUERIES) == {
         "campaign_perf",
         "search_term_pnl",
         "creative_history",
         "change_log",
         "keyword_impression_share",
+        # 1.5.2 reads the first, 1.5.3 the second.
+        "conversion_action",
+        "audience_list",
     }
+
+
+def test_the_conversion_window_is_shorter_than_the_history_window() -> None:
+    """Conversion actions are pulled per *day*. Two years of daily rows per
+    action is a large answer to a question the last quarter answers."""
+    start, end, change_start, recent_start = connector()._window({"end": "2025-06-30"})
+    assert start < recent_start < end
+    assert recent_start == "2025-04-01"
+    assert change_start.startswith(recent_start)
+    assert "{recent_start}" not in QUERIES["conversion_action"].format(
+        start=start, end=end, change_start=change_start, recent_start=recent_start
+    )
 
 
 def test_micros_conversion() -> None:
@@ -165,3 +181,47 @@ async def test_a_missing_customer_id_is_named() -> None:
     )
     with pytest.raises(ConnectorAuthError, match="customer_id"):
         await bare.fetch({})
+
+
+async def test_a_conversion_action_arrives_dated_so_staleness_is_computable(cassette) -> None:
+    """`last_conversion_at` is not a field Google returns — it is derived from
+    dated rows, so the rows have to keep their date."""
+    with cassette("google_ads_search.yaml"):
+        rows = by_kind(await connector().fetch({"end": "2025-06-30"}), "conversion_action")
+        demo = [row.payload for row in rows if row.payload["name"] == "Demo request"]
+        assert {row["date"] for row in demo} == {"2025-06-10", "2025-06-11"}
+        assert sum(row["conversions"] for row in demo) == 23.0
+        assert demo[0]["primary_for_goal"] is True
+
+
+async def test_the_send_to_is_extracted_from_the_event_snippet(cassette) -> None:
+    """The join key between a tag firing in a browser and a *named* conversion
+    action. Without it the probe can only say "something went to Google"."""
+    with cassette("google_ads_search.yaml"):
+        rows = by_kind(await connector().fetch({"end": "2025-06-30"}), "conversion_action")
+        send_to = {row.payload["send_to"] for row in rows}
+        assert "AW-987654321/AbC-D_efGhIjKlM" in send_to
+        # The second day's row carries no snippet, and inventing one would make
+        # a conversion action look tagged when it is not.
+        assert None in send_to
+
+
+async def test_a_removed_conversion_action_is_reported_not_filtered(cassette) -> None:
+    """A disabled conversion action recording nothing is exactly the finding
+    1.5.2 exists to surface. Dropping it here would hide it."""
+    with cassette("google_ads_search.yaml"):
+        rows = by_kind(await connector().fetch({"end": "2025-06-30"}), "conversion_action")
+        legacy = next(row for row in rows if row.payload["status"] == "REMOVED")
+        assert legacy.payload["name"] == "Newsletter signup (legacy)"
+        assert legacy.payload["conversions"] == 0.0
+
+
+async def test_an_audience_list_carries_size_and_eligibility_but_no_consent(cassette) -> None:
+    """PRD §10 1.5.3 asks for `consent_basis`. The API has no such field, and
+    the connector inventing one is the failure the gate exists to prevent."""
+    with cassette("google_ads_search.yaml"):
+        rows = by_kind(await connector().fetch({"end": "2025-06-30"}), "audience_list")
+        crm = next(row for row in rows if row.payload["list_type"] == "CRM_BASED")
+        assert crm.payload["size_for_search"] == "1200"
+        assert crm.payload["eligible_for_display"] is False
+        assert "consent_basis" not in crm.payload

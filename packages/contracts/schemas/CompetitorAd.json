@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.3.2 `creative_corpus` \u2014 one observed ad.\n\n`screenshot_path` is a **storage key**, never a filesystem path (PRD \u00a75.2);\nthe PDF renderer resolves it through `storage.backend`.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "advertiser": {
       "title": "Advertiser",
       "type": "string"

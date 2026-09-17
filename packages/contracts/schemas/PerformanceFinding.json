@@ -2,6 +2,14 @@
   "additionalProperties": true,
   "description": "1.2.1 `historical_performance` \u2014 one winner or one loser.",
   "properties": {
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    },
     "campaign": {
       "title": "Campaign",
       "type": "string"

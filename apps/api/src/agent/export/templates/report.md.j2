@@ -63,7 +63,7 @@ No launch blockers were recorded.
 **{{ segment.label }}** — {{ segment.share_of_revenue_pct|pct }} of revenue {{ cite.markers(segment.evidence_ids) }}
 
 {% if segment.firmographics %}
-- Firmographics: {% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}
+- Firmographics: {% if segment.firmographics is mapping %}{% for key, value in segment.firmographics|dictsort %}{{ key }}={{ value }}{{ ", " if not loop.last }}{% endfor %}{% else %}{{ segment.firmographics }}{% endif %}
 
 {% endif %}
 {% if segment.triggers %}

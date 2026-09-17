@@ -4,6 +4,14 @@
       "additionalProperties": true,
       "description": "1.2.3 `failed_experiments` \u2014 the institutional memory that stops a repeat.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "what": {
           "title": "What",
           "type": "string"
@@ -55,6 +63,14 @@
       "additionalProperties": true,
       "description": "1.2.1 `historical_performance` \u2014 one winner or one loser.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "campaign": {
           "title": "Campaign",
           "type": "string"
@@ -94,6 +110,14 @@
       "additionalProperties": true,
       "description": "1.2.2 `search_term_pnl`, profitable side. Arithmetic is pandas', not the model's.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "term": {
           "title": "Term",
           "type": "string"
@@ -157,6 +181,14 @@
       "additionalProperties": true,
       "description": "1.2.2 `search_term_pnl`, wasteful side.",
       "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
         "term": {
           "title": "Term",
           "type": "string"

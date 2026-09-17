@@ -101,7 +101,60 @@ class WebCrawlerConnector(BaseConnector):
     source = EvidenceSource.WEB
 
     async def fetch(self, params: dict[str, Any]) -> list[EvidenceDraft]:
-        """`params`: `{url | domain, max_urls?, max_depth?, vitals?}`."""
+        """`params`: `{url | domain, urls?, max_urls?, max_depth?, vitals?, kinds?}`.
+
+        `kinds` is honoured rather than ignored, because this connector now
+        answers three different questions and a node that asked for one of them
+        should not pay for the other two: `page` (and `page_vitals`) crawl,
+        `conversion_probe` loads a single page in a browser and watches its tags.
+        """
+        kinds = {str(kind) for kind in (params.get("kinds") or ())} or {"page"}
+        drafts: list[EvidenceDraft] = []
+        failures: list[str] = []
+
+        if kinds & {"page", "page_vitals"}:
+            crawled, crawl_failures = await self._crawl(params, vitals="page_vitals" in kinds)
+            drafts.extend(crawled)
+            failures.extend(crawl_failures)
+
+        if "conversion_probe" in kinds:
+            probed, probe_failures = await self._probe(params)
+            drafts.extend(probed)
+            failures.extend(probe_failures)
+
+        if failures:
+            raise ConnectorDegraded(
+                f"{len(failures)} of {len(failures) + len(drafts)} fetches failed: "
+                + "; ".join(failures[:5]),
+                drafts,
+            )
+        return drafts
+
+    async def _probe(self, params: dict[str, Any]) -> tuple[list[EvidenceDraft], list[str]]:
+        """The synthetic conversion probe (PRD §10, 1.5.2).
+
+        One URL, one real browser, one honest answer. The URL is the caller's:
+        firing the probe at a site root would prove the global tag loads and
+        prove nothing about the conversion event, so node 1.5.2 passes the
+        conversion page it was configured with and says so when it has none.
+        """
+        from agent.connectors.browser import BrowserUnavailable, probe_conversion_tags
+
+        target = str(params.get("probe_url") or "").strip()
+        if not target:
+            return [], ["conversion_probe: no probe_url was supplied"]
+        if not target.startswith(("http://", "https://")):
+            target = "https://" + target
+        try:
+            payload = await probe_conversion_tags(target, self.settings)
+        except BrowserUnavailable as exc:
+            return [], [f"conversion_probe: {exc}"]
+        return [self.draft("conversion_probe", payload, source_url=target)], []
+
+    async def _crawl(
+        self, params: dict[str, Any], *, vitals: bool = False
+    ) -> tuple[list[EvidenceDraft], list[str]]:
+        """Breadth-first from the sitemap, or exactly the URLs the caller named."""
         root = self._root(params)
         max_urls = int(params.get("max_urls") or self.settings.crawl_max_urls)
         max_depth = int(params.get("max_depth") or self.settings.crawl_max_depth)
@@ -111,13 +164,22 @@ class WebCrawlerConnector(BaseConnector):
         drafts: list[EvidenceDraft] = []
         failures: list[str] = []
         try:
-            seeds = await self._sitemap_urls(client, root)
-            if seeds:
-                log.info("web_crawler.sitemap", root=root, urls=len(seeds))
+            named = [str(url) for url in (params.get("urls") or []) if str(url).strip()]
+            if named:
+                # An explicit list is an instruction, not a starting point: node
+                # 1.5.1 audits the pages 1.4.5 chose, and half of them are
+                # campaign landing pages that no sitemap lists.
+                seeds = [url if url.startswith("http") else f"https://{url}" for url in named]
+                max_depth = 0
+                log.info("web_crawler.named_urls", root=root, urls=len(seeds))
             else:
-                # No sitemap is normal, not an error. Fall back to link-following.
-                log.info("web_crawler.no_sitemap", root=root)
-                seeds = [root]
+                seeds = await self._sitemap_urls(client, root)
+                if seeds:
+                    log.info("web_crawler.sitemap", root=root, urls=len(seeds))
+                else:
+                    # No sitemap is normal, not an error. Fall back to link-following.
+                    log.info("web_crawler.no_sitemap", root=root)
+                    seeds = [root]
 
             seen: set[str] = set()
             queue: list[tuple[str, int]] = [(normalise(url), 0) for url in seeds[:max_urls]]
@@ -153,19 +215,13 @@ class WebCrawlerConnector(BaseConnector):
             if owned:
                 await client.aclose()
 
-        if params.get("vitals"):
+        if vitals or params.get("vitals"):
             try:
                 drafts.extend(await self._vitals([d.source_url or "" for d in drafts][:20]))
             except Exception as exc:  # noqa: BLE001 — a browser failure must not lose the crawl
                 failures.append(f"vitals: {exc}")
 
-        if failures:
-            raise ConnectorDegraded(
-                f"{len(failures)} of {len(failures) + len(drafts)} fetches failed: "
-                + "; ".join(failures[:5]),
-                drafts,
-            )
-        return drafts
+        return drafts, failures
 
     def _root(self, params: dict[str, Any]) -> str:
         raw = str(params.get("url") or params.get("domain") or "").strip()
