@@ -50,6 +50,7 @@ DEFAULT_LIMIT = 2_000
 _CREDENTIAL_KIND: dict[str, CredentialKind] = {
     "google_ads": CredentialKind.GOOGLE_ADS,
     "dataforseo": CredentialKind.DATAFORSEO,
+    "serp": CredentialKind.BRIGHTDATA,
 }
 
 #: Key under `RunContext.scratch` holding the `connector:kind` pairs this run has

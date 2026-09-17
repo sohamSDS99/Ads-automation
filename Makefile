@@ -5,8 +5,9 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 verify-p8 eval coverage \
-        browser browser-p6 browser-p7 browser-p8 typecheck lint fmt contracts health clean
+        verify-p6 verify-p7 verify-p8 verify-serp eval coverage \
+        browser browser-p6 browser-p7 browser-p8 browser-serp typecheck lint fmt contracts \
+        health clean
 
 API := apps/api
 WEB := apps/web
@@ -90,6 +91,17 @@ verify-p7: ## Run P7's exit criteria against the running stack
 
 verify-p8: ## Run P8's exit criteria against the running stack
 	./scripts/verify-p8.sh
+
+verify-serp: ## Prove the SERP source and the OpenRouter key against both live accounts
+	./scripts/verify-serp.sh
+
+browser-serp: ## Render the Sources step and assert the SERP card at 1440 and 390
+	@docker compose cp scripts/browser-check-serp.py worker:/tmp/browser-check-serp.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
+		-e PROJECT_ID="$(PROJECT_ID)" worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-serp.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 eval: ## Run the eval harness (10 golden fixtures x schema + groundedness)
 	cd $(API) && uv run pytest tests/eval -q
