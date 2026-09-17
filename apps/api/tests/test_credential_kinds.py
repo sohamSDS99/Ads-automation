@@ -142,3 +142,78 @@ def test_smtp_is_not_writable_through_the_interface() -> None:
     assert CredentialKind.SMTP not in KIND_SPECS
     with pytest.raises(ValueError, match="smtp"):
         spec_for(CredentialKind.SMTP)
+
+
+def test_the_run_path_and_the_test_path_decode_a_secret_the_same_way() -> None:
+    """One decoder, or a source connects and then goes missing mid-run.
+
+    `routes_credentials._run_test` and `nodes/gather._credentials` both turn a
+    sealed string back into connector-shaped values. While they were two pieces
+    of code, `gather` guessed — a bare string became `{"token": ...}` — and that
+    guess held only because every kind it reached was multi-field. A one-key
+    kind broke it silently: the card said Working and the run skipped the
+    source. This asserts they agree, for the single-field kinds that exposed it.
+    """
+    from agent.nodes.gather import _CREDENTIAL_KIND
+
+    cases = {
+        CredentialKind.BRIGHTDATA: {"api_key": "brd-real-key"},
+        CredentialKind.DATAFORSEO: {"api_key": "ops@example.com:hunter2"},
+        CredentialKind.GOOGLE_ADS: GOOGLE_ADS,
+    }
+    for kind, values in cases.items():
+        spec = spec_for(kind)
+        sealed = spec.seal(spec.validate(values))
+        decoded = unseal(spec, sealed)
+        assert decoded == values, kind.value
+        # And the field the connector will ask for is actually present.
+        assert spec.fields[0].name in decoded, kind.value
+
+    # Every connector `gather` can reach has a spec, or `spec_for` raises at
+    # run time on a path no test covers.
+    for connector, kind in _CREDENTIAL_KIND.items():
+        assert spec_for(kind) is not None, connector
+
+
+def test_every_env_backed_kind_has_a_settings_field_of_the_same_name() -> None:
+    """The one invariant holding three separate lists together.
+
+    `KindSpec.env_var` lowercased is read off `Settings` by
+    `credentials.env_secret`. Nothing enforces that at import time, and a
+    mismatch does not raise — `getattr(..., None)` returns None and the source
+    silently reports itself unconfigured. So it is asserted here instead.
+    """
+    from agent.config import Settings
+    from agent.credential_kinds import KIND_SPECS
+
+    for spec in KIND_SPECS.values():
+        if spec.env_var is None:
+            continue
+        field = spec.env_var.lower()
+        assert field in Settings.model_fields, f"{spec.kind.value} names {spec.env_var}"
+
+
+def test_google_ads_is_not_configurable_from_a_file() -> None:
+    """Its secret is a refresh token consent mints, so there is nothing to paste."""
+    assert spec_for(CredentialKind.GOOGLE_ADS).env_var is None
+
+
+def test_the_environment_supplies_a_key_when_no_row_does() -> None:
+    from agent.config import get_settings
+    from agent.credentials import env_secret
+
+    get_settings.cache_clear()
+    try:
+        import os
+
+        os.environ["BRIGHTDATA_API_KEY"] = "brd-from-the-file"
+        get_settings.cache_clear()
+        assert env_secret(CredentialKind.BRIGHTDATA) == "brd-from-the-file"
+        # Whitespace-only is not a key: a variable left blank in a compose file
+        # must read as unconfigured, not as an empty secret the vendor rejects.
+        os.environ["BRIGHTDATA_API_KEY"] = "   "
+        get_settings.cache_clear()
+        assert env_secret(CredentialKind.BRIGHTDATA) is None
+    finally:
+        os.environ.pop("BRIGHTDATA_API_KEY", None)
+        get_settings.cache_clear()

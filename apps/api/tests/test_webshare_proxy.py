@@ -263,10 +263,14 @@ def test_the_crawler_needs_no_credential_to_be_handed_a_proxy() -> None:
 # --- the credential itself --------------------------------------------------
 
 
-def test_webshare_is_one_field_configured_where_the_sources_are() -> None:
+def test_webshare_is_one_field_and_names_its_env_var() -> None:
     spec = spec_for(CredentialKind.WEBSHARE)
     assert [field.name for field in spec.typed_fields] == ["api_key"]
     assert spec.where == "sources"
+    # `KindSpec.env_var` lowercased is read off `Settings`, and
+    # `test_every_env_backed_kind_has_a_settings_field_of_the_same_name`
+    # derives over every kind, so this pair cannot drift apart silently.
+    assert spec.env_var == "WEBSHARE_API_KEY"
     # Tested by `proxy.probe`, dispatched on the kind: a transport several
     # connectors borrow is owned by none of them.
     assert spec.connector is None

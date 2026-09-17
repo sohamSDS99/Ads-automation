@@ -24,7 +24,6 @@ the model is asked for empty arrays rather than invention.
 
 from __future__ import annotations
 
-import json
 import uuid
 from dataclasses import dataclass, field
 
@@ -351,11 +350,15 @@ async def _crawl_proxy(ctx: RunContext, connector: str) -> str | None:
 async def _credentials(ctx: RunContext, connector: str) -> dict[str, str] | None:
     """The decrypted credential values for one connector, or None if unset.
 
-    A connector like `google_ads` needs five values and the vault stores one
-    string per credential, so a multi-field secret is stored as a JSON object.
-    A plain string is accepted too and becomes the connector's single field —
-    which is what `dataforseo`'s `login`/`password` pair is *not*, so it stores
-    JSON as well.
+    Decoded by the kind's own spec, not by a local rule. This used to guess:
+    a JSON object became the value map and anything else became `{"token": ...}`.
+    That guess was survivable only while every connector reached through here
+    was multi-field. The moment `brightdata` and `dataforseo` became one key
+    each, a sealed bare string arrived at the connector as `token` and the
+    connector asked for `api_key` — a run would have skipped both sources while
+    "Connect and test" went on passing, because that path already used `unseal`.
+
+    One decoder, used by both paths, is the fix and the guard.
     """
     kind = _CREDENTIAL_KIND.get(connector)
     if kind is None:
@@ -371,10 +374,4 @@ async def _credentials(ctx: RunContext, connector: str) -> dict[str, str] | None
     except MissingCredential:
         return None
 
-    try:
-        parsed = json.loads(secret)
-    except ValueError:
-        return {"token": secret}
-    if not isinstance(parsed, dict):
-        return {"token": secret}
-    return {str(key): str(value) for key, value in parsed.items() if value is not None}
+    return unseal(spec_for(kind), secret)

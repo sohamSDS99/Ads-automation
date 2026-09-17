@@ -1,6 +1,7 @@
 """Sealed credentials: how a secret gets into the database and back out again.
 
-PRD §6 fixes the resolution order at call time — **user > project > workspace** —
+PRD §6 fixes the resolution order at call time — **user > project > workspace**,
+and then the environment beneath all three —
 and PRD §15 NF5 fixes everything else: AES-256-GCM, the key from the
 environment, and no endpoint that returns the plaintext. Both sides of the seal
 live here so a writer cannot pick a different AAD from the reader's.
@@ -14,6 +15,8 @@ from typing import Any
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.config import get_settings
+from agent.credential_kinds import spec_for
 from agent.crypto import decrypt_str, encrypt
 from agent.db.models import Credential, CredentialKind, CredentialScope
 
@@ -88,6 +91,17 @@ async def resolve_secret(
 
     Ordering is done in SQL rather than by three round trips: `scope` is ranked
     user (0) → project (1) → workspace (2) and the first row wins.
+
+    Beneath all three sits the deployment's own environment. A kind that names
+    an `env_var` and finds no row falls back to it, so a deployment can be
+    configured from a file and never open the Sources screen. The order is that
+    way round and not the other: an operator who deliberately stored a key for
+    one workspace meant it to be used, and an env var is the default a
+    deployment ships with, not an override of a choice someone made.
+
+    `MissingCredential` still means *nothing anywhere* — vault and environment
+    both empty — which is what every caller already treats as "this source is
+    not configured", so degradation (PRD §16) is unchanged.
     """
     rank = sa.case(
         (Credential.scope == CredentialScope.USER, 0),
@@ -120,6 +134,27 @@ async def resolve_secret(
         .limit(1)
     )
     credential = (await db.execute(stmt)).scalar_one_or_none()
-    if credential is None:
-        raise MissingCredential(kind)
-    return open_credential(credential)
+    if credential is not None:
+        return open_credential(credential)
+    secret = env_secret(kind)
+    if secret is not None:
+        return secret
+    raise MissingCredential(kind)
+
+
+def env_secret(kind: CredentialKind) -> str | None:
+    """This kind's key as the deployment supplied it, or None.
+
+    The settings field is the spec's `env_var` lowercased. Deriving it rather
+    than repeating it is deliberate: a third place holding the same three names
+    is a third place for them to disagree, and the disagreement would show up
+    as a silently unconfigured source rather than as an error.
+    """
+    spec = spec_for(kind)
+    if not spec.env_var:
+        return None
+    value = getattr(get_settings(), spec.env_var.lower(), None)
+    if value is None:
+        return None
+    text = value.get_secret_value() if hasattr(value, "get_secret_value") else str(value)
+    return text.strip() or None

@@ -222,6 +222,13 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    (
+        "POST",
+        "/credentials/kinds/{kind}/test",
+        "/credentials/kinds/openrouter/test",
+        Permission.READ,
+        None,
+    ),
     ("DELETE", "/credentials/{credential_id}", "/credentials/{target}", Permission.READ, None),
     # The Google Ads consent pair declares `read` and narrows to
     # `credential_write` inside, like every other route that writes a shared

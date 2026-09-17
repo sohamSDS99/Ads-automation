@@ -125,8 +125,8 @@ class Settings(BaseSettings):
     # webshare: the exit IP an outbound crawl leaves through — `connectors/proxy.py`
     # explains which connectors use it and, more importantly, which measured
     # reasons keep `serp`, `transparency` and the vitals pass off it. Shape, not
-    # secret: the account itself is `CredentialKind.WEBSHARE` in the vault, and
-    # it is one API key.
+    # secret: the account itself is `CredentialKind.WEBSHARE` — one API key,
+    # from the vault or from `WEBSHARE_API_KEY` below.
     webshare_api_url: str = "https://proxy.webshare.io/api/v2"
     #: The rotating endpoint — one address, a new exit per request. The
     #: thousand-row proxy list is the alternative and it makes us the balancer.
@@ -207,6 +207,21 @@ class Settings(BaseSettings):
 
     # --- budget -------------------------------------------------------------
     max_run_cost_usd: Decimal = Decimal("15.00")
+
+    # --- source keys supplied by the deployment ----------------------------
+    # Every one of these is the same credential the Sources screen can hold, but
+    # named here so an operator can configure a deployment without opening the
+    # interface at all. A workspace row still wins when one exists: see
+    # `credentials.resolve_secret`. `google_ads` is deliberately absent — its
+    # secret is a refresh token that consent mints, so there is nothing for a
+    # person to paste into a file.
+    #
+    # The names are not free: `credential_kinds.KindSpec.env_var` lowercased is
+    # the field read here, so these four must keep matching those four.
+    openrouter_api_key: SecretStr | None = None
+    brightdata_api_key: SecretStr | None = None
+    dataforseo_api_key: SecretStr | None = None
+    webshare_api_key: SecretStr | None = None
 
     # --- smtp (all optional; without it invites fall back to copyable links)
     smtp_host: str | None = None
