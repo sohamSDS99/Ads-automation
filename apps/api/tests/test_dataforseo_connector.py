@@ -8,6 +8,7 @@ rather than on this class, because PRD §9.3 requires the vendor to be swappable
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from contextlib import AbstractContextManager
 from typing import Any
@@ -21,7 +22,7 @@ from agent.connectors.dataforseo import TASK_OK, DataForSEOConnector, KeywordPro
 Cassette = Callable[[str], AbstractContextManager[None]]
 
 TEST_KEY = "dW5pdC10ZXN0LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
-CREDENTIALS = {"login": "someone@example.com", "password": "api-password"}
+CREDENTIALS = {"api_key": "someone@example.com:api-password"}
 
 PARAMS: dict[str, Any] = {
     "domain": "sdsmanager.com",
@@ -138,7 +139,7 @@ async def test_missing_credentials_fail_before_any_request() -> None:
     bare = DataForSEOConnector(
         ConnectorContext(credentials={}, settings=Settings(app_encryption_key=TEST_KEY))
     )
-    with pytest.raises(ConnectorAuthError, match="login"):
+    with pytest.raises(ConnectorAuthError, match="api_key"):
         await bare.fetch({"domain": "x.test"})
 
 
@@ -147,3 +148,24 @@ async def test_a_fetch_without_a_domain_is_refused(cassette: Cassette) -> None:
 
     with pytest.raises(ConnectorError, match="domain"):
         await connector().fetch({})
+
+
+async def test_either_shape_of_the_key_makes_the_same_basic_header() -> None:
+    """The dashboard hands out the encoded blob; a person may paste the pair.
+
+    Both are the same credential, and DataForSEO only ever sees one of them.
+    """
+    pair = DataForSEOConnector(
+        ConnectorContext(
+            credentials={"api_key": "someone@example.com:api-password"},
+            settings=Settings(app_encryption_key=TEST_KEY),
+        )
+    )
+    encoded = base64.b64encode(b"someone@example.com:api-password").decode()
+    blob = DataForSEOConnector(
+        ConnectorContext(
+            credentials={"api_key": encoded},
+            settings=Settings(app_encryption_key=TEST_KEY),
+        )
+    )
+    assert pair._auth_header() == blob._auth_header() == f"Basic {encoded}"

@@ -41,6 +41,14 @@ class CredentialKindInfo(BaseModel):
         default=None,
         description="When set, offer a Connect button for this provider instead of a form",
     )
+    oauth_ready: bool = Field(
+        default=False,
+        description=(
+            "Whether this deployment can actually run that consent — i.e. whether it "
+            "has an OAuth client configured. False means the paste-everything fallback "
+            "is the only way to connect, and is the only case where it is offered."
+        ),
+    )
     oauth_fields: list[str] = Field(
         default_factory=list,
         description="Fields the consent flow supplies, so the form does not ask for them",
@@ -48,12 +56,14 @@ class CredentialKindInfo(BaseModel):
 
 
 class GoogleAdsAuthorizeRequest(BaseModel):
-    """Begin a Google Ads consent, carrying the one value consent cannot supply."""
+    """Begin a Google Ads consent, carrying the one value consent cannot supply.
+
+    The developer token is that value and the only one: the manager id used to
+    be asked for here, and is now read back off the account list the grant
+    itself unlocks (`GoogleAdsConnector.accessible_accounts`).
+    """
 
     developer_token: SecretValue
-    login_customer_id: str = Field(
-        default="", description="Manager (MCC) id, only when the account is reached through one"
-    )
     return_to: str = Field(
         default="/settings",
         description="Where to send the browser afterwards; a path on this app, never a URL",

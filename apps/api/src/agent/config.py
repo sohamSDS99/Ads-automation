@@ -101,29 +101,27 @@ class Settings(BaseSettings):
 
     dataforseo_base_url: str = "https://api.dataforseo.com/v3"
 
-    # serp: live Google result pages read through the Bright Data SERP proxy.
-    # The account itself is a vault credential (`CredentialKind.BRIGHTDATA`);
-    # everything here is shape, not secret, and `host`/`port` are the defaults a
-    # stored credential may override per workspace.
-    serp_proxy_host: str = "brd.superproxy.io"
-    serp_proxy_port: int = 33335
+    # serp: live Google result pages read through the Bright Data SERP API.
+    # The account itself is a vault credential (`CredentialKind.BRIGHTDATA`) and
+    # it is one value, an API key; everything here is shape, not secret.
+    serp_api_url: str = "https://api.brightdata.com/request"
+    #: Where the key's own zones are listed, so the zone name is discovered
+    #: rather than asked for. See `SerpConnector._zone`.
+    serp_zones_url: str = "https://api.brightdata.com/zone/get_active_zones"
+    #: Pin the zone only when discovery picks the wrong one. Empty means ask.
+    serp_zone: str = ""
+    #: What discovery falls back to. Bright Data's own default name for a SERP
+    #: zone, and the only guess worth making when the account will not list.
+    serp_zone_fallback: str = "serp_api1"
     serp_search_url: str = "https://www.google.com/search"
     #: `gl` and `hl`. A project's own `markets[0]` overrides both per fetch.
     serp_country: str = "us"
     serp_language: str = "en"
-    #: The proxy bills per request, so the keyword list a node hands over is
+    #: Bright Data bills per request, so the keyword list a node hands over is
     #: capped here rather than in whichever node happens to be asking.
     serp_max_keywords: int = 25
     serp_max_results: int = 20
     serp_concurrency: int = 4
-    #: The proxy terminates TLS itself — the certificate it presents for
-    #: google.com is signed by Bright Data's own CA, so a verifying client fails
-    #: the handshake outright. What the tunnel carries is a public search query
-    #: and nothing else: the account secret reaches the proxy in a
-    #: `Proxy-Authorization` header, never through the tunnel. Set this true
-    #: once Bright Data's CA is installed in the image's trust store.
-    serp_verify_tls: bool = False
-
     # web_crawler: PRD §9.4 caps — 500 URLs, depth 3.
     crawl_max_urls: int = 500
     crawl_max_depth: int = 3

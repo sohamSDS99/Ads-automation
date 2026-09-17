@@ -36,14 +36,25 @@ from agent.db.models import EvidenceSource
 from agent.nodes import creatives
 
 TEST_KEY = "dW5pdC10ZXN0LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
-CREDENTIALS = {"username": "brd-customer-hl_test-zone-serp1", "password": "zone-password"}
+CREDENTIALS = {"api_key": "brd-test-api-key"}
 PAGE: dict[str, Any] = json.loads(
     (Path(__file__).parent / "fixtures" / "serp_page.json").read_text()
 )
 
 
 def settings(**overrides: Any) -> Settings:
+    overrides.setdefault("serp_zone", "serp_api1")
     return Settings(app_encryption_key=TEST_KEY, **overrides)
+
+
+def target(request: httpx.Request) -> httpx.URL:
+    """The Google URL inside the request, which is now a field and not the path.
+
+    Every request goes to `api.brightdata.com/request`; the keyword, `gl` and
+    `hl` ride in the JSON body. A test that used to read `request.url.params`
+    reads this instead.
+    """
+    return httpx.URL(json.loads(request.content)["url"])
 
 
 def connector(
@@ -223,23 +234,30 @@ async def test_an_ad_reads_as_a_creative_row_alongside_the_archive() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_the_proxy_url_encodes_the_account_and_takes_an_override() -> None:
-    plain = connector()._proxy_url()
-    assert plain == "http://brd-customer-hl_test-zone-serp1:zone-password@brd.superproxy.io:33335"
+@pytest.mark.asyncio
+async def test_the_key_is_the_whole_account_and_it_travels_as_a_bearer() -> None:
+    """One value in, one `Authorization` header out — and the zone beside it."""
+    seen: dict[str, Any] = {}
 
-    overridden = connector(
-        credentials={"password": "p@ss:word/1", "host": "proxy.internal", "port": "24000"}
-    )._proxy_url()
-    assert overridden == (
-        "http://brd-customer-hl_test-zone-serp1:p%40ss%3Aword%2F1@proxy.internal:24000"
-    )
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["url"] = str(request.url)
+        seen["auth"] = request.headers.get("authorization")
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(200, json=PAGE)
+
+    await connector(handler).search("sds management software")
+    assert seen["url"] == "https://api.brightdata.com/request"
+    assert seen["auth"] == "Bearer brd-test-api-key"
+    assert seen["body"]["zone"] == "serp_api1"
+    assert seen["body"]["format"] == "raw"
+    # The parse the whole connector depends on is a property of the target URL,
+    # not of the transport, so it has to survive the move off the proxy.
+    assert httpx.URL(seen["body"]["url"]).params["brd_json"] == "1"
 
 
-def test_a_missing_account_names_both_halves_at_once() -> None:
-    with pytest.raises(ConnectorAuthError, match="password"):
-        SerpConnector(
-            ConnectorContext(credentials={"username": "u"}, settings=settings())
-        )._proxy_url()
+def test_a_missing_key_is_named_before_any_request_is_spent() -> None:
+    with pytest.raises(ConnectorAuthError, match="api_key"):
+        SerpConnector(ConnectorContext(credentials={}, settings=settings()))._headers()
 
 
 @pytest.mark.asyncio
@@ -249,11 +267,11 @@ async def test_a_rejected_account_is_an_auth_error_and_is_not_retried() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         nonlocal attempts
         attempts += 1
-        return httpx.Response(407, text="Proxy Authentication Required")
+        return httpx.Response(401, json={"error": "invalid auth token"})
 
-    with pytest.raises(ConnectorAuthError, match="407"):
+    with pytest.raises(ConnectorAuthError, match="401"):
         await connector(handler).search("sds management software")
-    assert attempts == 1, "a wrong password is wrong all three times"
+    assert attempts == 1, "a wrong key is wrong all three times"
 
 
 @pytest.mark.asyncio
@@ -298,7 +316,7 @@ async def test_an_html_error_page_is_an_error_not_an_empty_serp() -> None:
 @pytest.mark.asyncio
 async def test_one_keyword_failing_keeps_the_pages_that_came_back() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        if request.url.params.get("q") == "broken term":
+        if target(request).params.get("q") == "broken term":
             return httpx.Response(500, text="upstream is down")
         return httpx.Response(200, json=PAGE)
 
@@ -326,11 +344,11 @@ async def test_every_keyword_failing_is_a_plain_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_the_keyword_list_is_capped_because_the_proxy_bills_per_page() -> None:
+async def test_the_keyword_list_is_capped_because_the_vendor_bills_per_page() -> None:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.url.params["q"])
+        seen.append(target(request).params["q"])
         return httpx.Response(200, json=PAGE)
 
     await connector(handler, serp_max_keywords=3).fetch(
@@ -344,7 +362,7 @@ async def test_the_same_keyword_twice_is_one_page() -> None:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.append(request.url.params["q"])
+        seen.append(target(request).params["q"])
         return httpx.Response(200, json=PAGE)
 
     await connector(handler).fetch({"serp_keywords": ["sds software", " sds software ", ""]})
@@ -356,7 +374,7 @@ async def test_the_market_reaches_the_request_as_gl_and_hl() -> None:
     seen: dict[str, str] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(dict(request.url.params))
+        seen.update(dict(target(request).params))
         return httpx.Response(200, json=PAGE)
 
     await connector(handler).fetch(
@@ -388,3 +406,87 @@ async def test_a_page_with_nothing_on_it_is_reported_as_broken_not_as_connected(
     status = await connector(always({"general": {}})).test_connection()
     assert not status.ok
     assert "no results" in status.detail
+
+
+# ---------------------------------------------------------------------------
+# the zone, which is discovered rather than asked for
+# ---------------------------------------------------------------------------
+
+
+def unpinned(handler: Any) -> SerpConnector:
+    """A connector with no `SERP_ZONE` set, so `_zone` has to go and ask."""
+    return SerpConnector(
+        ConnectorContext(
+            credentials=CREDENTIALS,
+            settings=Settings(app_encryption_key=TEST_KEY, serp_zone=""),
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        )
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_zone_is_read_off_the_account_rather_than_typed() -> None:
+    """The second value the API needs is one the first value can fetch."""
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if "get_active_zones" in str(request.url):
+            assert request.headers.get("authorization") == "Bearer brd-test-api-key"
+            return httpx.Response(
+                200,
+                json=[
+                    {"name": "unblocker1", "type": "unblocker"},
+                    {"name": "our_serp_zone", "type": "serp"},
+                ],
+            )
+        return httpx.Response(200, json=PAGE)
+
+    connector_ = unpinned(handler)
+    await connector_.search("sds management software")
+    assert connector_._zone_name == "our_serp_zone"
+    assert any("get_active_zones" in call for call in calls)
+
+
+@pytest.mark.asyncio
+async def test_the_zone_is_asked_for_once_no_matter_how_many_keywords() -> None:
+    """25 keywords must not be 25 account lookups."""
+    listings = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal listings
+        if "get_active_zones" in str(request.url):
+            listings += 1
+            return httpx.Response(200, json=[{"name": "our_serp_zone", "type": "serp"}])
+        return httpx.Response(200, json=PAGE)
+
+    await unpinned(handler).fetch({"serp_keywords": ["one", "two", "three", "four"]})
+    assert listings == 1
+
+
+@pytest.mark.asyncio
+async def test_an_account_that_will_not_list_its_zones_still_searches() -> None:
+    """Discovery is a convenience, not a dependency: a refusal falls back."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "get_active_zones" in str(request.url):
+            return httpx.Response(403, text="forbidden")
+        return httpx.Response(200, json=PAGE)
+
+    connector_ = unpinned(handler)
+    page = await connector_.search("sds management software")
+    assert connector_._zone_name == "serp_api1", "the documented default, not a crash"
+    assert page["organic"], "and the search still happened"
+
+
+@pytest.mark.asyncio
+async def test_a_refusal_names_the_zone_because_the_zone_was_the_guess() -> None:
+    """A 400 against a guessed zone must say which zone was guessed."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if "get_active_zones" in str(request.url):
+            return httpx.Response(200, json=[])
+        return httpx.Response(400, json={"error": "zone not found"})
+
+    with pytest.raises(ConnectorError, match="serp_api1"):
+        await unpinned(handler).search("sds management software")

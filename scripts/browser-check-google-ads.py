@@ -85,24 +85,24 @@ with sync_playwright() as play:
         page.get_by_label("OAuth client secret").count() == 0,
     )
 
-    # The escape hatch: an operator holding five values from the CLI script.
+    # The developer token is the whole form now. The manager id used to sit
+    # beside it and is discovered instead, so its absence is the assertion.
+    check(
+        "…nor for a manager (MCC) id, which the account list already names",
+        page.get_by_label("Manager (MCC) ID").count() == 0,
+    )
+    check(
+        "the developer token is the only field on the card",
+        page.get_by_label("Developer token").count() == 1,
+    )
+    # The paste-everything escape hatch is offered only where consent cannot
+    # run. This deployment has an OAuth client, so it must not be on screen.
     paste = page.get_by_role("button", name="Paste all values instead")
-    check("there is still a way to paste values by hand", paste.count() >= 1)
-    if paste.count():
-        paste.first.click()
-        page.wait_for_timeout(600)
-        check(
-            "…and it brings back every field",
-            page.get_by_label("Refresh token").count() >= 1
-            and page.get_by_label("OAuth client secret").count() >= 1,
-        )
-        page.screenshot(path=f"{SHOTS}/google-ads-by-hand.png", full_page=True)
-        page.get_by_role("button", name="Use Google sign-in").first.click()
-        page.wait_for_timeout(400)
-        check(
-            "…and gives the button back",
-            page.get_by_role("button", name="Continue with Google").count() >= 1,
-        )
+    check("no paste-five-values fallback where sign-in works", paste.count() == 0)
+    check(
+        "…and the sign-in button is what is offered instead",
+        page.get_by_role("button", name="Continue with Google").count() >= 1,
+    )
 
     page.set_viewport_size({"width": 390, "height": 1400})
     page.wait_for_timeout(800)

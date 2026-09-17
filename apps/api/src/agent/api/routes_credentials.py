@@ -49,7 +49,7 @@ from agent.config import get_settings
 from agent.connectors import connector_class
 from agent.connectors.base import ConnectorContext, ConnectorStatus
 from agent.connectors.google_ads import GoogleAdsConnector
-from agent.credential_kinds import KIND_SPECS, spec_for, unseal
+from agent.credential_kinds import KIND_SPECS, KindSpec, spec_for, unseal
 from agent.credentials import new_credential, open_credential
 from agent.crypto import DecryptionError, decrypt_str, encrypt
 from agent.db.models import Credential, CredentialKind, CredentialScope, Project, User
@@ -127,11 +127,27 @@ async def list_credentials(me: AnyMember, db: Db) -> CredentialListResponse:
                     for field in spec.fields
                 ],
                 oauth_provider=spec.oauth_provider,
+                oauth_ready=_oauth_ready(spec),
                 oauth_fields=list(spec.oauth_fields),
             )
             for spec in KIND_SPECS.values()
         ],
     )
+
+
+def _oauth_ready(spec: KindSpec) -> bool:
+    """Whether consent is a real option here, not just a declared one.
+
+    The kind says it *can* be connected by consent; this says the deployment
+    can *run* it. They come apart on a deployment with no Google OAuth client
+    configured, and the interface needs the difference: that is the only case
+    where asking someone to paste five values by hand is a kindness rather than
+    the thing this screen exists to avoid.
+    """
+    if spec.oauth_provider != "google":
+        return False
+    settings = get_settings()
+    return bool(settings.google_ads_oauth_client_id and settings.google_ads_oauth_client_secret)
 
 
 @router.post(
@@ -360,8 +376,7 @@ async def authorize_google_ads(
     if not settings.google_ads_oauth_client_id or not settings.google_ads_oauth_client_secret:
         raise problems.unprocessable(
             "This deployment has no Google OAuth client configured. Set "
-            "GOOGLE_ADS_OAUTH_CLIENT_ID and GOOGLE_ADS_OAUTH_CLIENT_SECRET, or store all "
-            "five values directly instead.",
+            "GOOGLE_ADS_OAUTH_CLIENT_ID and GOOGLE_ADS_OAUTH_CLIENT_SECRET.",
             fields=["developer_token"],
         )
 
@@ -371,7 +386,6 @@ async def authorize_google_ads(
             "workspace_id": str(me.workspace_id),
             "user_id": str(me.user.id),
             "developer_token": body.developer_token,
-            "login_customer_id": body.login_customer_id.replace("-", "").strip(),
             "return_to": _safe_return_to(body.return_to),
         }
     )
@@ -478,9 +492,6 @@ async def google_ads_callback(
         "client_secret": settings.google_ads_oauth_client_secret,
         "refresh_token": refresh_token,
     }
-    if payload.get("login_customer_id"):
-        values["login_customer_id"] = str(payload["login_customer_id"])
-
     try:
         accounts = await GoogleAdsConnector(
             ConnectorContext(credentials=values, settings=settings)
@@ -501,6 +512,12 @@ async def google_ads_callback(
             reason="That Google account reaches no Google Ads accounts.",
         )
     values["customer_id"] = str(chosen["customer_id"])
+    # The manager id is the one Google needs in `login-customer-id`, and it is
+    # known here rather than typed: `accessible_accounts()` found this account by
+    # expanding that manager, so it recorded which one. An account reached
+    # directly has no manager and must not send the header at all.
+    if chosen.get("via_manager"):
+        values["login_customer_id"] = str(chosen["via_manager"])
 
     spec = spec_for(CredentialKind.GOOGLE_ADS)
     credential = new_credential(

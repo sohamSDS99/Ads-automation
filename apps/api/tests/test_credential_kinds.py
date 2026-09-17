@@ -10,7 +10,7 @@ from agent.credential_kinds import KIND_SPECS, spec_for, unseal
 from agent.db.models import CredentialKind
 
 OPENROUTER = {"api_key": "sk-or-v1-abcdef123456"}
-DATAFORSEO = {"login": "ops@example.com", "password": "hunter2"}
+DATAFORSEO = {"api_key": "ops@example.com:hunter2"}
 GOOGLE_ADS = {
     "developer_token": "dev-token",
     "client_id": "client-id",
@@ -18,7 +18,7 @@ GOOGLE_ADS = {
     "refresh_token": "refresh-token",
     "customer_id": "123-456-7890",
 }
-BRIGHTDATA = {"username": "brd-customer-hl_abc123-zone-serp1", "password": "zone-password"}
+BRIGHTDATA = {"api_key": "brd-api-key-abc123"}
 
 
 def test_a_single_field_kind_seals_the_bare_value() -> None:
@@ -32,9 +32,9 @@ def test_a_single_field_kind_seals_the_bare_value() -> None:
 
 
 def test_a_multi_field_kind_seals_json_that_gather_can_read() -> None:
-    spec = spec_for(CredentialKind.DATAFORSEO)
-    sealed = spec.seal(DATAFORSEO)
-    assert json.loads(sealed) == DATAFORSEO
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    sealed = spec.seal(GOOGLE_ADS)
+    assert json.loads(sealed) == GOOGLE_ADS
 
 
 @pytest.mark.parametrize(
@@ -81,29 +81,62 @@ def test_an_unknown_field_is_dropped_rather_than_sealed() -> None:
     assert cleaned == DATAFORSEO
 
 
-def test_a_serp_account_connects_without_naming_a_proxy() -> None:
-    """Host and port are optional, and `config.Settings` supplies both.
+def test_every_source_asks_a_person_for_exactly_one_value() -> None:
+    """The whole point of the change: one field per card, and no second step.
 
-    Most workspaces are on Bright Data's published endpoint. Requiring them to
-    retype it would make a typo in an address nobody chose a reason for the
-    connector to fail.
+    `typed_fields` — not `fields` — is what the settings and wizard screens
+    render, so it is what this asserts on. `google_ads` still holds six values;
+    five of them arrive from consent, and the sixth is the developer token.
     """
+    for kind in (
+        CredentialKind.OPENROUTER,
+        CredentialKind.BRIGHTDATA,
+        CredentialKind.DATAFORSEO,
+        CredentialKind.GOOGLE_ADS,
+    ):
+        spec = spec_for(kind)
+        typed = spec.typed_fields
+        assert len(typed) == 1, f"{kind.value} asks for {[f.name for f in typed]}"
+        assert typed[0].required, f"{kind.value}'s one field must not be optional"
+
+
+def test_a_serp_account_is_one_key_and_nothing_else() -> None:
+    """No proxy host, no port, no username: the key is the whole credential."""
     spec = spec_for(CredentialKind.BRIGHTDATA)
     cleaned = spec.validate(BRIGHTDATA)
 
     assert cleaned == BRIGHTDATA
     assert spec.connector == "serp"
+    assert [field.name for field in spec.fields] == ["api_key"]
     assert unseal(spec, spec.seal(cleaned)) == BRIGHTDATA
 
 
-def test_a_serp_accounts_zone_is_showable_but_its_password_is_not() -> None:
-    """Which zone is connected is the one thing `/settings` has to be able to say."""
+def test_a_serp_key_shows_only_its_last_four() -> None:
+    """There is no non-secret half left to show, so `meta` must not invent one."""
     spec = spec_for(CredentialKind.BRIGHTDATA)
     meta = spec.meta(BRIGHTDATA)
 
-    assert meta["username"] == BRIGHTDATA["username"]
-    assert meta["last4"] == "word"
-    assert BRIGHTDATA["password"] not in set(map(str, meta.values()))
+    assert meta == {"last4": "c123"}
+    assert BRIGHTDATA["api_key"] not in set(map(str, meta.values()))
+
+
+def test_a_credential_sealed_before_the_change_still_unseals() -> None:
+    """A workspace that connected Bright Data last week must not have to retype it.
+
+    The old rows are JSON objects under a kind that is now single-field. The
+    values they carry are no longer what the connector wants — that is a
+    reconnect, and it says so — but the vault must still be able to read them
+    back rather than hand a connector the raw JSON as if it were a key.
+    """
+    spec = spec_for(CredentialKind.BRIGHTDATA)
+    legacy = json.dumps({"username": "brd-customer-hl_abc123-zone-serp1", "password": "pw"})
+
+    assert unseal(spec, legacy) == {
+        "username": "brd-customer-hl_abc123-zone-serp1",
+        "password": "pw",
+    }
+    # And a real key, which is not JSON, still lands on the one field.
+    assert unseal(spec, "brd-api-key-abc123") == {"api_key": "brd-api-key-abc123"}
 
 
 def test_smtp_is_not_writable_through_the_interface() -> None:

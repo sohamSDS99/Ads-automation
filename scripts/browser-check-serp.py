@@ -57,7 +57,7 @@ with sync_playwright() as play:
     page.screenshot(path=f"{SHOTS}/serp-sources.png", full_page=True)
 
     body = page.inner_text("body")
-    check("the Bright Data card is on the Sources step", "Bright Data SERP proxy" in body)
+    check("the Bright Data card is on the Sources step", "Bright Data SERP" in body)
     check(
         "…described by what it fetches, not by the vendor's product name",
         "who is bidding" in body or "Live Google result pages" in body,
@@ -65,9 +65,8 @@ with sync_playwright() as play:
     )
     check("…and the other keyed sources are still there", "DataForSEO" in body and "Google Ads" in body)
 
-    # The zone password must be a password field. A generated secret pasted into
-    # a text input is legible over a shoulder and lands in the browser's
-    # autofill store.
+    # The API key must be a password field. A secret pasted into a text input is
+    # legible over a shoulder and lands in the browser's autofill store.
     # `exact=True`: the un-connected cards already show a disabled "Connect and
     # test" submit, which a loose name match picks up instead of the control
     # that opens the form.
@@ -75,18 +74,18 @@ with sync_playwright() as play:
     if replace.count():
         replace.first.click()
         page.wait_for_timeout(1000)
-    zone = page.get_by_label("Zone password")
-    check("the zone password has its own labelled field", zone.count() >= 1, f"{zone.count()} found")
-    if zone.count():
+    key = page.get_by_label("API key")
+    check("the API key has its own labelled field", key.count() >= 1, f"{key.count()} found")
+    if key.count():
         check(
             "…typed as a password, not as text",
-            zone.first.get_attribute("type") == "password",
-            str(zone.first.get_attribute("type")),
+            key.first.get_attribute("type") == "password",
+            str(key.first.get_attribute("type")),
         )
-    check(
-        "the proxy host is offered but not demanded",
-        page.get_by_label("Proxy host").count() >= 1,
-    )
+    # The point of the change: one field, and none of the four that used to sit
+    # beside it. A screen that still asks for a proxy host has not been fixed.
+    for gone in ("Proxy username", "Zone password", "Proxy host", "Proxy port"):
+        check(f"…and nothing else: no `{gone}`", page.get_by_label(gone).count() == 0)
     page.screenshot(path=f"{SHOTS}/serp-sources-form.png", full_page=True)
 
     page.set_viewport_size({"width": 390, "height": 1400})

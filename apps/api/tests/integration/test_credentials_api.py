@@ -21,7 +21,14 @@ from agent.llm.openrouter import KeyStatus, OpenRouterError
 from tests.integration.conftest import ApiClient
 
 OPENROUTER_KEY = "sk-or-v1-0123456789abcdef"
-DATAFORSEO = {"login": "ops@example.com", "password": "hunter2-not-real"}
+DATAFORSEO = {"api_key": "ops@example.com:hunter2-not-real"}
+GOOGLE_ADS_VALUES = {
+    "developer_token": "dev-token-not-real",
+    "client_id": "client-id",
+    "client_secret": "client-secret",
+    "refresh_token": "refresh-token",
+    "customer_id": "123-456-7890",
+}
 
 
 async def store(admin: ApiClient, **overrides: Any) -> dict[str, Any]:
@@ -62,16 +69,36 @@ async def test_the_ciphertext_in_the_database_decrypts_to_what_was_sent(
 
 
 async def test_a_multi_field_credential_seals_as_json(admin: ApiClient, db: AsyncSession) -> None:
+    """`google_ads` is the only kind that still holds several values.
+
+    It is not several *typed* values — consent supplies five of the six — but
+    the sealed secret is still a JSON object, and `gather._credentials` reads it
+    back as one.
+    """
+    stored = await store(admin, kind="google_ads", values=GOOGLE_ADS_VALUES)
+    row = (
+        await db.execute(sa.select(Credential).where(Credential.id == uuid.UUID(stored["id"])))
+    ).scalar_one()
+
+    assert json.loads(open_credential(row)) == GOOGLE_ADS_VALUES
+    # The customer id is an account id, not a secret, so it is showable. The
+    # developer token is not, and only its last four characters survive.
+    assert stored["meta"]["customer_id"] == GOOGLE_ADS_VALUES["customer_id"]
+    assert GOOGLE_ADS_VALUES["refresh_token"] not in json.dumps(stored)
+
+
+async def test_a_one_key_credential_seals_the_bare_value(
+    admin: ApiClient, db: AsyncSession
+) -> None:
+    """And the three source kinds that a person types are all one key now."""
     stored = await store(admin, kind="dataforseo", values=DATAFORSEO)
     row = (
         await db.execute(sa.select(Credential).where(Credential.id == uuid.UUID(stored["id"])))
     ).scalar_one()
 
-    assert json.loads(open_credential(row)) == DATAFORSEO
-    # The login is an account id, not a secret, so it is showable. The password
-    # is not, and only its last four characters survive.
-    assert stored["meta"]["login"] == DATAFORSEO["login"]
-    assert DATAFORSEO["password"] not in json.dumps(stored)
+    assert open_credential(row) == DATAFORSEO["api_key"], "no JSON envelope around one value"
+    assert stored["meta"] == {"last4": "real"}
+    assert DATAFORSEO["api_key"] not in json.dumps(stored)
 
 
 async def test_the_catalogue_of_kinds_travels_with_the_list(admin: ApiClient) -> None:
@@ -83,13 +110,17 @@ async def test_the_catalogue_of_kinds_travels_with_the_list(admin: ApiClient) ->
     google = {field["name"] for field in kinds["google_ads"]["fields"]}
     assert {"developer_token", "refresh_token", "customer_id"} <= google
     assert kinds["google_ads"]["fields"][0]["secret"] is True
+    # Every field but the developer token arrives from consent, so the form has
+    # one box. This is the assertion the browser's form derives itself from.
+    typed = google - set(kinds["google_ads"]["oauth_fields"])
+    assert typed == {"developer_token"}
 
-    # The SERP account's zone is shown and its password is not, which is what
-    # lets `/settings` say *which* account is connected without holding one.
-    brightdata = {field["name"]: field for field in kinds["brightdata"]["fields"]}
-    assert brightdata["username"]["secret"] is False
-    assert brightdata["password"]["secret"] is True
-    assert brightdata["host"]["required"] is False
+    # And every other kind is a single key, with nothing showable beside it.
+    for kind in ("openrouter", "brightdata", "dataforseo"):
+        fields = kinds[kind]["fields"]
+        assert [field["name"] for field in fields] == ["api_key"], kind
+        assert fields[0]["secret"] is True, kind
+        assert fields[0]["required"] is True, kind
 
 
 async def test_smtp_cannot_be_stored_as_a_credential(admin: ApiClient) -> None:
@@ -102,10 +133,10 @@ async def test_smtp_cannot_be_stored_as_a_credential(admin: ApiClient) -> None:
 
 async def test_a_missing_required_field_names_the_field(admin: ApiClient) -> None:
     response = await admin.post(
-        "/credentials", json={"kind": "dataforseo", "values": {"login": "ops@example.com"}}
+        "/credentials", json={"kind": "dataforseo", "values": {"nonsense": "x"}}
     )
     assert response.status_code == 422
-    assert "password" in response.json()["detail"]
+    assert "api_key" in response.json()["detail"]
 
 
 # --- who may write what -----------------------------------------------------
