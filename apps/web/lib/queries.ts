@@ -18,6 +18,9 @@ import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
 import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
 import { listUsers } from "@/lib/api/users";
+import { getRunDiff } from "@/lib/api/diff";
+import { listSchedules } from "@/lib/api/schedules";
+import { getStorageUsage } from "@/lib/api/storage";
 import { getWorkspace } from "@/lib/api/workspace";
 
 export const keys = {
@@ -35,6 +38,9 @@ export const keys = {
   approvals: (filters: ApprovalFilters) => ["approvals", filters] as const,
   report: (runId: string) => ["reports", runId] as const,
   evidence: (query: EvidenceQuery) => ["evidence", query] as const,
+  schedules: (projectId?: string) => ["schedules", projectId ?? "all"] as const,
+  storage: ["storage"] as const,
+  runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -159,3 +165,31 @@ export function useEvidence(query: EvidenceQuery, enabled = true) {
 }
 
 export { isLive };
+
+export function useSchedules(projectId?: string) {
+  return useQuery({
+    queryKey: keys.schedules(projectId),
+    queryFn: () => listSchedules(projectId),
+  });
+}
+
+export function useStorageUsage() {
+  return useQuery({ queryKey: keys.storage, queryFn: getStorageUsage });
+}
+
+/**
+ * The comparison behind the Report Viewer's toggle.
+ *
+ * Disabled until the toggle is on, so opening a report is one request rather
+ * than two — most readers never compare, and the diff walks both payloads.
+ */
+export function useRunDiff(runId: string, against: string | undefined, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.runDiff(runId, against),
+    queryFn: () => getRunDiff(runId, against),
+    enabled,
+    // A finished run's report never changes, so neither does its diff.
+    staleTime: Infinity,
+    retry: false,
+  });
+}

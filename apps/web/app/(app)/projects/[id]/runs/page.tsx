@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, History } from "lucide-react";
+import { ArrowLeft, GitCompare, History } from "lucide-react";
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 
@@ -137,12 +137,27 @@ function RunRow({ run, highlighted }: { run: RunSummary; highlighted: boolean })
         {error ? (
           <span className="text-fg-muted">{error.message ?? error.code ?? "Failed"}</span>
         ) : run.status === "succeeded" ? (
-          <Link
-            href={`/projects/${run.project_id}/runs/${run.id}/report`}
-            className="text-accent hover:underline"
-          >
-            Report
-          </Link>
+          <span className="flex flex-wrap items-baseline gap-x-3">
+            <Link
+              href={`/projects/${run.project_id}/runs/${run.id}/report`}
+              className="text-accent hover:underline"
+            >
+              Report
+            </Link>
+            {/* PRD §13.3's diff-vs-previous column. Offered only when there is
+                a previous run to diff against, rather than shown disabled —
+                a control that can never do anything is noise in every row of
+                a project's first week. */}
+            {run.parent_run_id ? (
+              <Link
+                href={`/projects/${run.project_id}/runs/${run.id}/report?compare=1`}
+                className="inline-flex items-center gap-1 text-sm text-fg-muted hover:text-fg"
+              >
+                <GitCompare className="size-3.5" aria-hidden />
+                Changes
+              </Link>
+            ) : null}
+          </span>
         ) : (
           <span className="text-fg-subtle">
             {run.mode === "partial" ? "Partial run" : "Full run"}

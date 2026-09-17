@@ -40,6 +40,7 @@ dev = [
     "types-pyyaml>=6.0.12",
     "vcrpy>=6.0.2",    # connector cassettes (PRD §9); replayed with record_mode=none
     "pandas-stubs>=2.2.3",  # mypy strict has no types for pandas otherwise, and `frames.py` is where the arithmetic lives
+    "pytest-cov>=6.0.0",  # PRD §15 NF9 sets a coverage floor; `make coverage` is what measures it
 ]
 
 [build-system]

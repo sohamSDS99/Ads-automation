@@ -229,3 +229,35 @@ class AuditListResponse(BaseModel):
 
     entries: list[AuditEntry]
     next_cursor: str | None = None
+
+
+class StorageUsageResponse(BaseModel):
+    """`GET /storage` — what is on the worker's Volume (PRD §13.4 E, §16).
+
+    Read from the worker over the private network rather than computed here:
+    `api` has no Volume mounted, so any number it produced locally would be the
+    size of an empty container filesystem — confidently wrong, which is worse
+    than absent.
+    """
+
+    objects: int = 0
+    bytes: int = 0
+    capacity_bytes: int | None = None
+    used_fraction: float | None = None
+    warn_above: float = Field(
+        description="The fraction at which the UI shows a banner (STORAGE_WARN_FRACTION)."
+    )
+    at_capacity: bool = Field(
+        default=False, description="True when `used_fraction` has reached `warn_above`."
+    )
+    reachable: bool = Field(
+        default=True,
+        description=(
+            "False when the worker could not be reached. The screen then says the figure is "
+            "unavailable rather than showing a zero that reads as an empty disk."
+        ),
+    )
+    retention: dict[str, int] = Field(
+        default_factory=dict,
+        description="Configured retention window in days per prefix. 0 means keep forever.",
+    )

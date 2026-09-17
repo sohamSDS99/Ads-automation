@@ -1,0 +1,73 @@
+{
+  "node_id": "1.2.2",
+  "why": "The P&L is computed in pandas (law 3); the model only labels. Both sides cite the same rows.",
+  "gathered": [
+    "0474779e-bcbf-595c-a506-e9eb4cfcb598",
+    "0f4281f5-e06b-564e-8860-96a94ccdf0be"
+  ],
+  "output": {
+    "profitable_terms": [
+      {
+        "term": "sds management software",
+        "cost": 6120.0,
+        "conversions": 24.0,
+        "conversion_value": 198400.0,
+        "cpa": 255.0,
+        "roas": 32.4,
+        "clicks": 1420,
+        "impressions": 38900,
+        "campaigns": [
+          "Generic \u2014 Phrase \u2014 EU"
+        ],
+        "evidence_ids": [
+          "0474779e-bcbf-595c-a506-e9eb4cfcb598"
+        ]
+      }
+    ],
+    "wasteful_terms": [
+      {
+        "term": "free sds sheets download",
+        "cost": 9840.0,
+        "conversions": 0.0,
+        "clicks": 3120,
+        "impressions": 142000,
+        "recommended_action": "negative_phrase",
+        "reason": "Search intent is a free document, not a system to manage them.",
+        "campaigns": [
+          "Generic \u2014 Broad \u2014 Worldwide"
+        ],
+        "evidence_ids": [
+          "0f4281f5-e06b-564e-8860-96a94ccdf0be"
+        ]
+      }
+    ],
+    "clusters": [
+      {
+        "theme": "Free document seekers",
+        "verdict": "wasteful",
+        "terms": [
+          "free sds sheets download",
+          "sds pdf free"
+        ],
+        "note": "Consistently zero-conversion across every market."
+      }
+    ],
+    "totals": {
+      "terms": 2,
+      "cost": 15960.0,
+      "conversions": 24.0,
+      "conversion_value": 198400.0,
+      "wasted_spend": 9840.0,
+      "waste_pct": 61.7,
+      "profitable_terms": 1,
+      "wasteful_terms": 1,
+      "blended_cpa": 665.0,
+      "blended_roas": 12.4
+    },
+    "truncated": {
+      "profitable_terms": 0,
+      "wasteful_terms": 0
+    },
+    "coverage": []
+  }
+}

@@ -5,7 +5,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -62,6 +62,32 @@ class NodeState(BaseModel):
     error: dict[str, Any] | None = None
 
 
+class DegradedSource(BaseModel):
+    """One source that did not fully answer during this run (PRD §15 NF4).
+
+    The console renders these as a banner and the report repeats them, so
+    `detail` carries the connector's own words — for the Transparency Center
+    that is the name of the selector that stopped matching, which is the whole
+    point of PRD §16's first row.
+    """
+
+    kind: str = Field(description="The kind of evidence that came back thin, e.g. `creative`.")
+    nodes: list[str] = Field(
+        default_factory=list, description="Which nodes hit it. Sorted, for a stable banner."
+    )
+    detail: str | None = Field(
+        default=None, description="What the connector said went wrong. Shown verbatim."
+    )
+    severity: Literal["degraded", "unavailable"] = Field(
+        default="degraded",
+        description=(
+            "`degraded` — a connector malfunctioned mid-run and the report is thinner for it. "
+            "`unavailable` — nothing of this kind is connected, which is a setup state and "
+            "not a fault."
+        ),
+    )
+
+
 class RunResponse(BaseModel):
     """`GET /runs/{id}` — the full state of a run, including its DAG."""
 
@@ -78,6 +104,14 @@ class RunResponse(BaseModel):
             "actor, and for a person since removed from the workspace."
         ),
     )
+    parent_run_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "The run this one follows — the newest succeeded run of the same project at the "
+            "moment this one launched. Null for a project's first run. The Report Viewer's "
+            "compare toggle is offered only when this is set."
+        ),
+    )
     selected_node_ids: list[str]
     cost_usd: Decimal
     token_in: int
@@ -87,6 +121,14 @@ class RunResponse(BaseModel):
     error: dict[str, Any] | None
     nodes: list[NodeState]
     edges: list[DagEdge]
+    degraded_sources: list[DegradedSource] = Field(
+        default_factory=list,
+        description=(
+            "Sources that did not fully answer. Derived from the nodes' own `coverage` "
+            "output, so it is durable and survives a page reload — the SSE stream is not "
+            "the only place this appears."
+        ),
+    )
 
 
 class NodeRunDetail(BaseModel):

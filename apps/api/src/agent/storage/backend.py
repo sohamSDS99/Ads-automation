@@ -9,6 +9,9 @@ that mechanically.
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import datetime
 from typing import IO, Protocol, runtime_checkable
 
 from agent.config import Settings, get_settings
@@ -16,6 +19,33 @@ from agent.config import Settings, get_settings
 
 class StorageError(Exception):
     """Storage operation failed, or was refused as unsafe."""
+
+
+@dataclass(frozen=True, slots=True)
+class ObjectInfo:
+    """What the retention job needs to decide whether an object has aged out."""
+
+    key: str
+    bytes: int
+    modified_at: datetime
+
+
+@dataclass(frozen=True, slots=True)
+class StorageUsage:
+    """Totals for the storage banner in `/settings` (PRD §16, "Volume full")."""
+
+    objects: int
+    bytes: int
+    #: Capacity of the filesystem the root sits on, when the backend can know
+    #: it. `None` for a backend with no fixed size — an object store is not
+    #: full, it is only expensive.
+    capacity_bytes: int | None = None
+
+    @property
+    def used_fraction(self) -> float | None:
+        if not self.capacity_bytes:
+            return None
+        return self.bytes / self.capacity_bytes
 
 
 @runtime_checkable
@@ -44,6 +74,20 @@ class StorageBackend(Protocol):
 
     def url_for(self, key: str) -> str:
         """An address the `api` service can fetch this object from."""
+        ...
+
+    def iter_objects(self, prefix: str = "") -> Iterator[ObjectInfo]:
+        """Every object under `prefix`, in no guaranteed order.
+
+        Added in P8 for the retention job, which cannot prune what it cannot
+        enumerate. Streaming rather than returning a list: a Volume holding a
+        year of creative screenshots has no reason to be materialised in memory
+        to delete forty of them.
+        """
+        ...
+
+    def usage(self) -> StorageUsage:
+        """How much is stored, and how much room is left if that is knowable."""
         ...
 
 

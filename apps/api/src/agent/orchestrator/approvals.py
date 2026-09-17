@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import sqlalchemy as sa
@@ -55,6 +55,12 @@ log = structlog.get_logger(__name__)
 #: unparseable means "any holder of `required_role`", which is the table's own
 #: documented meaning for `assignee_id IS NULL`.
 GATE_ASSIGNEES = "gate_assignees"
+
+#: The optional per-gate SLA in hours, written by the same wizard step
+#: (`agent.gates.SETTINGS_SLA`). It is a *reminder* clock, never an expiry one:
+#: PRD §16 is explicit that there is no auto-approve, so passing the SLA emails
+#: the assignee again and changes nothing about the gate.
+GATE_SLA_HOURS = "gate_sla_hours"
 
 
 class ApprovalConflict(RuntimeError):
@@ -124,6 +130,7 @@ async def open_gate(
         required_role=required_role,
         assignee_id=assignee_id,
         proposal=proposal,
+        due_at=due_at_for(project, node_id),
     )
     db.add(approval)
     await db.flush()
@@ -136,6 +143,37 @@ async def open_gate(
         assignee_id=str(assignee_id) if assignee_id else None,
     )
     return approval
+
+
+def sla_hours_for(project: Project, node_id: str) -> int | None:
+    """The SLA an admin set for this gate, or None if they set none.
+
+    Defensive about the stored shape for the same reason `assignee_for` is: this
+    is free-form JSONB an admin edits through a form, and a malformed entry
+    should cost the reminder, not the gate.
+    """
+    raw = project.settings.get(GATE_SLA_HOURS) if project.settings else None
+    if not isinstance(raw, dict):
+        return None
+    value = raw.get(node_id)
+    if isinstance(value, bool) or not isinstance(value, int | float | str):
+        return None
+    try:
+        hours = int(value)
+    except (TypeError, ValueError):
+        return None
+    return hours if hours > 0 else None
+
+
+def due_at_for(project: Project, node_id: str) -> datetime | None:
+    """When this gate's SLA runs out, or None when it has no SLA.
+
+    Stamped at open time rather than computed on read, so editing the project's
+    SLA later does not silently re-date a question somebody has already been
+    sitting on for three days.
+    """
+    hours = sla_hours_for(project, node_id)
+    return None if hours is None else utcnow() + timedelta(hours=hours)
 
 
 async def _valid_assignee(

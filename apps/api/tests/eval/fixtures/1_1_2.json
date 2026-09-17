@@ -1,0 +1,57 @@
+{
+  "node_id": "1.1.2",
+  "why": "Segments are the thing most likely to be invented; each one must cite the deals behind it.",
+  "gathered": [
+    "3f53c47a-542c-58cf-b09f-a9a2af1299e7",
+    "74ea64a5-4633-5801-8ee7-c43ae1b3ca69",
+    "a6539856-1612-5b5f-b21f-050215761543"
+  ],
+  "output": {
+    "segments": [
+      {
+        "label": "Mid-market chemical distributors, DACH",
+        "firmographics": "50-250 employees, 3-8 warehouses, REACH-regulated.",
+        "triggers": [
+          "An audit finding",
+          "A new warehouse opening"
+        ],
+        "jobs_to_be_done": [
+          "Prove compliance to an auditor in under a day"
+        ],
+        "industry": "Chemical distribution",
+        "country": "DE",
+        "size_band": "50-250",
+        "deals": 61,
+        "revenue": 548000.0,
+        "share_of_revenue_pct": 30.5,
+        "avg_deal_value": 8983.6,
+        "evidence_ids": [
+          "3f53c47a-542c-58cf-b09f-a9a2af1299e7",
+          "74ea64a5-4633-5801-8ee7-c43ae1b3ca69"
+        ]
+      },
+      {
+        "label": "Manufacturing EHS teams, Nordics",
+        "firmographics": "250-1000 employees, single-site, ISO 45001.",
+        "triggers": [
+          "An ISO recertification"
+        ],
+        "jobs_to_be_done": [
+          "Keep safety data sheets current without a full-time owner"
+        ],
+        "industry": "Manufacturing",
+        "country": "DK",
+        "size_band": "250-1000",
+        "deals": 38,
+        "revenue": 402000.0,
+        "share_of_revenue_pct": 22.4,
+        "avg_deal_value": 10578.9,
+        "evidence_ids": [
+          "a6539856-1612-5b5f-b21f-050215761543"
+        ]
+      }
+    ],
+    "segments_omitted": 3,
+    "coverage": []
+  }
+}

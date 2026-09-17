@@ -1,0 +1,50 @@
+{
+  "node_id": "1.1.1",
+  "why": "Unit economics are arithmetic, not prose: every figure has to trace to a CRM row.",
+  "gathered": [
+    "3f53c47a-542c-58cf-b09f-a9a2af1299e7",
+    "74ea64a5-4633-5801-8ee7-c43ae1b3ca69",
+    "a6539856-1612-5b5f-b21f-050215761543"
+  ],
+  "output": {
+    "products": [
+      {
+        "name": "SDS Manager \u2014 Team",
+        "price_model": "Per seat, billed annually",
+        "delivery_cost_notes": "Hosting and support, ~18% of ACV.",
+        "evidence_ids": [
+          "3f53c47a-542c-58cf-b09f-a9a2af1299e7"
+        ]
+      },
+      {
+        "name": "SDS Manager \u2014 Enterprise",
+        "price_model": "Site licence with an onboarding fee",
+        "delivery_cost_notes": "Implementation is 40 hours in the first year.",
+        "evidence_ids": [
+          "74ea64a5-4633-5801-8ee7-c43ae1b3ca69"
+        ]
+      }
+    ],
+    "assumptions": {
+      "gross_margin_pct": 78.0,
+      "expected_lifetime_months": 34.0,
+      "target_ltv_cac_ratio": 3.0,
+      "basis": "Closed-won cohort, trailing 24 months."
+    },
+    "economics": {
+      "acv": 8400.0,
+      "median_deal_value": 6200.0,
+      "deals": 214,
+      "revenue": 1797600.0,
+      "gross_margin_pct": 78.0,
+      "lifetime_months": 34.0,
+      "ltv_estimate": 18564.0,
+      "target_cac": 6188.0,
+      "payback_months": 9.5
+    },
+    "ltv_estimate": 18564.0,
+    "target_cac": 6188.0,
+    "payback_months": 9.5,
+    "coverage": []
+  }
+}

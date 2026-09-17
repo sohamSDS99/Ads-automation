@@ -19,8 +19,10 @@ from starlette.responses import StreamingResponse
 
 from agent.api import problems
 from agent.api.middleware import client_ip
+from agent.api.schemas_diff import RunDiffResponse, to_response
 from agent.api.schemas_runs import (
     DagEdge,
+    DegradedSource,
     LaunchRunRequest,
     NodeRunDetail,
     NodeState,
@@ -29,15 +31,21 @@ from agent.api.schemas_runs import (
     RunViewer,
 )
 from agent.api.sse import cursor_from, sse_response
+from agent.api.throttle import throttle
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
+from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
 from agent.db.models import NodeRun, Run, RunMode, RunStatus, RunTrigger
-from agent.db.repos import ProjectRepo, RunRepo, UserRepo
+from agent.db.repos import ProjectRepo, ReportRepo, RunRepo, UserRepo
 from agent.db.session import get_session
+from agent.export.contract import ResearchReport
+from agent.export.diff import diff_reports
+from agent.nodes.gather import parse_note
 from agent.orchestrator.approvals import expire_pending
 from agent.orchestrator.dag import Dag, DagError, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
+from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.presence import MAX_VIEWERS, RunPresence
 from agent.orchestrator.registry import NodeRegistry, get_registry
 from agent.orchestrator.state import (
@@ -69,6 +77,11 @@ RunOperator = Annotated[Principal, Depends(require(Permission.RUN_EXECUTE))]
     response_model=RunResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Launch a run",
+    # Tighter than the workspace-wide write quota, because each of these can
+    # cost dollars and hold a worker for the better part of an hour. The run
+    # lock already allows one per project; this bounds a caller cycling across
+    # projects. Declared alongside `require(RUN_EXECUTE)`, never instead of it.
+    dependencies=[Depends(throttle(RUN_QUOTA))],
 )
 async def launch_run(
     project_id: uuid.UUID,
@@ -84,72 +97,33 @@ async def launch_run(
     dag = get_dag()
     selection = _resolve_selection(dag, body)
 
-    lock = RunLock(get_redis())
-    run = Run(
-        project_id=project.id,
-        triggered_by=me.user.id,
-        trigger=RunTrigger.MANUAL,
-        status=RunStatus.QUEUED,
-        mode=RunMode.PARTIAL if selection else RunMode.FULL,
-        node_filter={"node_ids": sorted(selection), "reuse_cache": body.reuse_cache}
-        if selection
-        else {"reuse_cache": body.reuse_cache},
-    )
-    RunRepo(db, me.workspace_id).add(run)
-    await db.flush()
-
-    holder = await lock.acquire(
-        project.id,
-        LockHolder(run_id=run.id, user_id=me.user.id, user_name=me.user.name),
-    )
-    if holder is not None:
-        await db.rollback()
+    try:
+        run = await launch(
+            db,
+            get_redis(),
+            LaunchRequest(
+                project=project,
+                workspace_id=me.workspace_id,
+                trigger=RunTrigger.MANUAL,
+                actor_id=me.user.id,
+                actor_name=me.user.name,
+                node_ids=selection,
+                reuse_cache=body.reuse_cache,
+                ip=client_ip(request),
+            ),
+        )
+    except ProjectBusy as busy:
         raise problems.conflict(
-            f"{holder.user_name or 'Someone'} is already running this project.",
+            f"{busy.holder.user_name or 'Someone'} is already running this project.",
             title="Project is already running",
-            holder=holder.as_dict(),
-        )
-
-    write_audit(
-        db,
-        workspace_id=me.workspace_id,
-        actor_id=me.user.id,
-        action=AuditAction.RUN_LAUNCHED,
-        target_type=AuditTarget.RUN,
-        target_id=run.id,
-        meta={
-            "project_id": str(project.id),
-            "mode": run.mode.value,
-            "node_ids": sorted(selection) if selection else None,
-            "reuse_cache": body.reuse_cache,
-        },
-        ip=client_ip(request),
-    )
-    try:
-        await db.commit()
-    except Exception:
-        # The lock was taken before the row was durable. Releasing it here is
-        # the difference between a failed launch and a project that cannot be
-        # run again until the lock's two-hour TTL expires.
-        await lock.release(project.id, run.id)
-        raise
-
-    events = RunEventStream(get_redis(), run.id)
-    await events.publish(EventType.RUN_STATUS, run_id=str(run.id), status=RunStatus.QUEUED)
-
-    try:
-        await enqueue_run(run.id)
-    except Exception as exc:  # noqa: BLE001 — the row exists; say so instead of 500ing blind
-        log.error("run.enqueue_failed", run_id=str(run.id), error=str(exc))
-        await RunStore(db).finish_run(
-            run, status=RunStatus.FAILED, error={"code": "enqueue_failed", "message": str(exc)}
-        )
-        await lock.release(project.id, run.id)
+            holder=busy.holder.as_dict(),
+        ) from busy
+    except QueueUnavailable as unavailable:
         raise problems.Problem(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             title="Queue unavailable",
             detail="The run was recorded but could not be queued. Retry it once Redis is back.",
-        ) from exc
+        ) from unavailable
 
     return await _run_response(db, run, dag=dag, registry=get_registry())
 
@@ -222,6 +196,65 @@ async def get_node_run(run_id: uuid.UUID, node_id: str, me: AnyMember, db: Db) -
         finished_at=node_run.finished_at,
         error=node_run.error,
     )
+
+
+@router.get(
+    "/runs/{run_id}/diff",
+    response_model=RunDiffResponse,
+    summary="What changed since another run",
+)
+async def diff_run(
+    run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    against: uuid.UUID | None = None,
+) -> RunDiffResponse:
+    """Compare this run's report with another's (PRD §14, §13.4 C).
+
+    `against` defaults to `parent_run_id` — the run that was current when this
+    one launched — because that is the comparison the viewer's toggle offers and
+    asking the client to look it up first would be a round trip for a value the
+    run already carries.
+    """
+    run = await _load_run(db, run_id, me)
+    against_is_parent = against is None
+    target_id = against or run.parent_run_id
+    if target_id is None:
+        raise problems.unprocessable(
+            "This is the first completed run for this project, so there is nothing to "
+            "compare it against yet.",
+            title="Nothing to compare",
+        )
+    if target_id == run_id:
+        raise problems.unprocessable("A run cannot be compared with itself.")
+
+    other = await _load_run(db, target_id, me)
+    if other.project_id != run.project_id:
+        # Two projects' reports share a schema and nothing else. Diffing them
+        # would produce a page of confident nonsense.
+        raise problems.unprocessable(
+            "Runs belong to different projects and cannot be compared.",
+            title="Different projects",
+        )
+
+    reports = ReportRepo(db, me.workspace_id)
+    current = await reports.for_run(run_id)
+    previous = await reports.for_run(target_id)
+    missing = [
+        str(identifier)
+        for identifier, row in ((run_id, current), (target_id, previous))
+        if row is None
+    ]
+    if missing or current is None or previous is None:
+        raise problems.not_found(
+            f"No report for {' and '.join(missing)}. A run only has one once it finishes."
+        )
+
+    result = diff_reports(
+        ResearchReport.model_validate(current.payload),
+        ResearchReport.model_validate(previous.payload),
+    )
+    return to_response(result, against_is_parent=against_is_parent)
 
 
 @router.post(
@@ -417,6 +450,7 @@ async def _run_response(
         trigger=run.trigger,
         triggered_by=run.triggered_by,
         triggered_by_name=names.get(run.triggered_by) if run.triggered_by else None,
+        parent_run_id=run.parent_run_id,
         selected_node_ids=sorted(selected),
         cost_usd=run.cost_usd,
         token_in=run.token_in,
@@ -430,7 +464,43 @@ async def _run_response(
             for edge in dag.edges
             if edge.source in selected and edge.target in selected
         ],
+        degraded_sources=degraded_sources(latest),
     )
+
+
+def degraded_sources(latest: dict[str, NodeRun]) -> list[DegradedSource]:
+    """Fold every node's `coverage` output into one banner-shaped list.
+
+    Derived from the checkpointed node output rather than from an event: PRD
+    §13.5 item 2 has the console reconcile against `GET /runs/{id}` on every SSE
+    reconnect, so anything only announced over the stream is gone the moment a
+    reader reloads the page. A banner that disappears on refresh is worse than
+    no banner, because it teaches people the problem went away.
+    """
+    found: dict[tuple[str, str], DegradedSource] = {}
+    for node_id, node_run in sorted(latest.items()):
+        for raw in (node_run.output or {}).get("coverage") or []:
+            note = parse_note(str(raw))
+            if note is None:
+                continue
+            severity = "degraded" if note.is_degraded else "unavailable"
+            key = (note.kind, severity)
+            existing = found.get(key)
+            if existing is None:
+                found[key] = DegradedSource(
+                    kind=note.kind,
+                    nodes=[node_id],
+                    detail=note.detail,
+                    severity=severity,
+                )
+            else:
+                # Same source, another node. One banner entry, every node that
+                # hit it — and the first non-empty detail, because the nodes
+                # share one connector and therefore one reason.
+                existing.nodes.append(node_id)
+                existing.detail = existing.detail or note.detail
+    # Degraded first: a malfunction is news, an unconfigured source is setup.
+    return sorted(found.values(), key=lambda item: (item.severity != "degraded", item.kind))
 
 
 def _node_state(registry: NodeRegistry, node_id: str, node_run: NodeRun | None) -> NodeState:

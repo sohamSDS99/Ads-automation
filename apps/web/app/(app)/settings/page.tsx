@@ -4,6 +4,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Mail } from "lucide-react";
 import { useState } from "react";
 
+import { ScheduleEditor } from "@/components/settings/schedule-editor";
+import { StorageCard } from "@/components/settings/storage-card";
 import { CredentialCard } from "@/components/setup/credential-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -19,10 +21,18 @@ import { credentialFor } from "@/lib/api/credentials";
 import { formatContext, formatPerMillion, type ModelCatalogue } from "@/lib/api/models";
 import { updateWorkspace, type Workspace } from "@/lib/api/workspace";
 import { usd } from "@/lib/format";
-import { errorMessage, keys, useCredentials, useModels, useWorkspace } from "@/lib/queries";
+import {
+  errorMessage,
+  keys,
+  useCredentials,
+  useModels,
+  useProjects,
+  useWorkspace,
+} from "@/lib/queries";
 
 export default function WorkspaceSettingsPage() {
   const workspace = useWorkspace();
+  const projects = useProjects();
   const credentials = useCredentials();
   const catalogue = useModels(true);
   const error = errorMessage(workspace);
@@ -60,6 +70,10 @@ export default function WorkspaceSettingsPage() {
       ) : null}
 
       {workspace.data ? <EmailCard workspace={workspace.data} /> : null}
+
+      <ScheduleEditor projects={projects.data?.projects ?? []} />
+
+      <StorageCard />
     </div>
   );
 }

@@ -405,6 +405,7 @@ def _run_summary(run: Run, names: dict[uuid.UUID, str]) -> RunSummary:
         trigger=run.trigger,
         triggered_by=run.triggered_by,
         triggered_by_name=names.get(run.triggered_by) if run.triggered_by else None,
+        parent_run_id=run.parent_run_id,
         started_at=run.started_at,
         finished_at=run.finished_at,
         cost_usd=run.cost_usd,

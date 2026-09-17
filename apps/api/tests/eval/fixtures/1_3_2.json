@@ -1,0 +1,50 @@
+{
+  "node_id": "1.3.2",
+  "why": "Creatives are observed, never described from memory \u2014 and a degraded pull still ships.",
+  "gathered": [
+    "5c9db993-1e57-5a6c-bfdb-b6f4a815210c",
+    "177f5c37-adcf-55a7-852d-6a89c966dc80"
+  ],
+  "output": {
+    "ads": [
+      {
+        "advertiser": "Chemwatch",
+        "headline": "SDS Management, Audited",
+        "description": "Keep every safety data sheet current and prove it in one click.",
+        "offer": "Free compliance audit",
+        "angle": "Audit readiness",
+        "proof_type": "certification",
+        "cta": "Book a demo",
+        "landing_url": "https://chemwatch.net/sds-management",
+        "first_seen": "2026-05-02",
+        "last_seen": "2026-09-12",
+        "screenshot_path": "creatives/run-x/chemwatch-1a2b3c4d.png",
+        "format": "text",
+        "theme": "Audit readiness",
+        "evidence_ids": [
+          "5c9db993-1e57-5a6c-bfdb-b6f4a815210c"
+        ]
+      }
+    ],
+    "message_clusters": [
+      {
+        "theme": "Audit readiness",
+        "frequency": 14,
+        "share_pct": 46.7,
+        "advertisers": [
+          "Chemwatch",
+          "Verisk 3E"
+        ]
+      }
+    ],
+    "stats": {
+      "advertisers": 2,
+      "ads_seen": 30
+    },
+    "ads_omitted": 0,
+    "unread_ads": 4,
+    "coverage": [
+      "creative: partial \u2014 transparency: 1 of 3 advertisers failed"
+    ]
+  }
+}

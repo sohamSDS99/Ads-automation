@@ -1,0 +1,59 @@
+{
+  "node_id": "1.5.1",
+  "why": "A page audit is a measurement. Severity has to follow the numbers, not the prose.",
+  "gathered": [
+    "09d8e535-a474-56b5-91e6-4bea9300cfc6",
+    "9f658082-04f3-583d-8d1c-a929881bd92c"
+  ],
+  "output": {
+    "pages": [
+      {
+        "url": "https://sdsmanager.com/pricing",
+        "lcp_ms": 4800.0,
+        "cls": 0.02,
+        "mobile_ok": true,
+        "form_fields_count": 9,
+        "trust_signals": [
+          "ISO 45001 badge",
+          "Customer logos"
+        ],
+        "issues": [
+          "LCP over 4s on mobile",
+          "Nine form fields before a first reply"
+        ],
+        "severity": "major",
+        "status": 200,
+        "mapped_clusters": [
+          "Pricing intent"
+        ],
+        "message_match": "partial",
+        "evidence_ids": [
+          "09d8e535-a474-56b5-91e6-4bea9300cfc6"
+        ]
+      },
+      {
+        "url": "https://sdsmanager.com/de/produkt",
+        "lcp_ms": 2100.0,
+        "cls": 0.01,
+        "mobile_ok": true,
+        "form_fields_count": 3,
+        "trust_signals": [
+          "Customer logos"
+        ],
+        "issues": [],
+        "severity": "none",
+        "status": 200,
+        "mapped_clusters": [
+          "Product intent"
+        ],
+        "message_match": "good",
+        "evidence_ids": [
+          "9f658082-04f3-583d-8d1c-a929881bd92c"
+        ]
+      }
+    ],
+    "unreachable": [],
+    "blocking": 0,
+    "coverage": []
+  }
+}

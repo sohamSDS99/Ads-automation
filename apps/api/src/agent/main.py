@@ -10,7 +10,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agent import __version__
-from agent.api.middleware import SecurityHeadersMiddleware, SessionMiddleware
+from agent.api.logging_middleware import RequestContextMiddleware
+from agent.api.middleware import (
+    SecurityHeadersMiddleware,
+    SessionMiddleware,
+    WriteThrottleMiddleware,
+)
 from agent.api.problems import install_problem_handlers
 from agent.api.routes_approvals import router as approvals_router
 from agent.api.routes_audit import router as audit_router
@@ -23,6 +28,7 @@ from agent.api.routes_models import router as models_router
 from agent.api.routes_projects import router as projects_router
 from agent.api.routes_reports import router as reports_router
 from agent.api.routes_runs import router as runs_router
+from agent.api.routes_schedules import router as schedules_router
 from agent.api.routes_sources import router as sources_router
 from agent.api.routes_users import router as users_router
 from agent.api.routes_workspace import router as workspace_router
@@ -71,6 +77,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
 
+    # Innermost of the stack, so it runs with the session already resolved and
+    # can meter a user rather than an address.
+    app.add_middleware(WriteThrottleMiddleware, settings=settings)
+
     # Local Compose only. In production the browser is same-origin with `web`
     # (next.config.ts rewrites /api/v1/* over the private network), so no
     # cross-origin request is ever made and this middleware matches nothing.
@@ -82,10 +92,14 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         allow_headers=["*"],
     )
 
-    # Order matters: the security headers wrap everything, including the
-    # problem+json responses the session layer emits on a CSRF failure.
+    # Order matters, and Starlette applies these outermost-last. The request
+    # context is therefore the outermost of the three: a request rejected for
+    # CSRF, before any session exists, still gets a log line and a request id.
+    # The security headers then wrap everything below them, including the
+    # problem+json responses the session layer emits on that CSRF failure.
     app.add_middleware(SessionMiddleware, settings=settings)
     app.add_middleware(SecurityHeadersMiddleware, settings=settings)
+    app.add_middleware(RequestContextMiddleware)
 
     install_problem_handlers(app)
 
@@ -100,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         credentials_router,
         models_router,
         runs_router,
+        schedules_router,
         approvals_router,
         evidence_router,
         sources_router,

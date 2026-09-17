@@ -120,6 +120,23 @@ class Settings(BaseSettings):
     #: own schedule.
     file_token_secret: SecretStr = SecretStr("")
 
+    # --- backups and retention (P8) -----------------------------------------
+    # Every window is in days and every one can be set to 0 to keep forever.
+    # Defaults are deliberately generous for the things that are evidence
+    # (screenshots a report cites) and short for the things that are debris
+    # (a dumped page, an export anyone can regenerate).
+    backup_enabled: bool = True
+    backup_retention_days: int = 14
+    #: Creative screenshots. Cited by reports, so the window outlives the
+    #: quarter a report is read in.
+    screenshot_retention_days: int = 90
+    #: Connector failure dumps. Useful for a week, noise after that.
+    debug_retention_days: int = 14
+    #: Rendered exports. Regenerable from the stored report at any time.
+    export_retention_days: int = 30
+    #: How full the Volume may get before `/settings` shows a banner.
+    storage_warn_fraction: float = 0.8
+
     # --- budget -------------------------------------------------------------
     max_run_cost_usd: Decimal = Decimal("15.00")
 

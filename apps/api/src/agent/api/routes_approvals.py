@@ -48,7 +48,6 @@ from agent.db.models import (
 )
 from agent.db.repos import ApprovalRepo, UserRepo
 from agent.db.session import get_session
-from agent.gates import SETTINGS_SLA
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.registry import get_registry
@@ -472,14 +471,8 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
 def _sla_hours(project: Project | None, node_id: str) -> int | None:
     """The gate's allowance, if the project set one.
 
-    Stored by the setup wizard under `gate_sla_hours`, keyed by node id. Read
-    defensively: settings are a JSON column, and a hand-edited row should cost
-    a countdown, not the whole inbox.
+    One reader, in `orchestrator.approvals`: the inbox's countdown and the
+    reminder job must agree about what an admin typed into the wizard, and two
+    parsers of the same JSONB key are how they stop agreeing.
     """
-    if project is None:
-        return None
-    stored = project.settings.get(SETTINGS_SLA) if isinstance(project.settings, dict) else None
-    if not isinstance(stored, dict):
-        return None
-    value = stored.get(node_id)
-    return value if isinstance(value, int) and value > 0 else None
+    return None if project is None else gates.sla_hours_for(project, node_id)

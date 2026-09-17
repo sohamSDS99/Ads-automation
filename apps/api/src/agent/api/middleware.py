@@ -22,7 +22,9 @@ from starlette.requests import Request
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from agent.api import problems
+from agent.api.logging_middleware import bind_actor
 from agent.auth.deps import REQUEST_STATE_SESSION
+from agent.auth.ratelimit import WRITE_QUOTA, RequestRateLimiter
 from agent.auth.sessions import IDLE_TIMEOUT, SessionRecord, SessionStore, new_csrf_token
 from agent.config import Settings
 from agent.redis_client import get_redis
@@ -31,6 +33,18 @@ log = structlog.get_logger(__name__)
 
 CSRF_COOKIE_NAME = "csrf"
 CSRF_HEADER_NAME = "x-csrf-token"
+
+#: The API returns JSON and streams files. It has no document surface at all, so
+#: everything is denied and `frame-ancestors` repeats `X-Frame-Options` for the
+#: browsers that honour only the newer of the two.
+API_CSP = "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+
+#: Features this product never uses. Naming them explicitly is what stops an
+#: embedded context from inheriting them.
+PERMISSIONS_POLICY = (
+    "accelerometer=(), camera=(), geolocation=(), gyroscope=(), magnetometer=(), "
+    "microphone=(), payment=(), usb=()"
+)
 
 #: Methods that may not change state, so they need no CSRF token. `GET` covers
 #: the SSE stream, which is the one endpoint that could not send a header anyway
@@ -87,6 +101,11 @@ class SessionMiddleware:
         record = await self._resolve(request, store)
         state: MutableMapping[str, Any] = scope.setdefault("state", {})
         state[REQUEST_STATE_SESSION] = record
+        if record is not None:
+            # As soon as we know. Every log line emitted downstream — including
+            # from a repository that has never heard of HTTP — now carries who
+            # asked (`api/logging_middleware.py`).
+            bind_actor(record.user_id)
 
         cookie_csrf = request.cookies.get(CSRF_COOKIE_NAME)
 
@@ -164,8 +183,71 @@ class SessionMiddleware:
         return wrapped
 
 
+class WriteThrottleMiddleware:
+    """A ceiling on mutating requests per signed-in caller.
+
+    Sits *inside* `SessionMiddleware` so the caller is a user id rather than an
+    address: one office behind one NAT is one address, and metering by address
+    would let a single runaway script throttle a whole team.
+
+    Deliberately generous (`WRITE_QUOTA`). This is not an authorization control —
+    every route still declares its own `require(Permission)` — it is a backstop
+    against a retry loop, a stuck tab, or an admin account being used to mail out
+    invites in bulk. A limit a person can reach by using the product would be a
+    bug, so the two endpoints that genuinely need a low ceiling declare a tighter
+    quota of their own instead (`api/throttle.py`).
+
+    Unauthenticated writes are not metered here. They are `/auth/login`, which
+    has its own far harsher limiter, and `/invites/{token}/accept`, which needs a
+    valid single-use token before it does anything.
+    """
+
+    def __init__(self, app: ASGIApp, settings: Settings) -> None:
+        self.app = app
+        self.settings = settings
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("method") in SAFE_METHODS:
+            await self.app(scope, receive, send)
+            return
+
+        state = scope.get("state") or {}
+        record: SessionRecord | None = state.get(REQUEST_STATE_SESSION)
+        if record is None:
+            await self.app(scope, receive, send)
+            return
+
+        quota = await RequestRateLimiter(get_redis()).consume(WRITE_QUOTA, f"user:{record.user_id}")
+        if quota.allowed:
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path", "")
+        log.info("ratelimit.write_refused", path=path, retry_after=quota.retry_after_seconds)
+        response = problems.Problem(
+            status_code=429,
+            title="Too many requests",
+            detail=(
+                f"You have made more than {WRITE_QUOTA.limit} changes in "
+                f"{WRITE_QUOTA.window_seconds}s. Try again in "
+                f"{quota.retry_after_seconds}s."
+            ),
+            type_=problems.TYPE_RATE_LIMITED,
+            headers={"retry-after": str(quota.retry_after_seconds)},
+        ).to_response(instance=path)
+        await response(scope, receive, send)
+
+
 class SecurityHeadersMiddleware:
-    """The four headers from PRD §19.1 item 5, on every response."""
+    """Response headers that hold for every route, including error responses.
+
+    The API serves `application/problem+json` and nothing else — no HTML, no
+    scripts, no embedded anything — so its CSP can be the strictest one there
+    is. `default-src 'none'` means a response that somehow rendered as a
+    document could still load nothing at all, which matters because a browser
+    that sniffs a JSON body as HTML is exactly the attack `nosniff` exists to
+    stop and this is the second lock on that door.
+    """
 
     def __init__(self, app: ASGIApp, settings: Settings) -> None:
         self.app = app
@@ -182,6 +264,14 @@ class SecurityHeadersMiddleware:
                 headers.setdefault("x-content-type-options", "nosniff")
                 headers.setdefault("x-frame-options", "DENY")
                 headers.setdefault("referrer-policy", "no-referrer")
+                headers.setdefault("content-security-policy", API_CSP)
+                headers.setdefault("permissions-policy", PERMISSIONS_POLICY)
+                headers.setdefault("cross-origin-opener-policy", "same-origin")
+                headers.setdefault("cross-origin-resource-policy", "same-origin")
+                # `setdefault`, so the export download keeps its own caching
+                # rules. Everything else is workspace data on a shared network
+                # path and has no business in an intermediary's cache.
+                headers.setdefault("cache-control", "no-store")
                 # HSTS is only meaningful over TLS, and pinning it from a local
                 # http:// origin poisons the browser's cache for localhost.
                 if self.settings.cookie_secure:

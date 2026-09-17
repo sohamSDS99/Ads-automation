@@ -68,6 +68,24 @@ def create_file_server(
         restart on its own policy rather than be replaced mid-job."""
         return JSONResponse({"status": "ok", "service": "fileserver"})
 
+    async def usage(_: Request) -> Response:
+        """Totals for the storage banner (PRD §16, "Volume full").
+
+        Unauthenticated, like `/health`, and for the same reason: the worker has
+        no public ingress (§15 NF8d) and this answers with four integers. It
+        names no key and lists no object, so it is not the directory oracle the
+        download route goes out of its way not to become.
+        """
+        totals = backend.usage()
+        return JSONResponse(
+            {
+                "objects": totals.objects,
+                "bytes": totals.bytes,
+                "capacity_bytes": totals.capacity_bytes,
+                "used_fraction": totals.used_fraction,
+            }
+        )
+
     async def download(request: Request) -> Response:
         key = request.path_params["key"]
         token = request.query_params.get("token", "")
@@ -99,6 +117,7 @@ def create_file_server(
     return Starlette(
         routes=[
             Route("/health", health, methods=["GET"]),
+            Route("/usage", usage, methods=["GET"]),
             Route("/files/{key:path}", download, methods=["GET"]),
         ]
     )

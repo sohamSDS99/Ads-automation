@@ -1,0 +1,70 @@
+{
+  "description": "`GET /storage` \u2014 what is on the worker's Volume (PRD \u00a713.4 E, \u00a716).\n\nRead from the worker over the private network rather than computed here:\n`api` has no Volume mounted, so any number it produced locally would be the\nsize of an empty container filesystem \u2014 confidently wrong, which is worse\nthan absent.",
+  "properties": {
+    "objects": {
+      "default": 0,
+      "title": "Objects",
+      "type": "integer"
+    },
+    "bytes": {
+      "default": 0,
+      "title": "Bytes",
+      "type": "integer"
+    },
+    "capacity_bytes": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Capacity Bytes"
+    },
+    "used_fraction": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Used Fraction"
+    },
+    "warn_above": {
+      "description": "The fraction at which the UI shows a banner (STORAGE_WARN_FRACTION).",
+      "title": "Warn Above",
+      "type": "number"
+    },
+    "at_capacity": {
+      "default": false,
+      "description": "True when `used_fraction` has reached `warn_above`.",
+      "title": "At Capacity",
+      "type": "boolean"
+    },
+    "reachable": {
+      "default": true,
+      "description": "False when the worker could not be reached. The screen then says the figure is unavailable rather than showing a zero that reads as an empty disk.",
+      "title": "Reachable",
+      "type": "boolean"
+    },
+    "retention": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "description": "Configured retention window in days per prefix. 0 means keep forever.",
+      "title": "Retention",
+      "type": "object"
+    }
+  },
+  "required": [
+    "warn_above"
+  ],
+  "title": "StorageUsageResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

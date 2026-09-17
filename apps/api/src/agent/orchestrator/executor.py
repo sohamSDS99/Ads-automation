@@ -67,6 +67,7 @@ from agent.notify.email import send_approval_request
 from agent.orchestrator import approvals
 from agent.orchestrator.dag import Dag, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
+from agent.orchestrator.heartbeat import RunHeartbeat
 from agent.orchestrator.registry import NodeRegistry, get_registry
 from agent.orchestrator.state import TERMINAL_STATUSES, CancelFlag, RunLock, RunStore, utcnow
 
@@ -244,25 +245,31 @@ class RunExecutor:
         error: dict[str, Any] | None = None
         awaiting: set[str] = set()
         try:
-            for _ in range(MAX_GATE_PASSES):
-                awaiting = await self._run_waves(
-                    run=run,
-                    project=project,
-                    gateway=gateway,
-                    router=router,
-                    ledger=ledger,
-                    events=events,
-                )
-                if not awaiting:
-                    break
-                await self.store.rollup(run, ledger)
-                if await approvals.park(self.db, run):
-                    status = RunStatus.AWAITING_APPROVAL
-                    break
-                # Every gate that halted this pass was decided while the other
-                # branches were still running. Go round again and execute what
-                # those decisions unblocked.
-                log.info("run.gates_decided_mid_pass", run_id=str(run_id), nodes=sorted(awaiting))
+            # Held across the whole execution, including the gate-pass loop: a
+            # run that is going round again is as alive as one in its first
+            # wave, and the reaper must not be able to tell them apart.
+            async with RunHeartbeat(self.redis, run_id):
+                for _ in range(MAX_GATE_PASSES):
+                    awaiting = await self._run_waves(
+                        run=run,
+                        project=project,
+                        gateway=gateway,
+                        router=router,
+                        ledger=ledger,
+                        events=events,
+                    )
+                    if not awaiting:
+                        break
+                    await self.store.rollup(run, ledger)
+                    if await approvals.park(self.db, run):
+                        status = RunStatus.AWAITING_APPROVAL
+                        break
+                    # Every gate that halted this pass was decided while the
+                    # other branches were still running. Go round again and
+                    # execute what those decisions unblocked.
+                    log.info(
+                        "run.gates_decided_mid_pass", run_id=str(run_id), nodes=sorted(awaiting)
+                    )
         except RunCancelled:
             status, error = RunStatus.CANCELLED, {"code": "cancelled"}
         except BudgetExceeded as exc:

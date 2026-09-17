@@ -19,6 +19,52 @@
       "title": "DagEdge",
       "type": "object"
     },
+    "DegradedSource": {
+      "description": "One source that did not fully answer during this run (PRD \u00a715 NF4).\n\nThe console renders these as a banner and the report repeats them, so\n`detail` carries the connector's own words \u2014 for the Transparency Center\nthat is the name of the selector that stopped matching, which is the whole\npoint of PRD \u00a716's first row.",
+      "properties": {
+        "kind": {
+          "description": "The kind of evidence that came back thin, e.g. `creative`.",
+          "title": "Kind",
+          "type": "string"
+        },
+        "nodes": {
+          "description": "Which nodes hit it. Sorted, for a stable banner.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Nodes",
+          "type": "array"
+        },
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "What the connector said went wrong. Shown verbatim.",
+          "title": "Detail"
+        },
+        "severity": {
+          "default": "degraded",
+          "description": "`degraded` \u2014 a connector malfunctioned mid-run and the report is thinner for it. `unavailable` \u2014 nothing of this kind is connected, which is a setup state and not a fault.",
+          "enum": [
+            "degraded",
+            "unavailable"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "title": "DegradedSource",
+      "type": "object"
+    },
     "NodeRunStatus": {
       "description": "Per-node lifecycle.\n\nPRD \u00a76 leaves `NodeRun.status` untyped; these values are the ones \u00a77.2\nexecution semantics and the \u00a713.2 status palette actually require.",
       "enum": [
@@ -286,6 +332,20 @@
       "description": "Display name behind `triggered_by`. Null for a scheduled run, which has no actor, and for a person since removed from the workspace.",
       "title": "Triggered By Name"
     },
+    "parent_run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The run this one follows \u2014 the newest succeeded run of the same project at the moment this one launched. Null for a project's first run. The Report Viewer's compare toggle is offered only when this is set.",
+      "title": "Parent Run Id"
+    },
     "selected_node_ids": {
       "items": {
         "type": "string"
@@ -361,6 +421,14 @@
         "$ref": "#/$defs/DagEdge"
       },
       "title": "Edges",
+      "type": "array"
+    },
+    "degraded_sources": {
+      "description": "Sources that did not fully answer. Derived from the nodes' own `coverage` output, so it is durable and survives a page reload \u2014 the SSE stream is not the only place this appears.",
+      "items": {
+        "$ref": "#/$defs/DegradedSource"
+      },
+      "title": "Degraded Sources",
       "type": "array"
     }
   },
