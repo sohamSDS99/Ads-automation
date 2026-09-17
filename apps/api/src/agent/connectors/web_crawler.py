@@ -160,7 +160,14 @@ class WebCrawlerConnector(BaseConnector):
         max_depth = int(params.get("max_depth") or self.settings.crawl_max_depth)
 
         owned = self.context.client is None
-        client = self.context.client or build_client(self.settings)
+        # `crawl_proxy` is the one transport decision this connector does not
+        # make for itself: `gather._pull` resolves it once per run from the
+        # workspace's Webshare key, and None means direct. A borrowed client
+        # (tests) is left exactly as the caller built it — pointing a
+        # `MockTransport` at a proxy would test the mock, not the route.
+        client = self.context.client or build_client(self.settings, proxy=self.context.crawl_proxy)
+        if owned and self.context.crawl_proxy:
+            log.info("web_crawler.through_proxy", root=root)
         drafts: list[EvidenceDraft] = []
         failures: list[str] = []
         try:

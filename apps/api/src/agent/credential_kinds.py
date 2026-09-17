@@ -198,6 +198,31 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         connector="dataforseo",
         where="sources",
     ),
+    CredentialKind.WEBSHARE: KindSpec(
+        kind=CredentialKind.WEBSHARE,
+        label="Webshare",
+        description=(
+            "The exit IPs a crawl leaves through, so a 500-page pass does not "
+            "arrive at one host as 500 requests from one address."
+        ),
+        fields=(
+            FieldSpec(
+                name="api_key",
+                label="API key",
+                hint=(
+                    "The key from the Webshare dashboard. The proxy username, "
+                    "password and host are all read from it, so this is the whole "
+                    "credential."
+                ),
+            ),
+        ),
+        # Tested by `connectors/proxy.probe`, not by a connector: the thing
+        # proven is a transport several connectors borrow, and no single one of
+        # them owns it. `routes_credentials._run_test` dispatches on the kind
+        # for exactly that reason.
+        connector=None,
+        where="sources",
+    ),
 }
 
 #: SMTP is deliberately absent. It is read from the environment

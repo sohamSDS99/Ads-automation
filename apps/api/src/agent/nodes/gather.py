@@ -31,8 +31,11 @@ from dataclasses import dataclass, field
 import sqlalchemy as sa
 import structlog
 
+from agent.config import get_settings
 from agent.connectors import ConnectorContext, ConnectorDegraded, ConnectorError, build_connector
 from agent.connectors.base import EvidenceDraft
+from agent.connectors.proxy import proxy_url
+from agent.credential_kinds import spec_for, unseal
 from agent.credentials import MissingCredential, resolve_secret
 from agent.db.models import CredentialKind, Evidence
 from agent.evidence.store import EvidenceStore
@@ -253,6 +256,7 @@ async def _pull(ctx: RunContext, need: Need) -> PullResult:
         need.connector,
         ConnectorContext(
             credentials=credentials,
+            crawl_proxy=await _crawl_proxy(ctx, need.connector),
             run_id=str(ctx.run.id),
             project_id=str(ctx.project.id),
         ),
@@ -287,6 +291,61 @@ async def _pull(ctx: RunContext, need: Need) -> PullResult:
         duplicates=written.duplicates,
     )
     return PullResult(wrote=written.total > 0, reason=degraded_reason)
+
+
+#: The connectors whose outbound fetches leave through the Webshare pool when
+#: the workspace has a key for it. Deliberately short, and deliberately not
+#: "everything": `serp` reaches Google through Bright Data's own network, and
+#: `transparency` reaches a Google property that does not answer through
+#: Webshare at all — `connectors/proxy.py` records both measurements. Adding a
+#: name here is a claim that the target works through a rotating datacenter
+#: exit, which is a thing to verify rather than assume.
+_PROXIED_CONNECTORS = frozenset({"web_crawler"})
+
+#: Key under `RunContext.scratch` holding the resolved proxy URL, so a run
+#: resolves the Webshare account once however many crawls it performs.
+_PROXY_KEY = "crawl_proxy"
+
+
+async def _crawl_proxy(ctx: RunContext, connector: str) -> str | None:
+    """The exit this connector's fetches should leave through, if any.
+
+    Unlike `_credentials`, a missing key here is never a reason to skip the
+    pull: `web_crawler` needs no credential to read a public page, and a
+    deployment without a proxy account must go on crawling directly. A key that
+    is present but unusable is worth a log line, and still degrades to direct
+    rather than failing the run — the alternative is a whole research run lost
+    to a lapsed proxy subscription.
+    """
+    if connector not in _PROXIED_CONNECTORS:
+        return None
+    if _PROXY_KEY in ctx.scratch:
+        cached: str | None = ctx.scratch[_PROXY_KEY]
+        return cached
+
+    resolved: str | None = None
+    try:
+        secret = await resolve_secret(
+            ctx.db,
+            workspace_id=ctx.run.workspace_id,
+            kind=CredentialKind.WEBSHARE,
+            project_id=ctx.project.id,
+            user_id=ctx.run.triggered_by,
+        )
+    except MissingCredential:
+        secret = ""
+    if secret:
+        # `unseal`, not this function's own guess: `webshare` is a single-field
+        # kind, so the vault holds the bare key — and `_credentials` below turns
+        # a bare string into `{"token": ...}`, which is the wrong name for it.
+        values = unseal(spec_for(CredentialKind.WEBSHARE), secret)
+        try:
+            resolved = await proxy_url(values.get("api_key"), get_settings())
+        except ConnectorError as exc:
+            log.warning("gather.crawl_proxy_unusable", error=str(exc))
+    ctx.scratch[_PROXY_KEY] = resolved
+    log.info("gather.crawl_proxy", connector=connector, through_proxy=bool(resolved))
+    return resolved
 
 
 async def _credentials(ctx: RunContext, connector: str) -> dict[str, str] | None:

@@ -122,6 +122,23 @@ class Settings(BaseSettings):
     serp_max_keywords: int = 25
     serp_max_results: int = 20
     serp_concurrency: int = 4
+    # webshare: the exit IP an outbound crawl leaves through — `connectors/proxy.py`
+    # explains which connectors use it and, more importantly, which measured
+    # reasons keep `serp`, `transparency` and the vitals pass off it. Shape, not
+    # secret: the account itself is `CredentialKind.WEBSHARE` in the vault, and
+    # it is one API key.
+    webshare_api_url: str = "https://proxy.webshare.io/api/v2"
+    #: The rotating endpoint — one address, a new exit per request. The
+    #: thousand-row proxy list is the alternative and it makes us the balancer.
+    webshare_proxy_host: str = "p.webshare.io"
+    webshare_proxy_port: int = 80
+    #: Which country crawl traffic leaves from. Empty means anywhere in the
+    #: pool; a country the plan has not allocated is ignored with a log line
+    #: rather than sent, because Webshare answers that as an auth failure.
+    webshare_country: str = "us"
+    #: How long a resolved proxy pair is reused. A 500-URL crawl must resolve
+    #: the account once, and the credential cannot change inside a run.
+    webshare_cache_ttl_s: float = 900.0
     # web_crawler: PRD §9.4 caps — 500 URLs, depth 3.
     crawl_max_urls: int = 500
     crawl_max_depth: int = 3
