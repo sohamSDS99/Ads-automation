@@ -224,8 +224,16 @@ function NewSchedule({ projects }: { projects: ProjectSummary[] }) {
   });
 
   if (!open) {
+    // A disabled button with no explanation is a dead end. Say why instead.
+    if (projects.length === 0) {
+      return (
+        <p className="text-sm text-fg-muted">
+          There are no projects to schedule yet. Create one first, and it can then run on its own.
+        </p>
+      );
+    }
     return (
-      <Button variant="secondary" onClick={() => setOpen(true)} disabled={projects.length === 0}>
+      <Button variant="secondary" onClick={() => setOpen(true)}>
         <CalendarClock aria-hidden />
         Add a schedule
       </Button>

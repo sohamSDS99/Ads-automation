@@ -50,10 +50,18 @@ class RunHeartbeat:
         async with RunHeartbeat(redis, run_id):
             ...
 
-    Leaving the block deletes the key rather than letting it expire: a run that
-    ended cleanly should not look reapable for the next five minutes, and the
-    reaper's own "is this run still `running` in Postgres" check is what makes
-    the delete safe to skip when the process is killed instead.
+    **Leaving the block stops beating but does not delete the key.** Deleting it
+    is tidier and is a race: `execute()` still has to roll up the ledger, skip
+    unreached nodes, write the terminal status and expire open gates *after* the
+    wave loop ends, and during those round trips the run is still `running` in
+    Postgres. A reaper tick landing in that window would find a running run with
+    no heartbeat and fail a run that was seconds from succeeding.
+
+    Letting the key expire on its own costs nothing: the reaper only ever looks
+    at runs whose stored status is `running` or `queued`, so a lingering key on
+    a finished run is never consulted, and a worker that is killed leaves no
+    beat either way. `clear()` is still available for a caller that genuinely
+    wants the key gone — the tests use it.
     """
 
     def __init__(
@@ -100,8 +108,6 @@ class RunHeartbeat:
             with contextlib.suppress(asyncio.CancelledError):
                 await self._task
             self._task = None
-        with contextlib.suppress(Exception):
-            await self.clear()
 
     async def _loop(self) -> None:
         while True:

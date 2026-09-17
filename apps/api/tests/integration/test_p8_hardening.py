@@ -336,14 +336,39 @@ async def test_a_queued_run_inside_the_grace_period_is_not_reaped(
     assert (await reaper.reap_stale_runs(db, get_redis())).never_started == ()
 
 
-async def test_the_heartbeat_context_manager_writes_then_clears_the_key() -> None:
+async def test_the_heartbeat_writes_a_key_that_expires_on_its_own() -> None:
+    """Leaving the block stops beating; it does not delete the key.
+
+    Deleting on exit is a race: `execute()` still has to write the terminal
+    status after the wave loop ends, and a reaper tick in that window would find
+    a running run with no heartbeat and fail one that was about to succeed.
+    """
     run_id = uuid.uuid4()
     redis = get_redis()
     async with RunHeartbeat(redis, run_id, interval=3600):
         assert await redis.exists(heartbeat_key(run_id))
         # A key with no TTL would outlive the process it is supposed to prove alive.
         assert 0 < await redis.ttl(heartbeat_key(run_id)) <= 300
-    assert not await redis.exists(heartbeat_key(run_id))
+    assert await redis.exists(heartbeat_key(run_id)), "the key must outlive the block"
+    assert await redis.ttl(heartbeat_key(run_id)) > 0, "but it must still expire"
+    await RunHeartbeat(redis, run_id).clear()
+
+
+async def test_a_run_that_finished_is_never_reaped_even_while_its_key_lives(
+    db: AsyncSession, project: Any
+) -> None:
+    """The lingering key is harmless because status is what the reaper reads."""
+    run = Run(
+        workspace_id=project.workspace_id,
+        project_id=project.id,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.SUCCEEDED,
+        started_at=datetime.now(UTC) - timedelta(minutes=5),
+        finished_at=datetime.now(UTC),
+    )
+    db.add(run)
+    await db.commit()
+    assert (await reaper.reap_stale_runs(db, get_redis())).total == 0
 
 
 # ---------------------------------------------------------------------------
