@@ -129,7 +129,10 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
     CredentialKind.OPENROUTER: KindSpec(
         kind=CredentialKind.OPENROUTER,
         label="OpenRouter",
-        description="One key for every model. Every research node is a call through it.",
+        description=(
+            "One key reaches every model. Every step of the research is a call "
+            "through it, so nothing runs until this is set."
+        ),
         fields=(
             FieldSpec(
                 name="api_key",
@@ -144,7 +147,11 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
     CredentialKind.GOOGLE_ADS: KindSpec(
         kind=CredentialKind.GOOGLE_ADS,
         label="Google Ads",
-        description="Our own account history: spend, conversions, search terms and past creative.",
+        description=(
+            "Your own spend, conversions, search terms and past creative. Sign in "
+            "with the Google account that owns the ads and the accounts it "
+            "reaches are found automatically."
+        ),
         fields=(
             FieldSpec(name="developer_token", label="Developer token"),
             FieldSpec(name="client_id", label="OAuth client ID"),
@@ -178,7 +185,10 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
         label="DataForSEO",
-        description="Keyword volume, CPC, competition and 12 months of seasonality.",
+        description=(
+            "What people actually search for: keyword volume, cost per click, "
+            "competition, and twelve months of seasonality."
+        ),
         fields=(
             FieldSpec(
                 name="api_key",
@@ -194,33 +204,8 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         kind=CredentialKind.WEBSHARE,
         label="Webshare",
         description=(
-            "The exit IPs a crawl leaves through, so a 500-page pass does not "
-            "arrive at one host as 500 requests from one address."
-        ),
-        fields=(
-            FieldSpec(
-                name="api_key",
-                label="API key",
-                hint=(
-                    "The key from the Webshare dashboard. The proxy username, "
-                    "password and host are read from it, so this is the whole credential."
-                ),
-            ),
-        ),
-        # Tested by `connectors/proxy.probe`, not by a connector: the thing
-        # being proven is a transport several connectors share, and no single
-        # one of them owns it. `routes_credentials._run_test` dispatches on the
-        # kind for exactly this reason.
-        connector=None,
-        where="sources",
-        env_var="WEBSHARE_API_KEY",
-    ),
-    CredentialKind.WEBSHARE: KindSpec(
-        kind=CredentialKind.WEBSHARE,
-        label="Webshare",
-        description=(
-            "The exit IPs a crawl leaves through, so a 500-page pass does not "
-            "arrive at one host as 500 requests from one address."
+            "The exit IPs a crawl leaves through, so reading 500 pages does "
+            "not arrive at one site as 500 requests from one address."
         ),
         fields=(
             FieldSpec(

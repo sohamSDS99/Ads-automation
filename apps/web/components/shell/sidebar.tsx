@@ -19,7 +19,9 @@ const NAV = [
   { href: "/", label: "Projects", icon: FolderKanban, permission: "read" },
   { href: "/approvals", label: "Approvals", icon: ShieldCheck, permission: "approval_decide" },
   { href: "/evidence", label: "Evidence", icon: FileSearch, permission: "read" },
-  { href: "/settings", label: "Settings", icon: Settings, permission: "settings_write" },
+  // `read`, not `settings_write`: Settings now holds the project setup an
+  // operator owns, and every tab on it is readable by any member.
+  { href: "/settings", label: "Settings", icon: Settings, permission: "read" },
 ] as const satisfies readonly { href: string; label: string; icon: unknown; permission: Permission }[];
 
 export function Sidebar() {

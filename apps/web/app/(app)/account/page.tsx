@@ -5,7 +5,7 @@ import { KeyRound, Monitor } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { CredentialCard } from "@/components/setup/credential-card";
+import { ConnectionCard } from "@/components/settings/connection-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/card";
@@ -259,7 +259,15 @@ function PersonalKeyCard() {
       />
       <CardBody>
         {spec ? (
-          <CredentialCard spec={spec} credential={mine} canWrite reason="" scope="user" />
+          <div className="max-w-sm">
+            <ConnectionCard
+              spec={spec}
+              credential={mine}
+              canWrite
+              scope="user"
+              description="Only the runs you launch use this. Everyone else's keep billing to the workspace key."
+            />
+          </div>
         ) : (
           <div className="flex gap-3 text-sm text-fg-muted">
             <KeyRound className="mt-0.5 size-4 shrink-0 text-fg-subtle" aria-hidden />

@@ -51,8 +51,19 @@ export function useProjects() {
   return useQuery({ queryKey: keys.projects, queryFn: listProjects });
 }
 
-export function useProject(id: string) {
-  return useQuery({ queryKey: keys.project(id), queryFn: () => getProject(id) });
+/**
+ * One project.
+ *
+ * `enabled` defaults to on, and an empty id turns it off regardless: the
+ * settings tabs render before a project has been chosen, and firing
+ * `GET /projects/` at the API is a request that can only fail.
+ */
+export function useProject(id: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.project(id),
+    queryFn: () => getProject(id),
+    enabled: enabled && Boolean(id),
+  });
 }
 
 export function useProjectRuns(id: string) {

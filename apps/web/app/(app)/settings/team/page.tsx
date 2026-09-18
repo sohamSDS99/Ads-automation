@@ -26,7 +26,7 @@ import { useSession } from "@/lib/session";
 
 const ROLES: Role[] = ["admin", "operator", "approver", "viewer"];
 
-export default function MembersPage() {
+export default function TeamPage() {
   const users = useUsers();
   const error = errorMessage(users);
   const [inviting, setInviting] = useState(false);
@@ -34,14 +34,14 @@ export default function MembersPage() {
   return (
     <div className="flex flex-col gap-5">
       {error ? (
-        <Alert tone="error" title="Members could not be loaded">
+        <Alert tone="error" title="The team could not be loaded">
           {error}
         </Alert>
       ) : null}
 
       <Card>
         <CardHeader
-          title="Members"
+          title="Team"
           description="Everyone with access to this workspace. Accounts are disabled, never deleted, so the audit log keeps its actors."
           actions={
             <Button size="sm" onClick={() => setInviting(true)}>

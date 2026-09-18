@@ -2,7 +2,6 @@
 
 import { Plus, Sparkles, Trash2 } from "lucide-react";
 
-import { DocumentUpload } from "@/components/setup/document-upload";
 import { Button } from "@/components/ui/button";
 import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -19,21 +18,19 @@ import type {
 } from "@/lib/api/projects";
 
 /**
- * Step 1 — what we sell, and where.
+ * What this brand sells, and where.
  *
  * This is the text every research node is grounded on, so the fields are
- * prompts for specifics rather than empty boxes: what the product does, what it
- * costs, who it is for. Vague input here produces a vague report and no error
- * message anywhere.
+ * prompts for specifics rather than empty boxes: what the product does, what
+ * it costs, who it is for. Vague input here produces a vague report and no
+ * error message anywhere.
  *
- * The document uploader below them is the same job at a different scale. The
- * boxes go into every node's prompt as configuration and have to stay short;
- * an uploaded file becomes citable evidence instead, which is how a brand with
- * a 30-page positioning deck gets to use it without putting it in front of
- * twenty-three model calls.
+ * Uploaded documents are the same job at a different scale, and they are a
+ * card of their own on this tab rather than a panel inside this form: these
+ * boxes need saving and an upload does not, so putting them under one Save
+ * button would have said something untrue about both.
  */
-export function StepContext({
-  projectId,
+export function BusinessContextFields({
   context,
   markets,
   onContextChange,
@@ -45,7 +42,6 @@ export function StepContext({
   onAutofillOff,
   autofilling,
 }: {
-  projectId: string;
   context: ProductContext;
   markets: Market[];
   onContextChange: (context: ProductContext) => void;
@@ -140,8 +136,6 @@ export function StepContext({
           </p>
         </div>
       </div>
-
-      <DocumentUpload projectId={projectId} disabled={disabled} />
 
       <div className="space-y-2">
         <Field

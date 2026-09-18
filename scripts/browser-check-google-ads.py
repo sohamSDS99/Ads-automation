@@ -1,4 +1,4 @@
-"""Does the Sources step actually offer Google sign-in — and stop asking for a token?
+"""Does the Connections tab actually offer Google sign-in — and stop asking for a token?
 
 `GET /credentials` reporting `oauth_provider: google` and the card drawing a
 button for it are two different claims, and the second one is the only one the
@@ -48,22 +48,32 @@ with sync_playwright() as play:
     page.wait_for_url(lambda url: "/login" not in url, timeout=15_000)
     check("the admin is signed in", "/login" not in page.url, page.url)
 
-    page.goto(f"{BASE}/projects/{PROJECT}/setup", wait_until="networkidle")
-    page.get_by_role("button", name="Data sources").first.click()
+    page.goto(f"{BASE}/settings/connections", wait_until="networkidle")
     page.wait_for_timeout(2000)
-    page.screenshot(path=f"{SHOTS}/google-ads-sources.png", full_page=True)
+    page.screenshot(path=f"{SHOTS}/google-ads-connections.png", full_page=True)
 
     body = page.inner_text("body")
-    check("the Google Ads card is on the Sources step", "Google Ads" in body)
+    check("the Google Ads card is on the Connections tab", "Google Ads" in body)
+    # The card's face is one button; the form is behind it. Both claims are
+    # asserted, in that order, because a card that reads well and opens a
+    # dialog asking for five values has not fixed anything.
+    opener = page.get_by_role("button", name="Connect Google account")
+    if opener.count() == 0:
+        opener = page.get_by_role("button", name="Reconnect Google account")
     check(
-        "…offering Google sign-in rather than a form to fill",
-        page.get_by_role("button", name="Continue with Google").count() >= 1,
-        body[:300],
+        "…and its button offers sign-in rather than a form",
+        opener.count() >= 1,
+        body[:400],
     )
+    opener.first.click()
+    page.wait_for_timeout(1200)
+    dialog = page.get_by_role("dialog")
+    check("the dialog opened", dialog.count() >= 1)
+    page.screenshot(path=f"{SHOTS}/google-ads-dialog.png", full_page=True)
     check(
-        "…and saying who is expected to click it",
-        "account owner signs in" in body,
-        "the explanatory line under the button is missing",
+        "…saying whose Google account is wanted",
+        "owns the ads data" in dialog.inner_text(),
+        dialog.inner_text()[:300],
     )
 
     developer = page.get_by_label("Developer token")
@@ -92,13 +102,13 @@ with sync_playwright() as play:
         page.get_by_label("Manager (MCC) ID").count() == 0,
     )
     check(
-        "the developer token is the only field on the card",
+        "the developer token is the only field in the dialog",
         page.get_by_label("Developer token").count() == 1,
     )
-    # The paste-everything escape hatch is offered only where consent cannot
-    # run. This deployment has an OAuth client, so it must not be on screen.
+    # There is no paste-everything toggle any more. Where consent can run it is
+    # the only path; where it cannot, the full form opens directly and says so.
     paste = page.get_by_role("button", name="Paste all values instead")
-    check("no paste-five-values fallback where sign-in works", paste.count() == 0)
+    check("no paste-five-values toggle where sign-in works", paste.count() == 0)
     check(
         "…and the sign-in button is what is offered instead",
         page.get_by_role("button", name="Continue with Google").count() >= 1,
@@ -106,9 +116,16 @@ with sync_playwright() as play:
 
     page.set_viewport_size({"width": 390, "height": 1400})
     page.wait_for_timeout(800)
-    page.screenshot(path=f"{SHOTS}/google-ads-sources-390.png", full_page=True)
+    page.screenshot(path=f"{SHOTS}/google-ads-dialog-390.png", full_page=True)
     overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1")
-    check("the step does not scroll sideways at 390", not overflow)
+    check("the dialog does not scroll sideways at 390", not overflow)
+
+    # And the grid behind it, which is the screen someone actually lands on.
+    page.keyboard.press("Escape")
+    page.wait_for_timeout(600)
+    page.screenshot(path=f"{SHOTS}/connections-390.png", full_page=True)
+    overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1")
+    check("the connections grid does not scroll sideways at 390", not overflow)
 
     browser.close()
 

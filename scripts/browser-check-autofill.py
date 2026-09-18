@@ -48,10 +48,10 @@ with sync_playwright() as play:
     page.wait_for_url(lambda url: "/login" not in url, timeout=15_000)
     check("the admin is signed in", "/login" not in page.url, page.url)
 
-    page.goto(f"{BASE}/projects/{PROJECT}/setup", wait_until="networkidle")
+    page.goto(f"{BASE}/settings/context?project={PROJECT}", wait_until="networkidle")
     page.wait_for_timeout(1500)
     body = page.inner_text("body")
-    check("both offers are on the first step", "Let the agent find it" in body, body[:200])
+    check("both offers are on the Business context tab", "Let the agent find it" in body, body[:200])
     check("…including the one for markets", "Let the agent work these out" in body)
     check(
         "…saying what it will read, not just that it is clever",
@@ -102,7 +102,7 @@ with sync_playwright() as play:
     page.wait_for_timeout(800)
     page.screenshot(path=f"{SHOTS}/autofill-390.png", full_page=True)
     overflow = page.evaluate("document.documentElement.scrollWidth > window.innerWidth + 1")
-    check("the step does not scroll sideways at 390", not overflow)
+    check("the tab does not scroll sideways at 390", not overflow)
 
     browser.close()
 

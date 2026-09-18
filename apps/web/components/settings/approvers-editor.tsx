@@ -11,7 +11,7 @@ import { errorMessage, useUsers } from "@/lib/queries";
 export type GateDraft = { assignee_id: string | null; sla_hours: number | null };
 
 /**
- * Step 4 — who decides the three gates.
+ * Who decides the three gates.
  *
  * Unassigned is a real choice, not an empty one: the gate then goes to whoever
  * holds the approver role and gets there first. Naming someone makes it their
@@ -21,7 +21,7 @@ export type GateDraft = { assignee_id: string | null; sla_hours: number | null }
  * There is no auto-approve and no SLA that decides for anyone. The SLA only
  * decides when to remind them (PRD §16).
  */
-export function StepApprovers({
+export function ApproversEditor({
   gates,
   drafts,
   onChange,
@@ -47,7 +47,7 @@ export function StepApprovers({
       {users.data && candidates.length === 0 ? (
         <Alert tone="warning" title="Nobody can decide a gate yet">
           This workspace has no active approver or admin other than the people already listed. A run
-          will halt at the first gate and wait. Invite an approver from Settings → Members.
+          will halt at the first gate and wait. Invite an approver from the Team tab.
         </Alert>
       ) : null}
 

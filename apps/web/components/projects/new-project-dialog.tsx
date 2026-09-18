@@ -18,8 +18,8 @@ import { keys } from "@/lib/queries";
  * Name it, then set it up.
  *
  * Two fields, because a project that exists is something you can come back to
- * and a wizard you abandoned on step one is not. Everything else is collected
- * by the setup flow this hands off to.
+ * and a half-filled form is not. Everything else lives on the settings tabs
+ * this hands off to.
  */
 export function NewProjectDialog() {
   const [open, setOpen] = useState(false);
@@ -37,7 +37,7 @@ export function NewProjectDialog() {
       setName("");
       setDomain("");
       toast.success(`${project.name} created`, { description: "Now tell it what to research." });
-      router.push(`/projects/${project.id}/setup`);
+      router.push(`/settings/context?project=${project.id}`);
     },
     onError: (err) => {
       setError(
