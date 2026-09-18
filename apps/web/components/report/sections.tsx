@@ -143,7 +143,10 @@ export function BusinessSection({ report, citations, projectId }: Props) {
                       projectId={projectId}
                     />
                   </Td>
-                  <Td className="text-fg-muted">{product.price_model ?? "—"}</Td>
+                  {/* Capped and wrapping: this is a prose cell, and `min-w-max` on the
+                      table means one long pricing description sets the width of the whole
+                      table. Same trap as the landing-page issues column. */}
+                  <Td className="max-w-96 text-fg-muted">{product.price_model ?? "—"}</Td>
                   <Td data-numeric className="text-right">
                     {product.acv === null || product.acv === undefined ? "—" : usd(product.acv, 0)}
                   </Td>
@@ -353,6 +356,25 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
       (b.overlap_score ?? 0) - (a.overlap_score ?? 0),
   );
   const clusters = landscape.message_clusters ?? [];
+  const ads = landscape.ads ?? [];
+  // How many ads each competitor is running, and in what form. This is the
+  // half of the creative corpus that survives when the ad text does not: a
+  // table of 300 em-dashes says nothing, while "Brady runs 65 image ads" is a
+  // finding on its own.
+  const adPresence = Object.values(
+    ads.reduce<Record<string, { advertiser: string; total: number; image: number; video: number; text: number }>>(
+      (acc, ad) => {
+        const key = ad.advertiser || "unattributed";
+        const row = (acc[key] ??= { advertiser: key, total: 0, image: 0, video: 0, text: 0 });
+        row.total += 1;
+        if (ad.format === "image") row.image += 1;
+        else if (ad.format === "video") row.video += 1;
+        else row.text += 1;
+        return acc;
+      },
+      {},
+    ),
+  ).sort((a, b) => b.total - a.total);
   const whitespace = landscape.whitespace ?? [];
 
   return (
@@ -374,9 +396,55 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
       ) : (
         <ChartMissing
           title="What competitors are saying"
-          reason="No competitor creative was collected on this run, so there are no messages to count."
+          reason={
+            ads.length > 0
+              ? `${ads.length.toLocaleString()} competitor ads were captured, but the Transparency Center grid carries only the advertiser and the creative image — none of the ad text was readable, so there is nothing to cluster.`
+              : "No competitor creative was collected on this run, so there are no messages to count."
+          }
         />
       )}
+
+      {ads.length > 0 ? (
+        <div>
+          <SubHeading>Who is actually advertising</SubHeading>
+          <p className="mt-1 max-w-prose text-sm text-fg-muted">
+            {ads.length.toLocaleString()} live ads across {adPresence.length} advertisers. What each
+            one <em>says</em> is not here: the Transparency Center grid renders the creative as an
+            image, and the wording lives on the per-creative page. The screenshots are in the
+            evidence explorer.
+          </p>
+          <Table label="Competitor advertising presence" className="mt-2">
+            <thead>
+              <tr>
+                <Th>Advertiser</Th>
+                <Th className="text-right">Ads</Th>
+                <Th className="text-right">Image</Th>
+                <Th className="text-right">Video</Th>
+                <Th className="text-right">Text</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {adPresence.map((row) => (
+                <Tr key={row.advertiser}>
+                  <Td className="text-fg">{row.advertiser}</Td>
+                  <Td data-numeric className="text-right text-fg">
+                    {row.total.toLocaleString()}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.image || "—"}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.video || "—"}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.text || "—"}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      ) : null}
 
       <div>
         <SubHeading>Who we are up against</SubHeading>

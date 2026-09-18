@@ -89,6 +89,20 @@ _THREAT_TIER: dict[str, int] = {
 }
 
 
+def _ad_presence(ads: Sequence[CompetitorAd]) -> list[dict[str, Any]]:
+    """Ads per advertiser, split by format, busiest first."""
+    rows: dict[str, dict[str, Any]] = {}
+    for ad in ads:
+        key = ad.advertiser or "unattributed"
+        row = rows.setdefault(
+            key, {"advertiser": key, "total": 0, "image": 0, "video": 0, "text": 0}
+        )
+        row["total"] += 1
+        bucket = ad.format if ad.format in {"image", "video"} else "text"
+        row[bucket] += 1
+    return sorted(rows.values(), key=lambda row: (-row["total"], row["advertiser"]))
+
+
 def _competitor_sort_key(competitor: Competitor) -> tuple[int, float, str]:
     """Most dangerous first, then most overlapping, then domain for stability."""
     tier = _THREAT_TIER.get(competitor.threat or "", 3)
@@ -131,6 +145,17 @@ def build_context(
 
     ads_total = len(report.competitive_landscape.ads)
     ads: list[CompetitorAd] = report.competitive_landscape.ads[:ad_limit]
+    # Whether the corpus has anything to *read*. The Transparency Center grid
+    # renders each creative as an image and keeps the wording on the
+    # per-creative page, so a scrape can come back with 300 real ads and not one
+    # headline. Printing the ad table then produces 40 rows of em-dashes, which
+    # claims a creative corpus and shows nothing. `ad_presence` is what survives:
+    # who is advertising, how much, and in what form.
+    ads_have_text = any(
+        ad.headline or ad.description or ad.offer or ad.angle or ad.cta
+        for ad in report.competitive_landscape.ads
+    )
+    ad_presence = _ad_presence(report.competitive_landscape.ads)
 
     wasted_spend = sum(term.cost or 0.0 for term in report.account_learnings.wasteful_terms)
 
@@ -148,6 +173,8 @@ def build_context(
         "readiness": report.readiness,
         # Derived once, here.
         "competitors": competitors,
+        "ads_have_text": ads_have_text,
+        "ad_presence": ad_presence,
         "wasted_spend": wasted_spend,
         "keywords": keywords,
         "keywords_total": keywords_total,
@@ -239,6 +266,16 @@ def _print_rows(report: ResearchReport, context: dict[str, Any]) -> dict[str, An
                 fmt_text(term.recommended_action),
             ]
             for term in learnings.wasteful_terms
+        ],
+        "presence_rows": [
+            [
+                row["advertiser"],
+                fmt_number(row["total"]),
+                fmt_number(row["image"]),
+                fmt_number(row["video"]),
+                fmt_number(row["text"]),
+            ]
+            for row in _ad_presence(competition.ads)
         ],
         "competitor_rows": [
             [

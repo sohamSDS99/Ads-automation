@@ -283,6 +283,12 @@ class CompetitorAd(CitedModel):
     first_seen: str | None = None
     last_seen: str | None = None
     screenshot_path: str | None = None
+    #: "image" | "video" | "text". Along with the advertiser, this is all the
+    #: Transparency Center *grid* reliably yields — the creative renders as an
+    #: image and its wording lives on the per-creative page — so it is what the
+    #: report falls back to when every text field comes back empty.
+    format: str | None = None
+    theme: str | None = None
 
 
 class MessageCluster(ReportModel):

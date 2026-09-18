@@ -170,6 +170,10 @@ export type CompetitorAd = {
   first_seen?: string | null;
   last_seen?: string | null;
   screenshot_path?: string | null;
+  /** "image" | "video" | "text" — the only field besides the advertiser that the
+   *  Transparency Center grid reliably yields. */
+  format?: string | null;
+  theme?: string | null;
   evidence_ids?: string[];
 };
 
