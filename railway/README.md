@@ -65,17 +65,33 @@ only thing that differs between the two is variable **values**.
 
    `api` and `worker` share one build context (`apps/api`) but need different
    Dockerfiles, and Railway auto-detects only the file literally named
-   `Dockerfile`. Select the other one with the **`RAILWAY_DOCKERFILE_PATH`**
-   service variable, relative to the Root Directory:
+   `Dockerfile`. Point the worker at the other one with the service's
+   **Dockerfile Path** build setting (Settings → Build → Dockerfile Path),
+   relative to the Root Directory:
 
    ```
-   RAILWAY_DOCKERFILE_PATH=Dockerfile.worker
+   Root Directory:  apps/api
+   Dockerfile Path: Dockerfile.worker
    ```
 
-   Verify it took, because the failure is silent: a worker that built the wrong
-   file starts `uvicorn` instead of `arq` and Railway still reports SUCCESS.
-   Check the build log names the Playwright base image, and the deploy log says
-   `arq` — not `Uvicorn running on …`.
+   The `RAILWAY_DOCKERFILE_PATH` service variable that the Railway docs describe
+   was **ignored** on this project in every form tried (`Dockerfile.worker`,
+   `./Dockerfile.worker`, `apps/api/Dockerfile.worker`). The service build
+   setting is what is actually read — when the path is wrong the build fails
+   loudly with `couldn't locate the dockerfile at path …`, which is the quickest
+   way to confirm which value Railway is really using.
+
+   Two traps, and they compound:
+
+   - **The failure is silent.** A worker that built `Dockerfile` instead starts
+     `uvicorn` and Railway still reports SUCCESS. Confirm from the logs: the
+     build must name the Playwright base image, and the deploy log must NOT say
+     `Uvicorn running on …`.
+   - **Railway caches the build.** Changing only a variable frequently hands
+     back the previously built image rather than rebuilding — the giveaway is an
+     identical `containerimage.digest` across "new" builds. Changing the Root
+     Directory or pushing a commit moves the cache key; changing a variable may
+     not. Never conclude a build setting "doesn't work" from a cache hit.
 
 6. **`web`** — deploy from this repo, **Root Directory** `apps/web`. Set
    `API_INTERNAL_URL` to `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8080` (8080,

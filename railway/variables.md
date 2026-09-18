@@ -83,14 +83,20 @@ the Volume, mounted at `/data`.
 `worker` shares the `apps/api` build context with `api` but must build the other
 Dockerfile, and Railway auto-detects only a file named exactly `Dockerfile`:
 
-| Variable | Kind | Value |
-| --- | --- | --- |
-| `RAILWAY_DOCKERFILE_PATH` | fixed | `Dockerfile.worker` (relative to the Root Directory) |
+This is **not** an environment variable. `RAILWAY_DOCKERFILE_PATH` was ignored
+here in every form tried; the setting Railway actually reads is the service's
+**Dockerfile Path** under Settings → Build:
 
-Railway caches a build against the commit, so changing this variable alone may
-hand back the previously built image. If the worker's deploy log still says
-`Uvicorn running on …` instead of starting `arq`, it built the wrong file — push
-a commit to move the SHA and force a real rebuild, then re-read the log.
+```
+Root Directory:  apps/api
+Dockerfile Path: Dockerfile.worker
+```
+
+Railway also caches builds — changing a variable alone often returns the
+previously built image (same `containerimage.digest`) instead of rebuilding. If
+the worker's deploy log still says `Uvicorn running on …` rather than starting
+`arq`, it is running the api image: push a commit to move the SHA, force a real
+rebuild, and re-read the log.
 
 | Variable | Kind | Value |
 | --- | --- | --- |
