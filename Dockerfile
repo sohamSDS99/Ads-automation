@@ -2,7 +2,31 @@
 # worker service — arq + Playwright + the storage Volume.
 # The Playwright base image ships Ubuntu 22.04 with Python 3.10, so uv installs
 # and pins a managed CPython 3.12 to match the api service exactly.
-# Railway: Root Directory = apps/api, dockerfilePath = Dockerfile.worker
+#
+# Railway: Root Directory = <repo root>, Dockerfile Path = unset.
+#
+# WHY THIS FILE IS AT THE REPO ROOT AND NOT `apps/api/Dockerfile.worker`
+#
+# Railway auto-detects the build file by composing Root Directory + `Dockerfile`
+# and, on this project, honours NOTHING else: the `RAILWAY_DOCKERFILE_PATH`
+# service variable (tried as `Dockerfile.worker`, `./Dockerfile.worker` and
+# `apps/api/Dockerfile.worker`) and the service's own Dockerfile Path build
+# setting were both ignored, including on a brand-new service configured before
+# its first build ever ran. `api` and `worker` cannot therefore share the
+# `apps/api` directory as a root, because only one of them can own the file
+# literally named `Dockerfile` there.
+#
+# So the worker takes the repo root as its context and owns the `Dockerfile`
+# there; `api` keeps Root Directory `apps/api` and owns `apps/api/Dockerfile`.
+# Each service is then satisfied by plain auto-detection, and nothing depends on
+# a setting that silently does not apply.
+#
+# The cost is that every COPY below is prefixed `apps/api/`, because the build
+# context is now the repo root rather than `apps/api`.
+#
+# To confirm which file Railway actually chose, read the first line of a build
+# log — `load build definition from <path>`. Image digests will not tell you:
+# they are identical across cache hits.
 # ---------------------------------------------------------------------------
 FROM mcr.microsoft.com/playwright/python:v1.49.0-jammy AS base
 
@@ -49,10 +73,12 @@ https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.lis
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY pyproject.toml uv.lock ./
+COPY apps/api/pyproject.toml apps/api/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 
-COPY . .
+# Only `apps/api` — the context is the whole repo now, and copying `.` would
+# drag `apps/web`, `node_modules` and the PRD files into the worker image.
+COPY apps/api/ ./
 RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH" \

@@ -19,7 +19,7 @@ Three decisions worth defending:
   dumps in memory and spills large ones to the container's scratch disk, which
   is ephemeral and allowed to be.
 
-`pg_dump` itself lives in the worker image (`Dockerfile.worker` installs the
+`pg_dump` itself lives in the worker image (the repo-root `Dockerfile` installs the
 PGDG client). Its version must be >= the server's, or it refuses to run — which
 is why the image pins the client to 16 rather than taking Ubuntu's 14.
 """

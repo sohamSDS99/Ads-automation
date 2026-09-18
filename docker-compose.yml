@@ -98,8 +98,10 @@ services:
 
   worker:
     build:
-      context: ./apps/api
-      dockerfile: Dockerfile.worker
+      # The repo root, matching Railway: the worker's Dockerfile lives there so
+      # plain auto-detection finds it (see the header of `Dockerfile`).
+      context: .
+      dockerfile: Dockerfile
     command: ["arq", "agent.worker.WorkerSettings"]
     environment:
       <<: *api-env

@@ -22,7 +22,7 @@ only thing that differs between the two is variable **values**.
 | --- | --- | --- | --- |
 | `web` | `apps/web/Dockerfile` | **yes** | Next.js standalone. Owns the custom domain. |
 | `api` | `apps/api/Dockerfile` | no | uvicorn on `$PORT`, bound to `::`. |
-| `worker` | `apps/api/Dockerfile.worker` | no | arq + Playwright. Owns the Volume. |
+| `worker` | `Dockerfile` (repo root) | no | arq + Playwright. Owns the Volume. |
 | `postgres` | image `pgvector/pgvector:pg16` | no | Self-managed. Not a managed add-on. |
 | `redis` | image `redis:7-alpine` | no | Sessions, arq queue, run locks. |
 
@@ -63,35 +63,32 @@ only thing that differs between the two is variable **values**.
    RAM — Chromium needs it, and `/dev/shm` is 64 MB, so every browser launch
    must pass `--disable-dev-shm-usage`.
 
-   `api` and `worker` share one build context (`apps/api`) but need different
-   Dockerfiles, and Railway auto-detects only the file literally named
-   `Dockerfile`. Point the worker at the other one with the service's
-   **Dockerfile Path** build setting (Settings → Build → Dockerfile Path),
-   relative to the Root Directory:
+   **Leave Root Directory empty** — the worker builds from the repo root, where
+   its `Dockerfile` lives. Leave Dockerfile Path unset too; auto-detection finds
+   it.
 
-   ```
-   Root Directory:  apps/api
-   Dockerfile Path: Dockerfile.worker
-   ```
+   That placement is not cosmetic. Railway selects the build file by composing
+   Root Directory + `Dockerfile` and, on this project, honours nothing else:
 
-   The `RAILWAY_DOCKERFILE_PATH` service variable that the Railway docs describe
-   was **ignored** on this project in every form tried (`Dockerfile.worker`,
-   `./Dockerfile.worker`, `apps/api/Dockerfile.worker`). The service build
-   setting is what is actually read — when the path is wrong the build fails
-   loudly with `couldn't locate the dockerfile at path …`, which is the quickest
-   way to confirm which value Railway is really using.
+   - the `RAILWAY_DOCKERFILE_PATH` service variable was ignored in all three
+     forms (`Dockerfile.worker`, `./Dockerfile.worker`,
+     `apps/api/Dockerfile.worker`);
+   - the service's own **Dockerfile Path** build setting was ignored too —
+     including on a brand-new service configured before its first build ever ran.
 
-   Two traps, and they compound:
+   So `api` and `worker` cannot both be rooted at `apps/api`: only one of them
+   can own the file named `Dockerfile` there. `api` keeps `apps/api`, the worker
+   takes the repo root.
 
-   - **The failure is silent.** A worker that built `Dockerfile` instead starts
-     `uvicorn` and Railway still reports SUCCESS. Confirm from the logs: the
-     build must name the Playwright base image, and the deploy log must NOT say
-     `Uvicorn running on …`.
-   - **Railway caches the build.** Changing only a variable frequently hands
-     back the previously built image rather than rebuilding — the giveaway is an
-     identical `containerimage.digest` across "new" builds. Changing the Root
-     Directory or pushing a commit moves the cache key; changing a variable may
-     not. Never conclude a build setting "doesn't work" from a cache hit.
+   Two traps worth knowing anyway:
+
+   - **The failure is silent.** A worker that built the api's Dockerfile starts
+     `uvicorn` and Railway still reports SUCCESS. The authoritative check is the
+     FIRST line of the build log — `load build definition from <path>`. Image
+     digests will not tell you: they are identical across cache hits.
+   - **Railway caches builds**, and the key ignores the Dockerfile Path. Changing
+     only a variable frequently hands back the previous image. Changing the Root
+     Directory or pushing a commit moves the key.
 
 6. **`web`** — deploy from this repo, **Root Directory** `apps/web`. Set
    `API_INTERNAL_URL` to `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8080` (8080,
@@ -173,7 +170,8 @@ curl -sS $WEB/api/v1/health                 # {"status":"ok","db":"ok","redis":"
 #    api's deploy log shows `alembic.runtime.migration` BEFORE `Uvicorn running`
 
 # 5. the worker is running arq, not uvicorn — the silent-failure check
-#    worker's deploy log must NOT contain `Uvicorn running on`
+#    worker's deploy log must NOT contain `Uvicorn running on`, and its build
+#    log's first line must read `load build definition from Dockerfile`
 ```
 
 The `railway` CLI cannot link to this project (it reports "Project is deleted"
