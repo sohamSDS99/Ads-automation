@@ -25,7 +25,7 @@ export const INTENT_LABEL: Record<Intent, string> = {
   commercial_investigation: "Comparing options",
   informational: "Learning",
   navigational: "Looking for someone",
-  irrelevant: "Not us",
+  irrelevant: "Not relevant",
 };
 
 export const VERDICT_LABEL: Record<MappingVerdict, string> = {

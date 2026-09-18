@@ -257,7 +257,7 @@ Every figure below is an estimate with a stated method. None of it is reported f
 **{{ demand.total_keywords|num }}** keywords were classified and priced. The complete list is the CSV export; the table below is a preview.
 
 {% if keywords %}
-### Priced keywords{{ " (top %d by volume)" % keywords|length if keywords_truncated else "" }}
+### Priced keywords{{ " (top %d worth buying first)" % keywords|length if keywords_truncated else "" }}
 
 | Term | Market | Intent | Volume | CPC low | CPC high | Competition | Destination | Verdict |
 | --- | --- | --- | ---: | ---: | ---: | ---: | --- | --- |
