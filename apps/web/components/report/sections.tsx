@@ -2,6 +2,7 @@
 
 import { ClaimLine, CiteGroup } from "@/components/report/claim";
 import {
+  ChartMissing,
   KeywordChart,
   MessageChart,
   SeasonalityChart,
@@ -226,7 +227,14 @@ export function AccountSection({ report, citations, projectId }: Props) {
 
   return (
     <Section id="account" title="What we already ran">
-      <SpendChart profitable={profitable} wasteful={wasteful} />
+      {profitable.length > 0 || wasteful.length > 0 ? (
+        <SpendChart profitable={profitable} wasteful={wasteful} />
+      ) : (
+        <ChartMissing
+          title="Where the money went"
+          reason="No search-term cost or conversion history was read from the ad account, so there is no spend to plot."
+        />
+      )}
 
       <div className="grid gap-4 md:grid-cols-2">
         <Findings title="What worked" findings={winners} citations={citations} projectId={projectId} />
@@ -318,7 +326,14 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
         </div>
       ) : null}
 
-      <MessageChart clusters={clusters} />
+      {clusters.length > 0 ? (
+        <MessageChart clusters={clusters} />
+      ) : (
+        <ChartMissing
+          title="What competitors are saying"
+          reason="No competitor creative was collected on this run, so there are no messages to count."
+        />
+      )}
 
       <div>
         <SubHeading>Who we are up against</SubHeading>
@@ -536,7 +551,24 @@ export function ReadinessSection({ report, citations, projectId }: Props) {
                   <Td data-numeric className="text-right text-fg-muted">
                     {page.lcp_ms ? `${(page.lcp_ms / 1000).toFixed(1)}s` : "—"}
                   </Td>
-                  <Td className="text-fg-muted">{(page.issues ?? []).join("; ") || "—"}</Td>
+                  <Td className="max-w-96 text-fg-muted">
+                    {(page.issues ?? []).length === 0 ? (
+                      "—"
+                    ) : (
+                      // A joined string here is a single unbreakable cell, and
+                      // with `min-w-max` on the table one long issue list drags
+                      // the whole table three screens wide — which is how the
+                      // Severity column ended up off the right edge. A wrapped
+                      // list keeps the table inside its column.
+                      <ul className="space-y-0.5">
+                        {(page.issues ?? []).map((issue) => (
+                          <li key={issue} className="text-wrap break-words">
+                            {issue}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </Td>
                   <Td className="capitalize">{page.severity ?? "—"}</Td>
                 </Tr>
               ))}
@@ -655,10 +687,41 @@ export function ReadinessSection({ report, citations, projectId }: Props) {
   );
 }
 
+/**
+ * Buying order, not alphabetical order.
+ *
+ * Somebody typing "chemical inventory software" is further down the funnel than
+ * somebody typing "what is an SDS", and a table meant to answer "what do we bid
+ * on first" should say so before it sorts by size.
+ */
+const INTENT_WEIGHT: Record<string, number> = {
+  // Both money intents share tier 0 deliberately. Splitting them sorts a
+  // 10-search transactional term above a 3,600-search comparison term, which is
+  // not the order anyone builds a first campaign in — somebody comparing SDS
+  // tools is as much a buyer as somebody ready to click, and at that volume,
+  // more of one.
+  transactional: 0,
+  commercial_investigation: 0,
+  navigational: 2,
+  informational: 3,
+  irrelevant: 5,
+};
+const INTENT_RANK = (keyword: { intent?: string | null }) =>
+  INTENT_WEIGHT[keyword.intent ?? ""] ?? 4;
+
 export function KeywordsSection({ report, citations, projectId }: Props) {
   const keywords = report.priced_keyword_list ?? [];
-  const shown = [...keywords]
-    .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))
+  // Rank on usefulness before size. Sorting the preview purely by volume hands
+  // the top of the table to whatever the keyword vendor happened to return
+  // largest, and a site scrape returns fragments — "p s", "vi n" — carrying
+  // six-figure volumes. Those are already classified `irrelevant`; the table
+  // that represents this research should not open with them. They stay in the
+  // CSV export, which is the complete artefact.
+  const usable = keywords.filter((keyword) => keyword.intent !== "irrelevant");
+  const excluded = keywords.length - usable.length;
+  const ranked = usable.length > 0 ? usable : keywords;
+  const shown = [...ranked]
+    .sort((a, b) => INTENT_RANK(a) - INTENT_RANK(b) || (b.volume ?? 0) - (a.volume ?? 0))
     .slice(0, 50);
 
   return (
@@ -668,7 +731,15 @@ export function KeywordsSection({ report, citations, projectId }: Props) {
       ) : (
         <>
           <p className="text-sm text-fg-muted">
-            The {shown.length} largest by volume. The Keywords CSV export carries all{" "}
+            The {shown.length} worth buying first — terms the searcher means commercially, then
+            the largest by volume.{" "}
+            {excluded > 0 ? (
+              <>
+                <span data-numeric>{excluded.toLocaleString()}</span> terms classified as not
+                relevant are held back from this table.{" "}
+              </>
+            ) : null}
+            The Keywords CSV export carries all{" "}
             <span data-numeric>{keywords.length.toLocaleString()}</span>, ready for Google Ads
             Editor.
           </p>
@@ -704,7 +775,7 @@ export function KeywordsSection({ report, citations, projectId }: Props) {
                       ? "—"
                       : `${usd(keyword.cpc_low)}–${usd(keyword.cpc_high ?? keyword.cpc_low)}`}
                   </Td>
-                  <Td className="max-w-64 truncate text-fg-muted">
+                  <Td className="max-w-56 truncate text-fg-muted" title={keyword.best_url ?? undefined}>
                     {keyword.best_url ?? <span className="text-fg-subtle">unmapped</span>}
                   </Td>
                 </Tr>

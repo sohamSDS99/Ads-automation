@@ -277,7 +277,7 @@
   {% endfor %}
 
   {% if keywords %}
-  <h3>Priced keywords{% if keywords_truncated %} (top {{ keywords|length }} by volume){% endif %}</h3>
+  <h3>Priced keywords{% if keywords_truncated %} (top {{ keywords|length }} worth buying first){% endif %}</h3>
   {{ table(
       ["Term", "Market", "Intent", "Volume", "CPC low", "CPC high", "Competition", "Destination", "Verdict"],
       keyword_rows, numeric=[3, 4, 5, 6]) }}

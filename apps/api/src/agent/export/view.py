@@ -62,14 +62,37 @@ READINESS_LABELS = {
 }
 
 
-def _keyword_sort_key(keyword: PricedKeyword) -> tuple[int, float, str]:
-    """Highest volume first, then term, so the preview is stable across renders.
+#: Buying order for the keyword preview. The two money intents share a tier on
+#: purpose — somebody comparing SDS tools is as much a buyer as somebody ready
+#: to click, and usually a higher-volume one — so within tier 0 raw volume
+#: decides. `irrelevant` sorts last rather than being dropped, because the
+#: preview is a view of the CSV and the CSV is the complete artefact.
+_INTENT_TIER: dict[str, int] = {
+    "transactional": 0,
+    "commercial_investigation": 0,
+    "navigational": 2,
+    "informational": 3,
+    "irrelevant": 5,
+}
 
-    Volume is optional; a keyword with no volume sorts last rather than first,
-    which is where `None` would land under a naive descending sort.
+
+def _keyword_sort_key(keyword: PricedKeyword) -> tuple[int, int, float, str]:
+    """Most worth buying first, then highest volume, then term for stability.
+
+    Volume alone was the old key, and it handed the top of every preview to
+    whatever the keyword vendor returned largest. A site scrape returns
+    fragments — two-letter strings carrying six-figure volumes — which the
+    classifier correctly marks `irrelevant` and which then filled the first
+    screen of the report's headline table. Intent tier comes first so the rows a
+    reader sees are the rows they could act on.
+
+    Volume is optional; a keyword with no volume sorts last within its tier
+    rather than first, which is where `None` would land under a naive
+    descending sort.
     """
+    tier = _INTENT_TIER.get(keyword.intent or "", 4)
     volume = keyword.volume if keyword.volume is not None else -1
-    return (-volume, -(keyword.cpc_high or 0.0), keyword.term)
+    return (tier, -volume, -(keyword.cpc_high or 0.0), keyword.term)
 
 
 def build_context(

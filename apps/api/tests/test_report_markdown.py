@@ -7,6 +7,7 @@ these do.
 
 from __future__ import annotations
 
+from agent.export.contract import PricedKeyword
 from agent.export.markdown import normalise, render_markdown
 from agent.export.view import KEYWORD_PREVIEW_LIMIT, SECTION_TITLES
 from tests.report_support import PROJECT_NAME, golden_report, many_keywords, minimal_report
@@ -101,7 +102,7 @@ def test_a_long_keyword_list_is_truncated_and_says_so() -> None:
     report.priced_keyword_list = many_keywords(KEYWORD_PREVIEW_LIMIT + 25)
     markdown = render_markdown(report, project_name=PROJECT_NAME)
 
-    assert f"top {KEYWORD_PREVIEW_LIMIT} by volume" in markdown
+    assert f"top {KEYWORD_PREVIEW_LIMIT} worth buying first" in markdown
     assert f"{KEYWORD_PREVIEW_LIMIT + 25} keywords are in the CSV export" in markdown
     # Highest volume first, and the cap honoured exactly.
     assert "keyword 0000" in markdown
@@ -110,8 +111,53 @@ def test_a_long_keyword_list_is_truncated_and_says_so() -> None:
 
 def test_a_short_keyword_list_claims_no_truncation() -> None:
     markdown = render()
-    assert "by volume)" not in markdown
+    assert "worth buying first)" not in markdown
     assert "are in the CSV export" not in markdown
+
+
+def test_scrape_fragments_do_not_lead_the_keyword_preview() -> None:
+    """The headline table must not open with what the classifier already binned.
+
+    A vendor site-scrape returns debris — two-letter strings carrying six-figure
+    volumes — and sorting the preview on volume alone put those at the top of
+    the report's most-read table while the terms worth bidding on sat below the
+    cut. Intent decides the tier; volume only orders within it.
+    """
+    report = golden_report()
+    report.priced_keyword_list = [
+        PricedKeyword(
+            term="c h",
+            market="US",
+            intent="irrelevant",
+            volume=1_000_000,
+            cpc_low=0.42,
+            cpc_high=1.63,
+        ),
+        PricedKeyword(
+            term="ehs software",
+            market="US",
+            intent="commercial_investigation",
+            volume=1_000,
+            cpc_low=14.7,
+            cpc_high=84.06,
+        ),
+        PricedKeyword(
+            term="sds sheets",
+            market="US",
+            intent="transactional",
+            volume=8_100,
+            cpc_low=1.78,
+            cpc_high=4.34,
+        ),
+    ]
+    rows = _table_rows(render_markdown(report, project_name=PROJECT_NAME), "### Priced keywords")
+
+    # `_table_rows` yields the header and its separator first.
+    terms = [row.split("|")[1].strip() for row in rows][2:]
+    assert terms[0] == "sds sheets", terms
+    assert terms[1] == "ehs software", terms
+    # Still present — the preview is a view of the CSV, not a different list.
+    assert terms[-1] == "c h", terms
 
 
 def test_an_empty_report_still_renders() -> None:

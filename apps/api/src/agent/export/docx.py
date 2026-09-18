@@ -489,7 +489,7 @@ def _demand(document: DocxDocument, report: ResearchReport, context: dict[str, A
 
     if context["keyword_rows"]:
         suffix = (
-            f" (top {len(context['keyword_rows'])} by volume)"
+            f" (top {len(context['keyword_rows'])} worth buying first)"
             if context["keywords_truncated"]
             else ""
         )
