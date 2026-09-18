@@ -201,7 +201,7 @@
 
   {% if competition.competitors %}
   <h3>Competitor set</h3>
-  {{ table(["Domain", "Name", "Overlap", "Basis"], competitor_rows, numeric=[2]) }}
+  {{ table(["Domain", "Name", "Threat", "Overlap", "Basis"], competitor_rows, numeric=[3]) }}
   {% endif %}
 
   {% for chart in charts if chart.title == "What competitors are saying" %}

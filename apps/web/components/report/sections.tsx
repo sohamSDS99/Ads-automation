@@ -10,7 +10,12 @@ import {
 } from "@/components/report/charts";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import type { Citations } from "@/lib/citations";
-import { INTENT_LABEL, VERDICT_LABEL, type ResearchReport } from "@/lib/api/reports";
+import {
+  INTENT_LABEL,
+  THREAT_LABEL,
+  VERDICT_LABEL,
+  type ResearchReport,
+} from "@/lib/api/reports";
 import { compactNumber, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -306,9 +311,47 @@ export function AccountSection({ report, citations, projectId }: Props) {
   );
 }
 
+/**
+ * How dangerous 1.3.1 judged each domain, as a rank.
+ *
+ * Overlap alone is the wrong order for this table. It measures how much of the
+ * keyword surface two domains share, and on a term like "safety data sheet"
+ * the biggest sharers are Wikipedia, OSHA and YouTube — they scored 1.00 and
+ * led the table while the four actual rivals sat below the fold.
+ */
+const THREAT_WEIGHT: Record<string, number> = {
+  direct: 0,
+  adjacent: 1,
+  aggregator: 2,
+  irrelevant: 4,
+};
+
+function ThreatTag({ threat }: { threat?: string | null }) {
+  if (!threat) return <span className="text-fg-subtle">—</span>;
+  const direct = threat === "direct";
+  const noise = threat === "irrelevant";
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2 py-0.5 text-xs whitespace-nowrap",
+        direct && "border-status-failed/40 text-status-failed",
+        noise && "text-fg-subtle",
+        !direct && !noise && "text-fg-muted",
+      )}
+    >
+      {THREAT_LABEL[threat] ?? threat}
+    </span>
+  );
+}
+
 export function CompetitionSection({ report, citations, projectId }: Props) {
   const landscape = report.competitive_landscape ?? {};
   const competitors = landscape.competitors ?? [];
+  const rankedCompetitors = [...competitors].sort(
+    (a, b) =>
+      (THREAT_WEIGHT[a.threat ?? ""] ?? 3) - (THREAT_WEIGHT[b.threat ?? ""] ?? 3) ||
+      (b.overlap_score ?? 0) - (a.overlap_score ?? 0),
+  );
   const clusters = landscape.message_clusters ?? [];
   const whitespace = landscape.whitespace ?? [];
 
@@ -344,12 +387,13 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
             <thead>
               <tr>
                 <Th>Competitor</Th>
+                <Th>Threat</Th>
                 <Th>Overlaps on</Th>
                 <Th className="text-right">Overlap</Th>
               </tr>
             </thead>
             <tbody>
-              {competitors.map((competitor) => (
+              {rankedCompetitors.map((competitor) => (
                 <Tr key={competitor.domain}>
                   <Td>
                     <span className="text-fg">{competitor.name ?? competitor.domain}</span>
@@ -361,6 +405,14 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
                       citations={citations}
                       projectId={projectId}
                     />
+                    {competitor.positioning ? (
+                      <p className="mt-0.5 max-w-prose text-xs text-fg-subtle">
+                        {competitor.positioning}
+                      </p>
+                    ) : null}
+                  </Td>
+                  <Td>
+                    <ThreatTag threat={competitor.threat} />
                   </Td>
                   <Td className="text-fg-muted">{(competitor.overlap_basis ?? []).join(", ") || "—"}</Td>
                   <Td data-numeric className="text-right text-fg-muted">

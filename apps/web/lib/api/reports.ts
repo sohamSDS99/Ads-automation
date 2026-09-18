@@ -145,7 +145,17 @@ export type Competitor = {
   name?: string | null;
   overlap_score?: number | null;
   overlap_basis?: string[];
+  /** 1.3.1's judgement: direct | adjacent | aggregator | irrelevant. */
+  threat?: string | null;
+  positioning?: string | null;
   evidence_ids?: string[];
+};
+
+export const THREAT_LABEL: Record<string, string> = {
+  direct: "Direct",
+  adjacent: "Adjacent",
+  aggregator: "Aggregator",
+  irrelevant: "Not a rival",
 };
 
 export type CompetitorAd = {

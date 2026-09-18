@@ -424,7 +424,9 @@ def _competition(document: DocxDocument, report: ResearchReport, context: dict[s
 
     if context["competitor_rows"]:
         _heading(document, "Competitor set", 2)
-        _table(document, ["Domain", "Name", "Overlap", "Basis"], context["competitor_rows"])
+        _table(
+            document, ["Domain", "Name", "Threat", "Overlap", "Basis"], context["competitor_rows"]
+        )
 
     if context["cluster_rows"]:
         _heading(document, "What they are all saying", 2)

@@ -245,12 +245,24 @@ class AccountLearnings(ReportModel):
 
 
 class Competitor(CitedModel):
-    """1.3.1 `competitor_set`."""
+    """1.3.1 `competitor_set`.
+
+    `threat` and `positioning` were reaching the payload through `extra="allow"`
+    and no renderer knew they existed, which is why the competitor table led
+    with youtube.com: overlap alone ranks a keyword vendor's organic-SERP
+    neighbours, and on a term like "safety data sheet" those are Wikipedia, OSHA
+    and YouTube. 1.3.1 had already judged them irrelevant. Declaring the field
+    is what lets the table say so.
+    """
 
     domain: str
     name: str | None = None
     overlap_score: float | None = Field(default=None, ge=0, le=1)
     overlap_basis: list[str] = Field(default_factory=list)
+    #: 1.3.1's judgement: `direct`, `adjacent`, `aggregator` or `irrelevant`.
+    threat: str | None = None
+    #: One line on what they sell, in 1.3.1's words.
+    positioning: str | None = None
 
 
 class CompetitorAd(CitedModel):

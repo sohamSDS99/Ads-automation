@@ -184,10 +184,12 @@ Wasted spend across the terms above: **{{ wasted_spend|money }}**.
 {% if competition.competitors %}
 ### Competitor set
 
-| Domain | Name | Overlap | Basis |
-| --- | --- | ---: | --- |
-{% for competitor in competition.competitors %}
-| {{ competitor.domain|cell }} | {{ competitor.name|cell }} | {{ competitor.overlap_score|ratio_pct }} | {{ competitor.overlap_basis|commalist|cell }} |
+Ordered by how much of a rival each one is, not by overlap: overlap ranks the keyword surface two domains share, which on these terms puts encyclopaedias and regulators above the actual competition.
+
+| Domain | Name | Threat | Overlap | Basis |
+| --- | --- | --- | ---: | --- |
+{% for competitor in competitors %}
+| {{ competitor.domain|cell }} | {{ competitor.name|cell }} | {{ competitor.threat|cell }} | {{ competitor.overlap_score|ratio_pct }} | {{ competitor.overlap_basis|commalist|cell }} |
 {% endfor %}
 {% endif %}
 
