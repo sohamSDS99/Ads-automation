@@ -1,7 +1,7 @@
 """Real-browser check of the business-context document upload.
 
 The suite proves the endpoint; this proves the thing a person actually does —
-drop a PDF into step 1 of the setup wizard and find out whether the run can
+drop a PDF onto the Business context tab and find out whether the run can
 read it. It uploads a genuine PDF, a spreadsheet and a scanned-looking PDF with
 no text layer, and asserts on what the screen says about each.
 
@@ -214,11 +214,11 @@ def upload(page: Page, path: str) -> None:
 
 
 def check_upload(page: Page, project_id: str, files: dict[str, str]) -> None:
-    page.goto(f"{WEB}/projects/{project_id}/setup")
+    page.goto(f"{WEB}/settings/context?project={project_id}")
     page.wait_for_selector("text=What does this brand sell?", timeout=20_000)
 
     panel = library(page)
-    check("the uploader is on step 1", panel.is_visible())
+    check("the uploader is on the Business context tab", panel.is_visible())
     check(
         "it says which formats it takes before anything is chosen",
         ".pdf" in panel.inner_text() and ".docx" in panel.inner_text(),
@@ -290,19 +290,20 @@ def check_evidence(api: Api, project_id: str) -> None:
 
 
 def check_review_and_delete(page: Page, project_id: str) -> None:
-    page.goto(f"{WEB}/projects/{project_id}/setup")
-    page.wait_for_selector("text=What does this brand sell?", timeout=20_000)
-    page.get_by_role("button", name="Review").click()
-    page.wait_for_selector("text=Background documents", timeout=20_000)
+    # The count moved to the project overview when the wizard's review step
+    # went. It is the same claim in the place that was already answering
+    # "what is this run grounded on?".
+    page.goto(f"{WEB}/projects/{project_id}")
+    page.wait_for_selector("text=Research target", timeout=20_000)
     summary = page.locator("dl").first.inner_text()
     check(
-        "the review step counts the documents the run will read",
+        "the overview counts the documents the run will read",
         "2 files" in summary and "citable passages" in summary,
         summary[:400],
     )
-    shoot(page, "documents-review")
+    shoot(page, "documents-overview-count")
 
-    page.get_by_role("button", name="Business context").click()
+    page.goto(f"{WEB}/settings/context?project={project_id}")
     page.wait_for_selector("text=pricing.pdf", timeout=20_000)
     library(page).get_by_role("button", name="Remove pricing.pdf").click()
     page.wait_for_selector("text=Remove this document?", timeout=10_000)
@@ -320,7 +321,7 @@ def check_review_and_delete(page: Page, project_id: str) -> None:
 
 def check_mobile(page: Page, project_id: str) -> None:
     page.set_viewport_size(MOBILE)
-    page.goto(f"{WEB}/projects/{project_id}/setup")
+    page.goto(f"{WEB}/settings/context?project={project_id}")
     page.wait_for_selector("text=plans.csv", timeout=20_000)
     panel = library(page)
     check("the uploader is usable at 390px", panel.is_visible())

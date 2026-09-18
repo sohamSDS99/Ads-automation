@@ -1,15 +1,11 @@
 "use client";
 
 import { Info } from "lucide-react";
+import { useId } from "react";
 
-import { CredentialCard } from "@/components/setup/credential-card";
-import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Combobox, type ComboboxItem } from "@/components/ui/combobox";
-import { Skeleton } from "@/components/ui/skeleton";
 import { Tooltip } from "@/components/ui/tooltip";
-import { ApiError } from "@/lib/api";
-import { credentialFor } from "@/lib/api/credentials";
 import {
   costOfClass,
   estimateRunCost,
@@ -22,103 +18,46 @@ import {
 } from "@/lib/api/models";
 import type { ModelRouting, TaskClassName } from "@/lib/api/projects";
 import { compactNumber } from "@/lib/format";
-import { useCredentials, useModels } from "@/lib/queries";
 
 /**
- * Step 3 — which model does which job, and what that costs.
+ * Which model does which job, and what that costs.
  *
  * A node asks for a *kind* of thinking, never a model (PRD §8). So this is four
  * decisions, not twenty-one, and each one shows the figure it moves: the
  * estimate under the table recomputes as the picker changes, from the token
  * baseline the API measured or declared.
  *
- * Admin-only. An operator sees the same table with the choices already made and
- * a line saying who can change them.
+ * One table, used twice — for the workspace defaults and for a project's
+ * overrides. They used to be two different tables on two different screens,
+ * one of which showed the price of a run and one of which did not, which is
+ * how you end up with two answers to "what will this cost".
  */
-export function StepModels({
-  routing,
-  onChange,
-  canWrite,
-}: {
-  routing: ModelRouting;
-  onChange: (routing: ModelRouting) => void;
-  canWrite: boolean;
-}) {
-  const credentials = useCredentials();
-  const catalogue = useModels(canWrite);
-
-  const openrouterSpec = (credentials.data?.kinds ?? []).find((kind) => kind.kind === "openrouter");
-  const openrouter = credentialFor(credentials.data?.credentials ?? [], "openrouter");
-  const noKey = catalogue.isError && catalogue.error instanceof ApiError && catalogue.error.status === 409;
-
-  return (
-    <div className="space-y-6">
-      {openrouterSpec ? (
-        <section className="space-y-3">
-          <div>
-            <h3 className="text-sm font-medium text-fg">The key everything runs through</h3>
-            <p className="text-sm text-fg-muted">
-              One OpenRouter key reaches every model. Testing it reports the credit left on the
-              account.
-            </p>
-          </div>
-          <CredentialCard
-            spec={openrouterSpec}
-            credential={openrouter}
-            canWrite={canWrite}
-            reason="Only an admin can store the OpenRouter key."
-          />
-        </section>
-      ) : null}
-
-      {!canWrite ? (
-        <Alert tone="info" title="Model routing is set by an admin">
-          You can see what this project will use. Changing it, and the budget behind it, is an admin
-          action.
-        </Alert>
-      ) : null}
-
-      {noKey ? (
-        <Alert tone="warning" title="Add the key to choose models">
-          The catalogue and its prices come from OpenRouter, so this table stays on its defaults
-          until a key is stored above.
-        </Alert>
-      ) : null}
-
-      {catalogue.isError && !noKey ? (
-        <Alert tone="error" title="The model catalogue could not be loaded">
-          {catalogue.error instanceof Error ? catalogue.error.message : "Try again in a moment."}
-          {" The run will use the default models until it can be read."}
-        </Alert>
-      ) : null}
-
-      {catalogue.isPending && canWrite ? <Skeleton className="h-64 w-full" /> : null}
-
-      {catalogue.data ? (
-        <RoutingTable
-          catalogue={catalogue.data}
-          routing={routing}
-          onChange={onChange}
-          canWrite={canWrite}
-        />
-      ) : (
-        <ReadOnlyRouting routing={routing} />
-      )}
-    </div>
-  );
-}
-
-function RoutingTable({
+export function RoutingTable({
   catalogue,
   routing,
   onChange,
   canWrite,
+  inherited = "default",
 }: {
   catalogue: ModelCatalogue;
   routing: ModelRouting;
   onChange: (routing: ModelRouting) => void;
   canWrite: boolean;
+  /**
+   * What an unset row falls back to, in one word. "default" on the workspace
+   * table, because nothing is above it; "workspace" on a project's, because
+   * something is.
+   */
+  inherited?: string;
 }) {
+  /**
+   * This table renders twice on the models tab — once for the workspace
+   * defaults and once for a project's overrides — so its field ids cannot be
+   * derived from the task class alone. Two `id="routing-extract"` on one page
+   * means the second table's labels point at the first table's controls, and
+   * clicking a label focuses the wrong picker.
+   */
+  const uid = useId();
   const byId = new Map(catalogue.models.map((model) => [model.id, model]));
   const total = estimateRunCost(catalogue, routing);
   const assumed = catalogue.usage_source === "assumed";
@@ -140,6 +79,8 @@ function RoutingTable({
               routing={routingClass}
               items={items}
               chosen={routing[routingClass.task_class]}
+              inherited={inherited}
+              fieldId={`${uid}-${routingClass.task_class}`}
               model={byId.get(routing[routingClass.task_class] || routingClass.default_model)}
               canWrite={canWrite}
               onChange={(value) =>
@@ -183,6 +124,8 @@ function TaskClassRow({
   chosen,
   model,
   canWrite,
+  inherited,
+  fieldId,
   onChange,
 }: {
   routing: TaskClassRouting;
@@ -190,10 +133,13 @@ function TaskClassRow({
   chosen: string | null;
   model: ModelOption | undefined;
   canWrite: boolean;
+  inherited: string;
+  /** Unique across both copies of this table — see `RoutingTable`. */
+  fieldId: string;
   onChange: (value: string) => void;
 }) {
   const cost = costOfClass(routing, model);
-  const id = `routing-${routing.task_class}`;
+  const id = fieldId;
 
   return (
     <li className="grid gap-3 px-4 py-4 md:grid-cols-[14rem_1fr_6rem] md:items-center">
@@ -219,7 +165,7 @@ function TaskClassRow({
           triggerLabel={
             <span className="font-mono text-xs text-fg-muted">
               {routing.default_model}
-              <span className="ml-2 font-sans text-fg-subtle">default</span>
+              <span className="ml-2 font-sans text-fg-subtle">{inherited}</span>
             </span>
           }
         />
@@ -259,8 +205,8 @@ function ModelRow({ model }: { model: ModelOption }) {
   );
 }
 
-/** What an operator sees, and what an admin sees before the catalogue loads. */
-function ReadOnlyRouting({ routing }: { routing: ModelRouting }) {
+/** What someone without the permission sees, and what anyone sees before the catalogue loads. */
+export function ReadOnlyRouting({ routing }: { routing: ModelRouting }) {
   const rows: [TaskClassName, string][] = [
     ["extract", "Extract"],
     ["classify", "Classify"],

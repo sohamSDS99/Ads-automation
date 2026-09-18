@@ -4,36 +4,60 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
-import { Guarded } from "@/components/auth/guarded";
+import type { Permission } from "@/lib/permissions";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
+/**
+ * Everything that configures anything, behind one tab strip.
+ *
+ * There used to be two places. This screen owned the workspace, and a
+ * five-step wizard on each project owned the rest — so setting a project up
+ * meant first working out which of the two owned the thing you wanted to
+ * change, and the same credential card was rendered on three different screens
+ * because nobody could decide. One strip of tabs, one card language, and the
+ * answer to "where do I change X" is always Settings.
+ *
+ * The tabs are not guarded here. Every one of them is readable by any member —
+ * `GET /credentials`, `/workspace`, `/projects` and `/users` all need `read`
+ * and nothing more — so someone without the write permission sees the real
+ * configuration with the controls disabled and a line saying who can change
+ * it, which is more use than a refusal. Only the audit log is hidden outright,
+ * because its endpoint is the one that would refuse (PRD §18 law 6 still
+ * applies: every route re-checks regardless of what this renders).
+ */
 const TABS = [
   { href: "/settings", label: "Workspace" },
-  { href: "/settings/members", label: "Members" },
-  { href: "/settings/audit", label: "Audit log" },
-];
+  { href: "/settings/connections", label: "Connections" },
+  { href: "/settings/models", label: "Models" },
+  { href: "/settings/context", label: "Business context" },
+  { href: "/settings/approvers", label: "Approvers" },
+  { href: "/settings/team", label: "Team" },
+  { href: "/settings/audit", label: "Audit log", permission: "audit_read" },
+] as const satisfies readonly { href: string; label: string; permission?: Permission }[];
 
-/**
- * The admin area.
- *
- * Guarded once here rather than on each page: all three need the same
- * permission, and a tab strip that leads to a refusal is worse than no tab.
- */
 export default function SettingsLayout({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const { has } = useSession();
+  const tabs = TABS.filter((tab) => !("permission" in tab) || has(tab.permission));
 
   return (
-    <div className="mx-auto flex max-w-4xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-7">
       <header>
-        <h1 className="text-[length:var(--text-xl)] font-semibold tracking-tight">Settings</h1>
-        <p className="mt-1 text-sm text-fg-muted">
-          One workspace, its people, and the record of what they did.
+        <p className="flex items-center gap-2 text-xs font-medium tracking-[0.14em] text-fg-subtle uppercase">
+          <span className="size-1.5 rounded-full bg-accent" aria-hidden />
+          Settings
         </p>
+        <h1 className="mt-3 text-[length:var(--text-2xl)] font-semibold tracking-tight">
+          Workspace settings
+        </h1>
       </header>
 
       <nav aria-label="Settings sections" className="border-b">
-        <ul className="-mb-px flex gap-1">
-          {TABS.map((tab) => {
+        {/* Scrolls rather than wraps: seven tabs do not fit 390px, and a tab
+            nobody can reach is worse than one they have to swipe to. */}
+        <ul className="-mb-px flex gap-5 overflow-x-auto [scrollbar-width:none] sm:gap-6">
+          {tabs.map((tab) => {
             const active = pathname === tab.href;
             return (
               <li key={tab.href}>
@@ -41,9 +65,9 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
                   href={tab.href}
                   aria-current={active ? "page" : undefined}
                   className={cn(
-                    "inline-flex h-10 items-center border-b-2 px-3 text-sm transition-colors",
+                    "inline-flex h-10 shrink-0 items-center whitespace-nowrap border-b-2 text-[length:var(--text-md)] transition-colors",
                     active
-                      ? "border-accent font-medium text-fg"
+                      ? "border-accent font-semibold text-fg"
                       : "border-transparent text-fg-muted hover:text-fg",
                   )}
                 >
@@ -55,9 +79,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
         </ul>
       </nav>
 
-      <Guarded permission="settings_write" what="workspace settings">
-        {children}
-      </Guarded>
+      {children}
     </div>
   );
 }

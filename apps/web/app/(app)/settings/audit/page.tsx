@@ -3,6 +3,7 @@
 import { ScrollText } from "lucide-react";
 import { useState } from "react";
 
+import { Guarded } from "@/components/auth/guarded";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody } from "@/components/ui/card";
@@ -22,6 +23,18 @@ import { errorMessage, useAudit } from "@/lib/queries";
  * no endpoint that edits a row. Filters narrow it; nothing here changes it.
  */
 export default function AuditPage() {
+  // Guarded here rather than in the layout: every other settings tab is
+  // readable by any member and only shows the write controls to those who
+  // have them, but `GET /audit` needs `audit_read` and answers 403 without
+  // it — which would render as an empty table rather than as a refusal.
+  return (
+    <Guarded permission="audit_read" what="the audit log">
+      <AuditTable />
+    </Guarded>
+  );
+}
+
+function AuditTable() {
   const [filters, setFilters] = useState<AuditFilters>({});
   const audit = useAudit(filters);
   const error = errorMessage(audit);

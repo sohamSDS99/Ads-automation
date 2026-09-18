@@ -158,53 +158,86 @@ def main() -> int:
         )
         shoot(page, "p6-admin-overview")
 
+        # The old path here was /projects/{id}/setup and a five-step wizard.
+        # Setup is seven settings tabs now, so this drives them the way someone
+        # would: one tab at a time, each saving on its own.
         page.goto(f"{WEB}/projects/{project_id}/setup", wait_until="networkidle")
-        page.wait_for_timeout(800)
-        check("the wizard opens on business context", page.get_by_text("Business context").first.is_visible())
+        page.wait_for_timeout(1000)
+        check(
+            "the old wizard URL lands on the tab that owns those fields",
+            "/settings/context" in page.url,
+            page.url,
+        )
+
+        check(
+            "business context opens on a named project",
+            page.get_by_text("Browser check").first.is_visible(),
+        )
         page.fill("#summary", "Safety data sheet software for EHS teams in manufacturing.")
         page.get_by_role("button", name="Add market").click()
         page.get_by_label("Market 1 country").fill("NO")
         page.get_by_label("Market 1 currency").fill("NOK")
-        page.get_by_role("button", name="Save and continue").click()
-        page.wait_for_timeout(1200)
-        check("step 1 saves and advances", page.get_by_text("Where the evidence comes from").is_visible())
-        shoot(page, "p6-admin-wizard-sources")
-
+        save = page.get_by_role("button", name="Save changes")
+        check("an edited tab offers a save", save.is_enabled())
+        save.click()
+        page.wait_for_timeout(1500)
         check(
-            "the two keyed sources are offered",
-            page.get_by_role("heading", name="Google Ads").is_visible()
-            and page.get_by_role("heading", name="DataForSEO").is_visible(),
+            "…and settles in place rather than advancing somewhere",
+            page.get_by_text("No unsaved changes").first.is_visible(),
         )
-        check("the CSV mapper is reachable", page.get_by_role("button", name="Choose a CSV").is_visible())
+        check(
+            "…with no disabled primary button left sitting there",
+            page.get_by_role("button", name="Save changes").count() == 0,
+        )
+        check("the CSV mapper is on the same tab", page.get_by_role("button", name="Choose a CSV").is_visible())
+        shoot(page, "p6-admin-context")
 
-        page.get_by_role("button", name="Model routing").click()
-        page.wait_for_timeout(800)
-        check("the routing step shows the four task classes", page.get_by_text("Synthesize").first.is_visible())
-        check("…and an estimated cost", page.get_by_text("Estimated cost of one full run").is_visible())
-        shoot(page, "p6-admin-wizard-models")
+        page.goto(f"{WEB}/settings/connections", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        check(
+            "every keyed source has a card",
+            page.get_by_role("heading", name="Google Ads").is_visible()
+            and page.get_by_role("heading", name="DataForSEO").is_visible()
+            and page.get_by_role("heading", name="OpenRouter").is_visible(),
+        )
+        check(
+            "…and the sources that need nothing say so rather than hiding",
+            page.get_by_text("No setup needed").first.is_visible(),
+        )
+        shoot(page, "p6-admin-connections")
 
-        page.get_by_role("button", name="Approvers").click()
-        page.wait_for_timeout(600)
+        page.goto(f"{WEB}/settings/models", wait_until="networkidle")
+        page.wait_for_timeout(1500)
+        check("the models tab shows the four task classes", page.get_by_text("Synthesize").first.is_visible())
+        check("…and an estimated cost", page.get_by_text("Estimated cost of one full run").first.is_visible())
+        check(
+            "…for the workspace and for the project, in that order",
+            page.get_by_role("heading", name="Workspace defaults").is_visible()
+            and page.get_by_role("heading", name="This project's models").is_visible(),
+        )
+        shoot(page, "p6-admin-models")
+
+        page.goto(f"{WEB}/settings/approvers", wait_until="networkidle")
+        page.wait_for_timeout(1000)
         check("all three gates are listed", page.get_by_text("Compliance guardrails").is_visible())
         check("…and a gate can be left to any approver", page.get_by_label("Assign to", exact=False).first.is_visible())
-
-        page.get_by_role("button", name="Review").click()
-        page.wait_for_timeout(600)
-        check("review summarises the project", page.get_by_text("Business context").first.is_visible())
-        shoot(page, "p6-admin-wizard-review")
+        shoot(page, "p6-admin-approvers")
 
         page.goto(f"{WEB}/settings", wait_until="networkidle")
         page.wait_for_timeout(1200)
         check("settings opens on the workspace", page.get_by_role("heading", name="Workspace").first.is_visible())
-        check("the OpenRouter key has a home", page.get_by_role("heading", name="OpenRouter key").is_visible())
         check("the budget cap is editable", page.get_by_label("Budget cap per run").is_visible())
+        check(
+            "the key vault is not duplicated onto this tab",
+            page.get_by_role("heading", name="OpenRouter").count() == 0,
+        )
         shoot(page, "p6-admin-settings")
 
-        page.goto(f"{WEB}/settings/members", wait_until="networkidle")
+        page.goto(f"{WEB}/settings/team", wait_until="networkidle")
         page.wait_for_timeout(800)
-        check("members lists the workspace", page.get_by_role("heading", name="Members").is_visible())
+        check("the team tab lists the workspace", page.get_by_role("heading", name="Team").is_visible())
         check("invite is offered", page.get_by_role("button", name="Invite").is_visible())
-        shoot(page, "p6-admin-members")
+        shoot(page, "p6-admin-team")
 
         page.goto(f"{WEB}/settings/audit", wait_until="networkidle")
         page.wait_for_timeout(1500)
@@ -239,8 +272,10 @@ def main() -> int:
         for name, path in (
             ("projects", "/"),
             ("overview", f"/projects/{project_id}"),
-            ("setup", f"/projects/{project_id}/setup"),
-            ("members", "/settings/members"),
+            ("context", f"/settings/context?project={project_id}"),
+            ("connections", "/settings/connections"),
+            ("models", "/settings/models"),
+            ("team", "/settings/team"),
         ):
             page.goto(f"{WEB}{path}", wait_until="networkidle")
             page.wait_for_timeout(400)
@@ -260,41 +295,66 @@ def main() -> int:
         sign_in(page, operator_email, OPERATOR_PASSWORD)
         page.wait_for_timeout(600)
         check("operator sees the same project list", page.locator("h1", has_text="Projects").is_visible())
+        # Settings *is* offered now: it holds the project setup an operator
+        # owns. What changes by role is which controls are live, not which
+        # doors exist — the inversion of the old assertion, on purpose.
         check(
-            "settings is not offered to an operator",
-            page.get_by_role("link", name="Settings").count() == 0,
+            "settings is offered to an operator too",
+            page.get_by_role("link", name="Settings").count() >= 1,
         )
 
-        page.goto(f"{WEB}/projects/{project_id}/setup", wait_until="networkidle")
-        page.wait_for_timeout(800)
-        check("operator can open the wizard", page.get_by_text("Business context").first.is_visible())
-        page.get_by_role("button", name="Model routing").click()
-        page.wait_for_timeout(800)
+        page.goto(f"{WEB}/settings/context?project={project_id}", wait_until="networkidle")
+        page.wait_for_timeout(1000)
         check(
-            "the model step is read-only for an operator",
-            page.get_by_text("Model routing is set by an admin").is_visible(),
-        )
-        shoot(page, "p6-operator-wizard-models")
-
-        page.get_by_role("button", name="Data sources").click()
-        page.wait_for_timeout(600)
-        check(
-            "credential forms are replaced by an explanation, not a locked door",
-            page.get_by_text("Only an admin can store API keys").first.is_visible(),
+            "an operator can edit the business context they own",
+            page.locator("#summary").is_enabled(),
         )
         check(
-            "…and the operator can still upload a CSV",
+            "…and can still upload a CSV",
             page.get_by_role("button", name="Choose a CSV").is_enabled(),
         )
-        shoot(page, "p6-operator-wizard-sources")
+        shoot(page, "p6-operator-context")
+
+        page.goto(f"{WEB}/settings/models", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        check(
+            "the models tab is read-only for an operator",
+            page.get_by_text("Model routing is set by an admin").is_visible(),
+        )
+        shoot(page, "p6-operator-models")
+
+        page.goto(f"{WEB}/settings/connections", wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        check(
+            "credential forms are replaced by an explanation, not a locked door",
+            page.get_by_text("Only an admin can store keys").first.is_visible(),
+        )
+        check(
+            "…said once above the grid, not on all six cards",
+            page.get_by_text("Only an admin can store keys").count() == 1,
+        )
+        check(
+            "…and no card offers a button it would refuse",
+            page.get_by_role("button", name="Add key").count() == 0
+            and page.get_by_role("button", name="Replace key").count() == 0,
+        )
+        shoot(page, "p6-operator-connections")
 
         page.goto(f"{WEB}/settings", wait_until="networkidle")
-        page.wait_for_timeout(600)
+        page.wait_for_timeout(800)
         check(
-            "an operator reaching settings gets a real state, not a blank screen",
-            page.get_by_text("don't have access").first.is_visible(),
+            "the workspace tab shows an operator the real values, disabled",
+            not page.get_by_label("Workspace name").is_enabled(),
         )
-        shoot(page, "p6-operator-settings-403")
+        check(
+            "…and says who can change them",
+            page.get_by_text("An admin sets the workspace name").is_visible(),
+        )
+        check(
+            "the audit tab is the one that is not offered",
+            page.get_by_role("link", name="Audit log").count() == 0,
+        )
+        shoot(page, "p6-operator-settings")
         context.close()
         browser.close()
 

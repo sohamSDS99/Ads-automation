@@ -208,7 +208,11 @@ export function DocumentUpload({ projectId, disabled }: { projectId: string; dis
       ) : null}
 
       {documents.length ? (
-        <ul className="space-y-2">
+        // Scrolls past a screenful rather than growing without limit. A project
+        // with 79 uploads made this tab nine thousand pixels tall, which turned
+        // everything below it — the CRM export card — into something nobody
+        // would ever find.
+        <ul className="max-h-96 space-y-2 overflow-y-auto pr-1">
           {documents.map((document) => (
             <li
               key={document.id}

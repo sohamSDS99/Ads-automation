@@ -124,7 +124,7 @@ no signal at all it returns `insufficient_evidence` rather than a number.
 
 ## Fields the agent works out
 
-Two of the setup wizard's step-1 fields are things the system can read for
+Two of the **Business context** fields are things the system can read for
 itself, so each carries an offer to do it: **Site to crawl** and **Markets**.
 Ticking the box calls `POST /projects/{id}/autofill`, which answers immediately
 and writes an ordinary project field — editable, removable, exactly as if it had
@@ -210,8 +210,8 @@ there is a verification script.
   read. That one is minted from a `client_id`/`client_secret`/`refresh_token`
   trio, and it is the part that cannot be typed from memory.
 
-**The normal way in is a button, and it asks for one value.** The Sources step
-shows *Continue with Google*: whoever owns the Ads account types the developer
+**The normal way in is a button, and it asks for one value.** The Google Ads
+card on Settings → **Connections** shows *Connect Google account*: whoever owns the Ads account types the developer
 token, signs in with their own Google account, approves read access, and the
 refresh token is sealed into the vault by the callback. They never see a token,
 and neither does anyone else — which matters, because the person with the Ads
@@ -322,7 +322,8 @@ Every browser path is therefore direct, which is asserted on the signatures in
 
 Two more things to know:
 
-- **The account is one API key** (`webshare`), from the Sources step or from
+- **The account is one API key** (`webshare`), from Settings → **Connections**
+  or from
   `WEBSHARE_API_KEY` like the keys above. Unlike every other kind it is
   *optional*: with no key, every crawl goes out directly and nothing degrades.
   A key that is present but unusable is logged and also falls back to direct —
@@ -407,8 +408,8 @@ curl -X POST localhost:3000/api/v1/approvals/$ID -b cookies.txt \
 ## Running the DAG
 
 A run needs two things the API cannot invent: a project and an OpenRouter
-credential. Both have screens now — `/` → **New project** → the setup wizard,
-and Settings → **OpenRouter key**. The API underneath is below.
+credential. Both have screens now — `/` → **New project**, and
+Settings → **Connections** → **OpenRouter**. The API underneath is below.
 
 ```bash
 # launch, then watch it
@@ -604,7 +605,7 @@ Three things worth knowing before changing any of it.
 
 - **The conversion page is a project setting nothing writes yet.** 1.5.2 probes
   `settings["conversion_probe_url"]`; without it the synthetic check is
-  `inconclusive` and says which setting to fill in. The wizard field is P7's.
+  `inconclusive` and says which setting to fill in. The field for it is P7's.
 - **`latency_min` is usually `null`,** for the reason above. It is filled in only
   when a later run resolves an earlier probe.
 - **1.6.1's re-run happens inside 1.6.2.** PRD §10 says "1.6.1 re-runs once"; the
@@ -632,21 +633,37 @@ four roles, store and test keys, choose models, assign every approval gate and
 launch a run without touching the API; an operator sees the same app with the
 two admin-only steps read-only rather than hidden behind a locked door.
 
-| Screen | Route | Who |
-| --- | --- | --- |
-| Project list | `/` | anyone; **New project** for `project_write` |
-| Overview | `/projects/{id}` | anyone |
-| Setup wizard | `/projects/{id}/setup` | `project_write` |
-| Run history | `/projects/{id}/runs` | anyone |
-| Workspace settings | `/settings` | `settings_write` |
-| Members | `/settings/members` | `settings_write` |
-| Audit log | `/settings/audit` | `audit_read` |
-| Account | `/account` | anyone |
+| Screen | Route | Who may read | Who may change |
+| --- | --- | --- | --- |
+| Project list | `/` | anyone | `project_write` creates |
+| Overview | `/projects/{id}` | anyone | — |
+| Run history | `/projects/{id}/runs` | anyone | — |
+| Workspace | `/settings` | anyone | `settings_write` |
+| Connections | `/settings/connections` | anyone | `credential_write` |
+| Models | `/settings/models` | anyone | `settings_write` |
+| Business context | `/settings/context` | anyone | `project_write` |
+| Approvers | `/settings/approvers` | anyone | `project_write` |
+| Team | `/settings/team` | anyone | `user_manage` |
+| Audit log | `/settings/audit` | `audit_read` | — |
+| Account | `/account` | yourself | yourself |
+
+`/projects/{id}/setup` still resolves — it redirects to
+`/settings/context?project={id}`, because the path is in bookmarks and in the
+toast that fires after a project is created.
+
+Settings is one tab strip over seven screens, and every tab is *readable* by
+any member: `GET /credentials`, `/workspace`, `/projects` and `/users` all need
+`read` and nothing more, so someone without the write permission sees the real
+configuration with the controls disabled and a line naming who can change it.
+Only the audit log is hidden outright, because its endpoint is the one that
+would refuse. Two of the tabs configure a project rather than the workspace, so
+they carry a project picker that remembers its choice across tabs and mirrors it
+into `?project=`.
 
 Three things are worth knowing before changing any of it.
 
-- **`requirements` is the server's answer to "can this run yet".** The wizard's
-  last step and `POST /projects/{id}/runs` read the same field, so the screen
+- **`requirements` is the server's answer to "can this run yet".** The project
+  overview and `POST /projects/{id}/runs` read the same field, so the screen
   cannot say *ready* while the API refuses the launch.
 - **A save carries `If-Match`, not `If-Unmodified-Since`.** Every project
   response includes an opaque `version`; sending it back is what turns a lost
@@ -657,7 +674,7 @@ Three things are worth knowing before changing any of it.
   update: replacing a key writes a new row, so a half-typed replacement cannot
   leave the old one partly overwritten. `POST /credentials/{id}/test` answers
   `200` with `ok:false` for a bad key — the request succeeded, the key did not.
-- **The wizard's gate list is the registry's.** `agent/gates.py` derives it from
+- **The gate list is the registry's.** `agent/gates.py` derives it from
   the nodes that declare `gate=True` and adds only the copy a `NodeSpec` has no
   field for. Assignees are written to `settings["gate_assignees"]`, which is the
   key `orchestrator/approvals.py` reads — the writer and the reader name the
@@ -666,8 +683,8 @@ Three things are worth knowing before changing any of it.
 ## Known limits of P6
 
 - ~~Stage 1.5's gate does not appear in the wizard yet.~~ **Closed by P5b**:
-  1.5.3 registered, the wizard's list derives from the DAG, and the gate
-  appeared with no change to the frontend. That was the design working.
+  1.5.3 registered, the gate list derives from the DAG, and the gate appeared
+  with no change to the frontend. That was the design working.
 - **The per-gate SLA is stored and not yet used.** It lands in
   `settings["gate_sla_hours"]`; reminders are P8, which is what will read it.
 - The run console, report viewer, evidence explorer and approvals inbox are P7.
@@ -677,7 +694,7 @@ Three things are worth knowing before changing any of it.
   verdict now exists — `payload.launch_readiness` on a stored report — but the
   screen that surfaces it is the Report Viewer, which is P7.
 - `GET /models` needs `settings_write`, because the only screen that consumes it
-  is the admin-only routing step. An operator's read-only view of that step
+  is the admin-only Models tab. An operator's read-only view of that step
   renders the ids already stored on the project.
 - **SMTP is reported, not edited.** It is deployment configuration
   (`SMTP_HOST`, `SMTP_FROM`), so Settings says whether it works and what
@@ -687,13 +704,13 @@ Three things are worth knowing before changing any of it.
 
 ## Business-context documents
 
-Step 1 of the wizard takes files as well as text. A PDF, a Word file (`.docx`),
+Settings → **Business context** takes files as well as text. A PDF, a Word file (`.docx`),
 a CSV or plain text/markdown is read on upload, split into passages, and stored
 as evidence the research nodes can cite.
 
 | | |
 | --- | --- |
-| Where | Setup wizard, step 1 — **Background documents** |
+| Where | Settings → **Business context** → **Documents** |
 | API | `POST/GET /projects/{id}/documents`, `DELETE /projects/{id}/documents/{doc_id}` |
 | Permission | `project_write` to add or remove, `read` to see the list |
 | Limits | 20MB and 400,000 characters per file, 400 passages, 25 files per project |

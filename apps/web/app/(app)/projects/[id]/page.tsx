@@ -11,15 +11,18 @@ import {
 import Link from "next/link";
 import { use } from "react";
 
+import { useQuery } from "@tanstack/react-query";
+
 import { RunTrigger } from "@/components/projects/run-trigger";
 import { Alert } from "@/components/ui/alert";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { buttonVariants } from "@/components/ui/button-variants";
+import { listDocuments } from "@/lib/api/documents";
 import { blockers, warnings, type ProjectDetail } from "@/lib/api/projects";
 import { absoluteTime, compactNumber, duration, relativeTime, usd } from "@/lib/format";
-import { errorMessage, useProject } from "@/lib/queries";
+import { errorMessage, keys, useProject } from "@/lib/queries";
 import { Can } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
@@ -77,7 +80,7 @@ function Overview({ project }: { project: ProjectDetail }) {
         <div className="flex flex-wrap items-center gap-2">
           <Can permission="project_write">
             <Link
-              href={`/projects/${project.id}/setup`}
+              href={`/settings/context?project=${project.id}`}
               className={cn(buttonVariants({ variant: "secondary" }))}
             >
               <Settings2 aria-hidden />
@@ -168,6 +171,9 @@ function Overview({ project }: { project: ProjectDetail }) {
               ) : (
                 <span className="text-fg-subtle">Not set</span>
               )}
+            </Detail>
+            <Detail term="Documents">
+              <DocumentCount projectId={project.id} />
             </Detail>
           </dl>
           <div>
@@ -275,6 +281,32 @@ function Stat({ label, children }: { label: string; children: React.ReactNode })
       <h2 className="text-xs font-medium tracking-wide text-fg-subtle">{label}</h2>
       <div className="mt-2">{children}</div>
     </div>
+  );
+}
+
+/**
+ * How much uploaded material a run may cite.
+ *
+ * Its own query rather than a field on the project, because documents save
+ * themselves as they are dropped — the project row knows nothing about them.
+ * It is here because the number answers a question this screen is already
+ * being asked ("what is this run grounded on?"), and the only other place it
+ * appears is the uploader you would have to leave this page to reach.
+ */
+function DocumentCount({ projectId }: { projectId: string }) {
+  const library = useQuery({
+    queryKey: keys.documents(projectId),
+    queryFn: () => listDocuments(projectId),
+  });
+  const documents = library.data?.documents;
+  if (!documents) return <span className="text-fg-subtle">—</span>;
+  if (!documents.length) return <span className="text-fg-subtle">None uploaded</span>;
+  const passages = documents.reduce((total, item) => total + item.passage_count, 0);
+  return (
+    <span>
+      {documents.length} {documents.length === 1 ? "file" : "files"} ·{" "}
+      {passages.toLocaleString()} citable passages
+    </span>
   );
 }
 

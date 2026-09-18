@@ -28,7 +28,7 @@ const IGNORE = "";
  * and propose a mapping, and again once a person has confirmed it. The preview
  * writes nothing, so uploading the wrong export costs a round trip and no data.
  */
-export function CsvMapper({ projectId, disabled }: { projectId: string; disabled: boolean }) {
+export function CrmUpload({ projectId, disabled }: { projectId: string; disabled: boolean }) {
   const fileInput = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<CsvPreview | null>(null);
