@@ -33,18 +33,27 @@ DATABASE_URL=postgresql://${{POSTGRES_USER}}:${{POSTGRES_PASSWORD}}@${{RAILWAY_P
 | `REDIS_PASSWORD` | manual | generate 32+ random chars |
 | `REDIS_URL` | ref | `redis://default:${{REDIS_PASSWORD}}@${{RAILWAY_PRIVATE_DOMAIN}}:6379/0` |
 
-Start command: `redis-server --appendonly yes --requirepass $REDIS_PASSWORD`.
+Start command:
+`redis-server --appendonly yes --requirepass <literal password> --dir /data`.
+
+**The password must be written out literally.** Railway execs the start command
+without a shell, so `$REDIS_PASSWORD` is passed through verbatim and becomes the
+password. Redis then starts cleanly and rejects every real client, which shows
+up only as `{"status":"degraded","redis":"error"}` on the api's health endpoint.
+Keep the `REDIS_PASSWORD` variable in step with whatever literal you use here —
+`REDIS_URL` is built from it.
 
 ## `api` (Dockerfile `apps/api/Dockerfile`)
 
 | Variable | Kind | Value |
 | --- | --- | --- |
-| `PORT` | — | injected by Railway; never set it yourself |
+| `PORT` | — | injected by Railway as **8080**; never set it yourself |
 | `DATABASE_URL` | ref | `${{postgres.DATABASE_URL}}` |
 | `REDIS_URL` | ref | `${{redis.REDIS_URL}}` |
 | `APP_ENCRYPTION_KEY` | manual | 32 random bytes, base64. **Set once. Rotating it orphans every stored credential.** |
 | `FILE_TOKEN_SECRET` | manual | 32 random bytes, base64 |
 | `WORKER_INTERNAL_URL` | ref | `http://${{worker.RAILWAY_PRIVATE_DOMAIN}}:8081` |
+| `RAILWAY_DOCKERFILE_PATH` | — | **`api` only**: leave unset. `worker` needs it — see below |
 | `SESSION_COOKIE_NAME` | fixed | `ara_session` |
 | `SESSION_TTL_DAYS` | fixed | `30` |
 | `COOKIE_SECURE` | fixed | `true` |
@@ -71,6 +80,18 @@ python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
 Same variables as `api`, minus `PORT` and the bootstrap pair. The worker owns
 the Volume, mounted at `/data`.
 
+`worker` shares the `apps/api` build context with `api` but must build the other
+Dockerfile, and Railway auto-detects only a file named exactly `Dockerfile`:
+
+| Variable | Kind | Value |
+| --- | --- | --- |
+| `RAILWAY_DOCKERFILE_PATH` | fixed | `Dockerfile.worker` (relative to the Root Directory) |
+
+Railway caches a build against the commit, so changing this variable alone may
+hand back the previously built image. If the worker's deploy log still says
+`Uvicorn running on …` instead of starting `arq`, it built the wrong file — push
+a commit to move the SHA and force a real rebuild, then re-read the log.
+
 | Variable | Kind | Value |
 | --- | --- | --- |
 | `DATABASE_URL` | ref | `${{postgres.DATABASE_URL}}` |
@@ -85,12 +106,22 @@ the Volume, mounted at `/data`.
 | --- | --- | --- |
 | `PORT` | — | injected by Railway |
 | `HOSTNAME` | fixed | `::` |
-| `API_INTERNAL_URL` | ref | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8000` |
+| `API_INTERNAL_URL` | ref | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8080` |
 
-`API_INTERNAL_URL` is read by `next.config.ts` at server start. It is **not**
-public: the browser never sees it, and no browser-visible env var carries an
-API address. If you ever find yourself adding one, the rewrite is broken —
-fix the rewrite.
+`API_INTERNAL_URL` is read by `next.config.ts` at **build** time, not at server
+start: `rewrites()` is resolved by `next build` and written into
+`routes-manifest.json`, and the standalone server never re-reads the config.
+Railway only passes a service variable into a Docker build when the Dockerfile
+declares it, so `apps/web/Dockerfile` carries `ARG API_INTERNAL_URL`. Changing
+this variable therefore requires a **rebuild**, not a restart — and a service
+variable alone is not enough if that `ARG` is ever removed.
+
+The port is **8080**, because that is what Railway injects as `PORT` and what
+`api` therefore listens on.
+
+It is **not** public: the browser never sees it, and no browser-visible env var
+carries an API address. If you ever find yourself adding one, the rewrite is
+broken — fix the rewrite.
 
 ## Rules
 

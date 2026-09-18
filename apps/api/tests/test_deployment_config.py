@@ -52,13 +52,47 @@ def test_only_web_publishes_a_host_port() -> None:
     assert set(published) == {"web"}, f"only `web` may publish a port, got {published}"
 
 
-def test_api_binds_ipv6() -> None:
-    """Railway's private network is IPv6-only; a service on 0.0.0.0 is unreachable."""
+def test_api_binds_ipv4_so_the_railway_healthcheck_can_reach_it() -> None:
+    """`0.0.0.0`, not `::` — and this reverses what this test used to assert.
+
+    Two measured facts, both from a real Railway deploy:
+
+    - Railway's healthcheck connects over IPv4 (observed source 100.64.0.2).
+    - asyncio sets IPV6_V6ONLY on every AF_INET6 socket it opens, so a uvicorn
+      bound to `::` refuses IPv4 outright. Every healthcheck attempt failed with
+      "service unavailable" and no request ever reached the application.
+
+    The old premise — that the private network is IPv6-only, so `::` is the only
+    reachable bind — stopped being true for environments created after
+    2025-10-16, which resolve `*.railway.internal` to both an A and an AAAA
+    record. An IPv4 listener is reachable by siblings AND by the healthcheck;
+    an IPv6-only one can never pass a healthcheck.
+
+    `web` is deliberately left on `::`: it is a Node server, and Node binds
+    dual-stack, so it accepts both. This asymmetry is a property of the
+    runtimes, not an inconsistency.
+    """
     compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
-    assert "::" in compose["services"]["api"]["command"]
-    assert "0.0.0.0" not in " ".join(compose["services"]["api"]["command"])
+    assert "0.0.0.0" in compose["services"]["api"]["command"]
     dockerfile = (API_DIR / "Dockerfile").read_text(encoding="utf-8")
-    assert "--host ::" in dockerfile
+    assert "--host 0.0.0.0" in dockerfile
+    assert "--host ::" not in dockerfile
+
+    fileserver = (API_DIR / "src" / "agent" / "fileserver.py").read_text(encoding="utf-8")
+    assert 'host="0.0.0.0"' in fileserver, "the worker's file server must bind IPv4 too"
+
+
+def test_web_build_receives_the_api_proxy_target() -> None:
+    """`next.config.ts` bakes `rewrites()` at build time, so ARG is load-bearing.
+
+    Railway passes a service variable into a Docker build only if the Dockerfile
+    declares it with `ARG`. Without this the build silently falls back to the
+    compose default `http://api:8000`, ships it to production, and every
+    /api/v1 call through the rewrite dies with ENOTFOUND.
+    """
+    dockerfile = (WEB_DIR / "Dockerfile").read_text(encoding="utf-8")
+    assert "ARG API_INTERNAL_URL" in dockerfile
+    assert "ENV API_INTERNAL_URL=$API_INTERNAL_URL" in dockerfile
 
 
 def test_no_absolute_api_url_reaches_the_browser() -> None:
