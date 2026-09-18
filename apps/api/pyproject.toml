@@ -21,7 +21,10 @@ dependencies = [
     "aiosmtplib>=3.0.2",         # async SMTP; invite delivery when SMTP_HOST is set (PRD §19.1.12)
     "fastembed>=0.5.1",   # local embeddings; OpenRouter serves no embedding model (PRD §20 Q6)
     "selectolax>=0.3.21", # HTML parsing for the site crawler (PRD §9.4)
-    "playwright>=1.49.0", # Transparency Center connector (PRD §9.2); browsers ship in the worker image
+    "playwright>=1.49.0", # Transparency Center connector (PRD §9.2). Dockerfile.worker runs
+    # `playwright install` from THIS venv, so the browser builds always match whatever this
+    # floor resolves to — the base image's own browsers do not, and relying on them is what
+    # silently removed competitor creative from every report.
     "python-multipart>=0.0.20",  # FastAPI multipart parsing for the CSV upload (PRD §14)
     "jinja2>=3.1.5",      # the deterministic report templates (PRD §11) — markdown and print HTML
     "weasyprint>=63.1",   # PDF via HTML+CSS Paged Media (PRD §12). Imported lazily: it needs

@@ -71,5 +71,34 @@ RUN mkdir -p $FASTEMBED_CACHE_PATH && \
     python -c "from fastembed import TextEmbedding; \
 TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='$FASTEMBED_CACHE_PATH')"
 
+# Install the browsers this venv's Playwright actually asks for.
+#
+# The base image ships browsers for the Playwright *it* was built around
+# (v1.49). This image then builds a separate managed-CPython venv and installs
+# `playwright` from `uv.lock`, which resolves the `>=1.49.0` floor to whatever
+# is current — 1.63 at the time of writing. Playwright addresses browsers by
+# build number, so the venv looked for `chromium-1243`, found the 1.49-era
+# builds, and every browser call died with "Executable doesn't exist at
+# /ms-playwright/...". That took out the Ads Transparency Center scrape
+# entirely — the report's whole competitor-creative section — and degraded the
+# landing-page vitals pass, and it did it quietly, as a partial source rather
+# than a failed build.
+#
+# Running the install from the venv is what keeps the two in step: it fetches
+# the builds THIS Playwright names, so bumping the lock or the base image can
+# never drift them apart again. Both binaries are installed because
+# `launch(headless=True)` prefers the headless shell while `launch()` and any
+# future headed/trace use want the full browser.
+RUN /app/.venv/bin/python -m playwright install chromium chromium-headless-shell
+
+# Fail the build rather than ship a worker that cannot open a page. A browser
+# missing at runtime is invisible until a research run quietly returns no
+# competitor ads; missing at build time it is one red line here.
+RUN /app/.venv/bin/python -c "\
+from playwright.sync_api import sync_playwright; \
+p = sync_playwright().start(); \
+b = p.chromium.launch(args=['--no-sandbox', '--disable-dev-shm-usage']); \
+print('chromium', b.version); b.close(); p.stop()"
+
 # No healthcheck and no exposed port: the worker has no HTTP ingress.
 CMD ["arq", "agent.worker.WorkerSettings"]
