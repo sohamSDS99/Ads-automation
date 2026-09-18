@@ -16,6 +16,19 @@ COPY . .
 
 # --- build -----------------------------------------------------------------
 FROM deps AS builder
+
+# `next.config.ts` resolves `rewrites()` at BUILD time and bakes the result into
+# `routes-manifest.json`; the standalone server never re-reads it. So the proxy
+# target has to be present here, not merely at runtime — and Railway only passes
+# a service variable into the build if the Dockerfile declares it as an `ARG`.
+#
+# Without this pair the build fell back to the compose default `http://api:8000`
+# and shipped it to production, where that hostname does not resolve. Every
+# /api/v1 call through the rewrite then failed with ENOTFOUND, which presents as
+# a blank 500 page rather than anything that names the cause.
+ARG API_INTERNAL_URL
+ENV API_INTERNAL_URL=$API_INTERNAL_URL
+
 RUN pnpm build
 
 # --- run -------------------------------------------------------------------

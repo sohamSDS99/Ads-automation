@@ -153,10 +153,17 @@ class FileServer:
     async def start(self) -> None:
         config = uvicorn.Config(
             create_file_server(settings=self._settings),
-            # Railway's private network is IPv6-only (PRD §5.2). `::` also
-            # accepts IPv4 on a dual-stack Docker network, so one value works in
-            # both places — the same rule the api service follows.
-            host="::",
+            # `0.0.0.0`, not `::` — the same rule the api service follows, and
+            # for the same reason the comment here used to get wrong: asyncio
+            # sets IPV6_V6ONLY on every AF_INET6 socket, so binding `::` does
+            # NOT also accept IPv4. Railway environments created after
+            # 2025-10-16 resolve `*.railway.internal` to both an A and an AAAA
+            # record, so an IPv4 listener is reachable from `api`; an IPv6-only
+            # one is reachable only if the client happens to pick the AAAA.
+            # noqa justification: `worker` has no public domain and no published
+            # port — this listener is reachable only from inside the project's
+            # private network, which is the whole point of it.
+            host="0.0.0.0",  # noqa: S104
             port=self._settings.file_server_port,
             log_level=self._settings.log_level.lower(),
             access_log=False,

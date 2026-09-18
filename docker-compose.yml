@@ -78,7 +78,7 @@ services:
     build:
       context: ./apps/api
       dockerfile: Dockerfile
-    command: ["uvicorn", "agent.main:app", "--reload", "--reload-dir", "/app/src", "--host", "::", "--port", "8000"]
+    command: ["uvicorn", "agent.main:app", "--reload", "--reload-dir", "/app/src", "--host", "0.0.0.0", "--port", "8000"]
     environment:
       <<: *api-env
       PORT: 8000

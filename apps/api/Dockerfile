@@ -40,8 +40,24 @@ TextEmbedding(model_name='BAAI/bge-small-en-v1.5', cache_dir='$FASTEMBED_CACHE_P
 EXPOSE 8000
 
 # Shell form on purpose: $PORT is injected by Railway at runtime and must be
-# expanded. Bind `::` — Railway's private network is IPv6-only (PRD §5.2).
-CMD uvicorn agent.main:app --host :: --port ${PORT:-8000}
+# expanded.
+#
+# Bind `0.0.0.0`, not `::`. Two facts make that the correct choice, and both
+# changed after the `::` advice in PRD §5.2 was written:
+#
+#  1. Railway environments created after 2025-10-16 resolve `*.railway.internal`
+#     to BOTH an A and an AAAA record, so an IPv4 listener is reachable by
+#     sibling services. The private network is no longer IPv6-only.
+#  2. Railway's healthcheck connects over IPv4 (observed: 100.64.0.2). asyncio
+#     sets IPV6_V6ONLY on every AF_INET6 socket it opens, so a uvicorn bound to
+#     `::` refuses IPv4 outright — the healthcheck could never connect, and
+#     reported the deploy as "service unavailable" with no request ever reaching
+#     the app. Binding `::` is therefore not a stricter version of the same
+#     thing; it is the one option that cannot pass a healthcheck.
+#
+# uvicorn takes a single --host, and asyncio gives no way to ask for a
+# dual-stack socket, so this is a choice between the two — not a compromise.
+CMD uvicorn agent.main:app --host 0.0.0.0 --port ${PORT:-8000}
 
 # ---------------------------------------------------------------------------
 # dev — the integration suite's image. Adds pytest and mypy to `base`, and is
