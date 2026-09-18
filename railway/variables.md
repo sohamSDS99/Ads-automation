@@ -75,7 +75,7 @@ Generate both secrets with:
 python -c "import base64,os;print(base64.b64encode(os.urandom(32)).decode())"
 ```
 
-## `worker` (Dockerfile `apps/api/Dockerfile.worker`)
+## `worker` (Dockerfile `Dockerfile`, at the repo root)
 
 Same variables as `api`, minus `PORT` and the bootstrap pair. The worker owns
 the Volume, mounted at `/data`.
@@ -83,20 +83,22 @@ the Volume, mounted at `/data`.
 `worker` shares the `apps/api` build context with `api` but must build the other
 Dockerfile, and Railway auto-detects only a file named exactly `Dockerfile`:
 
-This is **not** an environment variable. `RAILWAY_DOCKERFILE_PATH` was ignored
-here in every form tried; the setting Railway actually reads is the service's
-**Dockerfile Path** under Settings → Build:
+There is no variable for this, and no setting either — both were tried and
+ignored (`RAILWAY_DOCKERFILE_PATH` in all three path forms, and the service's
+Dockerfile Path build setting, even on a service configured before its first
+build). The worker's Dockerfile therefore sits at the **repo root**, where plain
+auto-detection finds it:
 
 ```
-Root Directory:  apps/api
-Dockerfile Path: Dockerfile.worker
+Root Directory:  (empty — the repo root)
+Dockerfile Path: (unset)
 ```
 
-Railway also caches builds — changing a variable alone often returns the
-previously built image (same `containerimage.digest`) instead of rebuilding. If
-the worker's deploy log still says `Uvicorn running on …` rather than starting
-`arq`, it is running the api image: push a commit to move the SHA, force a real
-rebuild, and re-read the log.
+Railway also caches builds and the key ignores the Dockerfile Path, so changing a
+variable alone often returns the previous image. If the worker's deploy log says
+`Uvicorn running on …` rather than starting `arq`, it built the api's Dockerfile:
+read the FIRST line of the build log, `load build definition from <path>`, which
+is the only reliable readout of what Railway chose.
 
 | Variable | Kind | Value |
 | --- | --- | --- |

@@ -1,0 +1,34 @@
+# Build context for the ROOT `Dockerfile` (the worker service).
+#
+# Docker reads the `.dockerignore` beside the context root, so `apps/api/.dockerignore`
+# stops applying the moment the worker's context becomes the repo. Without this file
+# the worker build uploads `apps/web/node_modules` and `.next` — hundreds of MB that
+# the image never uses.
+#
+# `apps/api/.dockerignore` still governs the `api` service, whose context is still
+# `apps/api`. Keep the two in step.
+
+.git/
+.env
+.env.*
+!.env.example
+
+# Never needed by the worker image.
+apps/web/
+PRD files/
+
+# Python build noise (mirrors apps/api/.dockerignore).
+**/.venv/
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/htmlcov/
+apps/api/tests/
+
+# Node build noise, in case anything else lands in the context later.
+**/node_modules/
+**/.next/
+**/*.tsbuildinfo
