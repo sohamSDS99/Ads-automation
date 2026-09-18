@@ -201,7 +201,7 @@
 
   {% if competition.competitors %}
   <h3>Competitor set</h3>
-  {{ table(["Domain", "Name", "Overlap", "Basis"], competitor_rows, numeric=[2]) }}
+  {{ table(["Domain", "Name", "Threat", "Overlap", "Basis"], competitor_rows, numeric=[3]) }}
   {% endif %}
 
   {% for chart in charts if chart.title == "What competitors are saying" %}
@@ -217,9 +217,14 @@
   <h3>Creative corpus</h3>
   <p>
     {{ ads_total }} ad{{ "" if ads_total == 1 else "s" }} were captured.
-    {% if ads_truncated %}The {{ ads|length }} below are the first {{ ads|length }}; the rest are in the JSON export.{% endif %}
+    {% if ads_truncated and ads_have_text %}The {{ ads|length }} below are the first {{ ads|length }}; the rest are in the JSON export.{% endif %}
+    {% if not ads_have_text %}None of them carries readable ad text: the Transparency Center grid renders each creative as an image and keeps its wording on the per-creative page. What these advertisers are saying has not been read — only that they are advertising, how much, and in what form.{% endif %}
   </p>
+  {% if ads_have_text %}
   {{ table(["Advertiser", "Headline", "Angle", "Offer", "CTA", "Seen"], ad_rows) }}
+  {% else %}
+  {{ table(["Advertiser", "Ads", "Image", "Video", "Text"], presence_rows, numeric=[1, 2, 3, 4]) }}
+  {% endif %}
   {% endif %}
 
   {% if screenshots %}

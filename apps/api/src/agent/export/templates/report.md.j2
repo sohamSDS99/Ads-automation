@@ -184,10 +184,12 @@ Wasted spend across the terms above: **{{ wasted_spend|money }}**.
 {% if competition.competitors %}
 ### Competitor set
 
-| Domain | Name | Overlap | Basis |
-| --- | --- | ---: | --- |
-{% for competitor in competition.competitors %}
-| {{ competitor.domain|cell }} | {{ competitor.name|cell }} | {{ competitor.overlap_score|ratio_pct }} | {{ competitor.overlap_basis|commalist|cell }} |
+Ordered by how much of a rival each one is, not by overlap: overlap ranks the keyword surface two domains share, which on these terms puts encyclopaedias and regulators above the actual competition.
+
+| Domain | Name | Threat | Overlap | Basis |
+| --- | --- | --- | ---: | --- |
+{% for competitor in competitors %}
+| {{ competitor.domain|cell }} | {{ competitor.name|cell }} | {{ competitor.threat|cell }} | {{ competitor.overlap_score|ratio_pct }} | {{ competitor.overlap_basis|commalist|cell }} |
 {% endfor %}
 {% endif %}
 
@@ -205,15 +207,25 @@ Wasted spend across the terms above: **{{ wasted_spend|money }}**.
 ### Creative corpus
 
 {{ ads_total }} ad{{ "" if ads_total == 1 else "s" }} were captured.
-{% if ads_truncated %}
+{% if ads_truncated and ads_have_text %}
 The {{ ads|length }} below are the first {{ ads|length }}; the rest are in the JSON export.
 {% endif %}
 
+{% if ads_have_text %}
 | Advertiser | Headline | Angle | Offer | CTA | Seen |
 | --- | --- | --- | --- | --- | --- |
 {% for ad in ads %}
 | {{ ad.advertiser|cell }} | {{ ad.headline|cell }} | {{ ad.angle|cell }} | {{ ad.offer|cell }} | {{ ad.cta|cell }} | {{ ad.first_seen|cell }} → {{ ad.last_seen|cell }} |
 {% endfor %}
+{% else %}
+None of them carries readable ad text. The Transparency Center grid renders each creative as an image and keeps its wording on the per-creative page, so what these advertisers are *saying* has not been read — only that they are advertising, how much, and in what form. The screenshots are in the evidence store.
+
+| Advertiser | Ads | Image | Video | Text |
+| --- | ---: | ---: | ---: | ---: |
+{% for row in ad_presence %}
+| {{ row.advertiser|cell }} | {{ row.total }} | {{ row.image }} | {{ row.video }} | {{ row.text }} |
+{% endfor %}
+{% endif %}
 {% endif %}
 
 {% if competition.spend_estimates %}

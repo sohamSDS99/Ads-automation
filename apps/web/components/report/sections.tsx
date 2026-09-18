@@ -10,7 +10,12 @@ import {
 } from "@/components/report/charts";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import type { Citations } from "@/lib/citations";
-import { INTENT_LABEL, VERDICT_LABEL, type ResearchReport } from "@/lib/api/reports";
+import {
+  INTENT_LABEL,
+  THREAT_LABEL,
+  VERDICT_LABEL,
+  type ResearchReport,
+} from "@/lib/api/reports";
 import { compactNumber, usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -138,7 +143,10 @@ export function BusinessSection({ report, citations, projectId }: Props) {
                       projectId={projectId}
                     />
                   </Td>
-                  <Td className="text-fg-muted">{product.price_model ?? "—"}</Td>
+                  {/* Capped and wrapping: this is a prose cell, and `min-w-max` on the
+                      table means one long pricing description sets the width of the whole
+                      table. Same trap as the landing-page issues column. */}
+                  <Td className="max-w-96 text-fg-muted">{product.price_model ?? "—"}</Td>
                   <Td data-numeric className="text-right">
                     {product.acv === null || product.acv === undefined ? "—" : usd(product.acv, 0)}
                   </Td>
@@ -306,10 +314,67 @@ export function AccountSection({ report, citations, projectId }: Props) {
   );
 }
 
+/**
+ * How dangerous 1.3.1 judged each domain, as a rank.
+ *
+ * Overlap alone is the wrong order for this table. It measures how much of the
+ * keyword surface two domains share, and on a term like "safety data sheet"
+ * the biggest sharers are Wikipedia, OSHA and YouTube — they scored 1.00 and
+ * led the table while the four actual rivals sat below the fold.
+ */
+const THREAT_WEIGHT: Record<string, number> = {
+  direct: 0,
+  adjacent: 1,
+  aggregator: 2,
+  irrelevant: 4,
+};
+
+function ThreatTag({ threat }: { threat?: string | null }) {
+  if (!threat) return <span className="text-fg-subtle">—</span>;
+  const direct = threat === "direct";
+  const noise = threat === "irrelevant";
+  return (
+    <span
+      className={cn(
+        "rounded-full border px-2 py-0.5 text-xs whitespace-nowrap",
+        direct && "border-status-failed/40 text-status-failed",
+        noise && "text-fg-subtle",
+        !direct && !noise && "text-fg-muted",
+      )}
+    >
+      {THREAT_LABEL[threat] ?? threat}
+    </span>
+  );
+}
+
 export function CompetitionSection({ report, citations, projectId }: Props) {
   const landscape = report.competitive_landscape ?? {};
   const competitors = landscape.competitors ?? [];
+  const rankedCompetitors = [...competitors].sort(
+    (a, b) =>
+      (THREAT_WEIGHT[a.threat ?? ""] ?? 3) - (THREAT_WEIGHT[b.threat ?? ""] ?? 3) ||
+      (b.overlap_score ?? 0) - (a.overlap_score ?? 0),
+  );
   const clusters = landscape.message_clusters ?? [];
+  const ads = landscape.ads ?? [];
+  // How many ads each competitor is running, and in what form. This is the
+  // half of the creative corpus that survives when the ad text does not: a
+  // table of 300 em-dashes says nothing, while "Brady runs 65 image ads" is a
+  // finding on its own.
+  const adPresence = Object.values(
+    ads.reduce<Record<string, { advertiser: string; total: number; image: number; video: number; text: number }>>(
+      (acc, ad) => {
+        const key = ad.advertiser || "unattributed";
+        const row = (acc[key] ??= { advertiser: key, total: 0, image: 0, video: 0, text: 0 });
+        row.total += 1;
+        if (ad.format === "image") row.image += 1;
+        else if (ad.format === "video") row.video += 1;
+        else row.text += 1;
+        return acc;
+      },
+      {},
+    ),
+  ).sort((a, b) => b.total - a.total);
   const whitespace = landscape.whitespace ?? [];
 
   return (
@@ -331,9 +396,55 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
       ) : (
         <ChartMissing
           title="What competitors are saying"
-          reason="No competitor creative was collected on this run, so there are no messages to count."
+          reason={
+            ads.length > 0
+              ? `${ads.length.toLocaleString()} competitor ads were captured, but the Transparency Center grid carries only the advertiser and the creative image — none of the ad text was readable, so there is nothing to cluster.`
+              : "No competitor creative was collected on this run, so there are no messages to count."
+          }
         />
       )}
+
+      {ads.length > 0 ? (
+        <div>
+          <SubHeading>Who is actually advertising</SubHeading>
+          <p className="mt-1 max-w-prose text-sm text-fg-muted">
+            {ads.length.toLocaleString()} live ads across {adPresence.length} advertisers. What each
+            one <em>says</em> is not here: the Transparency Center grid renders the creative as an
+            image, and the wording lives on the per-creative page. The screenshots are in the
+            evidence explorer.
+          </p>
+          <Table label="Competitor advertising presence" className="mt-2">
+            <thead>
+              <tr>
+                <Th>Advertiser</Th>
+                <Th className="text-right">Ads</Th>
+                <Th className="text-right">Image</Th>
+                <Th className="text-right">Video</Th>
+                <Th className="text-right">Text</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {adPresence.map((row) => (
+                <Tr key={row.advertiser}>
+                  <Td className="text-fg">{row.advertiser}</Td>
+                  <Td data-numeric className="text-right text-fg">
+                    {row.total.toLocaleString()}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.image || "—"}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.video || "—"}
+                  </Td>
+                  <Td data-numeric className="text-right text-fg-muted">
+                    {row.text || "—"}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </Table>
+        </div>
+      ) : null}
 
       <div>
         <SubHeading>Who we are up against</SubHeading>
@@ -344,12 +455,13 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
             <thead>
               <tr>
                 <Th>Competitor</Th>
+                <Th>Threat</Th>
                 <Th>Overlaps on</Th>
                 <Th className="text-right">Overlap</Th>
               </tr>
             </thead>
             <tbody>
-              {competitors.map((competitor) => (
+              {rankedCompetitors.map((competitor) => (
                 <Tr key={competitor.domain}>
                   <Td>
                     <span className="text-fg">{competitor.name ?? competitor.domain}</span>
@@ -361,6 +473,14 @@ export function CompetitionSection({ report, citations, projectId }: Props) {
                       citations={citations}
                       projectId={projectId}
                     />
+                    {competitor.positioning ? (
+                      <p className="mt-0.5 max-w-prose text-xs text-fg-subtle">
+                        {competitor.positioning}
+                      </p>
+                    ) : null}
+                  </Td>
+                  <Td>
+                    <ThreatTag threat={competitor.threat} />
                   </Td>
                   <Td className="text-fg-muted">{(competitor.overlap_basis ?? []).join(", ") || "—"}</Td>
                   <Td data-numeric className="text-right text-fg-muted">

@@ -424,7 +424,9 @@ def _competition(document: DocxDocument, report: ResearchReport, context: dict[s
 
     if context["competitor_rows"]:
         _heading(document, "Competitor set", 2)
-        _table(document, ["Domain", "Name", "Overlap", "Basis"], context["competitor_rows"])
+        _table(
+            document, ["Domain", "Name", "Threat", "Overlap", "Basis"], context["competitor_rows"]
+        )
 
     if context["cluster_rows"]:
         _heading(document, "What they are all saying", 2)
@@ -434,17 +436,32 @@ def _competition(document: DocxDocument, report: ResearchReport, context: dict[s
         _heading(document, "Creative corpus", 2)
         total = context["ads_total"]
         document.add_paragraph(f"{total} ad{'' if total == 1 else 's'} were captured.")
-        if context["ads_truncated"]:
+        if context["ads_truncated"] and context["ads_have_text"]:
             _note(
                 document,
                 f"The {len(context['ad_rows'])} below are the first {len(context['ad_rows'])}; "
                 "the rest are in the JSON export.",
             )
-        _table(
-            document,
-            ["Advertiser", "Headline", "Angle", "Offer", "CTA", "Seen"],
-            context["ad_rows"],
-        )
+        if context["ads_have_text"]:
+            _table(
+                document,
+                ["Advertiser", "Headline", "Angle", "Offer", "CTA", "Seen"],
+                context["ad_rows"],
+            )
+        else:
+            # 300 rows of em-dashes claim a creative corpus and show nothing.
+            _note(
+                document,
+                "None of them carries readable ad text: the Transparency Center grid renders "
+                "each creative as an image and keeps its wording on the per-creative page. "
+                "What these advertisers are saying has not been read — only that they are "
+                "advertising, how much, and in what form.",
+            )
+            _table(
+                document,
+                ["Advertiser", "Ads", "Image", "Video", "Text"],
+                context["presence_rows"],
+            )
 
     if context["spend_rows"]:
         _heading(document, "Estimated spend", 2)

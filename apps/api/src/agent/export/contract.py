@@ -245,12 +245,24 @@ class AccountLearnings(ReportModel):
 
 
 class Competitor(CitedModel):
-    """1.3.1 `competitor_set`."""
+    """1.3.1 `competitor_set`.
+
+    `threat` and `positioning` were reaching the payload through `extra="allow"`
+    and no renderer knew they existed, which is why the competitor table led
+    with youtube.com: overlap alone ranks a keyword vendor's organic-SERP
+    neighbours, and on a term like "safety data sheet" those are Wikipedia, OSHA
+    and YouTube. 1.3.1 had already judged them irrelevant. Declaring the field
+    is what lets the table say so.
+    """
 
     domain: str
     name: str | None = None
     overlap_score: float | None = Field(default=None, ge=0, le=1)
     overlap_basis: list[str] = Field(default_factory=list)
+    #: 1.3.1's judgement: `direct`, `adjacent`, `aggregator` or `irrelevant`.
+    threat: str | None = None
+    #: One line on what they sell, in 1.3.1's words.
+    positioning: str | None = None
 
 
 class CompetitorAd(CitedModel):
@@ -271,6 +283,12 @@ class CompetitorAd(CitedModel):
     first_seen: str | None = None
     last_seen: str | None = None
     screenshot_path: str | None = None
+    #: "image" | "video" | "text". Along with the advertiser, this is all the
+    #: Transparency Center *grid* reliably yields — the creative renders as an
+    #: image and its wording lives on the per-creative page — so it is what the
+    #: report falls back to when every text field comes back empty.
+    format: str | None = None
+    theme: str | None = None
 
 
 class MessageCluster(ReportModel):
