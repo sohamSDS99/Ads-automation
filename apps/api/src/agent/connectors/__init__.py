@@ -20,6 +20,8 @@ from agent.connectors.base import (
     ConnectorRateLimited,
     ConnectorStatus,
     EvidenceDraft,
+    MutationForbidden,
+    ReadOnlyConnector,
 )
 from agent.db.models import EvidenceSource
 
@@ -36,9 +38,13 @@ __all__ = [
     "ConnectorRateLimited",
     "ConnectorStatus",
     "EvidenceDraft",
+    "MutationForbidden",
+    "ReadOnlyConnector",
+    "assert_read_only",
     "build_connector",
     "connector_class",
     "credential_kind_for",
+    "is_read_only",
 ]
 
 #: Every connector, in the order the setup wizard should present them.
@@ -107,3 +113,24 @@ def connector_class(name: str) -> type[BaseConnector]:
 def build_connector(name: str, context: ConnectorContext | None = None) -> BaseConnector:
     """Construct a connector by name with its context already attached."""
     return connector_class(name)(context)
+
+
+def is_read_only(name: str) -> bool:
+    """Whether this connector is marked as incapable of changing anything upstream."""
+    return issubclass(connector_class(name), ReadOnlyConnector)
+
+
+def assert_read_only(name: str, *, why: str) -> None:
+    """Refuse a connector that has not declared itself read-only.
+
+    Called by the executor for every connector a `stage='plan'` node names,
+    before `gather()`. `why` is the caller's context — the node id — so the
+    failure says which node asked for what, rather than leaving someone to
+    work out which of twenty nodes tripped it.
+    """
+    if not is_read_only(name):
+        raise MutationForbidden(
+            f"{why}: connector {name!r} is not a ReadOnlyConnector, and a plan run may not "
+            f"reach a source that can write. Stage 02 never writes to an ad account "
+            f"(law 12); mutations belong to Stage 04."
+        )

@@ -23,15 +23,20 @@ this needs no database, no environment and no imports of the code it inspects.
    Without `min_length` an empty list would satisfy the type, which is a number
    with no calculation behind it passing schema validation.
 
-Checks 2 and 3 run against whatever `nodes/plan/` holds, and report how many
-modules they matched rather than passing silently — S2-P0 put two placeholder
-nodes there that S2-P2 deletes, and a guard that printed "passed" over an empty
-directory would read exactly like a guard that had checked something.
+4. **A plan node reaches `calc/` only through the runner.** `NodeSpec.calc` is
+   an allow-list enforced at runtime by `ctx.plan.calc.run()`; a node that
+   imported `agent.calc.economics` and called the formula directly would walk
+   straight past it, and past `derived.py` too — producing a figure with no
+   `PlanCalc` row. So importing a formula module inside `nodes/plan/` fails
+   the build. `agent.calc.registry` is allowed: the ids and `CalcError` are
+   names a node legitimately needs.
 
-Neither placeholder contains arithmetic or an output model, so the two checks
-have nothing to catch yet either way. `tests/test_calc_isolation.py` therefore
-proves every rule against synthetic source — one module that violates it, one
-that does not — so the guard is known to work before S2-P2's real nodes arrive.
+Checks 2, 3 and 4 run against whatever `nodes/plan/` holds, and report how many
+modules they matched rather than passing silently — a guard that printed
+"passed" over an empty directory would read exactly like a guard that had
+checked something. `tests/test_calc_isolation.py` proves every rule against
+synthetic source as well, one module that violates it and one that does not,
+so a rule stays proven even when no shipped node happens to exercise it.
 
 Run: `uv run python scripts/check_calc_isolation.py`
 """
@@ -339,6 +344,51 @@ def _carries_a_number(
 
 
 # ---------------------------------------------------------------------------
+# 4. a plan node reaches calc/ only through the runner
+# ---------------------------------------------------------------------------
+
+#: `agent.calc` modules a plan node may name. `registry` carries the formula
+#: ids, `CalcError` and `CalcResult` — names, not arithmetic. Everything else
+#: in the package is a formula, and a node that imports one can call it.
+CALC_IMPORTS_ALLOWED = frozenset({"agent.calc.registry"})
+
+
+def check_plan_calc_imports(path: Path, source: str) -> list[str]:
+    """Direct formula imports in one plan-node module."""
+    tree = ast.parse(source, filename=str(path))
+    failures: list[str] = []
+    where = path.name
+
+    def flag(lineno: int, module: str) -> None:
+        failures.append(
+            f"{where}:{lineno} imports `{module}` — a plan node calls a formula through "
+            f"ctx.plan.calc.run(), which enforces NodeSpec.calc and writes the PlanCalc row. "
+            f"A direct call does neither."
+        )
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if _is_formula_module(alias.name):
+                    flag(node.lineno, alias.name)
+        elif isinstance(node, ast.ImportFrom) and node.module and node.level == 0:
+            if _is_formula_module(node.module):
+                flag(node.lineno, node.module)
+            elif node.module == "agent.calc":
+                # `from agent.calc import economics` — the module is the alias.
+                for alias in node.names:
+                    if _is_formula_module(f"agent.calc.{alias.name}"):
+                        flag(node.lineno, f"agent.calc.{alias.name}")
+    return failures
+
+
+def _is_formula_module(module: str) -> bool:
+    if module in CALC_IMPORTS_ALLOWED:
+        return False
+    return module == "agent.calc" or module.startswith("agent.calc.")
+
+
+# ---------------------------------------------------------------------------
 
 
 def main() -> int:
@@ -357,6 +407,7 @@ def main() -> int:
         source = path.read_text(encoding="utf-8")
         failures.extend(check_plan_arithmetic(path, source))
         failures.extend(check_calc_citations(path, source))
+        failures.extend(check_plan_calc_imports(path, source))
 
     if failures:
         print("Calc isolation check FAILED:\n", file=sys.stderr)
@@ -367,12 +418,13 @@ def main() -> int:
     print(
         f"Calc isolation check passed: {len(calc_modules)} pure module(s) in calc/ "
         f"({', '.join(sorted(PURITY_EXEMPT))} exempt), "
-        f"{len(plan_modules)} module(s) in nodes/plan/ checked for arithmetic and citations."
+        f"{len(plan_modules)} module(s) in nodes/plan/ checked for arithmetic, citations "
+        f"and direct formula imports."
     )
     if not plan_modules:
         print(
-            "  note: nodes/plan/ does not exist yet (S2-P2), so checks 2 and 3 matched "
-            "nothing. tests/test_calc_isolation.py proves them against synthetic source."
+            "  note: nodes/plan/ holds no node modules, so checks 2-4 matched nothing. "
+            "tests/test_calc_isolation.py proves them against synthetic source."
         )
     return 0
 

@@ -770,7 +770,7 @@ async def test_the_plan_dag_is_separate_from_the_research_dag() -> None:
     research = get_dag(RunStage.RESEARCH)
     plan = get_dag(RunStage.PLAN)
     assert set(research.node_ids) & set(plan.node_ids) == set()
-    assert plan.waves() == [("2.0.1",), ("2.0.2",)]
+    assert plan.waves() == [("2.1.1",), ("2.1.2", "2.1.4"), ("2.1.3",)]
 
 
 async def test_the_two_pipelines_lock_different_keys() -> None:
@@ -790,6 +790,19 @@ async def test_a_plan_run_is_executed_by_a_real_arq_worker(
     real arq worker, because the failure it catches — a plan run that is
     enqueued, picked up, and then executed against the *research* DAG or
     against no DAG at all — passes every test that stops at 202.
+
+    **It asserts a failed run on purpose.** S2-P0 ran two placeholder nodes
+    here that called no model; S2-P2 deleted them and the plan DAG is now
+    stage 2.1, which reasons. A real worker against a real OpenRouter is not
+    something a test suite should arrange, so the run is started with no CRM
+    evidence: node 2.1.1 stops at `InsufficientPlanInput` *before* the model
+    is reached, spending nothing. What the assertions below check is exactly
+    what this test was always for — that the job was picked up and executed
+    against the **plan** DAG. That the stop is the one PRD §18 describes, with
+    the missing source named, is the part that comes for free.
+
+    The 2.1 branch running green end to end is
+    `tests/integration/test_plan_stage_2_1.py`, against a scripted provider.
     """
     from arq.connections import RedisSettings
     from arq.worker import Worker
@@ -818,25 +831,18 @@ async def test_a_plan_run_is_executed_by_a_real_arq_worker(
         await worker.close()
 
     assert worker.jobs_complete == 1, "the plan job was never picked up"
-    assert worker.jobs_failed == 0
+    assert worker.jobs_failed == 0, "the job itself must complete; the run inside it may not"
 
     state = (await admin.get(f"/runs/{plan_run_id}")).json()
-    assert state["status"] == RunStatus.SUCCEEDED
-    assert [node["id"] for node in state["nodes"]] == ["2.0.1", "2.0.2"]
-    assert [node["status"] for node in state["nodes"]] == [
-        NodeRunStatus.SUCCEEDED,
-        NodeRunStatus.SUCCEEDED,
-    ]
+    # The plan DAG, not the research one. This is the assertion the test exists
+    # for: a run executed against the wrong graph shows the wrong node ids.
+    assert [node["id"] for node in state["nodes"]] == ["2.1.1", "2.1.2", "2.1.3", "2.1.4"]
+    assert state["status"] == RunStatus.FAILED
 
-    # The handshake delivered its object: 2.0.1 read the run's input_hash back
-    # out, and 2.0.2 saw it. A green run that echoed nothing would only have
-    # proved the executor loops.
-    first = (await admin.get(f"/runs/{plan_run_id}/nodes/2.0.1")).json()
-    assert first["output"]["input_hash"] == started.json()["input_hash"]
-    assert first["output"]["research_run_id"] == str(seeded["run_id"])
-    assert first["output"]["markets"] == ["US"]
-    second = (await admin.get(f"/runs/{plan_run_id}/nodes/2.0.2")).json()
-    assert second["output"]["source_confirmed"] is True
+    first = (await admin.get(f"/runs/{plan_run_id}/nodes/2.1.1")).json()
+    assert first["status"] == NodeRunStatus.FAILED
+    assert "crm_won" in first["error"]["message"], "the stop must name the missing source"
+    assert first["model"] is None, "no model was reached, so nothing was spent"
 
     # And the lock came back, so the project can be planned again.
     again = (await admin.get(f"/projects/{seeded['project_id']}/plan/eligibility")).json()

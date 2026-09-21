@@ -26,11 +26,11 @@ from typing import Any, Literal
 import structlog
 
 from agent.connectors.base import (
-    BaseConnector,
     ConnectorDegraded,
     ConnectorError,
     ConnectorStatus,
     EvidenceDraft,
+    ReadOnlyConnector,
 )
 from agent.db.models import EvidenceSource
 
@@ -243,8 +243,13 @@ def preview(content: bytes, *, sample_size: int = 5) -> ColumnPreview:
     )
 
 
-class CsvIngestConnector(BaseConnector):
-    """Canonicalises a CRM export into `crm_won` / `crm_lost` evidence."""
+class CsvIngestConnector(ReadOnlyConnector):
+    """Canonicalises a CRM export into `crm_won` / `crm_lost` evidence.
+
+    Read-only by nature — it parses an upload and writes Evidence — and marked
+    as such because Stage 02's nodes 2.1.1, 2.1.2 and 2.1.4 read the CRM
+    through it, and the executor refuses an unmarked connector on a plan run.
+    """
 
     name = "csv_ingest"
     source = EvidenceSource.CSV

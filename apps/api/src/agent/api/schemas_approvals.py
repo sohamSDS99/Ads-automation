@@ -21,6 +21,10 @@ class ApprovalItem(BaseModel):
     project_id: uuid.UUID
     node_id: str
     node_name: str
+    #: Which gate this is — 'G1'..'G4' for a plan gate, 'R0' for a research
+    #: one (migration 0013 declined to relabel those). Sent so the inbox can
+    #: badge a card by the decision it carries rather than by a node id.
+    gate_key: str
     status: ApprovalStatus
     required_role: ApprovalRequiredRole
     assignee_id: uuid.UUID | None

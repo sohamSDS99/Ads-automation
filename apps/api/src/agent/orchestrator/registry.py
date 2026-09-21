@@ -52,6 +52,7 @@ class NodeRegistry:
                     f"{type(collected[spec.id]).__name__} and {type(node).__name__}"
                 )
             collected[spec.id] = node
+        _validate_gate_keys(collected.values())
         return cls(collected)
 
     def __contains__(self, node_id: str) -> bool:
@@ -90,6 +91,30 @@ class NodeRegistry:
                 if node.spec.run_stage is run_stage
             }
         )
+
+
+def _validate_gate_keys(nodes: Iterable[Node]) -> None:
+    """One gate per key per pipeline (Stage 02 PRD §16: "four gates, no more").
+
+    Two nodes claiming `G3` is not a duplicate id, so nothing else catches it —
+    and the consequence is quiet rather than loud: S2-P5's freeze asserts four
+    approved `Approval` rows one per gate, and a fifth card carrying a
+    duplicate key would make that count wrong in whichever direction the query
+    happened to fall.
+    """
+    claimed: dict[tuple[RunStage, str], str] = {}
+    for node in nodes:
+        spec = node.spec
+        if not spec.gate_key:
+            continue
+        key = (spec.run_stage, spec.gate_key)
+        first = claimed.get(key)
+        if first is not None:
+            raise RegistryError(
+                f"gate {spec.gate_key} is claimed by both {first} and {spec.id} in the "
+                f"{spec.run_stage.value} pipeline. A gate key identifies one decision."
+            )
+        claimed[key] = spec.id
 
 
 def _sort_key(node_id: str) -> tuple[int | str, ...]:

@@ -37,6 +37,8 @@ __all__ = [
     "ConnectorRateLimited",
     "ConnectorStatus",
     "EvidenceDraft",
+    "MutationForbidden",
+    "ReadOnlyConnector",
     "build_client",
     "with_retries",
 ]
@@ -60,6 +62,16 @@ class ConnectorRateLimited(ConnectorError):
     def __init__(self, message: str, retry_after_s: float | None = None) -> None:
         super().__init__(message)
         self.retry_after_s = retry_after_s
+
+
+class MutationForbidden(RuntimeError):
+    """Something tried to change an ad account from a plan run.
+
+    Stage 02 law 12 and PRD §17 PS1: **Stage 02 never writes to Google Ads.**
+    A plan reads the account and emits an artifact; every mutation belongs to
+    Stage 04. This is the exception that makes that a property of the code
+    rather than a promise in a document.
+    """
 
 
 class ConnectorDegraded(Exception):
@@ -234,3 +246,26 @@ class BaseConnector(abc.ABC):
             source_url=source_url,
             content_text=content_text,
         )
+
+
+class ReadOnlyConnector(BaseConnector, abc.ABC):
+    """A connector that provably cannot change anything upstream.
+
+    Stage 02 PRD §8.3 and §10.2: a `stage='plan'` node may only pull through a
+    connector that subclasses this, and the executor asserts it **before**
+    `gather()` runs — before a token is spent, and before any HTTP happens.
+
+    The marker is deliberately a base class and not a boolean attribute. A flag
+    is something a subclass can flip; a base class is something a reviewer sees
+    in the class line, and something Stage 04's mutating Google Ads client
+    cannot acquire by accident while reusing an existing connector's code.
+
+    Today every connector in the product is read-only in fact. Only the two a
+    plan node actually pulls through declare it, because a marker applied to
+    everything proves nothing — the assertion would pass over a connector
+    nobody had thought about, which is exactly the case it exists to catch.
+    """
+
+    #: Restated for the doc, and read by nothing: the assertion is
+    #: `issubclass(cls, ReadOnlyConnector)`, so there is no flag to get wrong.
+    read_only: bool = True

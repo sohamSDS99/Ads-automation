@@ -26,6 +26,10 @@
           "title": "Node Name",
           "type": "string"
         },
+        "gate_key": {
+          "title": "Gate Key",
+          "type": "string"
+        },
         "status": {
           "$ref": "#/$defs/ApprovalStatus"
         },
@@ -170,6 +174,7 @@
         "project_id",
         "node_id",
         "node_name",
+        "gate_key",
         "status",
         "required_role",
         "assignee_id",
