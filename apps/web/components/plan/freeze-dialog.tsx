@@ -79,6 +79,12 @@ export function FreezeDialog({
   const matches = typed.trim() === String(plan.next_version);
   const refusal = freeze.error instanceof ApiError ? freeze.error : null;
   const blockers = refusal?.problem?.blockers ?? [];
+  // A version race is the one refusal whose fix is a number. S2-P5b puts it at
+  // the top level of the 409, outside `blockers[]`, so the dialog can name the
+  // version to retype instead of only saying the old one was wrong.
+  const expected = (refusal?.problem as { expected_version?: unknown } | undefined)
+    ?.expected_version;
+  const expectedVersion = typeof expected === "number" ? expected : null;
 
   return (
     <Dialog open={open} onOpenChange={freeze.isPending ? undefined : onOpenChange}>
@@ -194,8 +200,17 @@ export function FreezeDialog({
             </Alert>
           ) : null}
 
+          {expectedVersion !== null ? (
+            <Alert tone="warning" title="Another freeze got there first">
+              This plan would now be version{" "}
+              <span data-numeric className="text-fg">
+                {expectedVersion}
+              </span>
+              , not {plan.next_version}. Close this, reopen it, and confirm the new number.
+            </Alert>
+          ) : null}
           {blockers.length ? <EligibilityLock blockers={blockers} /> : null}
-          {refusal && blockers.length === 0 ? (
+          {refusal && blockers.length === 0 && expectedVersion === null ? (
             <Alert tone="warning" title="The freeze was refused">
               {refusal.detail}
             </Alert>
@@ -224,7 +239,7 @@ export function FreezeDialog({
           </Button>
           <Button
             onClick={() => freeze.mutate(plan.next_version)}
-            disabled={!matches || freeze.isPending}
+            disabled={!matches || freeze.isPending || freeze.isSuccess}
           >
             {freeze.isPending ? (
               <Spinner label="Freezing" />

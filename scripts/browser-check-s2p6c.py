@@ -381,7 +381,7 @@ def viewer_url(ids: dict[str, str], which: str = "ready") -> str:
 
 def drive_viewer_screen(page: Page, ids: dict[str, str]) -> None:
     page.goto(viewer_url(ids), wait_until="networkidle")
-    page.wait_for_selector("text=Blended target CPA", timeout=20_000)
+    page.wait_for_selector("text=Blended target cost per lead", timeout=20_000)
 
     check(
         "the header names the version a freeze would mint, not v0",
@@ -427,7 +427,7 @@ def drive_viewer_screen(page: Page, ids: dict[str, str]) -> None:
     )
 
     # The traced figure opens its own calculation (§15.3 D, law 14's read side).
-    chip = page.get_by_role("button", name="Show the calculation behind Blended target CPA").first
+    chip = page.get_by_role("button", name="Show the calculation behind Blended target cost per lead").first
     check("a figure carries a calculation chip", chip.count() == 1)
     if chip.count():
         chip.click()
@@ -482,6 +482,14 @@ def drive_tree(page: Page, ids: dict[str, str]) -> None:
     check(
         "names that fail the convention are named",
         page.get_by_text("theme1-de-create-01", exact=False).count() >= 1,
+    )
+    # The point of the three-state: a tree nobody checked must not read as a
+    # clean one. The seeded plan declares its findings, so this is the
+    # "checked, and these failed" branch.
+    check(
+        "the findings line says what was checked, not just what failed",
+        page.get_by_text("do not match the convention", exact=False).count() >= 1
+        or page.get_by_text("does not match the convention", exact=False).count() >= 1,
     )
     check(
         "a campaign below its learning threshold carries the badge",
@@ -567,7 +575,15 @@ def drive_freeze(page: Page, ids: dict[str, str]) -> None:
         "the gate an approver edited says so",
         page.get_by_text("edited the proposal").count() == 1,
     )
-    check("the critique verdict is shown", page.get_by_text("pass", exact=False).count() >= 1)
+    check(
+        "the critique verdict is shown",
+        page.get_by_text("pass", exact=False).count() >= 1,
+        "the dialog is not reporting 2.6.2's verdict",
+    )
+    check(
+        "and the advisory notes are counted",
+        page.get_by_text("advisory", exact=False).count() >= 1,
+    )
     check(
         "the counts it commits to are stated",
         page.get_by_text("Keywords").count() >= 1
@@ -664,7 +680,7 @@ def drive_compare(page: Page, ids: dict[str, str]) -> None:
 def drive_mobile(page: Page, ids: dict[str, str]) -> None:
     page.set_viewport_size(MOBILE)
     page.goto(viewer_url(ids), wait_until="networkidle")
-    page.wait_for_selector("text=Blended target CPA", timeout=20_000)
+    page.wait_for_selector("text=Blended target cost per lead", timeout=20_000)
 
     check(
         "the TOC is not competing for a 390px column",
@@ -699,7 +715,7 @@ def drive_mobile(page: Page, ids: dict[str, str]) -> None:
 def drive_as_viewer(page: Page, ids: dict[str, str], email: str) -> None:
     sign_in(page, email, MEMBER_PASSWORD)
     page.goto(viewer_url(ids), wait_until="networkidle")
-    page.wait_for_selector("text=Blended target CPA", timeout=20_000)
+    page.wait_for_selector("text=Blended target cost per lead", timeout=20_000)
 
     check("a viewer reads the plan", page.get_by_role("heading", name="Media plan").count() == 1)
     check(

@@ -546,7 +546,15 @@ async def get_plan_structure(
 
     page = campaigns[start : start + limit]
     checks = _volume_checks(plan.payload)
-    invalid = {str(name) for name in structure.get("invalid_names", []) if name}
+    # `None` when the key is absent, an empty set when it is an empty list. The
+    # difference is the whole point: `plan_contract.py` does not declare
+    # `invalid_names`, so a payload that omits it has told us nothing about any
+    # name, and a green tick on all forty would be this screen asserting
+    # something nobody checked. An empty list *is* an answer — nothing failed.
+    declared = structure.get("invalid_names")
+    invalid = {str(name) for name in declared if name} if isinstance(declared, list) else None
+    duplicates = structure.get("duplicate_terms")
+    convention = structure.get("naming_convention")
     regex = _validator_regex(plan.payload)
     flat = flatten_structure(structure)
 
@@ -562,10 +570,20 @@ async def get_plan_structure(
         campaigns=[_structure_campaign(row, checks, invalid) for row in page],
         next_cursor=(identities[start + limit] if start + limit < len(identities) else None),
         validator_regex=regex,
-        invalid_names=sorted(invalid),
+        collision_check=(
+            _text(convention.get("collision_check")) if isinstance(convention, dict) else None
+        ),
+        # `if invalid is not None`, never `if invalid`: an empty set is 2.4.2
+        # saying every name passed, and `[]` has to survive as `[]` rather than
+        # collapsing into the `None` that means nobody checked.
+        invalid_names=sorted(invalid) if invalid is not None else None,
+        duplicate_terms=(
+            sorted(str(term) for term in duplicates if term)
+            if isinstance(duplicates, list)
+            else None
+        ),
         account_negatives=[str(term) for term in structure.get("account_negatives", [])],
         orphan_terms=[str(term) for term in structure.get("orphan_terms", [])],
-        duplicate_terms=[str(term) for term in structure.get("duplicate_terms", [])],
     )
 
 
@@ -670,7 +688,7 @@ async def _plan_detail(db: AsyncSession, me: Principal, plan: CampaignPlan) -> P
         updated_at=plan.updated_at,
         source=source,
         gates=await _gate_decisions(db, me.workspace_id, plan.plan_run_id),
-        critique=await _critique(db, plan.plan_run_id),
+        critique=await _critique(db, plan.plan_run_id, payload),
         totals=PlanStructureTotals(
             campaigns=len(flat["campaigns"]),
             ad_groups=len(flat["ad_groups"]),
@@ -754,15 +772,36 @@ async def _gate_decisions(
     return decisions
 
 
-async def _critique(db: AsyncSession, plan_run_id: uuid.UUID) -> PlanCritique | None:
-    """Node 2.6.2's verdict, read from the node run rather than from the payload.
+async def _critique(
+    db: AsyncSession, plan_run_id: uuid.UUID, payload: dict[str, Any]
+) -> PlanCritique | None:
+    """Node 2.6.2's verdict — from the payload first, then the node run.
 
-    The payload is 2.6.1's; the critique runs after it. Reading the node output
-    means the freeze dialog shows a real verdict the moment 2.6.2 finishes,
-    whatever S2-P5b decides to copy into the payload afterwards. A run that has
-    not reached 2.6.2 has no verdict, and the dialog says so rather than
-    implying the plan passed.
+    **The payload is authoritative and the node run is the fallback.** S2-P5b
+    writes `critique_issues[]` onto the payload precisely so an exported PDF
+    carries its own review: a document that says "ready to freeze" while the
+    critique that said otherwise lives somewhere else is how a blocked plan
+    gets circulated as approved. The node run still answers for a run that
+    reached 2.6.2 but whose payload predates it.
+
+    Getting this wrong is the worst failure available to this screen. An earlier
+    version of this function read only the node output, in shapes 2.6.2 does not
+    emit, so the freeze dialog would have reported "no critique recorded" on a
+    plan with blocking issues.
     """
+    issues = payload.get("critique_issues")
+    if isinstance(issues, list) and issues:
+        blocking = _findings(issues, ("blocking",))
+        return PlanCritique(
+            # No `verdict` field on the payload: the verdict *is* whether
+            # anything blocking survived, and deriving it here keeps one answer
+            # rather than a label that can disagree with the list under it.
+            verdict="blocking_issues" if blocking else "pass",
+            blocking=blocking,
+            advisory=_findings(issues, ("warning", "note")),
+            checked_at=None,
+        )
+
     row = (
         await db.execute(
             sa.select(NodeRun)
@@ -781,13 +820,35 @@ async def _critique(db: AsyncSession, plan_run_id: uuid.UUID) -> PlanCritique | 
     )
 
 
-def _issues(output: dict[str, Any], severity: str) -> list[str]:
-    """Issues at one severity, however 2.6.2 chose to shape them.
+def _findings(issues: list[Any], severities: tuple[str, ...]) -> list[str]:
+    """`critique_issues[]` rows at the given severities, as sentences.
 
-    Two shapes are plausible and both are read: a flat `blocking: [...]` list,
-    and an `issues: [{severity, statement}]` list. Guessing one and ignoring the
-    other would show an empty critique on a plan that has blocking issues,
-    which is the single most dangerous thing this screen could get wrong.
+    The row carries `finding` and `fix`; both are shown, because a blocking
+    issue a reader cannot act on is just an obstacle. `check` is a stable id
+    (`1_allocation_sums` … `10_launch_blockers`, or `reader`) and is prefixed so
+    the same failure is recognisable across two versions of a plan even when the
+    model rewords its prose.
+    """
+    found: list[str] = []
+    for issue in issues:
+        if not isinstance(issue, dict) or issue.get("severity") not in severities:
+            continue
+        finding = issue.get("finding") or issue.get("statement") or issue.get("detail")
+        if not finding:
+            continue
+        fix = issue.get("fix")
+        section = issue.get("section")
+        prefix = f"{section}: " if section else ""
+        suffix = f" Fix: {fix}" if fix else ""
+        found.append(f"{prefix}{finding}{suffix}")
+    return found
+
+
+def _issues(output: dict[str, Any], severity: str) -> list[str]:
+    """Issues at one severity, in the shapes a *node run* might carry them.
+
+    Kept as the fallback path for a run whose payload has no `critique_issues`:
+    a flat `blocking: [...]` list, or `issues: [{severity, statement}]`.
     """
     found = [str(item) for item in output.get(severity, []) if item]
     for issue in output.get("issues", []):
@@ -810,11 +871,22 @@ def _campaign_identity(row: dict[str, Any]) -> str:
 
 
 def _validator_regex(payload: dict[str, Any]) -> str | None:
-    naming = payload.get("account_structure")
-    if isinstance(naming, dict) and (regex := naming.get("validator_regex")):
-        return str(regex)
-    naming = payload.get("naming_convention")
-    if isinstance(naming, dict) and (regex := naming.get("validator_regex")):
+    """2.4.1's regex, wherever the assembled plan put it.
+
+    `account_structure.naming_convention.validator_regex` is where S2-P5b's
+    `plan_contract.py` writes it. The other two are the shapes the node output
+    itself carries, kept because a payload written before that model landed is
+    still a payload this screen has to render.
+    """
+    structure = payload.get("account_structure")
+    if isinstance(structure, dict):
+        convention = structure.get("naming_convention")
+        if isinstance(convention, dict) and (regex := convention.get("validator_regex")):
+            return str(regex)
+        if regex := structure.get("validator_regex"):
+            return str(regex)
+    convention = payload.get("naming_convention")
+    if isinstance(convention, dict) and (regex := convention.get("validator_regex")):
         return str(regex)
     return None
 
@@ -838,7 +910,7 @@ def _volume_checks(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def _structure_campaign(
-    row: dict[str, Any], checks: dict[str, dict[str, Any]], invalid: set[str]
+    row: dict[str, Any], checks: dict[str, dict[str, Any]], invalid: set[str] | None
 ) -> PlanStructureCampaign:
     ref = str(row.get("campaign_ref") or "")
     name = str(row.get("name") or ref)
@@ -873,7 +945,7 @@ def _structure_campaign(
     )
 
 
-def _structure_ad_group(row: dict[str, Any], invalid: set[str]) -> PlanStructureAdGroup:
+def _structure_ad_group(row: dict[str, Any], invalid: set[str] | None) -> PlanStructureAdGroup:
     name = str(row.get("name") or row.get("theme") or "")
     keywords = [
         PlanStructureKeyword(
@@ -901,15 +973,15 @@ def _structure_ad_group(row: dict[str, Any], invalid: set[str]) -> PlanStructure
     )
 
 
-def _name_valid(name: str, invalid: set[str]) -> bool | None:
+def _name_valid(name: str, invalid: set[str] | None) -> bool | None:
     """A tick, a cross, or nothing.
 
-    `None` is not a cosmetic third state. 2.4.2 reports `invalid_names` only
-    when 2.4.1 produced a `validator_regex` to hold names to; with no regex,
-    every name is unchecked, and a green tick on an unchecked name is the
-    screen asserting something nobody verified.
+    `None` is not a cosmetic third state. A plan whose payload never declares
+    `invalid_names` has said nothing about any name — not that every name
+    passed — and a green tick there is the screen asserting something nobody
+    verified. So: no list, no verdict.
     """
-    if not name:
+    if not name or invalid is None:
         return None
     return name not in invalid
 

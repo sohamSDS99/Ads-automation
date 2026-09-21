@@ -22,7 +22,13 @@ import { Alert } from "@/components/ui/alert";
 import { ChartFrame } from "@/components/ui/chart";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
-import { figureValue, type BudgetScenario, type PlanFigure, type ScenarioName } from "@/lib/api/plan";
+import {
+  FIGURE_PATHS,
+  figureValue,
+  type BudgetScenario,
+  type PlanFigure,
+  type ScenarioName,
+} from "@/lib/api/plan";
 import { usd } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -42,6 +48,22 @@ export function at(payload: unknown, path: string): unknown {
     cursor = cursor[part];
   }
   return cursor;
+}
+
+/**
+ * The first of several paths that answers.
+ *
+ * `export/plan_contract.py` names §12's fields and the PRD's sketch did not, so
+ * every headline figure is read from the contract's spelling first and the node
+ * output's second. A reader that insists on one spelling goes blank on the next
+ * rename, and a blank figure is indistinguishable from an absent one.
+ */
+export function firstAt(payload: unknown, paths: readonly string[]): unknown {
+  for (const path of paths) {
+    const value = at(payload, path);
+    if (value !== undefined && value !== null) return value;
+  }
+  return undefined;
 }
 
 export function rowsAt(payload: unknown, path: string): Record<string, unknown>[] {
@@ -90,8 +112,9 @@ type SectionProps = { payload: unknown; calcs: CalcIndex; projectId: string };
  */
 export function ObjectivesSection({ payload, calcs, projectId }: SectionProps) {
   const targets = rowsAt(payload, "objectives.campaign_targets");
-  const blended = figure(at(payload, "objectives.blended_target_cpa_usd"));
-  const ceiling = figure(at(payload, "objectives.max_cpa_ceiling_usd"));
+  const blended = figure(firstAt(payload, FIGURE_PATHS.blendedTarget));
+  const ceiling = figure(firstAt(payload, FIGURE_PATHS.blendedCeiling));
+  const northStar = figure(firstAt(payload, FIGURE_PATHS.northStar));
   const lead = at(payload, "objectives.lead_definition");
   const kpis = rowsAt(payload, "objectives.kpis");
 
@@ -124,9 +147,19 @@ export function ObjectivesSection({ payload, calcs, projectId }: SectionProps) {
             unit="usd"
             calcs={calcs}
             projectId={projectId}
-            label="Max CPA ceiling"
+            label="Max cost per won deal"
           />
         </Headline>
+        {northStar ? (
+          <Headline label="North-star target">
+            <Figure
+              value={northStar}
+              calcs={calcs}
+              projectId={projectId}
+              label="North-star target"
+            />
+          </Headline>
+        ) : null}
       </dl>
 
       {over.length ? (
@@ -266,7 +299,9 @@ export function MediaPlanSection({ payload, calcs, projectId }: SectionProps) {
     );
   }
 
-  const monthlyCap = figure(isRecord(envelope) ? envelope.monthly_cap_usd : null);
+  const monthlyCap = figure(firstAt(payload, FIGURE_PATHS.monthlyEnvelope));
+  const quarterlyCap = figure(firstAt(payload, FIGURE_PATHS.quarterlyEnvelope));
+  const reserve = figure(firstAt(payload, FIGURE_PATHS.experimentReserve));
   // `figureValue`, not `typeof === "number"`: §12 says a figure in the plan is
   // a `Number` object, so the envelope arriving traced — which is the shape the
   // contract actually promises — would otherwise make every share an em dash.
@@ -286,13 +321,24 @@ export function MediaPlanSection({ payload, calcs, projectId }: SectionProps) {
         </Headline>
         <Headline label="Quarterly envelope">
           <Figure
-            value={figure(isRecord(envelope) ? envelope.quarterly_cap_usd : null)}
+            value={quarterlyCap}
             unit="usd"
             calcs={calcs}
             projectId={projectId}
             label="Quarterly envelope"
           />
         </Headline>
+        {reserve ? (
+          <Headline label="Experiment reserve">
+            <Figure
+              value={reserve}
+              unit="usd"
+              calcs={calcs}
+              projectId={projectId}
+              label="Experiment reserve"
+            />
+          </Headline>
+        ) : null}
         {chosen ? (
           <div>
             <dt className="text-xs text-fg-muted">Appetite chosen</dt>

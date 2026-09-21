@@ -482,10 +482,21 @@ export type PlanStructurePage = {
   campaigns: PlanStructureCampaign[];
   next_cursor: string | null;
   validator_regex: string | null;
-  invalid_names: string[];
+  /** `checked` or `skipped` — whether the live-account collision pass ran. */
+  collision_check: string | null;
+  /**
+   * Names that failed the convention's regex.
+   *
+   * `null` means node 2.4.2 never checked; `[]` means it checked and every name
+   * passed. The two must not be rendered the same way — a clean bill of health
+   * on a tree nobody validated is the same error as a green tick on an
+   * unchecked name.
+   */
+  invalid_names: string[] | null;
+  /** Keywords in more than one ad group. Three-state, as above. */
+  duplicate_terms: string[] | null;
   account_negatives: string[];
   orphan_terms: string[];
-  duplicate_terms: string[];
 };
 
 export type PlanDiff = {
@@ -521,18 +532,70 @@ export function getPlanDiff(planRunId: string, against: string): Promise<PlanDif
 }
 
 /**
+ * What a freeze answers with — a receipt, not the plan.
+ *
+ * Deliberately not a `PlanDetail`: it carries no payload, no gates and no
+ * totals. Typing it as one and writing it into the plan cache would blank the
+ * viewer behind the dialog on a *successful* freeze, which is the worst possible
+ * moment for a screen to go empty.
+ */
+export type PlanFreezeResult = {
+  plan_id: string;
+  plan_run_id: string;
+  project_id: string;
+  version: number;
+  status: PlanStatus;
+  frozen_at: string | null;
+  frozen_by: string | null;
+  frozen_approval_ids: string[];
+  /** Plan ids this freeze marked superseded. */
+  superseded: string[];
+  /** True on the idempotent 200 — already frozen at this same version. */
+  already_frozen: boolean;
+};
+
+/**
  * `POST /plans/{plan_run_id}/freeze` — S2-P5b's transaction, this app's dialog.
  *
  * Idempotent on `confirm_version` (§16 rule 2): freezing an already-frozen plan
- * at the same version answers 200 with the existing row rather than an error,
- * so a double submit is not a failure the approver has to interpret. A
+ * at the same version answers 200 with `already_frozen: true` rather than an
+ * error, so a double submit is not a failure the approver has to interpret. A
  * mismatched version, an undecided gate or a blocking critique answers 409 with
- * a `blockers[]` array, which the dialog renders with the same component the
+ * a `blockers[]` array — plus `expected_version` and `submitted_version` on a
+ * version race — which the dialog renders with the same component the
  * eligibility panel uses.
  */
-export function freezePlan(planRunId: string, confirmVersion: number): Promise<PlanDetail> {
+export function freezePlan(
+  planRunId: string,
+  confirmVersion: number,
+): Promise<PlanFreezeResult> {
   return apiFetch(`/plans/${planRunId}/freeze`, {
     method: "POST",
     body: JSON.stringify({ confirm_version: confirmVersion }),
   });
 }
+
+/**
+ * A payload figure, read from the first path that answers.
+ *
+ * `export/plan_contract.py` names these fields and §12's sketch did not, so
+ * every headline figure has the contract's spelling first and the node output's
+ * second. Every section of that contract is `extra="allow"`, so a reader that
+ * insists on one spelling goes blank on the next rename — and a blank figure on
+ * a media plan is indistinguishable from one that is genuinely absent.
+ *
+ * The fallbacks are meant to decay. When `plan_contract.py` has been stable for
+ * a while, the second entry in each list should be deleted rather than kept.
+ */
+export const FIGURE_PATHS = {
+  monthlyEnvelope: ["media_plan.envelope.monthly_cap", "media_plan.envelope.monthly_cap_usd"],
+  quarterlyEnvelope: [
+    "media_plan.envelope.quarterly_cap",
+    "media_plan.envelope.quarterly_cap_usd",
+  ],
+  experimentReserve: ["media_plan.experiment_reserve"],
+  blendedTarget: ["objectives.blended_target_cpl", "objectives.blended_target_cpa_usd"],
+  blendedCeiling: ["objectives.blended_max_cpa_won", "objectives.max_cpa_ceiling_usd"],
+  blendedMaxCpl: ["objectives.blended_max_cpl"],
+  northStar: ["objectives.north_star_target"],
+} as const;

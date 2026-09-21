@@ -30,6 +30,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import (
@@ -269,8 +270,16 @@ async def test_a_whole_plan_arrives_in_one_response(admin: ApiClient, seeded: Ca
     assert all(gate["decided_by_name"] for gate in body["gates"])
     # The freeze dialog quotes these before anyone types a version.
     assert body["totals"] == {"campaigns": 4, "ad_groups": 12, "keywords": 96}
+    # From the payload's `critique_issues[]`, not the node run: the payload is
+    # what an exported PDF carries, and a document saying "ready to freeze"
+    # while its critique lives elsewhere is how a blocked plan circulates as
+    # approved. `warning` and `note` are both advisory; nothing blocking, so
+    # the verdict derives to `pass`.
     assert body["critique"]["verdict"] == "pass"
-    assert body["critique"]["advisory"] == ["Wave 2 has no owner."]
+    assert body["critique"]["blocking"] == []
+    assert len(body["critique"]["advisory"]) == 2
+    assert body["critique"]["advisory"][0].startswith("channel_slate: ")
+    assert "Fix: " in body["critique"]["advisory"][0]
     # The header renders the source even though the payload carries its own copy.
     assert body["source"]["launch_readiness"] == "go"
 
@@ -349,6 +358,74 @@ async def test_an_empty_payload_is_answered_not_refused(
     # Every gate is still a named row: "G4 — the run never reached this gate" is
     # the answer to why the freeze button is refusing.
     assert [gate["status"] for gate in body["gates"]] == ["not_reached"] * 4
+
+
+async def test_a_blocking_critique_is_read_from_the_payload(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """The most dangerous thing this endpoint could get wrong.
+
+    An earlier version read only the 2.6.2 node run, in shapes 2.6.2 does not
+    emit, so the freeze dialog would have reported "no critique recorded" on a
+    plan with blocking issues. The verdict is derived from the list rather than
+    read as a label, so the two cannot disagree.
+    """
+    me = (await admin.get("/auth/me")).json()
+    plan = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+    )
+    await db.execute(
+        sa.update(CampaignPlan)
+        .where(CampaignPlan.id == plan.id)
+        .values(
+            payload=dict(plan.payload)
+            | {
+                "critique_issues": [
+                    {
+                        "severity": "blocking",
+                        "section": "media_plan",
+                        "finding": "The allocation does not sum to the envelope.",
+                        "fix": "Re-run the budget gate.",
+                        "check": "1_allocation_sums",
+                    }
+                ]
+            }
+        )
+    )
+    await db.commit()
+
+    body = (await admin.get(f"/plans/{plan.plan_run_id}")).json()
+    assert body["critique"]["verdict"] == "blocking_issues"
+    assert body["critique"]["blocking"] == [
+        "media_plan: The allocation does not sum to the envelope. Fix: Re-run the budget gate."
+    ]
+
+
+async def test_a_payload_without_critique_issues_falls_back_to_the_node_run(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """A run that reached 2.6.2 before its payload learned to carry the review."""
+    me = (await admin.get("/auth/me")).json()
+    plan = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+        critique={"verdict": "pass", "blocking": [], "advisory": ["From the node run."]},
+    )
+    payload = dict(plan.payload)
+    payload.pop("critique_issues", None)
+    await db.execute(
+        sa.update(CampaignPlan).where(CampaignPlan.id == plan.id).values(payload=payload)
+    )
+    await db.commit()
+
+    body = (await admin.get(f"/plans/{plan.plan_run_id}")).json()
+    assert body["critique"]["advisory"] == ["From the node run."]
+    assert body["critique"]["checked_at"] is not None
 
 
 async def test_a_run_with_no_plan_is_a_404_that_says_why(
@@ -464,6 +541,54 @@ async def test_the_badge_and_the_tick_come_from_the_nodes_that_decided_them(
         assert row["verdict"] in ("clears", "below_threshold")
         assert row["threshold"] == 30.0
         assert row["forecast_conv_30d"] is not None
+
+
+async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """`null` and `[]` are different answers and must not render the same.
+
+    `null` means node 2.4.2 never checked; `[]` means it checked and everything
+    passed. Collapsing the two reports a clean bill of health on a tree nobody
+    validated — the same error as a green tick on an unchecked name, one level
+    up. `name_valid` is withheld in that state for exactly the same reason.
+    """
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+
+    unchecked = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        payload_overrides={"campaigns": 2, "declare_findings": False},
+    )
+    page = (await admin.get(f"/plans/{unchecked.plan_run_id}/structure")).json()
+    assert page["invalid_names"] is None
+    assert page["duplicate_terms"] is None
+    assert all(row["name_valid"] is None for row in page["campaigns"])
+    assert all(
+        group["name_valid"] is None for row in page["campaigns"] for group in row["ad_groups"]
+    )
+
+    acceptance = await db.get(ResearchAcceptance, unchecked.acceptance_id)
+    assert acceptance is not None
+    checked = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        reuse=acceptance,
+        payload_overrides={"campaigns": 2, "duplicate_terms": ("sds software",)},
+    )
+    page = (await admin.get(f"/plans/{checked.plan_run_id}/structure")).json()
+    assert page["invalid_names"] == []
+    assert page["duplicate_terms"] == ["sds software"]
+    assert all(row["name_valid"] is True for row in page["campaigns"])
+    # The regex and the collision pass both come from
+    # `account_structure.naming_convention`, where `plan_contract.py` puts them.
+    assert page["validator_regex"]
+    assert page["collision_check"] == "checked"
 
 
 async def test_a_limit_outside_the_range_is_refused(admin: ApiClient, seeded: CampaignPlan) -> None:

@@ -201,14 +201,12 @@ export function StructureTree({
         </div>
       </div>
 
-      {meta?.invalid_names.length ? (
-        <p className="text-xs text-status-gate">
-          <span data-numeric>{meta.invalid_names.length}</span>{" "}
-          {meta.invalid_names.length === 1 ? "name does" : "names do"} not match the convention:{" "}
-          <span className="font-mono">{meta.invalid_names.slice(0, 3).join(", ")}</span>
-          {meta.invalid_names.length > 3 ? " and others" : ""}.
-        </p>
-      ) : null}
+      {/* Three states, and the third is the one that matters. `null` means node
+          2.4.2 never checked; `[]` means it checked and everything passed.
+          Printing nothing for both would report a clean bill of health on a tree
+          nobody validated — the same error as a green tick on an unchecked
+          name, one level up. */}
+      {meta ? <Findings meta={meta} /> : null}
 
       {/* Its own scroller, bounded. A window over the rows needs a viewport to
           be a window of, and a 4,440-row tree inside the page's own scroll
@@ -272,6 +270,60 @@ export function StructureTree({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * What node 2.4.2 concluded about the tree, including "nothing was checked".
+ *
+ * 2.6.2 re-derives both findings from the tree itself and does not trust these
+ * fields (§11 assertions 4 and 9), so these are what 2.4.2 *concluded*, carried
+ * for the reader. If the critique disagrees, the critique is right.
+ */
+function Findings({ meta }: { meta: PlanStructurePage }) {
+  const invalid = meta.invalid_names;
+  const duplicates = meta.duplicate_terms;
+
+  return (
+    <div className="space-y-0.5 text-xs">
+      {invalid === null ? (
+        <p className="text-fg-subtle">
+          Names were not checked against a convention — node 2.4.2 reported no verdict, so the
+          ticks below are withheld rather than assumed.
+        </p>
+      ) : invalid.length ? (
+        <p className="text-status-gate">
+          <span data-numeric>{invalid.length}</span>{" "}
+          {invalid.length === 1 ? "name does" : "names do"} not match the convention:{" "}
+          <span className="font-mono">{invalid.slice(0, 3).join(", ")}</span>
+          {invalid.length > 3 ? " and others" : ""}.
+        </p>
+      ) : (
+        <p className="text-fg-subtle">
+          Every generated name matches the convention
+          {meta.collision_check === "skipped"
+            ? ", though the live-account collision check was skipped"
+            : ""}
+          .
+        </p>
+      )}
+
+      {duplicates === null ? null : duplicates.length ? (
+        <p className="text-status-gate">
+          <span data-numeric>{duplicates.length}</span>{" "}
+          {duplicates.length === 1 ? "keyword appears" : "keywords appear"} in more than one ad
+          group: <span className="font-mono">{duplicates.slice(0, 3).join(", ")}</span>
+          {duplicates.length > 3 ? " and others" : ""}.
+        </p>
+      ) : null}
+
+      {meta.orphan_terms.length ? (
+        <p className="text-fg-subtle">
+          <span data-numeric>{meta.orphan_terms.length}</span> priced{" "}
+          {meta.orphan_terms.length === 1 ? "term" : "terms"} reached no ad group.
+        </p>
+      ) : null}
     </div>
   );
 }

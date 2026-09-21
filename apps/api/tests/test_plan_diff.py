@@ -90,16 +90,42 @@ def test_every_collection_path_resolves_in_a_real_payload() -> None:
     assert unreachable == [], f"collections that resolve to no list: {unreachable}"
 
 
-def test_every_scalar_path_resolves_in_a_real_payload() -> None:
+def test_every_scalar_resolves_through_at_least_one_candidate() -> None:
+    """Each scalar carries the contract's spelling and the node output's.
+
+    A title whose every candidate misses is a before-and-after line that can
+    never appear — the same silent hole a typo in the collection table leaves,
+    which is why both tables are asserted against a real payload rather than
+    against themselves.
+    """
     plan = payload()
     unreachable = []
-    for path, _title in SCALARS:
-        cursor: Any = plan
-        for part in path.split("."):
-            cursor = cursor.get(part) if isinstance(cursor, dict) else None
-        if cursor is None:
-            unreachable.append(path)
+    for candidates, title in SCALARS:
+        for path in candidates:
+            cursor: Any = plan
+            for part in path.split("."):
+                cursor = cursor.get(part) if isinstance(cursor, dict) else None
+            if cursor is not None:
+                break
+        else:
+            unreachable.append(f"{title} ({', '.join(candidates)})")
     assert unreachable == [], f"scalars that resolve to nothing: {unreachable}"
+
+
+def test_a_figure_is_found_under_either_spelling() -> None:
+    """The fallback path is load-bearing until `plan_contract.py` settles.
+
+    A payload written before the rename has to diff against one written after
+    it on the *figure*, not report one field vanishing and another appearing.
+    """
+    contract = payload()
+    older = deepcopy(contract)
+    older["media_plan"]["envelope"] = {"monthly_cap_usd": 40_000.0, "currency": "USD"}
+
+    changes = {
+        change.field: (change.before, change.after) for change in compare(contract, older).scalars
+    }
+    assert changes["Monthly envelope"] == (40_000.0, 48_000.0)
 
 
 def test_the_three_tree_levels_are_counted_independently() -> None:
@@ -129,7 +155,7 @@ def test_money_serialised_two_ways_is_not_a_change() -> None:
     current = payload()
     previous = deepcopy(current)
     previous["media_plan"]["allocation"][0]["usd"] = Decimal("12000.00")
-    previous["media_plan"]["envelope"]["monthly_cap_usd"] = "48000"
+    previous["media_plan"]["envelope"]["monthly_cap"]["value"] = "48000"
     assert compare(current, previous).is_empty
 
 
@@ -170,12 +196,49 @@ def test_a_string_that_only_looks_numeric_is_left_alone() -> None:
 
 
 def test_the_envelope_changing_is_a_scalar_before_and_after() -> None:
+    """A §12 `Number` is compared, and rendered, as the figure it holds.
+
+    Unwrapped: `{value, unit, calc_evidence_id, confidence, label}` on both
+    sides of an arrow is a JSON blob, and the delta chip §15.3 F asks for needs
+    two numbers to subtract.
+    """
     current = payload(envelope_usd=60_000.0)
     previous = payload(envelope_usd=48_000.0)
     changes = {
         change.field: (change.before, change.after) for change in current_scalars(current, previous)
     }
-    assert changes["Monthly envelope (USD)"] == (48_000.0, 60_000.0)
+    assert changes["Monthly envelope"] == (48_000.0, 60_000.0)
+
+
+def test_a_re_minted_citation_is_not_a_change() -> None:
+    """`calc_evidence_id` is new on every run, like `evidence_ids` in Stage 01.
+
+    Compared, every `Number` in the plan would report as changed on every
+    comparison — and a diff that cries wolf is worse than no diff, because a
+    reader who has once been shown "everything changed" will not read the next
+    one.
+    """
+    current = payload()
+    previous = deepcopy(current)
+    previous["media_plan"]["envelope"]["monthly_cap"]["calc_evidence_id"] = str(uuid.uuid4())
+    previous["objectives"]["blended_target_cpl"]["calc_evidence_id"] = str(uuid.uuid4())
+    for row in previous["experiment_backlog"]:
+        row["required_conv_per_arm"]["calc_evidence_id"] = str(uuid.uuid4())
+
+    assert compare(current, previous).is_empty
+
+
+def test_a_confidence_change_alone_is_deliberately_not_reported() -> None:
+    """Documented, not accidental: unwrapping a `Number` drops its confidence.
+
+    Folding it into the same field as the money makes both unreadable, and a
+    figure whose confidence moved without its value moving is a fact about the
+    calculation rather than about the plan.
+    """
+    current = payload()
+    previous = deepcopy(current)
+    previous["media_plan"]["envelope"]["monthly_cap"]["confidence"] = "low"
+    assert compare(current, previous).is_empty
 
 
 def current_scalars(current: dict[str, Any], previous: dict[str, Any]) -> Any:
@@ -295,8 +358,8 @@ def test_only_a_plain_number_is_read_as_one(value: str, expected_change: bool) -
     """
     current = payload()
     previous = deepcopy(current)
-    previous["media_plan"]["envelope"]["monthly_cap_usd"] = value
+    previous["media_plan"]["envelope"]["monthly_cap"]["value"] = value
     changed = any(
-        change.field == "Monthly envelope (USD)" for change in compare(current, previous).scalars
+        change.field == "Monthly envelope" for change in compare(current, previous).scalars
     )
     assert changed is expected_change

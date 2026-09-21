@@ -36,12 +36,14 @@ def number(
     unit: str,
     calc_evidence_id: uuid.UUID | str | None = None,
     confidence: str = "high",
+    label: str | None = None,
 ) -> dict[str, Any]:
     return {
         "value": value,
         "unit": unit,
         "calc_evidence_id": str(calc_evidence_id) if calc_evidence_id else None,
         "confidence": confidence,
+        "label": label,
     }
 
 
@@ -73,6 +75,11 @@ def campaign_plan_payload(
     months: int = 12,
     degraded_sources: tuple[str, ...] = (),
     invalid_names: tuple[str, ...] = (),
+    duplicate_terms: tuple[str, ...] = (),
+    #: False omits `invalid_names` and `duplicate_terms` entirely — the state
+    #: that means node 2.4.2 never checked, as distinct from checking and
+    #: finding nothing. The reader must not render the two the same way.
+    declare_findings: bool = True,
     seed_now: datetime | None = None,
 ) -> dict[str, Any]:
     """The whole §12 object, sized to taste.
@@ -89,6 +96,8 @@ def campaign_plan_payload(
         keywords_per_ad_group=keywords_per_ad_group,
         envelope_usd=envelope_usd,
         invalid_names=invalid_names,
+        duplicate_terms=duplicate_terms,
+        declare_findings=declare_findings,
     )
     allocation = _allocation(tree["campaigns"], envelope_usd)
 
@@ -154,6 +163,22 @@ def campaign_plan_payload(
                 "severity": "medium",
             }
         ],
+        "critique_issues": [
+            {
+                "severity": "warning",
+                "section": "channel_slate",
+                "finding": "Wave 2 has no named owner for its landing pages.",
+                "fix": "Assign an owner before wave 1 exits.",
+                "check": "reader",
+            },
+            {
+                "severity": "note",
+                "section": "measurement_plan",
+                "finding": "Two measurement prerequisites are still open.",
+                "fix": "Close them before the first offline upload.",
+                "check": "10_launch_blockers",
+            },
+        ],
         "constants_version": "2026.09.4",
         "cost_usd": 4.37,
     }
@@ -169,8 +194,10 @@ def _objectives(
     to make visible.
     """
     return {
-        "blended_target_cpa_usd": number(312.0, "usd", calc_evidence_id),
-        "max_cpa_ceiling_usd": number(410.0, "usd", calc_evidence_id),
+        "blended_target_cpl": number(312.0, "usd", calc_evidence_id),
+        "blended_max_cpa_won": number(410.0, "usd", calc_evidence_id),
+        "blended_max_cpl": number(365.0, "usd", calc_evidence_id),
+        "north_star_target": number(154.0, "count", calc_evidence_id),
         "lead_definition": {
             "qualified_as": "Demo requested with a named account and >50 employees",
             "scoring": [
@@ -271,8 +298,10 @@ def _media_plan(
     ]
     return {
         "envelope": {
-            "monthly_cap_usd": envelope_usd,
-            "quarterly_cap_usd": envelope_usd * 3,
+            "monthly_cap": number(envelope_usd, "usd", calc_evidence_id, label="Monthly envelope"),
+            "quarterly_cap": number(
+                envelope_usd * 3, "usd", calc_evidence_id, label="Quarterly envelope"
+            ),
             "currency": "USD",
             "scenario_total_usd": envelope_usd,
             "unallocated_usd": 0.0,
@@ -310,7 +339,9 @@ def _media_plan(
         "allocation": allocation,
         "monthly_totals": monthly,
         "confidence_band": {"basis": "cpc_range", "low_pct": -12.0, "high_pct": 18.0},
-        "blended_target_cpa_usd": number(312.0, "usd", calc_evidence_id),
+        "experiment_reserve": number(
+            round(envelope_usd * 0.08, 2), "usd", calc_evidence_id, label="Experiment reserve"
+        ),
         "reallocation_rules": [
             "Move up to 15% of a campaign's monthly budget to another in the same market when "
             "its 14-day CPA exceeds target by 25%.",
@@ -498,6 +529,8 @@ def _structure(
     keywords_per_ad_group: int,
     envelope_usd: float,
     invalid_names: tuple[str, ...],
+    duplicate_terms: tuple[str, ...] = (),
+    declare_findings: bool = True,
 ) -> dict[str, Any]:
     """The campaign -> ad group -> keyword tree, as 2.4.2 emits it.
 
@@ -584,10 +617,13 @@ def _structure(
         "structure_verdict": "launch_ready"
         if all(check["verdict"] == "clears" for check in checks)
         else "launch_with_remedies",
-        "validator_regex": VALIDATOR_REGEX,
-        "invalid_names": list(invalid_names),
+        "naming_convention": {
+            "validator_regex": VALIDATOR_REGEX,
+            "collision_check": "checked",
+        },
+        "invalid_names": list(invalid_names) if declare_findings else None,
+        "duplicate_terms": list(duplicate_terms) if declare_findings else None,
         "account_negatives": ["jobs", "salary", "free download", "crack"],
         "orphan_terms": ["sds authoring for schools"],
-        "duplicate_terms": [],
         "notes": "Brand terms appear only in the brand campaign; no term appears twice.",
     }

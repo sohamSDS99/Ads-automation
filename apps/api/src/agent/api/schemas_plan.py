@@ -337,9 +337,16 @@ class PlanStructurePage(BaseModel):
     next_cursor: str | None = None
     #: 2.4.1's regex, for a reader who wants to know what the tick was checking.
     validator_regex: str | None = None
-    #: Names 2.4.2 could not produce from the convention, named rather than
-    #: counted, exactly as the node reports them.
-    invalid_names: list[str] = Field(default_factory=list)
+    #: Whether the live-account collision pass ran: `checked` or `skipped`.
+    collision_check: str | None = None
+    #: Names that failed the convention's own regex, named rather than counted.
+    #:
+    #: **`None` is not the same as `[]`.** `None` means node 2.4.2 never
+    #: checked; `[]` means it checked and every name passed. Collapsing the two
+    #: would report a clean bill of health on a tree nobody validated, which is
+    #: the same mistake as a green tick on an unchecked name.
+    invalid_names: list[str] | None = None
+    #: Keywords appearing in more than one ad group. Three-state, as above.
+    duplicate_terms: list[str] | None = None
     account_negatives: list[str] = Field(default_factory=list)
     orphan_terms: list[str] = Field(default_factory=list)
-    duplicate_terms: list[str] = Field(default_factory=list)

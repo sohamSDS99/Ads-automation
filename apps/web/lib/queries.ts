@@ -204,19 +204,24 @@ export function usePlanDiff(planRunId: string | null, against: string | null) {
 /**
  * Freezing a plan (§15.3 E). The transaction is S2-P5b's; this is the call.
  *
- * On success both the plan and the project's version list are invalidated: a
- * freeze mints a version, supersedes the previous one and changes the history
- * table three screens away. The plan row itself is written into the cache from
- * the response rather than re-fetched, so the dialog's success state does not
- * wait on a round trip it already has the answer to.
+ * **Invalidated, never written into the cache.** The response is a receipt —
+ * `{plan_id, version, status, superseded[], already_frozen}` — and not a
+ * `PlanDetail`: no payload, no gates, no totals. An earlier version of this
+ * hook did `setQueryData(keys.plan(...), result)`, which would have replaced
+ * the viewer's plan with that receipt and blanked the screen behind the dialog
+ * at the exact moment the freeze succeeded.
+ *
+ * Both keys go: a freeze mints a version, supersedes the previous one, and
+ * changes the history table three screens away.
  */
 export function useFreezePlan(planRunId: string, projectId: string) {
   const client = useQueryClient();
   return useMutation({
     mutationFn: (confirmVersion: number) => freezePlan(planRunId, confirmVersion),
-    onSuccess: (plan) => {
-      client.setQueryData(keys.plan(planRunId), plan);
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.plan(planRunId) });
       void client.invalidateQueries({ queryKey: keys.plans(projectId) });
+      void client.invalidateQueries({ queryKey: keys.planStructure(planRunId) });
     },
   });
 }

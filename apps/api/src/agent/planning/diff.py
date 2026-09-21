@@ -47,21 +47,44 @@ from agent.export.diff import (
     _diff_collection,
 )
 
-#: Scalars worth a before -> after line of their own. §15.3 F asks for budget and
-#: target changes as before -> after with the delta; the delta is computed by the
-#: reader from the pair, because only the reader knows whether a percentage or an
-#: absolute is the useful form.
-SCALARS: tuple[tuple[str, str], ...] = (
-    ("plan_status", "Plan status"),
-    ("executive_summary", "Executive summary"),
-    ("media_plan.envelope.monthly_cap_usd", "Monthly envelope (USD)"),
-    ("media_plan.envelope.quarterly_cap_usd", "Quarterly envelope (USD)"),
-    ("media_plan.envelope.currency", "Currency"),
-    ("media_plan.selected_scenario", "Chosen scenario"),
-    ("objectives.blended_target_cpa_usd", "Blended target CPA (USD)"),
-    ("measurement_plan.source_of_truth", "Measurement source of truth"),
-    ("constants_version", "Planning constants version"),
-    ("cost_usd", "Plan run cost (USD)"),
+#: Scalars worth a before -> after line of their own, each as a list of paths
+#: tried in order. §15.3 F asks for budget and target changes as before -> after
+#: with the delta; the delta is left to the reader, because only the reader
+#: knows whether a percentage or an absolute is the useful form.
+#:
+#: **Candidates, not one path each.** `plan_contract.py` names these fields and
+#: §12's sketch did not, so the first spelling below is that model's and the
+#: second is the one the node outputs carry. Every section of the contract is
+#: `extra="allow"`, which means a reader that insists on one spelling is a
+#: reader that goes blank on the next rename — and a blank figure on a media
+#: plan is indistinguishable from a figure that did not change.
+SCALARS: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("plan_status",), "Plan status"),
+    (("executive_summary",), "Executive summary"),
+    (
+        ("media_plan.envelope.monthly_cap", "media_plan.envelope.monthly_cap_usd"),
+        "Monthly envelope",
+    ),
+    (
+        ("media_plan.envelope.quarterly_cap", "media_plan.envelope.quarterly_cap_usd"),
+        "Quarterly envelope",
+    ),
+    (("media_plan.envelope.currency",), "Currency"),
+    (("media_plan.experiment_reserve",), "Experiment reserve"),
+    (("media_plan.selected_scenario",), "Chosen scenario"),
+    (("objectives.north_star_target",), "North-star target"),
+    (
+        ("objectives.blended_target_cpl", "objectives.blended_target_cpa_usd"),
+        "Blended target cost per lead",
+    ),
+    (("objectives.blended_max_cpl",), "Blended max cost per lead"),
+    (
+        ("objectives.blended_max_cpa_won", "objectives.max_cpa_ceiling_usd"),
+        "Blended max cost per won deal",
+    ),
+    (("measurement_plan.source_of_truth",), "Measurement source of truth"),
+    (("constants_version",), "Planning constants version"),
+    (("cost_usd",), "Plan run cost"),
 )
 
 #: Collections reachable by a dotted path. The three levels of the account
@@ -146,9 +169,9 @@ def diff_plans(
     before = _normalise(previous)
 
     scalars = tuple(
-        FieldChange(field=title, before=_at(before, path), after=_at(now, path))
-        for path, title in SCALARS
-        if _at(before, path) != _at(now, path)
+        change
+        for change in (_scalar(title, candidates, now, before) for candidates, title in SCALARS)
+        if change is not None
     )
 
     sections = [_diff_collection(collection, now, before) for collection in COLLECTIONS]
@@ -164,6 +187,30 @@ def diff_plans(
         scalars=scalars,
         sections=tuple(sections),
     )
+
+
+def _scalar(
+    title: str, candidates: tuple[str, ...], now: dict[str, Any], before: dict[str, Any]
+) -> FieldChange | None:
+    """One scalar, resolved per side from the first path that answers.
+
+    Each side picks its own spelling. Two plan versions written either side of a
+    field rename are then still compared on the figure rather than reported as
+    one field vanishing and another appearing.
+    """
+    after_value = _first(now, candidates)
+    before_value = _first(before, candidates)
+    if after_value == before_value:
+        return None
+    return FieldChange(field=title, before=before_value, after=after_value)
+
+
+def _first(payload: dict[str, Any], candidates: tuple[str, ...]) -> Any:
+    for path in candidates:
+        value = _at(payload, path)
+        if value is not None:
+            return value
+    return None
 
 
 def _tree_sections(now: dict[str, Any], before: dict[str, Any]) -> list[SectionDiff]:
@@ -246,9 +293,20 @@ def _normalise(payload: Any) -> dict[str, Any]:
     return converted if isinstance(converted, dict) else {}
 
 
+#: Re-minted on every plan run, so a difference here says nothing about whether
+#: the figure changed. The same reasoning as `export.diff.IGNORED_FIELDS`, which
+#: excludes `evidence_ids` for exactly this reason — left in, every `Number` in
+#: the plan would report as changed on every comparison, and a diff that cries
+#: wolf is worse than no diff.
+CITATIONS = frozenset({"calc_evidence_id", "calc_evidence_ids", "evidence_ids"})
+
+
 def _convert(value: Any) -> Any:
     if isinstance(value, dict):
-        return {key: _convert(item) for key, item in value.items()}
+        scalar = _unwrap(value)
+        if scalar is not None:
+            return scalar
+        return {key: _convert(item) for key, item in value.items() if key not in CITATIONS}
     if isinstance(value, list):
         return [_convert(item) for item in value]
     if isinstance(value, Decimal):
@@ -256,6 +314,37 @@ def _convert(value: Any) -> Any:
     if isinstance(value, str):
         return _as_number(value)
     return value
+
+
+def _unwrap(value: dict[str, Any]) -> float | None:
+    """A §12 `Number` as the figure it holds.
+
+    `{value, unit, calc_evidence_id, confidence, label}` is a wrapper around one
+    quantity, and the quantity is what §15.3 F asks to be shown before and
+    after with a delta. Compared as a dict it would render as a JSON blob on
+    both sides of an arrow, and the reader's own subtraction — which is what the
+    delta chip does — needs two numbers.
+
+    The cost is that a change in `confidence` alone stops being reported. That
+    is deliberate: folding it into the same field as the money makes both
+    unreadable, and a figure whose confidence moved without its value moving is
+    a fact about the calculation rather than about the plan.
+    """
+    if not isinstance(value.get("unit"), str):
+        return None
+    figure = value.get("value")
+    if isinstance(figure, bool):
+        return None
+    if isinstance(figure, (int, float, Decimal)):
+        return float(figure)
+    # A `value` that round-tripped as a string is still that figure — the same
+    # tolerance `_as_number` gives every other numeric in the payload. Without
+    # it, one side of a comparison unwraps to a float and the other stays a
+    # dict, and the whole media plan reports as rewritten.
+    if isinstance(figure, str):
+        parsed = _as_number(figure)
+        return float(parsed) if isinstance(parsed, float) else None
+    return None
 
 
 def _as_number(value: str) -> Any:

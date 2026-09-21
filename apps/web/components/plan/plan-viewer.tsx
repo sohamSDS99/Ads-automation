@@ -34,6 +34,7 @@ import {
   ObjectivesSection,
   SectionMissing,
   at,
+  firstAt,
   textAt,
   type SortKey,
 } from "@/components/plan/plan-sections";
@@ -41,7 +42,12 @@ import { StructureTree } from "@/components/plan/structure-tree";
 import { Toc, type TocEntry } from "@/components/report/toc";
 import { Alert } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
-import { figureValue, type PlanDetail, type PlanStatus } from "@/lib/api/plan";
+import {
+  FIGURE_PATHS,
+  figureValue,
+  type PlanDetail,
+  type PlanStatus,
+} from "@/lib/api/plan";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { usePlan, usePlanCalcIndex, usePlanStructure } from "@/lib/queries";
 import { Can } from "@/lib/session";
@@ -118,12 +124,11 @@ export function PlanViewer({
 
   const detail = plan.data;
   const payload = detail.payload;
-  // Read through `figureValue`: the envelope is a §12 `Number` when 2.6.1
-  // traces it, and a bare `typeof === "number"` would print an em dash on the
-  // header of a correctly-assembled plan.
-  const envelopeUsd = figureValue(
-    at(payload, "media_plan.envelope.monthly_cap_usd") as never,
-  );
+  // Through `firstAt` and `figureValue`: the envelope is a §12 `Number` whose
+  // field `plan_contract.py` calls `monthly_cap`, and either a hard-coded path
+  // or a bare `typeof === "number"` prints an em dash on the header of a
+  // correctly-assembled plan.
+  const envelopeUsd = figureValue(firstAt(payload, FIGURE_PATHS.monthlyEnvelope) as never);
 
   return (
     <div className="space-y-4">
@@ -221,7 +226,7 @@ function PlanHeader({
   calcs: ReturnType<typeof usePlanCalcIndex>;
 }) {
   const status = STATUS[plan.status];
-  const blended = at(plan.payload, "objectives.blended_target_cpa_usd");
+  const blended = firstAt(plan.payload, FIGURE_PATHS.blendedTarget);
 
   return (
     <div className="sticky top-16 z-10 -mx-4 border-b bg-bg/95 px-4 py-3 backdrop-blur-sm sm:-mx-6 sm:px-6">
@@ -289,7 +294,7 @@ function PlanHeader({
               </dd>
             </div>
             <div>
-              <dt className="text-xs text-fg-muted">Blended target CPA</dt>
+              <dt className="text-xs text-fg-muted">Blended target cost per lead</dt>
               <dd className="mt-0.5 text-sm font-medium">
                 <Figure
                   value={
@@ -300,7 +305,7 @@ function PlanHeader({
                   unit="usd"
                   calcs={calcs}
                   projectId={projectId}
-                  label="Blended target CPA"
+                  label="Blended target cost per lead"
                 />
               </dd>
             </div>
