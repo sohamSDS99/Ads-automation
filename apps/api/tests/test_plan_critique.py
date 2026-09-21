@@ -455,6 +455,10 @@ def test_the_structure_findings_are_three_state_not_two() -> None:
     Raised by the S2-P6c session: their tree's naming tick was three-state and
     a missing `invalid_names` would have rendered as a green one — the screen
     asserting something nobody verified. `None` means 2.4.2 never ran.
+
+    Mutation-checked: collapsing `_checked` back to `_strings`, so an absent
+    key returns `[]`, fails this test. A test that passes either way would be
+    decoration over the exact bug it names.
     """
     from agent.planning.plan_synthesis import _account_structure, _ignore
 
