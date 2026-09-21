@@ -322,6 +322,17 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
     ),
     ("GET", "/platform/accounts", "/platform/accounts", Permission.PLATFORM_ADMIN, None),
     (
+        "POST",
+        "/platform/accounts",
+        "/platform/accounts",
+        Permission.PLATFORM_ADMIN,
+        {
+            "email": "matrix-platform-probe@example.com",
+            "workspace_id": "00000000-0000-0000-0000-000000000000",
+            "role": "viewer",
+        },
+    ),
+    (
         "PATCH",
         "/platform/accounts/{user_id}",
         "/platform/accounts/{target}",

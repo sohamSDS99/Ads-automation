@@ -42,6 +42,15 @@
       "default": false,
       "title": "Has Account",
       "type": "boolean"
+    },
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    },
+    "workspace_name": {
+      "title": "Workspace Name",
+      "type": "string"
     }
   },
   "required": [
@@ -50,7 +59,9 @@
     "role",
     "expires_at",
     "link",
-    "email_delivered"
+    "email_delivered",
+    "workspace_id",
+    "workspace_name"
   ],
   "title": "InviteCreatedResponse",
   "type": "object",

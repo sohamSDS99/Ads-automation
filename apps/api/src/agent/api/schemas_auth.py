@@ -120,6 +120,11 @@ class InviteCreatedResponse(BaseModel):
     #: are being added to this workspace rather than signed up, which is also
     #: what the link itself will tell them.
     has_account: bool = False
+    #: Which workspace they were added to. Redundant on the Team screen, where
+    #: it is always the active one, and load-bearing on the Accounts screen,
+    #: where the administrator chose it from a list of all of them.
+    workspace_id: uuid.UUID
+    workspace_name: str
 
 
 class UpdateUserRequest(BaseModel):
@@ -303,6 +308,33 @@ class AccountSummary(BaseModel):
 
 class AccountListResponse(BaseModel):
     accounts: list[AccountSummary]
+
+
+class CreateAccountRequest(BaseModel):
+    """Add a person to the installation, from the administrator's screen.
+
+    A workspace is required, and that is a design decision rather than a
+    limitation of the form. An account with no membership cannot sign in —
+    `/auth/login` answers "you are not a member of any workspace" — and has no
+    invite link either, because an invite belongs to the workspace it admits
+    you to. Creating one would be creating something inert.
+
+    Nothing here grants `platform_admin`. Promoting somebody to run the whole
+    installation is the toggle on their row, one deliberate act on a person who
+    already exists, rather than a checkbox on a form being filled in quickly.
+    """
+
+    email: EmailStr
+    name: str | None = Field(default=None, max_length=120)
+    workspace_id: uuid.UUID
+    role: UserRole
+
+    @field_validator("name")
+    @classmethod
+    def _blank_is_absent(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return value.strip() or None
 
 
 class UpdateAccountRequest(BaseModel):

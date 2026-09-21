@@ -1,0 +1,51 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "description": "Add a person to the installation, from the administrator's screen.\n\nA workspace is required, and that is a design decision rather than a\nlimitation of the form. An account with no membership cannot sign in \u2014\n`/auth/login` answers \"you are not a member of any workspace\" \u2014 and has no\ninvite link either, because an invite belongs to the workspace it admits\nyou to. Creating one would be creating something inert.\n\nNothing here grants `platform_admin`. Promoting somebody to run the whole\ninstallation is the toggle on their row, one deliberate act on a person who\nalready exists, rather than a checkbox on a form being filled in quickly.",
+  "properties": {
+    "email": {
+      "format": "email",
+      "title": "Email",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/UserRole"
+    }
+  },
+  "required": [
+    "email",
+    "workspace_id",
+    "role"
+  ],
+  "title": "CreateAccountRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

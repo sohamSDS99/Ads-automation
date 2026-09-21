@@ -87,6 +87,6 @@ def test_a_placeholder_name_is_readable(email: str, expected: str) -> None:
     Whatever this produces is replaced the moment they accept; until then it
     is what the member list shows, and a list of raw addresses is unreadable.
     """
-    from agent.api.routes_users import default_name
+    from agent.auth.invitations import default_name
 
     assert default_name(email) == expected

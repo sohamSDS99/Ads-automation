@@ -28,7 +28,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.middleware import client_ip
-from agent.api.routes_users import default_name, invite_link
 from agent.api.schemas_auth import (
     ArchiveWorkspaceResponse,
     CreateWorkspaceRequest,
@@ -42,16 +41,15 @@ from agent.api.schemas_auth import (
 )
 from agent.api.worker_files import WorkerClient
 from agent.audit import AuditAction, AuditTarget, write_audit
-from agent.auth import invites, workspaces
+from agent.auth import invitations, workspaces
 from agent.auth.deps import Principal, get_session_store, require
 from agent.auth.rbac import Permission
 from agent.auth.sessions import SessionStore
 from agent.config import Settings, get_settings
-from agent.db.models import User, UserRole, UserStatus, Workspace
-from agent.db.repos import account_by_email, utcnow
+from agent.db.models import User, UserRole, Workspace
+from agent.db.repos import utcnow
 from agent.db.session import get_session
 from agent.llm.router import SETTINGS_KEY, ModelRoutingError, validate_overrides
-from agent.notify.email import send_invite
 
 log = structlog.get_logger(__name__)
 
@@ -274,59 +272,19 @@ async def _invite_first_admin(
 ) -> None:
     """Give the new workspace somebody to run it.
 
-    Reuses the ordinary invite machinery rather than creating an active
-    account: the person still sets their own password, and an admin created
-    this way is indistinguishable from one invited on the Team page a week
-    later. A failure here does not undo the workspace — it exists, and the
-    invitation can be sent again from inside it.
+    The ordinary invite, not a shortcut: the person still sets their own
+    password, and an admin created this way is indistinguishable from one
+    invited on the Team page a week later.
     """
-    account = await account_by_email(db, email)
-    if account is None:
-        account = User(
-            email=email,
-            name=default_name(email),
-            password_hash=None,
-            status=UserStatus.INVITED,
-        )
-        db.add(account)
-        await db.flush()
-
-    token = invites.new_token()
-    workspaces.add_member(
+    await invitations.invite_member(
         db,
-        workspace_id=workspace.id,
-        user_id=account.id,
+        workspace=workspace,
+        email=email,
         role=UserRole.ADMIN,
-        status=UserStatus.INVITED,
-        invited_by=invited_by.id,
-    )
-    db.add(
-        invites.build(
-            workspace_id=workspace.id,
-            email=email,
-            role=UserRole.ADMIN,
-            invited_by=invited_by.id,
-            token=token,
-        )
-    )
-    write_audit(
-        db,
-        workspace_id=workspace.id,
-        actor_id=invited_by.id,
-        action=AuditAction.USER_INVITED,
-        target_type=AuditTarget.WORKSPACE,
-        target_id=workspace.id,
-        meta={"email": email, "role": UserRole.ADMIN.value, "founding_admin": True},
+        invited_by=invited_by,
+        settings=settings,
         ip=ip,
-    )
-    await db.commit()
-
-    await send_invite(
-        settings,
-        to=email,
-        link=invite_link(settings, token),
-        workspace_name=workspace.name,
-        inviter=invited_by.name,
+        audit_meta={"founding_admin": True},
     )
 
 

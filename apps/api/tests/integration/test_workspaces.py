@@ -607,3 +607,176 @@ async def test_a_project_still_names_the_person_who_left(
     listed = (await admin.get("/projects")).json()["projects"]
     theirs = next(p for p in listed if p["name"] == "Theirs")
     assert theirs["created_by_name"] == "Operator"
+
+
+# ---------------------------------------------------------------------------
+# adding a person from the administrator's own screen
+# ---------------------------------------------------------------------------
+
+
+async def test_the_administrator_can_add_someone_to_a_workspace_they_are_not_in(
+    admin: ApiClient, db: AsyncSession
+) -> None:
+    """The gap this closes: Accounts listed everybody and could add nobody.
+
+    The Team screen can only invite into the workspace you are standing in, so
+    populating a workspace you are not in used to mean switch, invite, switch
+    back — three navigations for one intention.
+    """
+    finance = await make_workspace(admin, "Finance")
+    here = (await admin.get("/workspace")).json()
+
+    created = await admin.post(
+        "/platform/accounts",
+        json={"email": "cfo@example.com", "workspace_id": finance["id"], "role": "admin"},
+    )
+    assert created.status_code == 201, created.text
+    body = created.json()
+    assert body["workspace_name"] == "Finance"
+    assert body["has_account"] is False
+    assert body["link"]
+
+    # The administrator never left the workspace they were in.
+    assert (await admin.get("/workspace")).json()["id"] == here["id"]
+    # …and the person is not in it either.
+    assert "cfo@example.com" not in {
+        u["email"] for u in (await admin.get("/users")).json()["users"]
+    }
+
+    account = (
+        await db.execute(sa.select(User).where(User.email == "cfo@example.com"))
+    ).scalar_one()
+    assert account.password_hash is None, "they set their own password, from the link"
+    membership = (
+        await db.execute(sa.select(Membership).where(Membership.user_id == account.id))
+    ).scalar_one()
+    assert membership.workspace_id == uuid.UUID(finance["id"])
+    assert membership.role is UserRole.ADMIN
+    assert membership.status is UserStatus.INVITED
+
+    # And the link works: they set a password and land in Finance.
+    token = str(body["link"]).rsplit("/", 1)[-1]
+    status_code, me = await accept(token, password=SECOND_PASSWORD, name="Fin Chief")
+    assert status_code == 200, me
+    assert me["workspace_name"] == "Finance"
+    assert me["role"] == "admin"
+    assert me["is_superadmin"] is False
+
+
+async def test_it_appears_on_the_accounts_list_before_they_accept(admin: ApiClient) -> None:
+    finance = await make_workspace(admin, "Finance")
+    await admin.post(
+        "/platform/accounts",
+        json={"email": "pending@example.com", "workspace_id": finance["id"], "role": "viewer"},
+    )
+
+    accounts = {a["email"]: a for a in (await admin.get("/platform/accounts")).json()["accounts"]}
+    assert accounts["pending@example.com"]["status"] == "invited"
+    # An unaccepted membership is not access, so it is not listed as a workspace
+    # they can reach — the row says "invited", not "a member of Finance".
+    assert accounts["pending@example.com"]["workspaces"] == []
+
+
+async def test_adding_an_existing_person_to_a_second_workspace_makes_no_second_account(
+    admin: ApiClient, db: AsyncSession
+) -> None:
+    email, password = await make_member(admin, "operator", email="both@example.com")
+    finance = await make_workspace(admin, "Finance")
+
+    created = await admin.post(
+        "/platform/accounts",
+        json={"email": email, "workspace_id": finance["id"], "role": "viewer"},
+    )
+    assert created.status_code == 201, created.text
+    assert created.json()["has_account"] is True, "the link must ask for the password they have"
+
+    token = str(created.json()["link"]).rsplit("/", 1)[-1]
+    assert (await accept(token, password=password))[0] == 200
+
+    accounts = (
+        await db.execute(sa.select(sa.func.count()).select_from(User).where(User.email == email))
+    ).scalar_one()
+    assert accounts == 1
+    listed = next(
+        a for a in (await admin.get("/platform/accounts")).json()["accounts"] if a["email"] == email
+    )
+    assert {w["name"]: w["role"] for w in listed["workspaces"]} == {
+        "Research Workspace": "operator",
+        "Finance": "viewer",
+    }
+
+
+async def test_adding_the_same_person_twice_is_refused_by_name(admin: ApiClient) -> None:
+    finance = await make_workspace(admin, "Finance")
+    payload = {"email": "twice@example.com", "workspace_id": finance["id"], "role": "viewer"}
+    assert (await admin.post("/platform/accounts", json=payload)).status_code == 201
+
+    again = await admin.post("/platform/accounts", json=payload)
+    assert again.status_code == 409
+    assert again.json()["title"] == "Invite already open"
+    assert "Finance" in again.json()["detail"], "say which workspace, there are several"
+
+
+async def test_nobody_can_be_added_to_an_archived_workspace(admin: ApiClient) -> None:
+    finance = await make_workspace(admin, "Finance")
+    assert (await admin.delete(f"/workspaces/{finance['id']}")).status_code == 200
+
+    refused = await admin.post(
+        "/platform/accounts",
+        json={"email": "ghost@example.com", "workspace_id": finance["id"], "role": "viewer"},
+    )
+    assert refused.status_code == 409
+    assert refused.json()["title"] == "Workspace archived"
+
+
+async def test_adding_to_a_workspace_that_does_not_exist_is_a_404(admin: ApiClient) -> None:
+    refused = await admin.post(
+        "/platform/accounts",
+        json={
+            "email": "nowhere@example.com",
+            "workspace_id": str(uuid.uuid4()),
+            "role": "viewer",
+        },
+    )
+    assert refused.status_code == 404
+
+
+async def test_a_workspace_admin_cannot_add_people_to_other_workspaces(
+    admin: ApiClient, signed_in_as: object
+) -> None:
+    """The asymmetry again, on the route that would otherwise be the way round it."""
+    finance = await make_workspace(admin, "Finance")
+    other_admin: ApiClient = await signed_in_as("admin")  # type: ignore[operator]
+
+    refused = await other_admin.post(
+        "/platform/accounts",
+        json={"email": "sneak@example.com", "workspace_id": finance["id"], "role": "admin"},
+    )
+    assert refused.status_code == 403
+    assert refused.json()["missing_permission"] == "platform_admin"
+
+
+async def test_the_add_form_cannot_grant_platform_admin(admin: ApiClient) -> None:
+    """Promoting is the toggle on the row, not a field on a create form.
+
+    Asserted rather than assumed: a `is_superadmin` that the schema quietly
+    ignored would read to a caller as though it had been applied.
+    """
+    finance = await make_workspace(admin, "Finance")
+    created = await admin.post(
+        "/platform/accounts",
+        json={
+            "email": "ambitious@example.com",
+            "workspace_id": finance["id"],
+            "role": "viewer",
+            "is_superadmin": True,
+        },
+    )
+    assert created.status_code == 201, created.text
+
+    listed = next(
+        a
+        for a in (await admin.get("/platform/accounts")).json()["accounts"]
+        if a["email"] == "ambitious@example.com"
+    )
+    assert listed["is_superadmin"] is False

@@ -31,15 +31,18 @@ from agent.api.middleware import client_ip
 from agent.api.schemas_auth import (
     AccountListResponse,
     AccountSummary,
+    CreateAccountRequest,
+    InviteCreatedResponse,
     UpdateAccountRequest,
     WorkspaceMembershipSummary,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
-from agent.auth import workspaces
+from agent.auth import invitations, workspaces
 from agent.auth.bootstrap import first_workspace
 from agent.auth.deps import Principal, get_session_store, require
 from agent.auth.rbac import Permission
 from agent.auth.sessions import SessionStore
+from agent.config import Settings, get_settings
 from agent.db.models import Membership, User, UserStatus, Workspace
 from agent.db.session import get_session
 
@@ -49,6 +52,7 @@ router = APIRouter(tags=["platform"])
 
 Db = Annotated[AsyncSession, Depends(get_session)]
 Store = Annotated[SessionStore, Depends(get_session_store)]
+SettingsDep = Annotated[Settings, Depends(get_settings)]
 PlatformAdmin = Annotated[Principal, Depends(require(Permission.PLATFORM_ADMIN))]
 
 
@@ -95,6 +99,70 @@ async def list_accounts(me: PlatformAdmin, db: Db) -> AccountListResponse:
             )
             for account in accounts
         ]
+    )
+
+
+@router.post(
+    "/platform/accounts",
+    response_model=InviteCreatedResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Add somebody to the installation",
+)
+async def create_account(
+    me: PlatformAdmin,
+    body: CreateAccountRequest,
+    request: Request,
+    db: Db,
+    settings: SettingsDep,
+) -> InviteCreatedResponse:
+    """Create a profile in any workspace, without having to go and stand in it.
+
+    The Team screen can already do this for the workspace you are currently
+    in. What it cannot do is add somebody to one of the other five, and
+    switching workspace, inviting, and switching back is three navigations to
+    express one intention — which is why the administrator's own screen
+    listed every account on the installation and offered no way to add one.
+
+    Identical machinery underneath: the same `invite_member`, the same
+    single-use link, the same person choosing their own password. The only
+    difference is that the workspace arrives in the body instead of from the
+    session.
+    """
+    workspace = await workspaces.get(db, body.workspace_id)
+    if workspace is None:
+        raise problems.Problem(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No such workspace",
+            detail="That workspace does not exist.",
+        )
+
+    try:
+        invitation = await invitations.invite_member(
+            db,
+            workspace=workspace,
+            email=str(body.email),
+            role=body.role,
+            invited_by=me.user,
+            settings=settings,
+            name=body.name,
+            ip=client_ip(request),
+            # The workspace's own admins will read this row and should be able
+            # to see that the person did not come from among them.
+            audit_meta={"via_platform_admin": True},
+        )
+    except invitations.InvitationError as exc:
+        raise problems.conflict(exc.detail, title=exc.title) from exc
+
+    return InviteCreatedResponse(
+        invite_id=invitation.invite.id,
+        email=invitation.invite.email,
+        role=invitation.role,
+        expires_at=invitation.invite.expires_at,
+        link=invitation.link,
+        email_delivered=invitation.email_delivered,
+        has_account=invitation.had_account,
+        workspace_id=invitation.workspace.id,
+        workspace_name=invitation.workspace.name,
     )
 
 

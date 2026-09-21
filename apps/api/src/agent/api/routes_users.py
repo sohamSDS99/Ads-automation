@@ -7,7 +7,6 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Depends, Request, Response, status
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
@@ -20,15 +19,14 @@ from agent.api.schemas_auth import (
     UserSummary,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
-from agent.auth import invites, workspaces
+from agent.auth import invitations
 from agent.auth.deps import Principal, get_session_store, require
 from agent.auth.rbac import Permission
 from agent.auth.sessions import SessionStore
 from agent.config import Settings, get_settings
-from agent.db.models import User, UserRole, UserStatus
-from agent.db.repos import InviteRepo, UserRepo, account_by_email
+from agent.db.models import UserRole, UserStatus
+from agent.db.repos import UserRepo
 from agent.db.session import get_session
-from agent.notify.email import send_invite
 
 log = structlog.get_logger(__name__)
 
@@ -40,25 +38,6 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
 UserAdmin = Annotated[Principal, Depends(require(Permission.USER_MANAGE))]
-
-
-def invite_link(settings: Settings, token: str) -> str:
-    return f"{settings.app_base_url}/invite/{token}"
-
-
-def default_name(email: str) -> str:
-    """A stand-in until the person tells us what they are called.
-
-    The local part with its separators turned into spaces — `jo.patel` becomes
-    "Jo Patel" — because a member list of raw addresses is unreadable, and an
-    admin should not have to invent a colleague's name to add them. Whatever
-    this produces is replaced the moment they accept.
-    """
-    local = email.split("@", 1)[0]
-    words = [
-        part for part in local.replace(".", " ").replace("_", " ").replace("-", " ").split() if part
-    ]
-    return " ".join(word[:1].upper() + word[1:] for word in words) or email
 
 
 @router.get("/users", response_model=UserListResponse, summary="Everyone in the workspace")
@@ -88,115 +67,42 @@ async def invite_user(
 ) -> InviteCreatedResponse:
     """Create the profile, the pending membership, and the single-use link.
 
-    The membership is written now, with `status='invited'`, so the admin sees
-    the pending person in the member list straight away rather than having to
-    remember who they sent a link to.
-
-    Two shapes, one route. If the address is new to the installation an
-    account is created alongside it, holding no password — the person sets
-    that, and their own name, when they accept. If the address already has an
-    account, only the membership is new: they are being added to another
-    workspace, not signed up a second time, and the link asks them to confirm
-    with the password they already have. Creating a second account for the
-    same person is the one outcome this route must never produce, and the
-    unique index on `user.email` is what guarantees it rather than the branch
-    below.
+    The work is `agent.auth.invitations.invite_member`, shared with the two
+    other places an account can be created — the system administrator's
+    Accounts screen and the founding admin of a new workspace. This route is
+    the one that invites into *the workspace you are in*, and the only thing
+    it adds is that it does not have to ask which one that is.
     """
-    email = str(body.email)
-    user_repo = UserRepo(db, me.workspace_id)
-    invite_repo = InviteRepo(db, me.workspace_id)
-
-    existing = await user_repo.by_email(email)
-    if existing is not None and existing.status is UserStatus.INVITED:
-        raise problems.conflict(
-            f"{email} already has an unaccepted invite.", title="Invite already open"
-        )
-    if existing is not None:
-        raise problems.conflict(
-            f"{email} is already a member of this workspace.", title="Already a member"
-        )
-    if await invite_repo.open_for_email(email) is not None:
-        raise problems.conflict(
-            f"{email} already has an unaccepted invite.", title="Invite already open"
-        )
-
-    token = invites.new_token()
-    account = await account_by_email(db, email)
-    if account is None:
-        account = User(
-            email=email,
-            name=body.name or default_name(email),
-            password_hash=None,
-            status=UserStatus.INVITED,
-        )
-        db.add(account)
-        await db.flush()
-    elif body.name and account.status is UserStatus.INVITED:
-        # They have never signed in, so the placeholder is still a placeholder
-        # and an admin who bothered to type a name should get to improve it.
-        account.name = body.name
-
-    workspaces.add_member(
-        db,
-        workspace_id=me.workspace_id,
-        user_id=account.id,
-        role=body.role,
-        status=UserStatus.INVITED,
-        invited_by=me.user.id,
-    )
-    invite_repo.add(
-        invites.build(
-            workspace_id=me.workspace_id,
-            email=email,
-            role=body.role,
-            invited_by=me.user.id,
-            token=token,
-        )
-    )
-
     try:
-        await db.flush()
-    except IntegrityError as exc:
-        await db.rollback()
-        raise problems.conflict(
-            f"{email} already has an account or an open invite.", title="Already invited"
-        ) from exc
+        invitation = await invitations.invite_member(
+            db,
+            workspace=me.workspace,
+            email=str(body.email),
+            role=body.role,
+            invited_by=me.user,
+            settings=settings,
+            name=body.name,
+            ip=client_ip(request),
+            audit_meta=me.audit_meta(),
+        )
+    except invitations.InvitationError as exc:
+        raise problems.conflict(exc.detail, title=exc.title) from exc
 
-    invite = await invite_repo.open_for_email(email)
-    if invite is None:  # pragma: no cover — just flushed
-        raise problems.conflict("The invite could not be created.", title="Invite failed")
+    return _invite_response(invitation)
 
-    has_account = account.password_hash is not None
-    write_audit(
-        db,
-        workspace_id=me.workspace_id,
-        actor_id=me.user.id,
-        action=AuditAction.USER_INVITED,
-        target_type=AuditTarget.INVITE,
-        target_id=invite.id,
-        meta=me.audit_meta(email=email, role=body.role.value, existing_account=has_account),
-        ip=client_ip(request),
-    )
-    await db.commit()
 
-    link = invite_link(settings, token)
-    # Delivery happens after the commit on purpose: the invite exists whether or
-    # not the mail server does, and `send_invite` never raises.
-    delivery = await send_invite(
-        settings,
-        to=email,
-        link=link,
-        workspace_name=me.workspace.name,
-        inviter=me.user.name,
-    )
+def _invite_response(invitation: invitations.Invitation) -> InviteCreatedResponse:
+    """One shape for every route that creates an invite."""
     return InviteCreatedResponse(
-        invite_id=invite.id,
-        email=email,
-        role=body.role,
-        expires_at=invite.expires_at,
-        link=link,
-        email_delivered=delivery.delivered,
-        has_account=has_account,
+        invite_id=invitation.invite.id,
+        email=invitation.invite.email,
+        role=invitation.role,
+        expires_at=invitation.invite.expires_at,
+        link=invitation.link,
+        email_delivered=invitation.email_delivered,
+        has_account=invitation.had_account,
+        workspace_id=invitation.workspace.id,
+        workspace_name=invitation.workspace.name,
     )
 
 

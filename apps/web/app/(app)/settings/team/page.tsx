@@ -1,14 +1,14 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MailWarning, UserMinus, UserPlus } from "lucide-react";
+import { UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 
+import { InviteResult } from "@/components/settings/invite-result";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
-import { CopyButton } from "@/components/ui/copy-button";
 import { Dialog, DialogBody, DialogContent, DialogFooter } from "@/components/ui/dialog";
 import { Field } from "@/components/ui/field";
 import { Select } from "@/components/ui/select";
@@ -25,7 +25,7 @@ import {
   updateUser,
   type InviteCreated,
 } from "@/lib/api/users";
-import { relativeTime, shortDate } from "@/lib/format";
+import { relativeTime } from "@/lib/format";
 import { ROLE_DESCRIPTION, ROLE_LABEL, type Role } from "@/lib/permissions";
 import { errorMessage, keys, useUsers } from "@/lib/queries";
 import { useSession } from "@/lib/session";
@@ -309,36 +309,7 @@ function InviteDialog({
         {created ? (
           <>
             <DialogBody>
-              {created.has_account ? (
-                <Alert tone="info" title="They already have an account">
-                  {created.email} works in another workspace on this installation. The link adds
-                  this workspace to the account they already have — they confirm with their
-                  existing password, and nothing about that account changes.
-                </Alert>
-              ) : null}
-              {created.email_delivered ? (
-                <p className="text-sm text-fg">
-                  An email is on its way to <strong>{created.email}</strong>. The link below is the
-                  same one, in case you would rather send it yourself.
-                </p>
-              ) : (
-                <Alert tone="warning" title="No email was sent">
-                  <span className="flex gap-2">
-                    <MailWarning className="mt-0.5 size-4 shrink-0 text-status-gate" aria-hidden />
-                    SMTP is not configured on this deployment, so send this link to{" "}
-                    {created.email} yourself. It is shown once.
-                  </span>
-                </Alert>
-              )}
-              <div className="flex items-center gap-2 rounded-[var(--radius)] border bg-surface px-3 py-2.5">
-                <code className="min-w-0 flex-1 truncate font-mono text-xs text-fg-muted">
-                  {created.link}
-                </code>
-                <CopyButton value={created.link} label="Copy link" />
-              </div>
-              <p className="text-xs text-fg-subtle">
-                Expires {shortDate(created.expires_at)} · role {ROLE_LABEL[created.role]}
-              </p>
+              <InviteResult invite={created} />
             </DialogBody>
             <DialogFooter>
               <Button onClick={close}>Done</Button>

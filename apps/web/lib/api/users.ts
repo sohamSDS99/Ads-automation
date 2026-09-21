@@ -22,6 +22,9 @@ export type InviteCreated = {
    * with the password they already have.
    */
   has_account: boolean;
+  /** Which workspace they were added to. Always the active one from Team. */
+  workspace_id: string;
+  workspace_name: string;
 };
 
 export function listUsers(): Promise<{ users: UserSummary[] }> {
