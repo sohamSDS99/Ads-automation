@@ -51,6 +51,7 @@ CALC_KINDS = frozenset(
         "calc_allocation",
         "calc_structure",
         "calc_power",
+        "calc_measurement",
     }
 )
 

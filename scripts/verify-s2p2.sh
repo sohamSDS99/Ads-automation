@@ -54,8 +54,11 @@ expected = {
     "2.1.3": ("2.1.1", "2.1.2"),
     "2.1.4": ("2.1.1",),
 }
-actual = {node: plan.depends_on(node) for node in plan.node_ids}
-assert actual == expected, f"the plan DAG is {actual}"
+# The 2.1 sub-graph only. Later phases add nodes to the same DAG, and a
+# whole-graph assertion here would fail on every one of them for a reason
+# that has nothing to do with S2-P2.
+actual = {node: plan.depends_on(node) for node in plan.node_ids if node.startswith("2.1.")}
+assert actual == expected, f"the 2.1 sub-graph is {actual}"
 assert set(plan.node_ids) & set(research.node_ids) == set(), "the two DAGs overlap"
 
 # §5.3: G1 and G2 are parallel. 2.1.4 must not sit downstream of 2.1.3.
@@ -82,9 +85,18 @@ from agent.orchestrator.registry import get_registry
 
 registry = get_registry()
 keyed = {spec.id: spec.gate_key for spec in registry.specs() if spec.gate_key}
-assert keyed == {"2.1.3": "G1", "2.1.4": "G2"}, keyed
+# G1 and G2 are stage 2.1's; G3 and G4 arrive with S2-P3 and S2-P4, so this
+# asserts the two this phase owns rather than the whole eventual set.
+assert {key: value for key, value in keyed.items() if value in {"G1", "G2"}} == {
+    "2.1.3": "G1",
+    "2.1.4": "G2",
+}, keyed
 
-calc = {spec.id: spec.calc for spec in registry.for_stage(RunStage.PLAN).specs()}
+calc = {
+    spec.id: spec.calc
+    for spec in registry.for_stage(RunStage.PLAN).specs()
+    if spec.id.startswith("2.1.")
+}
 assert calc == {
     "2.1.1": ("economics.max_cpa_v1",),
     "2.1.2": ("economics.max_cpa_v1", "economics.payback_v1"),

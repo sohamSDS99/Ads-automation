@@ -41,6 +41,13 @@ budget:
   aggressive_step_pct:          {value: 40, source: "internal", reviewed_at: 2026-09-21}
 forecast:
   impression_share_target_pct: {value: 45, source: "internal", reviewed_at: 2026-09-21}
+measurement:
+  tolerance_floor_pct:      {value: 5, source: "internal", reviewed_at: 2026-09-21}
+  tolerance_cap_pct:        {value: 40, source: "internal", reviewed_at: 2026-09-21}
+  modelled_conversion_pct:  {value: 20, source: "internal", reviewed_at: 2026-09-21}
+  action_stale_days:        {value: 30, source: "internal", reviewed_at: 2026-09-21}
+  click_upload_window_days: {value: 90, source: "internal", reviewed_at: 2026-09-21}
+  manual_preparation_days:  {value: 2, source: "internal", reviewed_at: 2026-09-21}
 test:
   alpha:       {value: 0.05, source: "internal", reviewed_at: 2026-09-21}
   power:       {value: 0.80, source: "internal", reviewed_at: 2026-09-21}
@@ -54,6 +61,17 @@ def write(tmp_path: Path, body: str) -> Path:
     return path
 
 
+def test_the_fixture_is_a_valid_file(tmp_path: Path) -> None:
+    """Every failure test below breaks one thing in `GOOD` and reads the message.
+
+    If `GOOD` is itself invalid — a group added to the model and not to the
+    fixture — those tests keep passing while raising for a second, unrelated
+    reason, and `test_a_missing_group_fails` stops proving anything at all.
+    So the fixture's own validity is asserted first.
+    """
+    assert load_planning_constants(write(tmp_path, GOOD)).version == "2026.09.1"
+
+
 def test_the_shipped_file_is_valid() -> None:
     constants = load_planning_constants()
     assert constants.version
@@ -63,7 +81,9 @@ def test_the_shipped_file_is_valid() -> None:
 
 def test_every_constant_in_the_shipped_file_carries_a_source_and_a_date() -> None:
     constants = load_planning_constants()
-    for group_name in ("learning", "structure", "economics", "budget", "forecast", "test"):
+    groups = set(PlanningConstants.model_fields).difference({"version"})
+    assert groups, "PlanningConstants declares no groups"
+    for group_name in sorted(groups):
         group = getattr(constants, group_name)
         for key in type(group).model_fields:
             constant = getattr(group, key)
