@@ -442,3 +442,60 @@ def _every_broken_plan() -> list[object]:
     )
     broken.append(eleven)
     return broken
+
+
+# ---------------------------------------------------------------------------
+# what the contract carries forward from 2.4.2
+# ---------------------------------------------------------------------------
+
+
+def test_the_structure_findings_are_three_state_not_two() -> None:
+    """Absent is not the same as clean, and a reader must be able to tell.
+
+    Raised by the S2-P6c session: their tree's naming tick was three-state and
+    a missing `invalid_names` would have rendered as a green one — the screen
+    asserting something nobody verified. `None` means 2.4.2 never ran.
+    """
+    from agent.planning.plan_synthesis import _account_structure, _ignore
+
+    checked = _account_structure(
+        {
+            "2.4.2": {
+                "campaigns": [],
+                "invalid_names": [],
+                "duplicate_terms": ["sds software"],
+            }
+        },
+        _ignore,
+    )
+    assert checked.invalid_names == []  # checked, and clean
+    assert checked.duplicate_terms == ["sds software"]
+
+    unchecked = _account_structure({}, _ignore)
+    assert unchecked.invalid_names is None  # never checked
+    assert unchecked.duplicate_terms is None
+
+
+def test_a_structure_that_ran_but_found_nothing_says_so_positively() -> None:
+    from agent.planning.plan_synthesis import _account_structure, _ignore
+
+    section = _account_structure(
+        {"2.4.2": {"campaigns": [], "invalid_names": [], "duplicate_terms": []}}, _ignore
+    )
+    assert section.invalid_names == []
+    assert section.duplicate_terms == []
+    assert section.invalid_names is not None
+
+
+def test_the_critique_still_re_derives_both_rather_than_trusting_the_node() -> None:
+    """Defence in depth: assertions 4 and 9 walk the tree themselves.
+
+    A plan whose 2.4.2 reported nothing wrong but whose tree *is* wrong must
+    still fail — the node's own verdict is carried for the reader, not used as
+    the check.
+    """
+    plan = fixture.plan()
+    plan.account_structure.invalid_names = []
+    plan.account_structure.duplicate_terms = []
+    plan.account_structure.campaigns[0].name = "not a valid name"
+    assert "9_naming" in blocking_codes(checks.check_naming(plan))

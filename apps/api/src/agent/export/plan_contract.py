@@ -461,6 +461,14 @@ class AccountStructure(PlanModel):
     volume_check: list[dict[str, Any]] = Field(default_factory=list)
     structure_verdict: str = ""
     notes: str = ""
+    #: 2.4.2's own findings, and **three-state on purpose**: `None` means the
+    #: structure was never checked, `[]` means it was checked and was clean.
+    #: An absent list defaulting to `[]` would let a reader put a green tick
+    #: against something nobody verified, which is exactly the case the node
+    #: computes these for. 2.6.2 re-derives both from the tree independently
+    #: (§11 assertions 4 and 9); these carry what 2.4.2 itself concluded.
+    duplicate_terms: list[str] | None = None
+    invalid_names: list[str] | None = None
     calc_evidence_ids: list[uuid.UUID] = Field(default_factory=list)
 
     def counts(self) -> dict[str, int]:

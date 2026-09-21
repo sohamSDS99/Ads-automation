@@ -466,6 +466,10 @@ def _account_structure(outputs: Outputs, drop: Drop) -> AccountStructure:
         volume_check=_dicts(check.get("campaigns")),
         structure_verdict=_text(check.get("structure_verdict")),
         notes=_text(structure.get("notes")),
+        # `None` when 2.4.2 never ran, so a reader cannot mistake "not checked"
+        # for "checked and clean". See `AccountStructure` in the contract.
+        duplicate_terms=_checked(structure, "duplicate_terms"),
+        invalid_names=_checked(structure, "invalid_names"),
         calc_evidence_ids=_ids(convention, structure, check),
     )
 
@@ -624,6 +628,18 @@ def _dicts(value: Any) -> list[dict[str, Any]]:
 
 def _dict(value: Any) -> dict[str, Any]:
     return dict(value) if isinstance(value, Mapping) else {}
+
+
+def _checked(section: Mapping[str, Any], key: str) -> list[str] | None:
+    """A findings list, or None when the node that computes it did not run.
+
+    The distinction is the whole point of the field: `[]` is a verdict and
+    `None` is the absence of one, and collapsing them is how a screen puts a
+    tick against something nobody looked at.
+    """
+    if not section or key not in section:
+        return None
+    return _strings(section.get(key))
 
 
 def _strings(value: Any) -> list[str]:
