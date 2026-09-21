@@ -12,26 +12,23 @@
       "type": "string"
     }
   },
-  "description": "The outcome of testing whatever currently supplies a kind.\n\nSeparate from `CredentialTestResponse` because there may be no row to name:\nan environment-supplied key is not a `Credential`, so it has no id and no\n`last_tested_at` to write the verdict back to.",
+  "description": "The outcome of the cheapest real call that proves a source answers.",
   "properties": {
     "kind": {
       "$ref": "#/$defs/CredentialKind"
-    },
-    "source": {
-      "description": "`vault` or `environment` \u2014 which one answered",
-      "title": "Source",
-      "type": "string"
     },
     "ok": {
       "title": "Ok",
       "type": "boolean"
     },
     "detail": {
+      "description": "The sentence to show the person who pressed Test",
       "title": "Detail",
       "type": "string"
     },
     "meta": {
       "additionalProperties": true,
+      "description": "Non-secret hints, e.g. account name or credit remaining",
       "title": "Meta",
       "type": "object"
     },
@@ -39,16 +36,21 @@
       "format": "date-time",
       "title": "Tested At",
       "type": "string"
+    },
+    "recorded": {
+      "description": "Whether the verdict was stored. A disconnected source has no row to write it to, so its test answers the question and keeps no state.",
+      "title": "Recorded",
+      "type": "boolean"
     }
   },
   "required": [
     "kind",
-    "source",
     "ok",
     "detail",
-    "tested_at"
+    "tested_at",
+    "recorded"
   ],
-  "title": "KindTestResponse",
+  "title": "ConnectionTestResponse",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

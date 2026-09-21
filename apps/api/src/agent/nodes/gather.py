@@ -34,8 +34,7 @@ from agent.config import get_settings
 from agent.connectors import ConnectorContext, ConnectorDegraded, ConnectorError, build_connector
 from agent.connectors.base import EvidenceDraft
 from agent.connectors.proxy import proxy_url
-from agent.credential_kinds import spec_for, unseal
-from agent.credentials import MissingCredential, resolve_secret
+from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import CredentialKind, Evidence
 from agent.evidence.store import EvidenceStore
 from agent.nodes.base import RunContext
@@ -323,20 +322,12 @@ async def _crawl_proxy(ctx: RunContext, connector: str) -> str | None:
 
     resolved: str | None = None
     try:
-        secret = await resolve_secret(
-            ctx.db,
-            workspace_id=ctx.run.workspace_id,
-            kind=CredentialKind.WEBSHARE,
-            project_id=ctx.project.id,
-            user_id=ctx.run.triggered_by,
+        values = await resolve_values(
+            ctx.db, workspace_id=ctx.run.workspace_id, kind=CredentialKind.WEBSHARE
         )
     except MissingCredential:
-        secret = ""
-    if secret:
-        # `unseal`, not this function's own guess: `webshare` is a single-field
-        # kind, so the vault holds the bare key — and `_credentials` below turns
-        # a bare string into `{"token": ...}`, which is the wrong name for it.
-        values = unseal(spec_for(CredentialKind.WEBSHARE), secret)
+        values = {}
+    if values:
         try:
             resolved = await proxy_url(values.get("api_key"), get_settings())
         except ConnectorError as exc:
@@ -347,30 +338,25 @@ async def _crawl_proxy(ctx: RunContext, connector: str) -> str | None:
 
 
 async def _credentials(ctx: RunContext, connector: str) -> dict[str, str] | None:
-    """The decrypted credential values for one connector, or None if unset.
+    """The credential values for one connector, or None if the source is unusable.
 
-    Decoded by the kind's own spec, not by a local rule. This used to guess:
-    a JSON object became the value map and anything else became `{"token": ...}`.
-    That guess was survivable only while every connector reached through here
-    was multi-field. The moment `brightdata` and `dataforseo` became one key
-    each, a sealed bare string arrived at the connector as `token` and the
-    connector asked for `api_key` — a run would have skipped both sources while
-    "Connect and test" went on passing, because that path already used `unseal`.
+    `None` and `{}` are different answers and the caller relies on it: `{}` is a
+    connector that needs no credential (`transparency`, `web_crawler`,
+    `csv_ingest`), and `None` is one that needs a source this run cannot use —
+    either the workspace has not connected it, or the deployment supplies no
+    key for it. Both end the same way: the connector is skipped and the report
+    names the gap rather than filling it (PRD §16).
 
-    One decoder, used by both paths, is the fix and the guard.
+    The keys are `FieldSpec.name`, which is what `ConnectorContext.credentials`
+    has always expected. That did not change when the vault did — the values
+    are read from the environment now instead of decrypted out of a row, and
+    every connector downstream of here is unaware of the difference.
     """
     kind = _CREDENTIAL_KIND.get(connector)
     if kind is None:
         return {}
     try:
-        secret = await resolve_secret(
-            ctx.db,
-            workspace_id=ctx.run.workspace_id,
-            kind=kind,
-            project_id=ctx.project.id,
-            user_id=ctx.run.triggered_by,
-        )
-    except MissingCredential:
+        return await resolve_values(ctx.db, workspace_id=ctx.run.workspace_id, kind=kind)
+    except MissingCredential as exc:
+        log.info("gather.source_unavailable", connector=connector, reason=exc.reason)
         return None
-
-    return unseal(spec_for(kind), secret)

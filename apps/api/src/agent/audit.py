@@ -50,9 +50,14 @@ class AuditAction(StrEnum):
     PROJECT_CREATED = "project.created"
     PROJECT_UPDATED = "project.updated"
 
-    CREDENTIAL_CREATED = "credential.created"
-    CREDENTIAL_TESTED = "credential.tested"
-    CREDENTIAL_DELETED = "credential.deleted"
+    # Sources. Not `credential.*`: nobody stores a credential any more, and the
+    # recorded act is the decision to *use* one the deployment already holds.
+    # The three retired `credential.*` actions are not reused for it — an audit
+    # log read a year from now must not show a key being stored on a build that
+    # could not store one.
+    SOURCE_CONNECTED = "source.connected"
+    SOURCE_DISCONNECTED = "source.disconnected"
+    SOURCE_TESTED = "source.tested"
 
     RUN_LAUNCHED = "run.launched"
     RUN_CANCELLED = "run.cancelled"
@@ -107,7 +112,7 @@ class AuditTarget(StrEnum):
     SESSION = "session"
     RUN = "run"
     PROJECT = "project"
-    CREDENTIAL = "credential"
+    SOURCE = "source"
     EVIDENCE = "evidence"
     EXPORT = "export"
     APPROVAL = "approval"

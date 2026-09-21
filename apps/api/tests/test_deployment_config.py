@@ -141,6 +141,52 @@ def test_the_test_service_is_profiled_and_uses_its_own_database() -> None:
     assert service["environment"]["REDIS_URL"].endswith("/15")
 
 
+def test_every_source_variable_reaches_the_container_and_the_example_file() -> None:
+    """The three lists that must agree, or a key is set and never arrives.
+
+    `KIND_SPECS` says which variables a source reads. Compose's `x-api-env` is
+    an allow-list: a variable absent from it never reaches the container,
+    however carefully it was set in `.env`. And `.env.example` is what an
+    operator actually copies.
+
+    All three drifting apart is silent by construction — the source just reports
+    itself unconfigured, which reads as "the operator forgot" rather than "we
+    never passed it through". This is the only place that says otherwise.
+    """
+    from agent.credential_kinds import KIND_SPECS
+
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    example = (REPO_ROOT / ".env.example").read_text(encoding="utf-8")
+
+    for service in ("api", "worker"):
+        passed = set(compose["services"][service]["environment"])
+        for spec in KIND_SPECS.values():
+            missing = set(spec.env_vars) - passed
+            assert not missing, f"{service} never receives {sorted(missing)}"
+
+    for spec in KIND_SPECS.values():
+        for name in spec.env_vars:
+            assert re.search(rf"^#?\s*{name}=", example, re.MULTILINE), (
+                f"{name} is not in .env.example, so nobody copying it will set it"
+            )
+
+
+def test_the_test_service_blanks_every_source_key() -> None:
+    """A developer's own `.env` must not leak into the suite.
+
+    `<<: *api-env` pulls whatever is set locally, and a suite that can see a
+    real key stops testing the unconfigured path — which is most of what
+    `test_connections_api` is for.
+    """
+    from agent.credential_kinds import KIND_SPECS
+
+    compose = yaml.safe_load((REPO_ROOT / "docker-compose.yml").read_text(encoding="utf-8"))
+    environment = compose["services"]["test"]["environment"]
+    for spec in KIND_SPECS.values():
+        for name in spec.env_vars:
+            assert environment.get(name) == "", f"the test service inherits {name}"
+
+
 # --- P2: the embedding model ---------------------------------------------
 
 

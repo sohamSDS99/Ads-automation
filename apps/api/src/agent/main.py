@@ -21,7 +21,7 @@ from agent.api.problems import install_problem_handlers
 from agent.api.routes_approvals import router as approvals_router
 from agent.api.routes_audit import router as audit_router
 from agent.api.routes_auth import router as auth_router
-from agent.api.routes_credentials import router as credentials_router
+from agent.api.routes_connections import router as connections_router
 from agent.api.routes_documents import router as documents_router
 from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_health import router as health_router
@@ -115,7 +115,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         workspace_router,
         platform_router,
         projects_router,
-        credentials_router,
+        connections_router,
         models_router,
         runs_router,
         schedules_router,

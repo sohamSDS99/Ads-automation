@@ -1,0 +1,154 @@
+{
+  "$defs": {
+    "CredentialKind": {
+      "enum": [
+        "openrouter",
+        "google_ads",
+        "dataforseo",
+        "webshare",
+        "smtp"
+      ],
+      "title": "CredentialKind",
+      "type": "string"
+    }
+  },
+  "description": "One source, as a card: what it is, whether it *can* run, whether it *may*.",
+  "properties": {
+    "kind": {
+      "$ref": "#/$defs/CredentialKind"
+    },
+    "label": {
+      "title": "Label",
+      "type": "string"
+    },
+    "description": {
+      "title": "Description",
+      "type": "string"
+    },
+    "required_for_runs": {
+      "description": "True when a run cannot start without it. Only the model surface is.",
+      "title": "Required For Runs",
+      "type": "boolean"
+    },
+    "env_vars": {
+      "description": "Every variable this source reads, in the order the screen lists them",
+      "items": {
+        "type": "string"
+      },
+      "title": "Env Vars",
+      "type": "array"
+    },
+    "missing_env_vars": {
+      "description": "The required variables this deployment has not set. Empty means the source is ready to connect; anything here is the exact list to add to the environment.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Env Vars",
+      "type": "array"
+    },
+    "configured": {
+      "description": "Whether the deployment supplies enough to use this source at all",
+      "title": "Configured",
+      "type": "boolean"
+    },
+    "connected": {
+      "description": "Whether this workspace has switched it on",
+      "title": "Connected",
+      "type": "boolean"
+    },
+    "connected_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Connected At"
+    },
+    "connected_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Connected By"
+    },
+    "connected_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Connected By Name"
+    },
+    "last_tested_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Tested At"
+    },
+    "last_test_ok": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Test Ok"
+    },
+    "last_test_detail": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Test Detail"
+    },
+    "meta": {
+      "additionalProperties": true,
+      "description": "Masked hints from the last successful test \u2014 an account name, a last-4",
+      "title": "Meta",
+      "type": "object"
+    }
+  },
+  "required": [
+    "kind",
+    "label",
+    "description",
+    "required_for_runs",
+    "env_vars",
+    "missing_env_vars",
+    "configured",
+    "connected"
+  ],
+  "title": "SourceSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

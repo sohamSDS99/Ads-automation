@@ -63,8 +63,8 @@ from agent.auth.rbac import Permission
 from agent.autofill import AUTOFILL_FIELDS, detect_markets, detect_site_url
 from agent.autofill import SETTINGS_KEY as SETTINGS_AUTOFILL
 from agent.config import get_settings
+from agent.credentials import connected_kinds
 from agent.db.models import (
-    Credential,
     CredentialKind,
     Membership,
     Project,
@@ -670,20 +670,15 @@ async def _requirements(
             )
         )
 
-    kinds = set(
-        (
-            await db.execute(
-                sa.select(Credential.kind).where(Credential.workspace_id == me.workspace_id)
-            )
-        )
-        .scalars()
-        .all()
-    )
+    kinds = await connected_kinds(db, workspace_id=me.workspace_id)
     if CredentialKind.OPENROUTER not in kinds:
         found.append(
             ProjectRequirement(
                 code="openrouter_credential",
-                detail="Add an OpenRouter key in Settings. Every node is a model call.",
+                detail=(
+                    "OpenRouter is not connected. Switch it on under Settings → "
+                    "Connections — every node is a model call."
+                ),
                 blocking=True,
             )
         )
@@ -692,8 +687,8 @@ async def _requirements(
             ProjectRequirement(
                 code="google_ads_credential",
                 detail=(
-                    "No Google Ads credential. The run will skip account history rather than "
-                    "invent it — upload the same reports as CSV if you have them."
+                    "Google Ads is not connected. The run will skip account history rather "
+                    "than invent it — upload the same reports as CSV if you have them."
                 ),
                 blocking=False,
             )
@@ -702,7 +697,7 @@ async def _requirements(
         found.append(
             ProjectRequirement(
                 code="dataforseo_credential",
-                detail="No DataForSEO credential. Keyword volume and CPC will be missing.",
+                detail=("DataForSEO is not connected. Keyword volume and CPC will be missing."),
                 blocking=False,
             )
         )

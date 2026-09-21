@@ -253,67 +253,46 @@ there is a verification script.
   read. That one is minted from a `client_id`/`client_secret`/`refresh_token`
   trio, and it is the part that cannot be typed from memory.
 
-**The normal way in is a button, and it asks for one value.** The Google Ads
-card on Settings → **Connections** shows *Connect Google account*: whoever owns the Ads account types the developer
-token, signs in with their own Google account, approves read access, and the
-refresh token is sealed into the vault by the callback. They never see a token,
-and neither does anyone else — which matters, because the person with the Ads
-login is usually not the person who installed this, and the alternative is
-asking them to run a terminal.
-
-The developer token is the only box on the card. The customer id and the
-manager (MCC) id are *discovered*, not typed: the callback asks the grant which
-accounts it reaches, expands any manager into the accounts underneath it, and
-stores the first one that holds campaigns along with the manager to call
-through. A manager id typed by hand was the commonest way to get a working
-token and an empty report.
-
-That needs one thing from the deployment: an OAuth client, in the environment
-rather than the vault (it belongs to the installation, not to the workspace —
-same rule as SMTP, PRD §18 law 9).
+All six values are read from the deployment's environment, like every other
+source. Nobody types them into the interface — there is no box to type them
+into, and Settings → **Connections** only switches the source on and off:
 
 ```bash
-GOOGLE_ADS_OAUTH_CLIENT_ID=…apps.googleusercontent.com
-GOOGLE_ADS_OAUTH_CLIENT_SECRET=GOCSPX-…
+GOOGLE_ADS_DEVELOPER_TOKEN=…
+GOOGLE_ADS_CLIENT_ID=…apps.googleusercontent.com
+GOOGLE_ADS_CLIENT_SECRET=GOCSPX-…
+GOOGLE_ADS_REFRESH_TOKEN=1//…
+GOOGLE_ADS_CUSTOMER_ID=1234567890
+# GOOGLE_ADS_LOGIN_CUSTOMER_ID=  only when reached through a manager account
 ```
 
-Register this exact redirect URI on it, or Google refuses before the consent
-screen renders:
-
-```
-<APP_BASE_URL>/api/v1/credentials/google-ads/callback
-```
-
-In production that means an OAuth client of type **Web application**. A
-**Desktop app** client also works while `APP_BASE_URL` is a localhost address,
-because Google treats that as a loopback redirect — which is why local
-development needs no second client.
-
-**The operator's way in is the script**, for when nobody is available to click:
+**The refresh token comes from the script**, once per deployment:
 
 ```bash
 make google-ads-oauth      # consent in the browser -> refresh token + account ids
 make verify-google-ads     # proves the whole path against the live account
 ```
 
-`scripts/google-ads-oauth.py` opens the same consent screen, catches the
+`scripts/google-ads-oauth.py` opens Google's consent screen, catches the
 redirect on a loopback port, exchanges the code for an *offline* refresh token,
 then asks `customers:listAccessibleCustomers` which accounts that consent
-actually reaches and names each one — so the customer id that gets stored is one
-you have seen answer, not one copied off a dashboard. A *Paste all values
-instead* toggle appears on the card only where consent cannot run at all — a
-deployment with no OAuth client configured. Where the button works, the form
-with five boxes is a worse way to do the same thing and is not offered.
+actually reaches and names each one — so the customer id you set is one you have
+seen answer, not one copied off a dashboard. `--write-env` appends all of it to
+`.env`. A **Desktop app** OAuth client is the right type for this; the token
+does not expire while the client and the grant both live, so this is a
+once-per-deployment task.
 
-Both paths pick the account the same way: the first accessible account that is
-**not** a manager. A manager account holds no campaigns, so connecting one would
-report success and then find nothing — and for anyone working out of an MCC the
-manager is the *only* thing `listAccessibleCustomers` returns, which is why the
-manager gets expanded into its client accounts before the choice is made.
-Cancelled and suspended clients are dropped there; they are indistinguishable
-from live ones until every pull comes back empty. Every account the grant
-reaches is recorded in the credential's hints, so a workspace with several can
-see what it chose between.
+The customer id is worth getting from that list rather than from the Ads UI.
+
+Pick the first accessible account that is **not** a manager. A manager account
+holds no campaigns, so connecting one reports success and then finds nothing —
+and for anyone working out of an MCC the manager is the *only* thing
+`listAccessibleCustomers` returns, which is why the script expands it into its
+client accounts before listing them. Cancelled and suspended clients are dropped
+there; they are indistinguishable from live ones until every pull comes back
+empty. Every account the grant reaches is printed, so a deployment with several
+can see what it is choosing between — and the card records the one it reached
+the last time it was tested.
 
 Two things that are easy to get wrong, and both fail quietly:
 
@@ -329,9 +308,9 @@ Two things that are easy to get wrong, and both fail quietly:
   report that never mentions what changed in the account.
 
 `scripts/google_ads_pull.py` (inside the `api` container) pulls history on
-demand — the same vault credential, connector and evidence store a node's pull
-uses, without waiting for a run. `--dry-run` fetches without writing, which is
-the quickest way to answer "does this credential actually work".
+demand — the same environment credential, connector and evidence store a node's
+pull uses, without waiting for a run. `--dry-run` fetches without writing, which
+is the quickest way to answer "does this credential actually work".
 
 ## The crawl proxy
 
@@ -382,38 +361,61 @@ key, the exits, a real crawl of a real page through one of them, and — every
 run — that Google still returns nothing through it. It needs no stack.
 
     WEBSHARE_API_KEY=... make verify-webshare
-## Keys from the environment
+## Keys live in the environment; workspaces switch sources on
 
-Every source key can come from the deployment's own environment instead of the
-Sources screen:
+Every secret this product uses is read from the deployment's environment, and
+from nowhere else. There is no key vault, no form, and no endpoint that accepts
+a credential:
 
 ```bash
-OPENROUTER_API_KEY=sk-or-…
-DATAFORSEO_API_KEY=…          # the Basic token, or login:password
-WEBSHARE_API_KEY=…            # the crawl proxy, and the only optional one
+OPENROUTER_API_KEY=sk-or-…      # the model surface; a run cannot start without it
+DATAFORSEO_API_KEY=…            # the Basic token, or login:password
+WEBSHARE_API_KEY=…              # the crawl proxy, the one that is optional
+GOOGLE_ADS_DEVELOPER_TOKEN=…    # plus the five below — see "Our own account"
+GOOGLE_ADS_CLIENT_ID=…
+GOOGLE_ADS_CLIENT_SECRET=…
+GOOGLE_ADS_REFRESH_TOKEN=…
+GOOGLE_ADS_CUSTOMER_ID=…
 ```
 
-`credentials.resolve_secret` looks in the vault first and falls back to these,
-so the order is **user > project > workspace > environment**. That way round on
-purpose: someone who stored a key for one workspace meant it to be used, and an
-environment variable is the default a deployment ships with rather than an
-override of a choice a person made. A card whose key comes from the environment
-says so, shows the last four characters, and offers *Override for this
-workspace* instead of a form.
+What a *workspace* owns is one row per source saying "use this"
+(`source_connection`), and Settings → **Connections** is the single switch that
+writes it. So connecting Google Ads is one click that asks for nothing, and
+`credentials.resolve_values` is two questions rather than a four-level ladder:
 
-Two things that are easy to miss:
+1. has an administrator switched this source on for this workspace, and
+2. does the environment supply its values?
 
-- **`docker-compose.yml` is an allow-list.** A variable that is not named in
+Both yes, or `MissingCredential` — which every caller already treats as "this
+source is not configured", so degradation (PRD §16) is unchanged. The two facts
+are separate because one deployment serves several workspaces: a key being
+*present* is not the same as a workspace being entitled to spend it, and
+deleting the row withdraws that without touching anyone else.
+
+A card names the variables it reads, and an unconfigured one names exactly the
+ones that are missing — "not configured" without the list is a dead end for
+whoever reads it. Connecting runs the upstream's cheapest real call on the way
+through, so the verdict arrives with the decision instead of as a second step
+somebody has to remember.
+
+Three things that are easy to miss:
+
+- **`docker-compose.yml` is an allow-list.** A variable not named in
   `x-api-env` never reaches the container, however carefully it was set in
-  `.env`. All three are listed there.
-- **`google_ads` has no environment path, and cannot.** Its secret is an OAuth
-  refresh token that consent mints against a specific Google account; there is
-  nothing for a person to paste. It stays a vault credential, written by the
-  callback.
+  `.env`. `test_deployment_config.py` derives the required list from the source
+  catalogue, so a new source fails the suite until it is listed there, in
+  `.env.example`, and in `config.Settings`.
+- **Changing a key needs a restart.** `Settings` is read once at startup.
+- **The `credential` table still exists and nothing uses it.** Migration 0012
+  leaves it alone deliberately: its rows are AES-256-GCM ciphertext that no
+  endpoint ever returned, so for anyone who connected a source through the old
+  screen and never wrote the same value into a file, that row is the only copy.
+  `scripts/vault-to-env.py` prints those rows as the `.env` lines that replace
+  them. Drop the table in its own migration once every deployment has run it.
 
-`POST /credentials/kinds/{kind}/test` proves whichever of the two is actually in
-play and says which one answered — `/credentials/{id}/test` can only test a row,
-which is no help to a deployment that has none.
+`POST /connections/{kind}/test` answers "does this key work" for any member,
+connected or not, and returns `200` with `ok=false` when the upstream refuses —
+a wrong key is an answer, not a malformed request.
 
 ## Approval gates
 
@@ -695,7 +697,7 @@ two admin-only steps read-only rather than hidden behind a locked door.
 toast that fires after a project is created.
 
 Settings is one tab strip over seven screens, and every tab is *readable* by
-any member: `GET /credentials`, `/workspace`, `/projects` and `/users` all need
+any member: `GET /connections`, `/workspace`, `/projects` and `/users` all need
 `read` and nothing more, so someone without the write permission sees the real
 configuration with the controls disabled and a line naming who can change it.
 Only the audit log is hidden outright, because its endpoint is the one that
@@ -713,10 +715,11 @@ Three things are worth knowing before changing any of it.
   update into a 412 and a prompt. The HTTP-date header is still accepted, and
   still cannot tell two saves in the same second apart — which is why `version`
   exists.
-- **A credential goes in and never comes out.** There is no read endpoint and no
-  update: replacing a key writes a new row, so a half-typed replacement cannot
-  leave the old one partly overwritten. `POST /credentials/{id}/test` answers
-  `200` with `ok:false` for a bad key — the request succeeded, the key did not.
+- **No credential crosses the API boundary in either direction.** There is no
+  endpoint that returns a key and none that accepts one: a source is switched on
+  by name and its values are read from the environment. `POST
+  /connections/{kind}/test` answers `200` with `ok:false` for a bad key — the
+  request succeeded, the key did not.
 - **The gate list is the registry's.** `agent/gates.py` derives it from
   the nodes that declare `gate=True` and adds only the copy a `NodeSpec` has no
   field for. Assignees are written to `settings["gate_assignees"]`, which is the

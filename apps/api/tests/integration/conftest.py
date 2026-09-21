@@ -116,6 +116,10 @@ def stack_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("REDIS_URL", REAL_REDIS_URL)
     monkeypatch.setenv("APP_BASE_URL", "http://localhost:3000")
     monkeypatch.setenv("COOKIE_SECURE", "false")
+    # The model key is the deployment's now, not a row. Runs resolve it from
+    # here, so a suite without it is a suite where every run refuses to start
+    # for a reason that has nothing to do with what is being tested.
+    monkeypatch.setenv("OPENROUTER_API_KEY", "sk-or-test-key")
     monkeypatch.delenv("BOOTSTRAP_ADMIN_EMAIL", raising=False)
     monkeypatch.delenv("BOOTSTRAP_ADMIN_PASSWORD", raising=False)
 
@@ -320,9 +324,13 @@ async def admin_user(db: AsyncSession, workspace: Workspace) -> Any:
 
 @pytest_asyncio.fixture
 async def project(db: AsyncSession, admin_user: Any, workspace_id: uuid.UUID) -> Any:
-    """One project with an OpenRouter credential — the minimum a run needs."""
-    from agent.credentials import new_credential
-    from agent.db.models import CredentialKind, Project
+    """One project with OpenRouter connected — the minimum a run needs.
+
+    The key itself is not here and cannot be: it is read from
+    `Settings.openrouter_api_key`, which `tests/conftest.py` sets for the whole
+    suite. What the fixture owns is the workspace's decision to use it.
+    """
+    from agent.db.models import CredentialKind, Project, SourceConnection
 
     row = Project(
         workspace_id=workspace_id,
@@ -338,11 +346,11 @@ async def project(db: AsyncSession, admin_user: Any, workspace_id: uuid.UUID) ->
     )
     db.add(row)
     db.add(
-        new_credential(
+        SourceConnection(
+            id=uuid.uuid4(),
             workspace_id=workspace_id,
             kind=CredentialKind.OPENROUTER,
-            secret="sk-or-test-key",
-            created_by=admin_user.id,
+            connected_by=admin_user.id,
         )
     )
     await db.commit()

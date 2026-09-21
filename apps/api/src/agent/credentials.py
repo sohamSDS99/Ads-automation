@@ -1,160 +1,104 @@
-"""Sealed credentials: how a secret gets into the database and back out again.
+"""Which sources a workspace may use, and the values the deployment supplies.
 
-PRD §6 fixes the resolution order at call time — **user > project > workspace**,
-and then the environment beneath all three —
-and PRD §15 NF5 fixes everything else: AES-256-GCM, the key from the
-environment, and no endpoint that returns the plaintext. Both sides of the seal
-live here so a writer cannot pick a different AAD from the reader's.
+Resolving a source is two questions now, not four. PRD §6's
+*user > project > workspace* ladder described a vault holding a copy of every
+key at every scope, and there is no vault: a secret lives in the deployment's
+environment and nowhere else. So a run asks
+
+1. has an administrator connected this source for this workspace
+   (`SourceConnection`), and
+2. does the environment actually supply its values (`KindSpec.from_env`)
+
+and gets the values, or `MissingCredential`. Every caller already treats that
+exception as "this source is not configured", so degradation (PRD §16) behaves
+exactly as before — a run thins its report rather than failing, except for the
+model surface, which nothing can proceed without.
+
+Why the connection is a separate fact from the configuration: one deployment
+serves several workspaces, and a key being *present* is not the same as a
+workspace being *entitled to spend it*. Deleting the row is how an administrator
+withdraws that without touching anyone else's deployment.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Any
 
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.config import get_settings
 from agent.credential_kinds import spec_for
-from agent.crypto import decrypt_str, encrypt
-from agent.db.models import Credential, CredentialKind, CredentialScope
+from agent.db.models import CredentialKind, SourceConnection
 
 
 class MissingCredential(LookupError):
-    """No credential of this kind is reachable from this project or user."""
+    """Nothing usable supplies this source: either not connected, or not configured.
 
-    def __init__(self, kind: CredentialKind) -> None:
-        super().__init__(
-            f"no {kind.value} credential is configured for this workspace. "
-            "Add one in Settings before launching a run."
-        )
+    Both cases are one exception because every caller does the same thing with
+    them — skip the source and record why. `reason` is there for the callers
+    that report it to a person, so the sentence can name the fix.
+    """
+
+    def __init__(self, kind: CredentialKind, reason: str, detail: str) -> None:
+        super().__init__(detail)
         self.kind = kind
+        #: `not_connected` or `not_configured`.
+        self.reason = reason
+        self.detail = detail
 
 
-def credential_aad(credential_id: uuid.UUID) -> bytes:
-    """Additional authenticated data binding a ciphertext to its row.
+async def resolve_values(
+    db: AsyncSession, *, workspace_id: uuid.UUID, kind: CredentialKind
+) -> dict[str, str]:
+    """This source's credential values for this workspace, or `MissingCredential`.
 
-    Without it, a ciphertext copied from one row into another would still
-    decrypt; with it, the move is detected as tampering.
-    """
-    return str(credential_id).encode("utf-8")
-
-
-def new_credential(
-    *,
-    workspace_id: uuid.UUID,
-    kind: CredentialKind,
-    secret: str,
-    created_by: uuid.UUID,
-    scope: CredentialScope = CredentialScope.WORKSPACE,
-    project_id: uuid.UUID | None = None,
-    user_id: uuid.UUID | None = None,
-    meta: dict[str, Any] | None = None,
-) -> Credential:
-    """Seal `secret` into an unsaved `Credential`. The id is minted first — it is the AAD.
-
-    `meta` is `dict[str, Any]` because the column is JSON and the hints are not
-    all strings: the Google Ads connect flow records every account the grant
-    reaches, which is a list.
-    """
-    credential_id = uuid.uuid4()
-    ciphertext, nonce = encrypt(secret, aad=credential_aad(credential_id))
-    return Credential(
-        id=credential_id,
-        workspace_id=workspace_id,
-        scope=scope,
-        project_id=project_id,
-        user_id=user_id,
-        kind=kind,
-        ciphertext=ciphertext,
-        nonce=nonce,
-        created_by=created_by,
-        meta=meta or {"last4": secret[-4:]},
-    )
-
-
-def open_credential(credential: Credential) -> str:
-    """The plaintext secret. Never put the return value in a log or a response."""
-    return decrypt_str(credential.ciphertext, credential.nonce, aad=credential_aad(credential.id))
-
-
-async def resolve_secret(
-    db: AsyncSession,
-    *,
-    workspace_id: uuid.UUID,
-    kind: CredentialKind,
-    project_id: uuid.UUID | None = None,
-    user_id: uuid.UUID | None = None,
-) -> str:
-    """The most specific secret of `kind` visible to this caller.
-
-    Ordering is done in SQL rather than by three round trips: `scope` is ranked
-    user (0) → project (1) → workspace (2) and the first row wins.
-
-    Beneath all three sits the deployment's own environment. A kind that names
-    an `env_var` and finds no row falls back to it, so a deployment can be
-    configured from a file and never open the Sources screen. The order is that
-    way round and not the other: an operator who deliberately stored a key for
-    one workspace meant it to be used, and an env var is the default a
-    deployment ships with, not an override of a choice someone made.
-
-    `MissingCredential` still means *nothing anywhere* — vault and environment
-    both empty — which is what every caller already treats as "this source is
-    not configured", so degradation (PRD §16) is unchanged.
-    """
-    rank = sa.case(
-        (Credential.scope == CredentialScope.USER, 0),
-        (Credential.scope == CredentialScope.PROJECT, 1),
-        else_=2,
-    )
-    conditions = [
-        Credential.scope == CredentialScope.WORKSPACE,
-    ]
-    if project_id is not None:
-        conditions.append(
-            sa.and_(
-                Credential.scope == CredentialScope.PROJECT,
-                Credential.project_id == project_id,
-            )
-        )
-    if user_id is not None:
-        conditions.append(
-            sa.and_(Credential.scope == CredentialScope.USER, Credential.user_id == user_id)
-        )
-
-    stmt = (
-        sa.select(Credential)
-        .where(
-            Credential.workspace_id == workspace_id,
-            Credential.kind == kind,
-            sa.or_(*conditions),
-        )
-        .order_by(rank, Credential.created_at.desc())
-        .limit(1)
-    )
-    credential = (await db.execute(stmt)).scalar_one_or_none()
-    if credential is not None:
-        return open_credential(credential)
-    secret = env_secret(kind)
-    if secret is not None:
-        return secret
-    raise MissingCredential(kind)
-
-
-def env_secret(kind: CredentialKind) -> str | None:
-    """This kind's key as the deployment supplied it, or None.
-
-    The settings field is the spec's `env_var` lowercased. Deriving it rather
-    than repeating it is deliberate: a third place holding the same three names
-    is a third place for them to disagree, and the disagreement would show up
-    as a silently unconfigured source rather than as an error.
+    The returned mapping is keyed by `FieldSpec.name`, which is the shape
+    `ConnectorContext.credentials` has always expected — connectors did not
+    change when the vault went away, because what reaches them is identical.
     """
     spec = spec_for(kind)
-    if not spec.env_var:
-        return None
-    value = getattr(get_settings(), spec.env_var.lower(), None)
-    if value is None:
-        return None
-    text = value.get_secret_value() if hasattr(value, "get_secret_value") else str(value)
-    return text.strip() or None
+    if not await is_connected(db, workspace_id=workspace_id, kind=kind):
+        raise MissingCredential(
+            kind,
+            "not_connected",
+            f"{spec.label} is not connected for this workspace. "
+            "An administrator can switch it on under Settings → Connections.",
+        )
+    settings = get_settings()
+    missing = spec.missing_env_vars(settings)
+    if missing:
+        raise MissingCredential(
+            kind,
+            "not_configured",
+            f"{spec.label} is connected, but this deployment supplies no credential for it. "
+            f"Set {', '.join(missing)} in the environment.",
+        )
+    return spec.from_env(settings)
+
+
+async def is_connected(db: AsyncSession, *, workspace_id: uuid.UUID, kind: CredentialKind) -> bool:
+    """Whether this workspace has switched this source on."""
+    found = (
+        await db.execute(
+            sa.select(SourceConnection.id).where(
+                SourceConnection.workspace_id == workspace_id,
+                SourceConnection.kind == kind,
+            )
+        )
+    ).scalar_one_or_none()
+    return found is not None
+
+
+async def connected_kinds(db: AsyncSession, *, workspace_id: uuid.UUID) -> set[CredentialKind]:
+    """Every source this workspace has switched on, in one query.
+
+    For the callers that need the whole picture at once — project readiness asks
+    about three sources and should not ask three times.
+    """
+    rows = (
+        await db.execute(
+            sa.select(SourceConnection.kind).where(SourceConnection.workspace_id == workspace_id)
+        )
+    ).scalars()
+    return set(rows)

@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 eval coverage \
-        browser browser-p6 browser-p7 browser-p8 browser-documents browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -109,12 +109,11 @@ browser-autofill: ## Drive "let the agent work it out" on step 1, at 1440 and 39
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-autofill.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
-browser-google-ads: ## Assert the Sources step offers Google sign-in, at 1440 and 390
-	@docker compose cp scripts/browser-check-google-ads.py worker:/tmp/browser-check-google-ads.py
+browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390
+	@docker compose cp scripts/browser-check-connections.py worker:/tmp/browser-check-connections.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
-	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
-		-e PROJECT_ID="$(PROJECT_ID)" worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-google-ads.py
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-connections.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 eval: ## Run the eval harness (10 golden fixtures x schema + groundedness)

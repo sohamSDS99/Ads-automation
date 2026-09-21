@@ -91,12 +91,6 @@ class Settings(BaseSettings):
     # *released* version (sunset August 2027, the longest runway on offer).
     google_ads_api_version: str = "v25"
     google_ads_base_url: str = "https://googleads.googleapis.com"
-    # The OAuth *client* belongs to the deployment, not to the workspace — the
-    # same reason SMTP is read from the environment and is not a vault kind
-    # (PRD §18 law 9). What the workspace owns is the grant a person makes
-    # against it, and that is sealed in the vault like any other secret.
-    google_ads_oauth_client_id: str = ""
-    google_ads_oauth_client_secret: str = ""
     google_ads_lookback_months: int = 24
 
     dataforseo_base_url: str = "https://api.dataforseo.com/v3"
@@ -188,18 +182,30 @@ class Settings(BaseSettings):
     max_run_cost_usd: Decimal = Decimal("15.00")
 
     # --- source keys supplied by the deployment ----------------------------
-    # Every one of these is the same credential the Sources screen can hold, but
-    # named here so an operator can configure a deployment without opening the
-    # interface at all. A workspace row still wins when one exists: see
-    # `credentials.resolve_secret`. `google_ads` is deliberately absent — its
-    # secret is a refresh token that consent mints, so there is nothing for a
-    # person to paste into a file.
+    # Every secret the product uses, and the only place any of them lives. The
+    # interface never accepts a key and has nowhere to put one: what a
+    # workspace owns is the decision to use a source (`SourceConnection`), not
+    # a copy of its credential.
     #
-    # The names are not free: `credential_kinds.KindSpec.env_var` lowercased is
-    # the field read here, so these three must keep matching those three.
+    # The names are not free. `credential_kinds.FieldSpec.env_var` lowercased is
+    # the field read here, and `tests/test_source_env.py` fails if a spec names
+    # a variable this class does not hold — a drifting name would otherwise
+    # read as a source nobody configured rather than as a mistake.
     openrouter_api_key: SecretStr | None = None
     dataforseo_api_key: SecretStr | None = None
     webshare_api_key: SecretStr | None = None
+
+    # Google Ads is six values, not one. The developer token is issued once in
+    # the manager account's API Center; the OAuth three are minted by
+    # `scripts/google-ads-oauth.py`, which also prints every customer id the
+    # consent reaches. The manager id is needed only when the account is
+    # reached through an MCC, and is the one field here that may stay unset.
+    google_ads_developer_token: SecretStr | None = None
+    google_ads_client_id: SecretStr | None = None
+    google_ads_client_secret: SecretStr | None = None
+    google_ads_refresh_token: SecretStr | None = None
+    google_ads_customer_id: str | None = None
+    google_ads_login_customer_id: str | None = None
 
     # --- smtp (all optional; without it invites fall back to copyable links)
     smtp_host: str | None = None

@@ -16,7 +16,6 @@ widening that — each would have to be deleted deliberately.
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import httpx
@@ -270,22 +269,16 @@ def test_the_crawler_needs_no_credential_to_be_handed_a_proxy() -> None:
 
 def test_webshare_is_one_field_and_names_its_env_var() -> None:
     spec = spec_for(CredentialKind.WEBSHARE)
-    assert [field.name for field in spec.typed_fields] == ["api_key"]
-    assert spec.where == "sources"
-    # `KindSpec.env_var` lowercased is read off `Settings`, and
-    # `test_every_env_backed_kind_has_a_settings_field_of_the_same_name`
-    # derives over every kind, so this pair cannot drift apart silently.
-    assert spec.env_var == "WEBSHARE_API_KEY"
+    assert [field.name for field in spec.fields] == ["api_key"]
+    # `FieldSpec.env_var` lowercased is read off `Settings`, and
+    # `test_every_field_names_a_settings_field_of_the_same_name` derives over
+    # every kind, so this pair cannot drift apart silently.
+    assert spec.env_vars == ("WEBSHARE_API_KEY",)
     # Tested by `proxy.probe`, dispatched on the kind: a transport several
     # connectors borrow is owned by none of them.
     assert spec.connector is None
-
-
-def test_a_webshare_key_seals_as_the_bare_value() -> None:
-    spec = spec_for(CredentialKind.WEBSHARE)
-    sealed = spec.seal({"api_key": API_KEY})
-    assert sealed == API_KEY
-    assert json.loads(json.dumps({"api_key": sealed})) == {"api_key": API_KEY}
+    # Optional: with no key every crawl goes out directly and nothing degrades.
+    assert spec.required_for_runs is False
 
 
 # --- the probe --------------------------------------------------------------

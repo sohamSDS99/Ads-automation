@@ -178,11 +178,6 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.APPROVAL_DECIDE,
         {"assignee_id": None},
     ),
-    # P6. The credential routes declare `read` and then narrow by scope inside:
-    # a shared credential needs `credential_write`, a personal one needs only a
-    # session (PRD §13.4 H). The matrix cannot express that — every role holds
-    # `read`, so every row below is skipped by the refusal test — so the scope
-    # rules are covered directly in `test_credentials_api.py`.
     ("GET", "/projects", "/projects", Permission.READ, None),
     (
         "POST",
@@ -207,43 +202,31 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PROJECT_WRITE,
         {"fields": ["site_url"]},
     ),
-    ("GET", "/credentials", "/credentials", Permission.READ, None),
+    # Connections. Switching a source on or off is `credential_write` at the
+    # decorator now, not a scope rule narrowed inside the handler — nothing is
+    # stored per-scope any more, so there is no personal credential for the
+    # matrix to be unable to express. Reading the list and testing a source are
+    # `read`: neither returns a secret, and the person watching a run skip a
+    # source is often not the person who can reconnect it.
+    ("GET", "/connections", "/connections", Permission.READ, None),
     (
         "POST",
-        "/credentials",
-        "/credentials",
-        Permission.READ,
-        {"kind": "openrouter", "values": {"api_key": "sk-or-matrix-probe"}},
+        "/connections/{kind}/connect",
+        "/connections/openrouter/connect",
+        Permission.CREDENTIAL_WRITE,
+        None,
     ),
     (
-        "POST",
-        "/credentials/{credential_id}/test",
-        "/credentials/{target}/test",
-        Permission.READ,
+        "DELETE",
+        "/connections/{kind}",
+        "/connections/openrouter",
+        Permission.CREDENTIAL_WRITE,
         None,
     ),
     (
         "POST",
-        "/credentials/kinds/{kind}/test",
-        "/credentials/kinds/openrouter/test",
-        Permission.READ,
-        None,
-    ),
-    ("DELETE", "/credentials/{credential_id}", "/credentials/{target}", Permission.READ, None),
-    # The Google Ads consent pair declares `read` and narrows to
-    # `credential_write` inside, like every other route that writes a shared
-    # credential. `test_google_ads_oauth_api.py` covers that narrowing.
-    (
-        "POST",
-        "/credentials/google-ads/authorize",
-        "/credentials/google-ads/authorize",
-        Permission.READ,
-        {"developer_token": "matrix-probe", "return_to": "/settings"},
-    ),
-    (
-        "GET",
-        "/credentials/google-ads/callback",
-        "/credentials/google-ads/callback",
+        "/connections/{kind}/test",
+        "/connections/openrouter/test",
         Permission.READ,
         None,
     ),

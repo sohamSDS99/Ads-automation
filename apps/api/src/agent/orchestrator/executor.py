@@ -45,7 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.config import Settings, get_settings
-from agent.credentials import MissingCredential, resolve_secret
+from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     Approval,
     Base,
@@ -865,15 +865,11 @@ class RunExecutor:
     ) -> tuple[LLMGateway, httpx.AsyncClient | None]:
         if self._gateway is not None:
             return self._gateway, self._http_client
-        api_key = await resolve_secret(
-            self.db,
-            workspace_id=run.workspace_id,
-            kind=CredentialKind.OPENROUTER,
-            project_id=project.id,
-            user_id=run.triggered_by,
+        values = await resolve_values(
+            self.db, workspace_id=run.workspace_id, kind=CredentialKind.OPENROUTER
         )
         gateway, client = build_gateway(
-            api_key=api_key, settings=self.settings, client=self._http_client
+            api_key=values["api_key"], settings=self.settings, client=self._http_client
         )
         return gateway, client
 
