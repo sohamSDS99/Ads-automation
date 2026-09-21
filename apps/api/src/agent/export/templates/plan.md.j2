@@ -1,0 +1,403 @@
+{#
+  The source of truth for every plan export (Stage 02 PRD §12, §14).
+
+  Rules for editing this file:
+  - Never put a judgement in here. The template arranges what node 2.6.1
+    already decided; a conditional that changes a status is a node change
+    wearing a template's clothes.
+  - Every long table states its own cap in the document. A table silently cut
+    to 25 campaigns reads as a complete list, which is worse than no table.
+  - `plan.md.j2` and `plan.html.j2` render the same sections in the same
+    order. §14's acceptance compares them.
+  - The draft watermark is not decoration. §14: a draft must not be able to
+    circulate as a signed-off plan, in any format.
+  - A line that ends in `{% endif %}` or `{% endfor %}` must be followed by
+    `{{ "" }}`. `trim_blocks` eats the newline after a block tag, so without it
+    the next line joins this one — and when the next line is `---`, markdown
+    reads the pair as a setext heading and the separator silently becomes a
+    title. An empty expression tag is not a block tag, so the newline survives.
+#}
+{% if watermark %}
+> # ⚠ {{ watermark }}
+>
+> This is a **{{ status_label|lower }}** campaign plan. It has not been frozen, the figures in it can still change, and it is not authority to spend.
+
+{% endif %}
+# Campaign Plan — {{ project_name|text }}
+
+**Status:** {{ status_label }} ({{ version_label }})
+**Plan run:** `{{ plan.plan_run_id }}`
+**Generated:** {{ plan.generated_at|datetime }}
+**Planning cost:** {{ plan.cost_usd|money("USD") }}
+**Constants:** {{ plan.constants_version|text }} · **Schema:** {{ plan.schema_version }}
+
+**Planned from research run** `{{ plan.source.research_run_id }}`, accepted {{ plan.source.accepted_at|date }}{% if plan.source.launch_readiness %} at launch readiness *{{ plan.source.launch_readiness|replace("_", " ") }}*{% endif %}.
+{% if plan.is_frozen %}
+**Frozen** {{ plan.generated_at|datetime }}{% if frozen_by_name %} by {{ frozen_by_name }}{% endif %}.
+{% endif %}
+{% if plan.source.override_reason %}
+
+> **Accepted with an override.** {{ plan.source.override_reason }}
+{% endif %}
+{% if plan.source.degraded_sources %}
+
+> **Degraded sources.** {{ plan.source.degraded_sources|commalist }} returned partial data during the research this plan plans from. Every forecast below is correspondingly thinner.
+{% endif %}
+
+---
+
+## 1. Executive summary
+
+{{ plan.executive_summary|text }}
+
+{% if blocking_issues %}
+### ⚠ {{ blocking_issues|length }} blocking issue{{ "" if blocking_issues|length == 1 else "s" }}
+
+This plan cannot be frozen until these are resolved.
+
+| Section | Finding | Fix |
+|---|---|---|
+{% for issue in blocking_issues %}
+| {{ issue.section|cell }} | {{ issue.finding|cell }} | {{ issue.fix|cell }} |
+{% endfor %}
+{% endif %}
+{% if warning_issues %}
+
+### {{ warning_issues|length }} warning{{ "" if warning_issues|length == 1 else "s" }}
+
+{% for issue in warning_issues %}
+- **{{ issue.section|text }}** — {{ issue.finding|text }}
+{% endfor %}
+{% endif %}
+
+---
+
+## 2. Objectives
+
+{% if plan.objectives.north_star_metric %}
+**North star:** {{ plan.objectives.north_star_metric }}{% if plan.objectives.north_star_target %} — {{ plan.objectives.north_star_target.value|num(2) }} {{ plan.objectives.north_star_target.unit }}{% endif %}, {{ plan.objectives.north_star_period|text }}.
+{% endif %}
+
+### What we can afford to pay
+
+| Figure | Value |
+|---|---|
+{% if plan.objectives.blended_max_cpl %}
+| Blended max CPL | {{ plan.objectives.blended_max_cpl.value|money("USD") }} |
+{% endif %}
+{% if plan.objectives.blended_target_cpl %}
+| Blended target CPL | {{ plan.objectives.blended_target_cpl.value|money("USD") }} |
+{% endif %}
+{% if plan.objectives.blended_max_cpa_won %}
+| Blended max CPA per closed-won | {{ plan.objectives.blended_max_cpa_won.value|money("USD") }} |
+{% endif %}
+
+{% if plan.objectives.unit_economics %}
+| Segment | ACV | Margin | Lead→won | Max CPL | Target CPL | Max CPA (won) | Payback |
+|---|---|---|---|---|---|---|---|
+{% for row in plan.objectives.unit_economics %}
+| {{ row.segment|cell }} | {{ row.acv_usd|money("USD", 0) }} | {{ row.gross_margin_pct|pct }} | {{ row.lead_to_won_pct|pct(1) }} | {{ row.max_cpl_usd|money("USD") }} | {{ row.target_cpl_usd|money("USD") }} | {{ row.max_cpa_won_usd|money("USD") }} | {{ row.payback_months|num(1) }} mo |
+{% endfor %}
+{% endif %}
+{% if plan.objectives.method_notes %}
+
+{{ plan.objectives.method_notes }}
+{% endif %}
+
+### What each campaign is aiming at
+
+{% if plan.objectives.campaign_objectives %}
+| Campaign | Objective | KPI | Target | Ceiling | Basis |
+|---|---|---|---|---|---|
+{% for row in plan.objectives.campaign_objectives %}
+| {{ row.campaign_ref|cell }} | {{ row.objective|cell }} | {{ row.primary_kpi|cell }} | {{ row.target_value|num(2) }} | {{ row.ceiling_value|num(2) }} | {{ row.basis|cell }} |
+{% endfor %}
+{% else %}
+No campaign objectives were recorded.
+{% endif %}
+
+### What counts as a conversion
+
+{% if plan.objectives.conversion_actions %}
+| Action | Category | Counting | Value | Lead→won | Primary |
+|---|---|---|---|---|---|
+{% for row in plan.objectives.conversion_actions %}
+| {{ row.name|cell }} | {{ row.category|cell }} | {{ row.counting|cell }} | {{ row.assigned_value_usd|money("USD") }} | {{ row.lead_to_won_rate_pct|pct(1) }} | {{ row.primary|yesno }} |
+{% endfor %}
+{% else %}
+No conversion taxonomy was recorded.
+{% endif %}
+
+{% if plan.objectives.qualified_lead %}
+### What sales agreed a qualified lead is
+
+**Required:** {{ plan.objectives.qualified_lead.required_signals|commalist }}
+**Disqualifying:** {{ plan.objectives.qualified_lead.disqualifiers|commalist }}
+**Score threshold:** {{ plan.objectives.qualified_lead.threshold|text }}{% if plan.objectives.sla_response_hours %} · **Response SLA:** {{ plan.objectives.sla_response_hours }} hours{% endif %}{{ "" }}
+{% endif %}
+
+---
+
+## 3. Media plan
+
+{% if plan.media_plan.envelope %}
+**Envelope:** {{ plan.media_plan.envelope.monthly_cap.value|money(plan.media_plan.envelope.currency) }} a month{% if plan.media_plan.envelope.quarterly_cap %}, {{ plan.media_plan.envelope.quarterly_cap.value|money(plan.media_plan.envelope.currency) }} a quarter{% endif %}.
+**Scenario chosen:** {{ plan.media_plan.chosen_scenario|text }}{% if plan.media_plan.experiment_reserve %} · **Experiment reserve:** {{ plan.media_plan.experiment_reserve.value|money("USD") }}{% endif %}{{ "" }}
+
+{{ plan.media_plan.rationale|text }}
+{% if plan.media_plan.what_would_change_it %}
+
+*What would change it:* {{ plan.media_plan.what_would_change_it }}
+{% endif %}
+{% if plan.media_plan.envelope.unallocated_usd %}
+
+> **{{ plan.media_plan.envelope.unallocated_usd|money(plan.media_plan.envelope.currency) }} is unallocated.** {{ plan.media_plan.envelope.unallocated_reason|text }}
+{% endif %}
+{% else %}
+**No envelope was agreed.** This plan states no budget and cannot be frozen.
+{% endif %}
+
+### Where the money goes
+
+{% if plan.media_plan.allocation %}
+| Campaign | Market | Stage | Monthly | Share | Forecast CPA | Target CPA | Est. conversions |
+|---|---|---|---|---|---|---|---|
+{% for row in plan.media_plan.allocation %}
+| {{ row.campaign_ref|cell }} | {{ row.market|cell }} | {{ row.funnel_stage|cell }} | {{ row.usd|money("USD", 0) }} | {{ row.pct|pct(1) }} | {{ row.forecast_cpa_usd|money("USD") }} | {{ row.target_cpa_usd|money("USD") }} | {{ row.est_conv|num(1) }} |
+{% endfor %}
+{% else %}
+No allocation was recorded.
+{% endif %}
+
+{% if plan.media_plan.scenarios %}
+### The scenarios it was chosen from
+
+| Scenario | Monthly | Est. clicks | Est. conversions | Est. CPA | Est. pipeline |
+|---|---|---|---|---|---|
+{% for row in plan.media_plan.scenarios %}
+| {{ row.name|cell }}{{ " ✓" if row.name == plan.media_plan.chosen_scenario else "" }} | {{ row.monthly_total_usd|money("USD", 0) }} | {{ row.est_clicks|num }} | {{ row.est_conv|num(1) }} | {{ row.est_cpa|money("USD") }} | {{ row.est_pipeline_usd|money("USD", 0) }} |
+{% endfor %}
+{% endif %}
+
+{% if forecast %}
+### The demand it is built on
+
+Method: {{ plan.media_plan.forecast_method|text }}{% if plan.media_plan.impression_share_headroom_pct %} · Impression-share headroom: {{ plan.media_plan.impression_share_headroom_pct|pct(1) }}{% endif %}{{ "" }}
+
+| Cluster | Market | Month | Impressions | Clicks | CPC | CVR | Conversions | Cost |
+|---|---|---|---|---|---|---|---|---|
+{% for row in forecast %}
+| {{ row.cluster|cell }} | {{ row.market|cell }} | {{ row.month|cell }} | {{ row.impressions|num }} | {{ row.clicks|num }} | {{ row.avg_cpc_usd|money("USD") }} | {{ row.cvr_pct|pct(2) }} | {{ row.conversions|num(1) }} | {{ row.cost_usd|money("USD", 0) }} |
+{% endfor %}
+{% if forecast_omitted %}
+
+*{{ forecast_omitted }} further forecast row{{ "" if forecast_omitted == 1 else "s" }} omitted. The XLSX export carries the whole grid.*
+{% endif %}
+{% endif %}
+
+{% if plan.media_plan.reallocation_rules %}
+### When money moves without a new plan
+
+| Rule | If | Then move | Cap | Cooldown | Human? |
+|---|---|---|---|---|---|
+{% for row in plan.media_plan.reallocation_rules %}
+| {{ row.id|cell }} | {{ row.trigger_metric|cell }} {{ row.comparison|cell }} {{ row.threshold|num(2) }} over {{ row.lookback_days|num }}d | {{ row.from_campaign|cell }} → {{ row.to_campaign|cell }} | {{ row.max_shift_pct|pct }} | {{ row.cooldown_days|num }}d | {{ row.requires_human|yesno }} |
+{% endfor %}
+
+Reviewed {{ plan.media_plan.review_cadence|text }}.
+{% endif %}
+
+---
+
+## 4. Channel slate
+
+{% if plan.channel_slate.slate %}
+| Channel | Market | Wave | Share | Rationale |
+|---|---|---|---|---|
+{% for row in plan.channel_slate.slate %}
+| {{ row.campaign_type|cell }} | {{ row.market|cell }} | {{ row.launch_wave|text }} | {{ row.est_share_of_budget_pct|pct(1) }} | {{ row.rationale|cell }} |
+{% endfor %}
+{% else %}
+No channel slate was agreed.
+{% endif %}
+
+{% if plan.channel_slate.rejected %}
+### Considered and rejected
+
+{% for row in plan.channel_slate.rejected %}
+- **{{ row.campaign_type|text }}** — {{ row.why_not|text }}
+{% endfor %}
+{% endif %}
+
+{% if plan.channel_slate.brand_isolation %}
+### Brand isolation
+
+Brand terms are bid on in `{{ plan.channel_slate.brand_isolation.brand_campaign_ref|text }}` only, at {{ plan.channel_slate.brand_isolation.budget_pct|pct(1) }} of budget, and are negative in every other campaign.
+
+**Reporting rule.** {{ plan.channel_slate.brand_isolation.reporting_rule|text }}
+**Competitor bidding.** {{ plan.channel_slate.brand_isolation.competitor_bidding_policy|text }}
+{% endif %}
+
+---
+
+## 5. Account structure
+
+**{{ counts.campaigns }} campaigns · {{ counts.ad_groups }} ad groups · {{ counts.keywords }} keywords.** {% if plan.account_structure.structure_verdict %}Structure verdict: **{{ plan.account_structure.structure_verdict|replace("_", " ") }}**.{% endif %}{{ "" }}
+
+{% if plan.account_structure.naming_convention and plan.account_structure.naming_convention.validator_regex %}
+Names follow `{{ plan.account_structure.naming_convention.patterns.get("campaign", "—") }}` and are validated against the convention's own expression.
+{% endif %}
+
+{% for campaign in campaigns %}
+### {{ loop.index }}. {{ campaign.name }}
+
+{{ campaign.type|text }} · {{ campaign.market|text }} · {{ campaign.daily_budget_usd|money("USD") }}/day ({{ campaign.monthly_budget_usd|money("USD", 0) }}/month) · {{ campaign.bid_strategy|text }}{% if campaign.target %} at {{ campaign.target|num(2) }}{% endif %}{{ "" }}
+
+| Ad group | Theme | Landing page | Keywords |
+|---|---|---|---|
+{% for group in ad_group_rows(campaign) %}
+| {{ group.name|cell }} | {{ group.theme|cell }} | {{ group.landing_url|cell }} | {{ group.keyword_count }} |
+{% endfor %}
+
+{% for group in ad_group_rows(campaign) %}
+{% if group.keywords %}
+**{{ group.name }}** — {% for keyword in group.keywords %}`{{ keyword.term }}` ({{ keyword.match_type }}){{ ", " if not loop.last else "" }}{% endfor %}{% if group.omitted %} *and {{ group.omitted }} more*{% endif %}{{ "" }}
+{% endif %}
+{% endfor %}
+{% endfor %}
+{% if campaigns_omitted %}
+
+*{{ campaigns_omitted }} further campaign{{ "" if campaigns_omitted == 1 else "s" }} omitted from this document. The Editor CSV export carries the complete account.*
+{% endif %}
+
+{% if plan.account_structure.account_negatives %}
+### Account-level negatives
+
+{{ plan.account_structure.account_negatives|commalist }}
+{% endif %}
+{% if plan.account_structure.orphan_terms %}
+
+**{{ plan.account_structure.orphan_terms|length }} researched term{{ "" if plan.account_structure.orphan_terms|length == 1 else "s" }} did not fit any ad group** and are not in this plan: {{ plan.account_structure.orphan_terms[:20]|commalist }}.
+{% endif %}
+
+---
+
+## 6. Measurement plan
+
+**Source of truth:** {{ plan.measurement_plan.primary_source|text }}. {{ plan.measurement_plan.rationale|text }}
+
+{% if plan.measurement_plan.metric_definitions %}
+| Metric | How it is computed | Read from | Owner | Refresh |
+|---|---|---|---|---|
+{% for row in plan.measurement_plan.metric_definitions %}
+| {{ row.metric|cell }} | {{ row.formula|cell }} | {{ row.source_field|cell }} | {{ row.owner|cell }} | {{ row.refresh|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if plan.measurement_plan.reconciliation %}
+### Reconciliation
+
+| Metric | Systems | Tolerance | Cadence | Owner |
+|---|---|---|---|---|
+{% for row in plan.measurement_plan.reconciliation %}
+| {{ row.metric|cell }} | {{ row.systems|cell }} | {{ row.tolerance_pct|pct(1) }} | {{ row.cadence|cell }} | {{ row.owner|cell }} |
+{% endfor %}
+{% endif %}
+
+{% if plan.measurement_plan.upload %}
+### Getting closed deals back into the account
+
+**Method:** {{ plan.measurement_plan.upload.get("method")|text }} · **Cadence:** {{ plan.measurement_plan.upload.get("cadence")|text }} · **Lag:** {{ plan.measurement_plan.upload.get("lag_days")|days }} · **Backfill:** {{ plan.measurement_plan.upload.get("backfill_days")|days }}
+{% if plan.measurement_plan.gclid_capture %}
+**Click id captured today:** {{ plan.measurement_plan.gclid_capture.get("present_today")|yesno }} — {{ plan.measurement_plan.gclid_capture.get("basis")|text }}
+{% endif %}
+{% endif %}
+
+### Consent
+
+**Permitted:** {{ plan.measurement_plan.consent_markets_allowed|commalist }}
+**Refused at gate 1.5.3:** {{ plan.measurement_plan.consent_markets_blocked|commalist }}
+{% if plan.measurement_plan.consent_basis %}
+**Lawful basis:** {{ plan.measurement_plan.consent_basis|commalist }}
+{% endif %}
+
+---
+
+## 7. Test backlog
+
+{% if plan.experiment_backlog %}
+{{ funded_tests|length }} of {{ plan.experiment_backlog|length }} planned test{{ "" if plan.experiment_backlog|length == 1 else "s" }} are funded from the experiment reserve.
+
+| # | Test | Campaign | Metric | Baseline | Conv./arm | Time to read | ICE | Reserve | Funded |
+|---|---|---|---|---|---|---|---|---|---|
+{% for row in test_rows(plan.experiment_backlog) %}
+| {{ row.rank|text }} | {{ row.hypothesis|cell }} | {{ row.campaign|cell }} | {{ row.metric|cell }} | {{ row.baseline }} | {{ row.conv_per_arm }} | {{ row.days }} | {{ row.ice }} | {{ row.reserve }} | {{ row.funded }} |
+{% endfor %}
+{% else %}
+No test could be sized against this plan's forecasts.
+{% endif %}
+
+---
+
+## 8. Decisions
+
+{% if plan.decisions %}
+| Gate | Decision | Status | Decided by | Date | Note |
+|---|---|---|---|---|---|
+{% for row in plan.decisions %}
+| {{ row.gate_key }} | {{ gate_labels.get(row.gate_key, row.name)|cell }} | {{ row.status }} | {{ row.decided_by_name|cell }} | {{ row.decided_at|date }} | {{ row.note|cell }}{% if row.edits_applied %} *({{ row.edits_applied|length }} edit{{ "" if row.edits_applied|length == 1 else "s" }})*{% endif %} |
+{% endfor %}
+{% else %}
+No gate decisions were recorded, which means this plan has not been through its approvals.
+{% endif %}
+
+---
+
+## 9. Open dependencies
+
+{% if blocking_dependencies %}
+### Blocking — these stop the plan
+
+| Task | Owner | Raised by |
+|---|---|---|
+{% for row in blocking_dependencies %}
+| {{ row.task|cell }} | {{ row.owner|cell }} | {{ row.source|cell }} |
+{% endfor %}
+{% endif %}
+{% if other_dependencies %}
+
+### Everything else
+
+{% for row in other_dependencies %}
+- {{ row.task|text }} — *{{ row.owner|text }}*
+{% endfor %}
+{% endif %}
+{% if not plan.open_dependencies %}
+Nothing is outstanding.
+{% endif %}
+
+{% if plan.assumptions %}
+---
+
+## 10. Assumptions
+
+{% for claim in plan.assumptions %}
+{{ loop.index }}. {{ claim.statement }} *({{ claim.confidence }} confidence)*
+{% endfor %}
+{% endif %}
+
+{% if plan.risks %}
+## 11. Risks
+
+{% for claim in plan.risks %}
+{{ loop.index }}. {{ claim.statement }} *({{ claim.confidence }} confidence)*
+{% endfor %}
+{% endif %}
+
+---
+
+*{{ numbers|length }} figure{{ "" if numbers|length == 1 else "s" }} in this plan resolve to a recorded calculation. Constants version {{ plan.constants_version|text }}.*
+{% if watermark %}
+
+**{{ watermark }}**
+{% endif %}

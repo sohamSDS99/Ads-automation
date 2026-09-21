@@ -25,7 +25,7 @@ from typing import Annotated
 
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, Query, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
@@ -34,6 +34,8 @@ from agent.api.schemas_plan import (
     AcceptedSource,
     AcceptResearchRequest,
     Blocker,
+    FreezePlanRequest,
+    FrozenPlan,
     PlanCalcList,
     PlanCalcRow,
     PlanEligibility,
@@ -42,10 +44,11 @@ from agent.api.schemas_plan import (
     PlanVersionList,
     ResearchAcceptanceResponse,
 )
+from agent.api.schemas_report import ExportAccepted, ExportJob
 from agent.api.throttle import throttle
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
-from agent.auth.ratelimit import RUN_QUOTA
+from agent.auth.ratelimit import EXPORT_QUOTA, RUN_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
@@ -55,7 +58,11 @@ from agent.db.models import (
     CampaignPlan,
     CampaignPlanStatus,
     CredentialKind,
+    Export,
+    ExportArtifactType,
+    ExportFormat,
     PlanCalc,
+    Project,
     Report,
     ResearchAcceptance,
     Run,
@@ -64,11 +71,21 @@ from agent.db.models import (
     RunTrigger,
     UserRole,
 )
-from agent.db.repos import ProjectRepo, ReportRepo, RunRepo, UserRepo
+from agent.db.repos import (
+    CampaignPlanRepo,
+    ExportRepo,
+    ProjectRepo,
+    ReportRepo,
+    RunRepo,
+    UserRepo,
+)
 from agent.db.session import get_session
+from agent.export.jobs import CAMPAIGN_PLAN_FORMATS, plan_filename_for
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.plan_input import PlanInputError, build_plan_input
 from agent.orchestrator.state import RunLock
+from agent.planning import freeze as freezing
+from agent.queue import enqueue_export
 from agent.redis_client import get_redis
 
 log = structlog.get_logger(__name__)
@@ -79,6 +96,7 @@ Db = Annotated[AsyncSession, Depends(get_session)]
 AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
 Decider = Annotated[Principal, Depends(require(Permission.APPROVAL_DECIDE))]
 PlanOperator = Annotated[Principal, Depends(require(Permission.PLAN_EXECUTE))]
+Sealer = Annotated[Principal, Depends(require(Permission.PLAN_FREEZE))]
 
 
 def _utcnow() -> datetime:
@@ -805,4 +823,176 @@ async def _acceptance_response(
         launch_readiness_at_acceptance=acceptance.launch_readiness_at_acceptance,
         override_reason=acceptance.override_reason,
         is_current=acceptance.is_current,
+    )
+
+
+# ---------------------------------------------------------------------------
+# freezing (Stage 02 PRD §12.2, §16)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/plans/{plan_run_id}/freeze",
+    response_model=FrozenPlan,
+    summary="Seal a campaign plan at a version",
+)
+async def freeze_plan(
+    plan_run_id: uuid.UUID,
+    body: FreezePlanRequest,
+    me: Sealer,
+    request: Request,
+    db: Db,
+) -> FrozenPlan:
+    """Freeze one plan.
+
+    Keyed on `plan_run_id` rather than on the plan's own id, matching
+    `/plans/{plan_run_id}/calcs` and the Plan Viewer's other routes — §16
+    writes `{id}` for all of them and the frontend carries one identifier.
+
+    Every refusal is a `409` carrying a `blockers[]` array in the §16 rule 1
+    shape, because the freeze dialog renders that array directly and must
+    never re-derive a reason of its own.
+    """
+    try:
+        result = await freezing.freeze_plan(
+            db,
+            workspace_id=me.workspace_id,
+            plan_run_id=plan_run_id,
+            confirm_version=body.confirm_version,
+            actor_id=me.user.id,
+            ip=client_ip(request),
+        )
+    except freezing.FreezeRefused as exc:
+        blockers = [
+            Blocker(code=item.code, detail=item.detail, fix_url=item.fix_url)
+            for item in exc.blockers
+        ]
+        if any(item.code == "plan_not_found" for item in exc.blockers):
+            raise problems.not_found(exc.blockers[0].detail) from exc
+        raise problems.conflict(
+            blockers[0].detail,
+            title="This plan cannot be frozen yet",
+            code=blockers[0].code,
+            blockers=[item.model_dump() for item in blockers],
+        ) from exc
+    except freezing.FreezeConflict as exc:
+        raise problems.conflict(
+            str(exc),
+            title="Version mismatch",
+            code="version_race",
+            expected_version=exc.expected,
+            submitted_version=exc.submitted,
+            blockers=[
+                Blocker(
+                    code="version_race",
+                    detail=str(exc),
+                    fix_url=f"/plans/{plan_run_id}",
+                ).model_dump()
+            ],
+        ) from exc
+
+    return FrozenPlan(
+        plan_id=result.plan.id,
+        plan_run_id=plan_run_id,
+        project_id=result.plan.project_id,
+        version=result.version,
+        status=result.plan.status.value,
+        frozen_at=result.plan.frozen_at,
+        frozen_by=result.plan.frozen_by,
+        frozen_approval_ids=list(result.approval_ids),
+        superseded=list(result.superseded),
+        already_frozen=result.already_frozen,
+    )
+
+
+# ---------------------------------------------------------------------------
+# exporting a plan (Stage 02 PRD §14)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/plans/{plan_run_id}/export",
+    response_model=ExportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate an export of a campaign plan",
+    dependencies=[Depends(throttle(EXPORT_QUOTA))],
+)
+async def request_plan_export(
+    plan_run_id: uuid.UUID,
+    me: AnyMember,
+    request: Request,
+    db: Db,
+    export_format: Annotated[
+        ExportFormat,
+        Query(alias="format", description="pdf | docx | md | json | editor_csv | xlsx"),
+    ],
+) -> ExportAccepted:
+    """Queue one plan export.
+
+    `READ`, not a write permission: §14 gives every role the export, and the
+    write-shaped verb is about where the work happens — a job row and a file
+    on the worker's volume — not about privilege. A `viewer` may export a
+    plan and may not freeze one.
+    """
+    if export_format not in CAMPAIGN_PLAN_FORMATS:
+        raise problems.unprocessable(
+            f"A campaign plan cannot be exported as {export_format.value}. Choose one of: "
+            f"{', '.join(sorted(item.value for item in CAMPAIGN_PLAN_FORMATS))}.",
+            title="Unsupported export format",
+        )
+
+    plan = await CampaignPlanRepo(db, me.workspace_id).for_run(plan_run_id)
+    if plan is None:
+        raise problems.not_found(f"No campaign plan for run {plan_run_id}.")
+    project = await ProjectRepo(db, me.workspace_id).get(plan.project_id)
+
+    export = ExportRepo(db, me.workspace_id).add(
+        plan.id,
+        export_format,
+        artifact_type=ExportArtifactType.CAMPAIGN_PLAN,
+        requested_by=me.user.id,
+    )
+    await db.flush()
+
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.EXPORT_REQUESTED,
+        target_type=AuditTarget.EXPORT,
+        target_id=export.id,
+        meta={
+            "plan_run_id": str(plan_run_id),
+            "plan_id": str(plan.id),
+            "format": export_format.value,
+            "plan_status": plan.status.value,
+        },
+        ip=client_ip(request),
+    )
+    # Committed before the job is queued: the worker looks this row up by id,
+    # so enqueueing first is a race it can lose.
+    await db.commit()
+    await enqueue_export(export.id)
+
+    return ExportAccepted(job_id=export.id, export=_plan_export_job(export, plan, project))
+
+
+def _plan_export_job(export: Export, plan: CampaignPlan, project: Project | None) -> ExportJob:
+    """One plan export row as the API describes it."""
+    return ExportJob(
+        id=export.id,
+        report_id=export.artifact_id,
+        run_id=plan.plan_run_id,
+        format=export.format,
+        status=export.status,
+        bytes=export.bytes,
+        filename=plan_filename_for(
+            export.format,
+            project_name=project.name if project else None,
+            version=plan.version,
+            generated_at=export.created_at,
+        ),
+        error=export.error,
+        created_at=export.created_at,
+        ready_at=export.ready_at,
     )

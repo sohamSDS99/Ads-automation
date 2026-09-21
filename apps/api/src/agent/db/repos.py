@@ -27,6 +27,7 @@ from agent.db.models import (
     ApprovalStatus,
     AuditLog,
     CampaignPlan,
+    CampaignPlanStatus,
     Export,
     ExportArtifactType,
     ExportFormat,
@@ -462,6 +463,117 @@ class ReportRepo:
             .where(Report.id == report_id, Run.workspace_id == self.workspace_id)
         )
         return result.scalar_one_or_none()
+
+
+class CampaignPlanRepo(WorkspaceScopedRepo[CampaignPlan]):
+    """Campaign plans. One per plan run, many per project (Stage 02 §7.2).
+
+    `WorkspaceScopedRepo` rather than a join, because `campaign_plan` carries
+    its own `workspace_id`.
+
+    The one thing worth knowing here is `DRAFT_VERSION`. `version` is minted at
+    freeze (§12.2), so every plan is written before it has one, and migration
+    0014 made uniqueness partial (`WHERE version > 0`) precisely so that more
+    than one unfrozen plan can exist in a project — which happens the first
+    time a gate is rejected and the run is repeated.
+    """
+
+    model = CampaignPlan
+
+    #: What an unfrozen plan's `version` is. `version > 0` is the test for
+    #: "this plan has been frozen at least once", and the Plan Viewer renders
+    #: 0 as an em dash rather than as "version zero".
+    DRAFT_VERSION = 0
+
+    async def for_run(self, plan_run_id: uuid.UUID) -> CampaignPlan | None:
+        result = await self.session.execute(
+            self.select().where(CampaignPlan.plan_run_id == plan_run_id)
+        )
+        return result.scalar_one_or_none()
+
+    async def upsert(
+        self,
+        *,
+        plan_run_id: uuid.UUID,
+        project_id: uuid.UUID,
+        acceptance_id: uuid.UUID,
+        schema_version: str,
+        payload: dict[str, Any],
+        markdown: str,
+        status: CampaignPlanStatus,
+    ) -> CampaignPlan:
+        """Write the run's plan, replacing it if this run already has one.
+
+        Node 2.6.2 re-synthesises once when its critique finds a blocking
+        issue, and that second write has to land on the same row: `plan_run_id`
+        is unique, and two plans for one run would leave the Plan Viewer
+        picking one at random.
+
+        A **frozen** row is never rewritten. The database trigger would reject
+        it anyway (law 17), and raising here names the reason rather than
+        surfacing `restrict_violation` from three layers down.
+        """
+        existing = await self.for_run(plan_run_id)
+        if existing is not None:
+            if existing.status is CampaignPlanStatus.FROZEN:
+                raise FrozenPlanError(
+                    f"campaign_plan {existing.id} is frozen at v{existing.version}. "
+                    "A change means a new version from a new plan run (§12.2)."
+                )
+            existing.schema_version = schema_version
+            existing.payload = payload
+            existing.markdown = markdown
+            existing.status = status
+            await self.session.flush()
+            return existing
+
+        plan = CampaignPlan(
+            workspace_id=self.workspace_id,
+            project_id=project_id,
+            plan_run_id=plan_run_id,
+            acceptance_id=acceptance_id,
+            schema_version=schema_version,
+            version=self.DRAFT_VERSION,
+            status=status,
+            payload=payload,
+            markdown=markdown,
+        )
+        self.session.add(plan)
+        await self.session.flush()
+        return plan
+
+    async def next_version(self, project_id: uuid.UUID) -> int:
+        """§12.2: `max(version) + 1` for the project.
+
+        Over **every** row, not only the frozen ones. A superseded plan is no
+        longer `status='frozen'` but its version must never be reissued, and a
+        predicate on status is how that would quietly happen.
+        """
+        highest = (
+            await self.session.execute(
+                sa.select(sa.func.max(CampaignPlan.version)).where(
+                    CampaignPlan.project_id == project_id,
+                    CampaignPlan.workspace_id == self.workspace_id,
+                )
+            )
+        ).scalar_one_or_none()
+        return int(highest or 0) + 1
+
+    async def frozen_for_project(self, project_id: uuid.UUID) -> list[CampaignPlan]:
+        """Every currently-frozen plan in a project. The freeze supersedes these."""
+        result = await self.session.execute(
+            self.select()
+            .where(
+                CampaignPlan.project_id == project_id,
+                CampaignPlan.status == CampaignPlanStatus.FROZEN,
+            )
+            .order_by(CampaignPlan.version.desc())
+        )
+        return list(result.scalars().all())
+
+
+class FrozenPlanError(RuntimeError):
+    """A write was attempted against a frozen plan (Stage 02 law 17)."""
 
 
 class ExportRepo:
