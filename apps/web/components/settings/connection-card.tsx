@@ -176,7 +176,14 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
                only thing that moves this forward. */
             variant={source.connected || !source.configured ? "secondary" : "primary"}
             className="w-full"
-            disabled={busy || !source.configured}
+            /* Only *connecting* needs a key. Switching a source off never does,
+               and disabling Disconnect here stranded the one state this
+               product actually shipped into: migration 0012 carries every
+               previously-stored credential forward as a connection, so a
+               deployment that has not yet moved its keys into the environment
+               opens this screen connected and unconfigured — with no way to
+               act on either fact. */
+            disabled={busy || (!source.connected && !source.configured)}
             onClick={() => (source.connected ? disconnect.mutate() : connect.mutate())}
           >
             {busy ? <Spinner label={source.connected ? "Disconnecting" : "Connecting"} /> : null}
@@ -226,7 +233,18 @@ function SourceIcon({ kind }: { kind: SourceKind }) {
 
 /** Whether this source will answer when a run calls it, in three words or less. */
 function StatePill({ source }: { source: Source }) {
-  if (!source.configured) return <Pill tone="off" label="Not set up" />;
+  // Configured and connected are two facts, so four states, and the pair that
+  // are both false read very differently from the pair that disagree. "Not set
+  // up" means nobody has done anything; "Connected, no key" means somebody
+  // switched this on and the deployment then had nothing to answer with — a
+  // run skips it, and the reader needs to know that is not the same thing.
+  if (!source.configured) {
+    return source.connected ? (
+      <Pill tone="bad" label="Connected, no key" />
+    ) : (
+      <Pill tone="off" label="Not set up" />
+    );
+  }
   if (!source.connected) return <Pill tone="env" label="Ready to connect" />;
   if (source.last_test_ok === true) return <Pill tone="ok" label="Working" />;
   if (source.last_test_ok === false) return <Pill tone="bad" label="Not working" />;

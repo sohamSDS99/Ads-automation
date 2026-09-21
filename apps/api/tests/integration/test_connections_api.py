@@ -204,6 +204,35 @@ async def test_disconnecting_removes_the_decision_and_nothing_else(
     assert "source.disconnected" in actions
 
 
+async def test_a_connected_source_can_be_switched_off_without_a_key(
+    admin: ApiClient, db: AsyncSession, admin_user: Any, workspace_id: Any
+) -> None:
+    """The state migration 0012 actually creates, and the way back out of it.
+
+    Every previously-stored credential becomes a connection, so a deployment
+    that has not yet moved its keys into the environment opens this screen with
+    sources switched on and nothing behind them. Switching one off must not
+    require the key it does not have — that would be a screen reporting a
+    problem and refusing the only action that resolves it.
+    """
+    db.add(
+        SourceConnection(
+            workspace_id=workspace_id,
+            kind=CredentialKind.DATAFORSEO,
+            connected_by=admin_user.id,
+        )
+    )
+    await db.commit()
+
+    sources = {row["kind"]: row for row in (await admin.get("/connections")).json()["sources"]}
+    assert sources["dataforseo"]["connected"] is True
+    assert sources["dataforseo"]["configured"] is False
+
+    assert (await admin.delete("/connections/dataforseo")).status_code == 204
+    sources = {row["kind"]: row for row in (await admin.get("/connections")).json()["sources"]}
+    assert sources["dataforseo"]["connected"] is False
+
+
 async def test_disconnecting_something_already_off_is_not_an_error(admin: ApiClient) -> None:
     """The caller asked for this source to be off, and it is off."""
     assert (await admin.delete("/connections/openrouter")).status_code == 204
