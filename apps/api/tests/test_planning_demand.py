@@ -430,6 +430,68 @@ def test_allocation_units_are_campaign_market_funnel() -> None:
     assert {row["target_cpa_usd"] for row in units} == {300.0, 100.0}
 
 
+def test_every_unit_gets_a_target_down_a_ladder_of_computed_figures() -> None:
+    """`split_v1` excludes a unit whose target is zero — so a unit with no
+    target of its own is unfunded, and a run where the model assigned no
+    cluster at all produces no budget and a gate with nothing on it.
+
+    That is a reachable state, and it took down every plan run in the 2.5
+    integration suite before this ladder existed.
+    """
+    units = demand.allocation_units(
+        FORECAST,
+        assignments={},  # nothing assigned: everything lands on `unassigned`
+        targets={},
+        month_count=2,
+        default_target_cpa_usd=250.0,
+    ).to_dict(orient="records")
+
+    assert [row["campaign_ref"] for row in units] == [demand.UNASSIGNED]
+    assert units[0]["target_cpa_usd"] == 250.0
+    assert units[0]["target_cpa_basis"] == "account"
+
+
+def test_the_last_rung_is_the_units_own_forecast_cpa() -> None:
+    """Efficiency exactly 1.0 — "nothing here says this unit is better or worse
+    than the forecast". A computed figure, never a constant and never zero."""
+    units = demand.allocation_units(
+        FORECAST, assignments=ASSIGNED, targets={}, month_count=2
+    ).to_dict(orient="records")
+    by_ref = {row["campaign_ref"]: row for row in units}
+
+    assert by_ref["brand"]["target_cpa_usd"] == by_ref["brand"]["forecast_cpa_usd"] == 200.0
+    assert by_ref["brand"]["target_cpa_basis"] == "forecast"
+
+
+def test_a_campaigns_own_target_beats_both_fallbacks() -> None:
+    units = demand.allocation_units(
+        FORECAST,
+        assignments=ASSIGNED,
+        targets={"brand": 300.0},
+        month_count=2,
+        default_target_cpa_usd=250.0,
+    ).to_dict(orient="records")
+    by_ref = {row["campaign_ref"]: row for row in units}
+
+    assert by_ref["brand"]["target_cpa_usd"] == 300.0
+    assert by_ref["brand"]["target_cpa_basis"] == "campaign"
+    # ...and the campaign without one still falls back rather than dropping out.
+    assert by_ref["education"]["target_cpa_usd"] == 250.0
+    assert by_ref["education"]["target_cpa_basis"] == "account"
+
+
+def test_an_unfunded_ladder_still_produces_a_splittable_frame() -> None:
+    """The property that actually matters: whatever the ladder resolves to,
+    `allocation.split_v1` must be able to allocate the frame."""
+    from agent.calc import allocation
+
+    units = demand.allocation_units(FORECAST, assignments={}, targets={}, month_count=2)
+    split = allocation.split_v1(units, constants=CONSTANTS, envelope_usd=10_000.0)
+
+    assert split.result["allocation"]
+    assert split.result["allocated_usd"] > 0
+
+
 def test_the_absorption_cap_is_measured_or_absent_never_guessed() -> None:
     with_headroom = demand.allocation_units(
         FORECAST,

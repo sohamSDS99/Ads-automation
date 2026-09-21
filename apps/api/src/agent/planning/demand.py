@@ -409,6 +409,7 @@ UNIT_COLUMNS = (
     "funnel_stage",
     "forecast_cpa_usd",
     "target_cpa_usd",
+    "target_cpa_basis",
     "avg_cpc_usd",
     "max_spend_usd",
 )
@@ -476,6 +477,7 @@ def allocation_units(
     month_count: int,
     funnel_stages: Mapping[tuple[str, str], str] | None = None,
     headroom_pct: float | None = None,
+    default_target_cpa_usd: float | None = None,
 ) -> pd.DataFrame:
     """The per-unit frame `allocation.split_v1` divides an envelope across.
 
@@ -483,6 +485,18 @@ def allocation_units(
     allocation grain and finer than a campaign: one campaign running top- and
     bottom-of-funnel demand in two markets is four lines on the budget owner's
     screen, and four lines is what makes an edit meaningful.
+
+    **Every unit gets a target, or it gets no budget.** `allocation.split_v1`
+    weights a unit by `targetCPA / forecastCPA` and excludes one whose target
+    is zero, so a unit with no target of its own is not merely unweighted — it
+    is unfunded, and if *every* unit is in that state there is no split at all
+    and the budget gate has nothing to show. That is a reachable state: a model
+    that forgets to assign a cluster sends it to `UNASSIGNED`, which is a
+    campaign with no target because it is not a campaign. So the target falls
+    back down a ladder of **computed** figures — the campaign's own, then the
+    account-wide one from 2.1.2, then the unit's own forecast CPA, which is
+    efficiency exactly 1.0 and reads as "nothing here says this unit is better
+    or worse than the forecast". Never a constant, and never zero.
 
     `max_spend_usd` is the one cap in the frame and it is **measured**: a unit
     can absorb its forecast cost plus whatever share of impressions it does not
@@ -511,17 +525,20 @@ def allocation_units(
         entry["conversions"] += _float(row.get("conversions"))
         entry["clicks"] += _float(row.get("clicks"))
 
+    fallback = float(default_target_cpa_usd or 0.0)
     records: list[dict[str, Any]] = []
     for (ref, market, funnel), entry in sorted(totals.items()):
         monthly_cost = entry["cost"] / month_count
+        forecast_cpa = (
+            round(entry["cost"] / entry["conversions"], 2) if entry["conversions"] > 0 else 0.0
+        )
         record: dict[str, Any] = {
             "campaign_ref": ref,
             "market": market,
             "funnel_stage": funnel,
-            "forecast_cpa_usd": (
-                round(entry["cost"] / entry["conversions"], 2) if entry["conversions"] > 0 else 0.0
-            ),
-            "target_cpa_usd": round(float(targets.get(ref, 0.0)), 2),
+            "forecast_cpa_usd": forecast_cpa,
+            "target_cpa_usd": _target_for(ref, targets, fallback=fallback, own=forecast_cpa),
+            "target_cpa_basis": _target_basis(ref, targets, fallback=fallback),
             "avg_cpc_usd": (
                 round(entry["cost"] / entry["clicks"], 2) if entry["clicks"] > 0 else 0.0
             ),
@@ -679,6 +696,28 @@ def shift_percentages(max_shift_pct: float) -> dict[str, float]:
     if max_shift_pct < 0:
         raise ValueError(f"max_shift_pct must not be negative, got {max_shift_pct}")
     return {"standard": max_shift_pct, "half": round(max_shift_pct / 2, 4), "none": 0.0}
+
+
+def _target_for(ref: str, targets: Mapping[str, float], *, fallback: float, own: float) -> float:
+    """This unit's target CPA, down the ladder. Never zero where a figure exists."""
+    stated = float(targets.get(ref, 0.0))
+    if stated > 0:
+        return round(stated, 2)
+    if fallback > 0:
+        return round(fallback, 2)
+    return round(own, 2)
+
+
+def _target_basis(ref: str, targets: Mapping[str, float], *, fallback: float) -> str:
+    """Which rung of the ladder this unit's target came from.
+
+    Carried onto the frame and therefore into `PlanCalc.inputs`, so a budget
+    owner asking "what is this line being judged against" gets an answer from
+    the audit trail rather than from a guess.
+    """
+    if float(targets.get(ref, 0.0)) > 0:
+        return "campaign"
+    return "account" if fallback > 0 else "forecast"
 
 
 def _assigned(row: Mapping[str, Any], assignments: Assignment) -> str:

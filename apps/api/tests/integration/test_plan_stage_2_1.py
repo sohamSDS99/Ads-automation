@@ -46,6 +46,7 @@ from agent.db.models import (
 )
 from agent.nodes.plan import stage_2_1
 from tests.integration.conftest import ApiClient
+from tests.integration.plan_answers import every_plan_answer
 from tests.integration.runs_support import execute, seed_crm
 from tests.openrouter_fake import FakeOpenRouter
 from tests.report_support import golden_payload
@@ -74,75 +75,14 @@ def fake_openrouter() -> FakeOpenRouter:
 
 
 def answers() -> dict[str, Any]:
-    """One scripted answer per output model on the 2.1 branch. No figures."""
-    return {
-        "TaxonomyDraft": {
-            "actions": [
-                {
-                    "name": "Qualified lead",
-                    "ads_action_id": None,
-                    "category": "qualified_lead",
-                    "counting": "one_per_click",
-                    "value_model": "fixed",
-                    "value_basis": "target_cpl",
-                    "primary": True,
-                    "include_in_conversions": True,
-                    "rationale": "Sales works every one of these.",
-                    "evidence_ids": [],
-                }
-            ],
-            "deprecate": [],
-            "ranking": ["Qualified lead"],
-        },
-        "MethodNotes": {
-            "method_notes": "Gross profit over the CAC ratio, times the observed close rate.",
-            "caveats": ["One industry carries the whole book."],
-        },
-        # 2.2.1 hangs off 2.1.1, so a plan run reaches it in the same wave as
-        # the ceiling — before either gate is asked. It is scripted here rather
-        # than filtered out of the run because "the budget branch starts without
-        # waiting for a gate" is a property of the DAG worth exercising every
-        # time this file runs. `tests/integration/test_plan_stage_2_2.py` is
-        # where what it produces is asserted.
-        "ForecastNotes": {
-            "method_notes": "Search volume at the impression-share target.",
-            "caveats": ["A forecast is not a promise."],
-        },
-        "CampaignTargetsDraft": {
-            "objectives": [
-                {
-                    "campaign_ref": "nonbrand-us-lead-gen",
-                    "objective": "lead_gen",
-                    "primary_kpi": "cpl",
-                    "segment_ref": "Chemicals",
-                    "basis": "Every closed-won deal is a chemicals account.",
-                    "ramp": [{"month": 1, "phase": "learning"}, {"month": 2, "phase": "steady"}],
-                    "confidence": "medium",
-                    "evidence_ids": [],
-                }
-            ],
-            "north_star": {
-                "metric": "cpl",
-                "period": "monthly",
-                "segment_ref": None,
-                "rationale": "One number for the account.",
-            },
-        },
-        "LeadDefinitionDraft": {
-            "qualified_lead": {
-                "required_signals": ["a compliance obligation"],
-                "disqualifiers": ["sole trader"],
-                "scoring": [
-                    {"signal": "a compliance obligation", "weight": 5, "source_field": "industry"}
-                ],
-                "threshold": 5,
-            },
-            "sla_response_hours": 4,
-            "routing": [{"segment": "Chemicals", "owner": "EMEA desk"}],
-            "observed_rejection_reasons": ["price"],
-            "notes": "Sales rejects sole traders on sight.",
-        },
-    }
+    """Every plan node's scripted answer, not only 2.1's.
+
+    `POST /plan/runs` has no node filter — a plan run is the whole DAG — so a
+    suite that scripted only the stage it is about would fail on the first
+    node of any other stage. The tables live in `plan_answers.py` so that
+    shipping a stage is one edit there rather than one edit per suite.
+    """
+    return every_plan_answer()
 
 
 # ---------------------------------------------------------------------------
@@ -331,13 +271,21 @@ async def test_four_nodes_share_one_calculation(
 async def test_the_calculation_is_searchable_as_derived_evidence(
     admin: ApiClient, accepted: dict[str, Any], fake_openrouter: FakeOpenRouter, db: AsyncSession
 ) -> None:
-    """PRD §7.3: a `derived` row with a one-line human rendering."""
+    """PRD §7.3: a `derived` row with a one-line human rendering.
+
+    Scoped to the kind stage 2.1's own formulas write. A plan run executes
+    every stage the DAG holds, so `derived` rows of other kinds — S2-P5a's
+    `calc_measurement`, and whatever comes after — are in the same run and
+    are not this suite's subject.
+    """
     plan_run_id = await run_2_1(admin, accepted, fake_openrouter)
     rows = (
         (
             await db.execute(
                 sa.select(Evidence).where(
-                    Evidence.run_id == plan_run_id, Evidence.source == EvidenceSource.DERIVED
+                    Evidence.run_id == plan_run_id,
+                    Evidence.source == EvidenceSource.DERIVED,
+                    Evidence.kind == "calc_economics",
                 )
             )
         )
@@ -345,10 +293,6 @@ async def test_the_calculation_is_searchable_as_derived_evidence(
         .all()
     )
     assert rows
-    # `calc_forecast` joins it from S2-P3: 2.2.1 runs in the same wave as the
-    # ceiling. Both are `derived` rows with a human rendering, which is what
-    # this test is about.
-    assert {row.kind for row in rows} <= {"calc_economics", "calc_forecast"}
     assert any("Max CPL" in (row.content_text or "") for row in rows)
     assert all(row.payload["formula_id"] for row in rows)
 

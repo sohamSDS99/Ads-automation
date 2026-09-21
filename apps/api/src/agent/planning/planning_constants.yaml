@@ -13,7 +13,13 @@
 # constants. Every `source: internal` is a decision we made, not a number
 # anyone published. The Google rows need a real URL against the current help
 # centre before the first plan is frozen for a client.
-version: "2026.09.2"
+#
+# 2026.09.3 is a MERGE bump, not a value change. S2-P5a (`measurement`) and
+# S2-P3 (`reallocation`) were built in parallel and each bumped 2026.09.1 to
+# 2026.09.2 without seeing the other — so two different constant sets briefly
+# claimed one provenance string, which is the precise failure the header above
+# warns about. The union of them is a third set and gets its own version.
+version: "2026.09.3"
 
 learning:
   # Conversions per 30 days below which Smart Bidding cannot leave the learning
@@ -150,5 +156,49 @@ test:
     reviewed_at: 2026-09-21
   min_mde_pct:
     value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+measurement:
+  # Two systems that agree to within this are agreeing. Below it you are
+  # reconciling noise, and an alert that fires on noise gets filtered away.
+  tolerance_floor_pct:
+    value: 5
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Above this a tolerance stops being a tolerance and becomes an admission
+  # that the two systems are not measuring the same thing. The plan says so as
+  # a `known_discrepancy` rather than widening the band further.
+  tolerance_cap_pct:
+    value: 40
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Where consent limits tagging, Google reports conversions it modelled rather
+  # than observed, and the CRM cannot see them at all. Google publishes no
+  # single figure for the share — it moves by market and by vertical — so this
+  # is our allowance, not a quoted number, and it is stated as one.
+  modelled_conversion_pct:
+    value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # A conversion action silent this long contributed nothing to either system's
+  # count for the period, so its recorded volume is treated as unreconciled.
+  # Thirty, matching `nodes/readiness.STALE_DAYS`, so the tracking probe and
+  # the measurement plan call the same action stale.
+  action_stale_days:
+    value: 30
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # How long after the click Google still accepts an uploaded click conversion.
+  # Mirrors Stage 01's `CONVERSION_WINDOW_DAYS`. A published Google limit that
+  # this file does not yet cite — see the SEED warning at the top.
+  click_upload_window_days:
+    value: 90
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Human turnaround between the close of a period and the export being ready
+  # to upload. Zero for an API push; this is what a manual path costs.
+  manual_preparation_days:
+    value: 2
     source: "internal"
     reviewed_at: 2026-09-21

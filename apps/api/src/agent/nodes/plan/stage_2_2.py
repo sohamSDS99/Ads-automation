@@ -817,6 +817,11 @@ class BudgetScenariosNode(LLMNode):
             month_count=basis.month_count,
             funnel_stages=basis.funnel_stages,
             headroom_pct=basis.headroom_pct,
+            # The account-wide target from 2.1.2, for any unit whose campaign
+            # has none of its own — a cluster the model left unassigned, most
+            # often. Without it `split_v1` excludes the unit, and a run where
+            # every cluster is unassigned produces no budget at all.
+            default_target_cpa_usd=_blended_target(ctx),
         )
         envelope = await plan.calc.run(
             ENVELOPE,
@@ -1244,6 +1249,11 @@ class BudgetAllocationNode(LLMNode):
             month_count=basis.month_count,
             funnel_stages=basis.funnel_stages,
             headroom_pct=basis.headroom_pct,
+            # The account-wide target from 2.1.2, for any unit whose campaign
+            # has none of its own — a cluster the model left unassigned, most
+            # often. Without it `split_v1` excludes the unit, and a run where
+            # every cluster is unassigned produces no budget at all.
+            default_target_cpa_usd=_blended_target(ctx),
         )
         split = await plan.calc.run(SPLIT, units, envelope_usd=float(chosen["monthly_total_usd"]))
         return [split.id]

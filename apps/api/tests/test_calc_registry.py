@@ -30,7 +30,7 @@ from agent.calc.registry import (
 )
 
 #: Every formula PRD §9.2 names. Not a count — the ids, so a rename is caught.
-EXPECTED_FORMULAS = frozenset(
+PRD_FORMULAS = frozenset(
     {
         "economics.max_cpa_v1",
         "economics.payback_v1",
@@ -44,8 +44,25 @@ EXPECTED_FORMULAS = frozenset(
     }
 )
 
+#: Formulas §9.2 does not name, each with the §11 output field that forced it.
+#: Listed rather than folded into the set above so the deviation stays visible:
+#: §9.2's table serves the budget and structure branches and stops there, while
+#: §11 still mandates a tolerance, a lag and a backfill depth on stage 2.5.
+#: `agent/calc/measurement.py` argues the trade in full.
+BEYOND_THE_PRD = {
+    "measurement.reconciliation_v1": "2.5.1 reconciliation[].tolerance_pct",
+    "measurement.upload_window_v1": "2.5.2 upload.lag_days / upload.backfill_days",
+}
+
+EXPECTED_FORMULAS = PRD_FORMULAS | set(BEYOND_THE_PRD)
+
 
 def test_every_formula_in_the_prd_is_registered() -> None:
+    assert set(FORMULAS) >= PRD_FORMULAS
+
+
+def test_nothing_is_registered_that_no_prd_field_asked_for() -> None:
+    """A new formula is a deliberate act, not something that appears."""
     assert set(FORMULAS) == EXPECTED_FORMULAS
 
 

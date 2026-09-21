@@ -56,19 +56,18 @@ def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     }
     assert modules, "there are no stage modules to discover"
     assert stages == modules, "a stage module exists whose nodes never registered"
-    # Plan nodes live in `nodes/plan/`, not in a `stage_*` module, so they are
-    # checked by their own census rather than by the naming convention above.
-    assert registry.for_stage(RunStage.PLAN).ids == (
-        "2.1.1",
-        "2.1.2",
-        "2.1.3",
-        "2.1.4",
-        "2.2.1",
-        "2.2.2",
-        "2.2.3",
-        "2.2.4",
-        "2.2.5",
-    )
+    # Plan nodes live under `nodes/plan/` but follow the same convention, so
+    # the same census applies rather than a hand-written list. A literal list
+    # here would fail every phase that ships a stage, which teaches whoever
+    # reads the failure to widen the list rather than to check the discovery.
+    plan_stages = {node_id.rsplit(".", 1)[0] for node_id in registry.for_stage(RunStage.PLAN).ids}
+    plan_modules = {
+        name.removeprefix("stage_").replace("_", ".")
+        for name in _plan_module_names()
+        if name.startswith("stage_")
+    }
+    assert plan_modules, "there are no plan stage modules to discover"
+    assert plan_stages == plan_modules, "a plan stage module exists whose nodes never registered"
     assert len(set(registry.ids)) == len(registry.ids)
     assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
     assert registry.spec("1.1.4").depends_on == ("1.1.2",)
@@ -81,6 +80,15 @@ def _node_module_names() -> set[str]:
     import agent.nodes
 
     return {info.name for info in pkgutil.iter_modules(agent.nodes.__path__)}
+
+
+def _plan_module_names() -> set[str]:
+    """The same, one package down, where the Stage 02 nodes live."""
+    import pkgutil
+
+    import agent.nodes.plan
+
+    return {info.name for info in pkgutil.iter_modules(agent.nodes.plan.__path__)}
 
 
 def test_the_registry_is_cached_per_process() -> None:

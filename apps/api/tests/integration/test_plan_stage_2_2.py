@@ -50,6 +50,7 @@ from agent.db.models import (
 from agent.nodes.plan import stage_2_2
 from agent.planning import demand
 from tests.integration.conftest import ApiClient
+from tests.integration.plan_answers import every_plan_answer
 from tests.integration.runs_support import execute, seed_crm
 from tests.openrouter_fake import FakeOpenRouter
 from tests.report_support import golden_payload
@@ -89,117 +90,51 @@ IMPRESSION_SHARE = [
 
 
 def answers() -> dict[str, Any]:
-    """One scripted answer per output model across 2.1 and 2.2. No figures."""
-    return {
-        "TaxonomyDraft": {
-            "actions": [
-                {
-                    "name": "Qualified lead",
-                    "ads_action_id": None,
-                    "category": "qualified_lead",
-                    "counting": "one_per_click",
-                    "value_model": "fixed",
-                    "value_basis": "target_cpl",
-                    "primary": True,
-                    "include_in_conversions": True,
-                    "rationale": "Sales works every one of these.",
-                    "evidence_ids": [],
-                }
-            ],
-            "deprecate": [],
-            "ranking": ["Qualified lead"],
-        },
-        "MethodNotes": {
-            "method_notes": "Gross profit over the CAC ratio, times the observed close rate.",
-            "caveats": ["One industry carries the whole book."],
-        },
-        "CampaignTargetsDraft": {
-            "objectives": [
-                {
-                    "campaign_ref": "nonbrand-gb-lead-gen",
-                    "objective": "lead_gen",
-                    "primary_kpi": "cpl",
-                    "segment_ref": "Chemicals",
-                    "basis": "Every closed-won deal is a chemicals account.",
-                    "ramp": [{"month": 1, "phase": "learning"}, {"month": 2, "phase": "steady"}],
-                    "confidence": "medium",
-                    "evidence_ids": [],
-                },
-                {
-                    "campaign_ref": "nonbrand-de-lead-gen",
-                    "objective": "lead_gen",
-                    "primary_kpi": "cpl",
-                    "segment_ref": "Chemicals",
-                    "basis": "The German demand is the same buyer.",
-                    "ramp": [{"month": 1, "phase": "learning"}],
-                    "confidence": "low",
-                    "evidence_ids": [],
-                },
-            ],
-            "north_star": {
-                "metric": "cpl",
-                "period": "monthly",
-                "segment_ref": None,
-                "rationale": "One number for the account.",
+    """Every plan node's scripted answer, from the shared table.
+
+    `every_plan_answer()` rather than a table of this suite's own: a plan run
+    is the whole DAG, so scripting only 2.1 and 2.2 would fail on the first
+    node of any stage shipped after this file was written — which is exactly
+    what happened the first time S2-P5a and this phase met. The 2.2 entries
+    this suite needs to *differ* from the shared ones are layered on top by
+    `assign_every_cluster`.
+    """
+    script = dict(every_plan_answer())
+    # Two campaigns, not the shared table's one. This suite needs at least two
+    # allocation lines to mean anything: a budget owner moving money *between*
+    # lines is the edit gate G3 exists to collect, and a single-line split
+    # cannot express it.
+    script["CampaignTargetsDraft"] = {
+        "objectives": [
+            {
+                "campaign_ref": "nonbrand-gb-lead-gen",
+                "objective": "lead_gen",
+                "primary_kpi": "cpl",
+                "segment_ref": "Chemicals",
+                "basis": "Every closed-won deal is a chemicals account.",
+                "ramp": [{"month": 1, "phase": "learning"}, {"month": 2, "phase": "steady"}],
+                "confidence": "medium",
+                "evidence_ids": [],
             },
-        },
-        "LeadDefinitionDraft": {
-            "qualified_lead": {
-                "required_signals": ["a compliance obligation"],
-                "disqualifiers": ["sole trader"],
-                "scoring": [
-                    {"signal": "a compliance obligation", "weight": 5, "source_field": "industry"}
-                ],
-                "threshold": 5,
+            {
+                "campaign_ref": "nonbrand-de-lead-gen",
+                "objective": "lead_gen",
+                "primary_kpi": "cpl",
+                "segment_ref": "Chemicals",
+                "basis": "The German demand is the same buyer.",
+                "ramp": [{"month": 1, "phase": "learning"}],
+                "confidence": "low",
+                "evidence_ids": [],
             },
-            "sla_response_hours": 4,
-            "routing": [{"segment": "Chemicals", "owner": "EMEA desk"}],
-            "observed_rejection_reasons": ["price"],
-            "notes": "Sales rejects sole traders on sight.",
-        },
-        # -- 2.2 ------------------------------------------------------------
-        "ForecastNotes": {
-            "method_notes": "Search volume at the impression-share target, rated on our own CTR.",
-            "caveats": ["A forecast is not a promise."],
-        },
-        "CapacityDraft": {
-            "assignments": [],  # filled per test by `assign_every_cluster`
-            "notes": "Every cluster lands in the campaign for its market.",
-        },
-        "ScenariosDraft": {
-            "narratives": [
-                {
-                    "name": name,
-                    "case_for": f"the case for {name}",
-                    "case_against": f"the case against {name}",
-                }
-                for name in ("cautious", "expected", "aggressive")
-            ],
-            "notes": "All three share a CPA under linear scaling.",
-        },
-        "ScenarioChoice": {
-            "chosen_scenario": "expected",
-            "rationale": "The forecast CPA is inside the target.",
-            "what_would_change_it": "A measured CPC above the research's range.",
-        },
-        "RulesDraft": {
-            "rules": [
-                {
-                    "id": "R1",
-                    "trigger_metric": "cpa",
-                    "comparison": "above",
-                    "threshold_basis": "forecast_cpa",
-                    "from_campaign": "nonbrand-gb-lead-gen",
-                    "to_campaign": "nonbrand-de-lead-gen",
-                    "shift_size": "standard",
-                    "requires_human": False,
-                    "rationale": "Stop paying over the forecast for the same lead.",
-                }
-            ],
-            "review_cadence": "monthly",
-            "notes": "One rule while the account is small.",
+        ],
+        "north_star": {
+            "metric": "cpl",
+            "period": "monthly",
+            "segment_ref": None,
+            "rationale": "One number for the account.",
         },
     }
+    return script
 
 
 async def seed_account(project_id: uuid.UUID) -> None:
@@ -290,6 +225,22 @@ def assign_every_cluster(script: dict[str, Any], clusters: list[dict[str, str]])
     report's clusters come from its own keyword-to-page map, and a fixed list
     here would silently stop covering them the day that map changes.
     """
+    script["RulesDraft"] = {
+        **script["RulesDraft"],
+        "rules": [
+            {
+                "id": "R1",
+                "trigger_metric": "cpa",
+                "comparison": "above",
+                "threshold_basis": "forecast_cpa",
+                "from_campaign": "nonbrand-gb-lead-gen",
+                "to_campaign": "nonbrand-de-lead-gen",
+                "shift_size": "standard",
+                "requires_human": False,
+                "rationale": "Stop paying over the forecast for the same lead.",
+            }
+        ],
+    }
     script["CapacityDraft"] = {
         **script["CapacityDraft"],
         "assignments": [

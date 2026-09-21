@@ -102,6 +102,15 @@ class ReallocationConstants(_Group):
     cooldown_days: Constant
 
 
+class MeasurementConstants(_Group):
+    tolerance_floor_pct: Constant
+    tolerance_cap_pct: Constant
+    modelled_conversion_pct: Constant
+    action_stale_days: Constant
+    click_upload_window_days: Constant
+    manual_preparation_days: Constant
+
+
 class TestConstants(_Group):
     alpha: Constant
     power: Constant
@@ -120,6 +129,7 @@ class PlanningConstants(BaseModel):
     budget: BudgetConstants
     forecast: ForecastConstants
     reallocation: ReallocationConstants
+    measurement: MeasurementConstants
     test: TestConstants
 
     def get(self, dotted: str) -> Constant:
