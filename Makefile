@@ -5,9 +5,9 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 verify-p8 eval coverage \
+        verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage \
         browser browser-p6 browser-p7 browser-p8 browser-documents browser-connections browser-workspaces \
-        typecheck lint fmt contracts health clean
+        coverage-calc typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -63,8 +63,9 @@ test-integration: ## Run the DB+Redis suite inside the compose network
 	# `test` service's own command is `pytest tests/integration -q`.
 	docker compose run --rm test
 
-guards: ## Fail if any route is missing its require(Permission)
+guards: ## Fail if any route is missing its require(Permission), or arithmetic escaped calc/
 	cd $(API) && uv run python scripts/check_route_guards.py
+	cd $(API) && uv run python scripts/check_calc_isolation.py
 
 verify: ## Run PRD §19.1's acceptance list against the running stack
 	./scripts/verify-p0b.sh
@@ -91,6 +92,9 @@ verify-p7: ## Run P7's exit criteria against the running stack
 
 verify-p8: ## Run P8's exit criteria against the running stack
 	./scripts/verify-p8.sh
+
+verify-s2p1: ## Run S2-P1's exit criteria (no stack needed; uses it for the dedupe test if up)
+	./scripts/verify-s2p1.sh
 
 verify-google-ads: ## Prove our own account history against the live Google Ads API
 	./scripts/verify-google-ads.sh
@@ -124,6 +128,11 @@ coverage: ## Measure coverage on the packages PRD §15 NF9 names
 		--cov=agent.orchestrator --cov=agent.nodes --cov=agent.export --cov=agent.auth \
 		--cov=agent.scheduling \
 		--cov-report=term-missing:skip-covered --cov-fail-under=80
+
+coverage-calc: ## Stage 02 PQ2: >= 85% on calc/ and planning/, measured on their own
+	cd $(API) && uv run pytest tests -q --ignore=tests/integration \
+		--cov=agent.calc --cov=agent.planning \
+		--cov-report=term-missing:skip-covered --cov-fail-under=85
 
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
