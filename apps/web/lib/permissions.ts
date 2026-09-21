@@ -14,6 +14,10 @@ export const PERMISSIONS = [
   "approval_decide",
   "user_manage",
   "audit_read",
+  // Stage 02. An operator runs the plan and does not sign it off; an approver
+  // signs it off and does not run it.
+  "plan_execute",
+  "plan_freeze",
   // Held by no role. It comes from `user.is_superadmin` and nothing else,
   // which is what keeps one company's workspace admin out of another's.
   "platform_admin",

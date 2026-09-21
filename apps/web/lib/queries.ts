@@ -21,6 +21,7 @@ import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import { getModels } from "@/lib/api/models";
+import { getPlanEligibility, listPlans } from "@/lib/api/plan";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
 import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
@@ -52,10 +53,15 @@ export const keys = {
   storage: ["storage"] as const,
   documents: (projectId: string) => ["projects", projectId, "documents"] as const,
   runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
+  planEligibility: (projectId: string) => ["projects", projectId, "plan", "eligibility"] as const,
+  plans: (projectId: string) => ["projects", projectId, "plans"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
 export const APPROVAL_POLL_MS = 60_000;
+
+/** How often the Stage 02 landing re-asks while a plan run holds the lock. */
+export const PLAN_POLL_MS = 10_000;
 
 export function useProjects() {
   return useQuery({ queryKey: keys.projects, queryFn: listProjects });
@@ -78,6 +84,34 @@ export function useProject(id: string, enabled = true) {
 
 export function useProjectRuns(id: string) {
   return useQuery({ queryKey: keys.projectRuns(id), queryFn: () => listProjectRuns(id) });
+}
+
+/**
+ * Whether campaign planning can start, and what is stopping it (Stage 02 §4.2).
+ *
+ * Polled while a plan run holds the lock, so the Start button re-enables when
+ * that run finishes without anyone reloading the page. Left alone otherwise:
+ * eligibility only changes when somebody does something, and every one of
+ * those somethings invalidates this key.
+ */
+export function usePlanEligibility(projectId: string) {
+  return useQuery({
+    queryKey: keys.planEligibility(projectId),
+    queryFn: () => getPlanEligibility(projectId),
+    enabled: Boolean(projectId),
+    refetchInterval: (query) =>
+      query.state.data?.blockers.some((item) => item.code === "plan_in_flight")
+        ? PLAN_POLL_MS
+        : false,
+  });
+}
+
+export function usePlans(projectId: string) {
+  return useQuery({
+    queryKey: keys.plans(projectId),
+    queryFn: () => listPlans(projectId),
+    enabled: Boolean(projectId),
+  });
 }
 
 export function useConnections() {

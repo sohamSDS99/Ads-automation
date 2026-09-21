@@ -938,6 +938,39 @@
       "title": "KeywordPageMapping",
       "type": "object"
     },
+    "Market": {
+      "description": "One country the campaign will run in. PRD \u00a76: `[{country, language, currency}]`.",
+      "properties": {
+        "country": {
+          "description": "ISO 3166-1 alpha-2, e.g. NO",
+          "maxLength": 2,
+          "minLength": 2,
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "description": "ISO 639-1, e.g. nb",
+          "maxLength": 5,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217, e.g. NOK",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "country",
+        "language",
+        "currency"
+      ],
+      "title": "Market",
+      "type": "object"
+    },
     "MarketCoverage": {
       "additionalProperties": true,
       "description": "1.1.4 `market_coverage`.",
@@ -1963,8 +1996,8 @@
       "type": "object"
     }
   },
-  "additionalProperties": true,
-  "description": "PRD \u00a711, verbatim in field names and order.\n\nThis object is the single source of truth for every export. If something is\nnot in here, it is not in the PDF, the DOCX, the markdown, the JSON or the\nCSV \u2014 which is the point.",
+  "additionalProperties": false,
+  "description": "Everything Stage 02 is allowed to know about Stage 01.",
   "properties": {
     "schema_version": {
       "const": "1.0",
@@ -1977,20 +2010,53 @@
       "title": "Project Id",
       "type": "string"
     },
-    "run_id": {
+    "research_run_id": {
       "format": "uuid",
-      "title": "Run Id",
+      "title": "Research Run Id",
       "type": "string"
     },
-    "generated_at": {
+    "research_report_id": {
+      "format": "uuid",
+      "title": "Research Report Id",
+      "type": "string"
+    },
+    "research_schema_version": {
+      "title": "Research Schema Version",
+      "type": "string"
+    },
+    "accepted_by": {
+      "format": "uuid",
+      "title": "Accepted By",
+      "type": "string"
+    },
+    "accepted_at": {
       "format": "date-time",
-      "title": "Generated At",
+      "title": "Accepted At",
       "type": "string"
     },
-    "executive_summary": {
-      "minLength": 1,
-      "title": "Executive Summary",
-      "type": "string"
+    "acceptance_note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Acceptance Note"
+    },
+    "override_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Override Reason"
     },
     "launch_readiness": {
       "enum": [
@@ -2030,43 +2096,41 @@
       "title": "Priced Keyword List",
       "type": "array"
     },
-    "recommended_next_actions": {
-      "items": {
-        "$ref": "#/$defs/Claim"
-      },
-      "title": "Recommended Next Actions",
-      "type": "array"
-    },
-    "open_questions": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Open Questions",
-      "type": "array"
-    },
     "degraded_sources": {
-      "description": "Connectors that partially failed during the run",
       "items": {
         "type": "string"
       },
       "title": "Degraded Sources",
       "type": "array"
     },
-    "cost_usd": {
-      "default": 0.0,
-      "minimum": 0,
-      "title": "Cost Usd",
-      "type": "number"
+    "markets": {
+      "items": {
+        "$ref": "#/$defs/Market"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "product_context": {
+      "additionalProperties": true,
+      "title": "Product Context",
+      "type": "object"
     }
   },
   "required": [
     "project_id",
-    "run_id",
-    "generated_at",
-    "executive_summary",
-    "launch_readiness"
+    "research_run_id",
+    "research_report_id",
+    "research_schema_version",
+    "accepted_by",
+    "accepted_at",
+    "launch_readiness",
+    "business_context",
+    "account_learnings",
+    "competitive_landscape",
+    "demand_map",
+    "readiness"
   ],
-  "title": "ResearchReport",
+  "title": "PlanInput",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

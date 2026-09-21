@@ -1,0 +1,45 @@
+{
+  "$defs": {
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "description": "`POST /projects/{id}/plan/runs` \u2014 202.",
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "source_run_id": {
+      "format": "uuid",
+      "title": "Source Run Id",
+      "type": "string"
+    },
+    "input_hash": {
+      "title": "Input Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "source_run_id",
+    "input_hash"
+  ],
+  "title": "PlanRunAccepted",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
