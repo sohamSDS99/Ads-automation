@@ -47,11 +47,18 @@ from agent.export.plan_contract import (
     SlateEntry,
 )
 
+#: Every id here is fixed. `uuid4()` in a fixture makes two calls return two
+#: different plans, which quietly breaks any test that compares rendered bytes
+#: — and §14 acceptance 6 ("exporting a frozen plan twice produces
+#: byte-identical output") is exactly such a test.
 CALC_ID = uuid.UUID("11111111-1111-4111-8111-111111111111")
 EVIDENCE_ID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 PROJECT_ID = uuid.UUID("33333333-3333-4333-8333-333333333333")
 PLAN_RUN_ID = uuid.UUID("44444444-4444-4444-8444-444444444444")
 RESEARCH_RUN_ID = uuid.UUID("55555555-5555-4555-8555-555555555555")
+REPORT_ID = uuid.UUID("77777777-7777-4777-8777-777777777777")
+ACCEPTANCE_ID = uuid.UUID("88888888-8888-4888-8888-888888888888")
+ACCEPTED_BY = uuid.UUID("99999999-9999-4999-8999-999999999999")
 GENERATED_AT = datetime(2026, 9, 22, 9, 30, tzinfo=UTC)
 
 #: Anything matching the naming convention below. Written as a real pattern so
@@ -143,9 +150,9 @@ def plan(**overrides: Any) -> CampaignPlan:
         "generated_at": GENERATED_AT,
         "source": PlanSource(
             research_run_id=RESEARCH_RUN_ID,
-            report_id=uuid.uuid4(),
-            acceptance_id=uuid.uuid4(),
-            accepted_by=uuid.uuid4(),
+            report_id=REPORT_ID,
+            acceptance_id=ACCEPTANCE_ID,
+            accepted_by=ACCEPTED_BY,
             accepted_at=GENERATED_AT,
             research_schema_version="1.0",
             launch_readiness="go_with_fixes",

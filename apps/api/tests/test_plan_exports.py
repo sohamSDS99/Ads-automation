@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import zipfile
 
 import pytest
@@ -452,3 +453,85 @@ def test_the_markdown_export_prefers_what_the_run_stored() -> None:
         ExportFormat.MD, plan, project_name="X", stored_markdown="# what was signed\n"
     )
     assert rendered.payload == b"# what was signed\n"
+
+
+# ---------------------------------------------------------------------------
+# the worker path — every format rendered from a stored JSONB payload
+# ---------------------------------------------------------------------------
+
+
+def stored_round_trip(plan: object) -> object:
+    """What the worker actually holds: the plan after a trip through JSONB.
+
+    `generate_export` reads `campaign_plan.payload` and validates it — it does
+    not receive the in-memory model the run built. Every test above starts
+    from that model, so none of them would notice a field that survives in
+    Python and not in JSON.
+    """
+    from agent.export.plan_contract import CampaignPlan
+
+    return CampaignPlan.model_validate(json.loads(json.dumps(plan.model_dump(mode="json"))))  # type: ignore[attr-defined]
+
+
+def test_a_decimal_money_field_is_stored_as_a_string_and_comes_back_a_decimal() -> None:
+    """Pydantic serialises `Decimal` to a JSON **string**, losslessly.
+
+    Worth pinning rather than discovering: anything reading the raw payload
+    without the contract — a zod schema, a diff, Stage 03 — gets `"40000"`
+    and not `40000`. Raised by the S2-P6c session, whose normaliser compared
+    a stringified value against a dict and reported a whole media plan as
+    rewritten. Nothing here reads `.value` without validating first, and this
+    test is what keeps that true.
+    """
+    from decimal import Decimal
+
+    payload = fixture.plan().model_dump(mode="json")
+    raw = payload["media_plan"]["envelope"]["monthly_cap"]["value"]
+    assert isinstance(raw, str), "a Decimal is JSON-serialised as a string"
+
+    restored = stored_round_trip(fixture.plan())
+    value = restored.media_plan.envelope.monthly_cap.value  # type: ignore[attr-defined]
+    assert isinstance(value, Decimal)
+    assert value == Decimal("40000")
+
+
+@pytest.mark.parametrize(
+    "fmt",
+    [ExportFormat.MD, ExportFormat.JSON, ExportFormat.EDITOR_CSV, ExportFormat.XLSX],
+)
+def test_every_format_renders_from_a_stored_payload_not_just_a_live_model(
+    fmt: ExportFormat,
+) -> None:
+    from agent.export.jobs import render_plan
+
+    live = render_plan(fmt, fixture.frozen_plan(), project_name="SDS Manager")
+    stored = render_plan(fmt, stored_round_trip(fixture.frozen_plan()), project_name="SDS Manager")  # type: ignore[arg-type]
+    assert stored.payload == live.payload, f"{fmt.value} differs after a JSONB round trip"
+
+
+def test_the_money_survives_the_round_trip_into_the_workbook() -> None:
+    """The one format that does arithmetic on `Number.value` rather than
+    formatting it. A string-typed value reaching `float()` would raise; a
+    silently-coerced one would put the wrong share in every row."""
+    from openpyxl import load_workbook
+
+    book = load_workbook(io.BytesIO(render_budget_xlsx(stored_round_trip(fixture.plan()))))  # type: ignore[arg-type]
+    sheet = book["Allocation"]
+    assert sheet[ENVELOPE_CELL].value == 40_000.0
+    first = TABLE_HEADER_ROW + 1
+    assert sheet[f"D{first}"].value == pytest.approx(0.625)
+
+
+def test_the_markdown_states_the_envelope_after_a_round_trip() -> None:
+    markdown = render_plan_markdown(stored_round_trip(fixture.plan()), project_name="X")  # type: ignore[arg-type]
+    assert "40,000.00 USD a month" in markdown
+
+
+def test_the_fixture_itself_is_deterministic() -> None:
+    """Guards every byte-comparison above.
+
+    A fixture minting `uuid4()` per call returns a different plan each time,
+    and a test comparing two renderings then fails for a reason that has
+    nothing to do with the renderer. Cost me one confusing failure.
+    """
+    assert fixture.plan().model_dump(mode="json") == fixture.plan().model_dump(mode="json")

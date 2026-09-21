@@ -75,9 +75,16 @@ class Number(PlanModel):
 
     `Decimal`, not `float`: an envelope is money, invariant 4 checks the
     allocation sums to it within ±0.5%, and the last thing that argument needs
-    is binary floating point deciding that 0.1 + 0.2 misses a cap. Pydantic
-    parses the JSON number into a `Decimal` on the way back in, so the stored
-    payload stays ordinary JSON.
+    is binary floating point deciding that 0.1 + 0.2 misses a cap.
+
+    **`value` is stored in JSONB as a string**, because that is how pydantic
+    serialises a `Decimal` — losslessly, and back to a `Decimal` on the way in.
+    Anything reading the payload *through this contract* therefore sees a
+    `Decimal` and need not care. Anything reading the raw JSONB — a zod schema,
+    a diff, Stage 03 — sees `"40000"` and not `40000`, and a type check for
+    `int | float` there will silently fall through. The S2-P6c session hit
+    exactly that: a stringified value compared against a dict reported a whole
+    media plan as rewritten. `tests/test_plan_exports.py` pins both halves.
     """
 
     value: Decimal
