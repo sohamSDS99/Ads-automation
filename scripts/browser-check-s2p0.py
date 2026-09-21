@@ -206,6 +206,19 @@ def sign_in(page: Page, email: str, password: str) -> None:
     page.wait_for_load_state("networkidle")
 
 
+def open_plan(page: Page, url: str) -> None:
+    """Open the Stage 02 landing and wait for it to have said something.
+
+    Not `networkidle` on its own: the topbar health dot polls, so "the network
+    went quiet" and "the page has its data" are different moments, and the
+    first one caught this check rendering three skeletons and reporting them
+    as a missing blocker.
+    """
+    page.goto(url, wait_until="domcontentloaded")
+    page.wait_for_selector("text=Source research", timeout=20_000)
+    page.wait_for_selector("text=Start a plan", timeout=20_000)
+
+
 def shoot(page: Page, name: str) -> None:
     page.screenshot(path=f"{SHOT}/{name}.png")
 
@@ -245,7 +258,7 @@ def main() -> int:
         check("stage 03 is a visible placeholder", page.get_by_text("Coming later").is_visible())
         shoot(page, "s2p0-overview-with-tabs")
 
-        page.goto(plan_url, wait_until="networkidle")
+        open_plan(page, plan_url)
         check(
             "the locked tab names the blocker instead of greying out",
             page.get_by_text("nobody has accepted it yet").is_visible(),
@@ -273,9 +286,15 @@ def main() -> int:
         check("accepting says what it unlocked", True)
 
         # --- the tab unlocks, without a reload -------------------------------
-        page.goto(plan_url, wait_until="networkidle")
+        # Followed through the toast rather than with `page.goto`: the
+        # acceptance criterion is "Start enables *without a page reload*", and
+        # a hard navigation would prove the API and nothing about the cache
+        # invalidation that makes the claim true.
+        page.get_by_role("button", name="Open stage 02").click()
+        page.wait_for_url(lambda url: url.endswith("/plan"), timeout=10_000)
+        page.wait_for_selector("text=Source research", timeout=20_000)
         start = page.get_by_role("button", name="Start campaign planning")
-        check("Start is enabled once research is accepted", start.is_enabled())
+        check("Start enables without a page reload", start.is_enabled())
         check(
             "the source block names who accepted it",
             page.get_by_text("S2P0", exact=False).count() >= 0
@@ -326,7 +345,7 @@ def main() -> int:
         page = context.new_page()
         watch(page, errors)
         sign_in(page, viewer_email, MEMBER_PASSWORD)
-        page.goto(plan_url, wait_until="networkidle")
+        open_plan(page, plan_url)
         check(
             "a viewer is told in words why starting is not theirs",
             page.get_by_text("plan_execute", exact=False).is_visible(),
@@ -347,7 +366,7 @@ def main() -> int:
         page = context.new_page()
         watch(page, errors)
         sign_in(page, *ADMIN)
-        page.goto(plan_url, wait_until="networkidle")
+        open_plan(page, plan_url)
         check(
             "the plan landing does not scroll sideways at 390px",
             page.evaluate("document.documentElement.scrollWidth <= window.innerWidth + 1"),
