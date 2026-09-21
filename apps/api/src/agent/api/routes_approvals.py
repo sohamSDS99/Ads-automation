@@ -209,7 +209,7 @@ async def _resume(db: AsyncSession, run: Run, approval: Approval, me: Principal)
         return False
 
     redis = get_redis()
-    lock = RunLock(redis)
+    lock = RunLock(redis, run.stage)
     holder = await lock.acquire(
         run.project_id, LockHolder(run_id=run.id, user_id=me.user.id, user_name=me.user.name)
     )
@@ -248,7 +248,7 @@ async def _close_rejected(db: AsyncSession, run: Run, approval: Approval) -> Non
     from agent.orchestrator.dag import get_dag
 
     store = RunStore(db)
-    dag = get_dag()
+    dag = get_dag(run.stage)
     selection = (run.node_filter or {}).get("node_ids")
     selected = set(selection) if selection else set(dag.node_ids)
     downstream = sorted(dag.descendants(approval.node_id) & selected)
@@ -267,7 +267,7 @@ async def _close_rejected(db: AsyncSession, run: Run, approval: Approval) -> Non
     await gates.expire_pending(db, run.id)
 
     redis = get_redis()
-    await RunLock(redis).release(run.project_id, run.id)
+    await RunLock(redis, run.stage).release(run.project_id, run.id)
     await RunEventStream(redis, run.id).publish(
         EventType.RUN_COMPLETED,
         run_id=str(run.id),

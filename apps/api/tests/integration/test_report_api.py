@@ -22,7 +22,8 @@ import httpx
 import pytest
 import pytest_asyncio
 
-from agent.db.models import ExportFormat, ExportStatus, Project, Report, Run, RunStatus, RunTrigger
+from agent.db.models import ExportStatus, Project, Report, Run, RunStatus, RunTrigger
+from agent.export.jobs import RESEARCH_REPORT_FORMATS
 from tests.integration.conftest import ApiClient, Workspace, make_member
 from tests.report_support import golden_payload
 
@@ -181,7 +182,7 @@ async def test_an_unknown_run_is_a_plain_404(admin: ApiClient) -> None:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("fmt", [member.value for member in ExportFormat])
+@pytest.mark.parametrize("fmt", sorted(member.value for member in RESEARCH_REPORT_FORMATS))
 async def test_every_format_round_trips_to_a_download(
     admin: ApiClient, seeded: dict[str, Any], fmt: str
 ) -> None:
@@ -374,3 +375,17 @@ async def test_requesting_an_export_is_audited(admin: ApiClient, seeded: dict[st
     entries = audit.json()["entries"]
     assert [entry["target_id"] for entry in entries] == [job_id]
     assert entries[0]["meta"] == {"run_id": str(seeded["run_id"]), "format": "pdf"}
+
+
+@pytest.mark.parametrize("fmt", ["editor_csv", "xlsx"])
+async def test_a_plan_only_format_is_refused_rather_than_queued(
+    admin: ApiClient, seeded: dict[str, Any], fmt: str
+) -> None:
+    """S2-P0. `editor_csv` and `xlsx` are campaign-plan shapes with no report
+    renderer until S2-P5. The route says so; it does not queue a job that can
+    never succeed."""
+    refused = await admin.post(f"/reports/{seeded['run_id']}/export?format={fmt}")
+    assert refused.status_code == 422, refused.text
+    assert fmt in refused.json()["detail"]
+    for supported in sorted(member.value for member in RESEARCH_REPORT_FORMATS):
+        assert supported in refused.json()["detail"]

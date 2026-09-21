@@ -11,6 +11,8 @@
         "approval_decide",
         "user_manage",
         "audit_read",
+        "plan_execute",
+        "plan_freeze",
         "platform_admin"
       ],
       "title": "Permission",

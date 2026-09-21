@@ -22,6 +22,11 @@ MATRIX: list[tuple[str, Permission, bool, bool, bool, bool]] = [
     ("Set model routing & budget caps", Permission.SETTINGS_WRITE, True, False, False, False),
     ("Invite / remove users, change roles", Permission.USER_MANAGE, True, False, False, False),
     ("Read audit log", Permission.AUDIT_READ, True, False, False, False),
+    # Stage 02 PRD §5.2. Two rows, and the asymmetry between them is the point:
+    # an operator runs the plan and does not sign it off; an approver signs it
+    # off and does not run it.
+    ("Start / cancel / retry a plan run", Permission.PLAN_EXECUTE, True, True, False, False),
+    ("Freeze a plan", Permission.PLAN_FREEZE, True, False, True, False),
     # Not a PRD §4.1 row: no role grants it. It is the whole-system
     # administrator (`user.is_superadmin`), and the four Falses are the point —
     # a workspace admin must not reach another workspace.

@@ -36,7 +36,7 @@ import sqlalchemy as sa
 import structlog
 from pydantic import BaseModel, Field
 
-from agent.db.models import Evidence
+from agent.db.models import Evidence, RunStage
 from agent.db.repos import ReportRepo
 from agent.export.contract import Claim, Confidence, ResearchReport
 from agent.export.markdown import render_markdown
@@ -570,8 +570,17 @@ def _critique_block(critique: list[dict[str, Any]] | None) -> str:
 
 
 def _registered_research_nodes() -> tuple[str, ...]:
-    """Every non-report node the registry knows. Used by the suite, not at import."""
-    return tuple(spec.id for spec in get_registry().specs() if not spec.id.startswith("1.6."))
+    """Every non-report *research* node the registry knows. Used by the suite, not at import.
+
+    The `run_stage` filter is not cosmetic: the registry holds both pipelines
+    (Stage 02 PRD §8.1), and without it 1.6.1 would declare a dependency on
+    plan nodes that run in a different DAG and can never satisfy it.
+    """
+    return tuple(
+        spec.id
+        for spec in get_registry().specs()
+        if spec.run_stage is RunStage.RESEARCH and not spec.id.startswith("1.6.")
+    )
 
 
 report_synthesis = ReportSynthesisNode()

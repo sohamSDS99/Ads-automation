@@ -69,6 +69,7 @@ from agent.db.models import (
     Membership,
     Project,
     Run,
+    RunStage,
     User,
     UserRole,
     UserStatus,
@@ -380,7 +381,10 @@ async def autofill_project(
 )
 async def list_project_runs(project_id: uuid.UUID, me: AnyMember, db: Db) -> RunListResponse:
     await _load(db, me, project_id)
-    runs = await RunRepo(db, me.workspace_id).for_project(project_id, limit=RUN_PAGE_SIZE)
+    # Research only. Plan runs have their own history, on the Stage 02 tab.
+    runs = await RunRepo(db, me.workspace_id).for_project(
+        project_id, stage=RunStage.RESEARCH, limit=RUN_PAGE_SIZE
+    )
     names = await _user_names(
         db, me.workspace_id, also=[run.triggered_by for run in runs if run.triggered_by]
     )

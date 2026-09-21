@@ -1,0 +1,44 @@
+{
+  "description": "One failing precondition, in words the person reading it can act on.",
+  "properties": {
+    "code": {
+      "enum": [
+        "no_accepted_research",
+        "research_schema_unsupported",
+        "research_says_no_go",
+        "plan_in_flight",
+        "plan_already_frozen",
+        "missing_credential",
+        "source_stale",
+        "missing_permission"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "fix_url": {
+      "title": "Fix Url",
+      "type": "string"
+    },
+    "severity": {
+      "default": "blocker",
+      "enum": [
+        "blocker",
+        "warning"
+      ],
+      "title": "Severity",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "fix_url"
+  ],
+  "title": "Blocker",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

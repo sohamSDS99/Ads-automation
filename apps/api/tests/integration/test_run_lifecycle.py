@@ -121,9 +121,12 @@ async def test_an_unknown_node_id_is_rejected_with_the_registered_set(
     assert "9.9" in body["detail"]
     # Derived, not transcribed: what this route owes the caller is the set it
     # actually knows about, and PRD §10's census is checked in `test_dag.py`.
+    # Research only — `POST /projects/{id}/runs` launches the research DAG, and
+    # offering plan node ids here would be offering nodes it cannot run.
+    from agent.db.models import RunStage
     from agent.orchestrator.registry import get_registry
 
-    assert body["registered_nodes"] == list(get_registry().ids)
+    assert body["registered_nodes"] == list(get_registry().for_stage(RunStage.RESEARCH).ids)
 
 
 async def test_reuse_cache_skips_a_node_whose_inputs_have_not_changed(

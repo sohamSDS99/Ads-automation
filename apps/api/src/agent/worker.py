@@ -63,9 +63,9 @@ async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(settings)
     # Import-time validation: the registry and the DAG both fail loudly here
     # rather than on the first job, so a bad node declaration cannot reach a run.
-    from agent.orchestrator.dag import get_dag
+    from agent.orchestrator.dag import all_dags
 
-    dag = get_dag()
+    dags = all_dags()
 
     file_server = FileServer(settings)
     await file_server.start()
@@ -74,7 +74,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     log.info(
         "worker.startup",
         storage_dir=settings.storage_dir,
-        nodes=len(dag.node_ids),
+        nodes={stage.value: len(dag.node_ids) for stage, dag in dags.items()},
         file_server_port=settings.file_server_port,
     )
 

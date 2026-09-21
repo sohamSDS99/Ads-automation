@@ -1,13 +1,15 @@
 {
   "$defs": {
     "ExportFormat": {
-      "description": "The five deliverables of PRD \u00a712. `csv` arrived in migration 0004.",
+      "description": "The five deliverables of PRD \u00a712. `csv` arrived in migration 0004.\n\n`editor_csv` and `xlsx` are Stage 02's two (migration 0013): the Google Ads\nEditor import sheets and the media plan as a workbook. Neither has a writer\nuntil S2-P5 \u2014 the values exist here because the enum and the exporters ship\nin different phases, and a format the database cannot spell is a worse\nplace to discover that than a format nothing requests yet.",
       "enum": [
         "pdf",
         "docx",
         "md",
         "json",
-        "csv"
+        "csv",
+        "editor_csv",
+        "xlsx"
       ],
       "title": "ExportFormat",
       "type": "string"

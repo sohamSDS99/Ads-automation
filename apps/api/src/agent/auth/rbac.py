@@ -50,6 +50,24 @@ class Permission(StrEnum):
     AUDIT_READ = "audit_read"
     """Read the audit log."""
 
+    PLAN_EXECUTE = "plan_execute"
+    """Start, cancel or retry a campaign plan run (Stage 02 PRD §5.1).
+
+    Deliberately not `RUN_EXECUTE`. The two stages have different people behind
+    them — an `approver` may accept the research a plan is built from and may
+    never start the plan, and the reverse holds for an `operator` — so one
+    permission covering both would make the matrix unable to say that.
+    """
+
+    PLAN_FREEZE = "plan_freeze"
+    """Seal a draft plan into an immutable version (Stage 02 PRD §5.1).
+
+    Held by `approver` and not by `operator`, which is the one place Stage 02
+    departs from the `RUN_EXECUTE` shape: freezing is a sign-off, not an
+    execution, and the people who decided the four gates are the people who
+    commit to what those decisions add up to.
+    """
+
     PLATFORM_ADMIN = "platform_admin"
     """Create workspaces, reach every one of them, and promote other admins.
 
@@ -72,12 +90,14 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.READ,
             Permission.PROJECT_WRITE,
             Permission.RUN_EXECUTE,
+            Permission.PLAN_EXECUTE,
         }
     ),
     UserRole.APPROVER: frozenset(
         {
             Permission.READ,
             Permission.APPROVAL_DECIDE,
+            Permission.PLAN_FREEZE,
         }
     ),
     UserRole.VIEWER: frozenset({Permission.READ}),

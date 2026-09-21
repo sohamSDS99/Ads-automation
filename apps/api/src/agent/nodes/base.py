@@ -23,7 +23,7 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import ApprovalRequiredRole, Evidence, Project, Run
+from agent.db.models import ApprovalRequiredRole, Evidence, Project, Run, RunStage
 from agent.llm.gateway import LLMGateway, StructuredCompletion
 from agent.llm.ledger import RunLedger
 from agent.llm.router import ModelRouter, TaskClass
@@ -43,6 +43,12 @@ class NodeSpec(BaseModel):
     id: str = Field(description="Dotted node id, e.g. '1.3.2'")
     name: str
     stage: str = Field(description="Dotted stage id, e.g. '1.3'")
+    #: Which pipeline this node belongs to — PRD §8.1's "stage", and *not*
+    #: `NodeSpec.stage`, which is the dotted group inside a pipeline. One
+    #: registry holds both (node ids are globally unique); `get_dag` is what
+    #: partitions them, so a node declaring the wrong pipeline is a node that
+    #: runs in the wrong DAG rather than one that collides with another id.
+    run_stage: RunStage = RunStage.RESEARCH
     depends_on: tuple[str, ...] = ()
     gate: bool = False
     required_role: ApprovalRequiredRole | None = None

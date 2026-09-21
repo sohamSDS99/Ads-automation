@@ -102,8 +102,12 @@ async def test_admin_can_sign_in(client: ApiClient, workspace: Ws) -> None:
         "approval_decide",
         "user_manage",
         "audit_read",
+        # Stage 02 (S2-P0). An admin holds both; the split between them is
+        # `test_rbac`'s grid.
+        "plan_execute",
+        "plan_freeze",
         # The bootstrap account is the system administrator. A workspace admin
-        # invited later holds the eight above and not this one — see
+        # invited later holds the ten above and not this one — see
         # `test_authz_matrix`, which runs its `admin` row through an invited
         # account for exactly that reason.
         "platform_admin",

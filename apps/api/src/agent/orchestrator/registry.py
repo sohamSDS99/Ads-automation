@@ -23,6 +23,7 @@ from typing import Any
 
 import structlog
 
+from agent.db.models import RunStage
 from agent.nodes.base import Node, NodeSpec
 
 log = structlog.get_logger(__name__)
@@ -74,6 +75,21 @@ class NodeRegistry:
 
     def specs(self) -> list[NodeSpec]:
         return [self._nodes[node_id].spec for node_id in self.ids]
+
+    def for_stage(self, run_stage: RunStage) -> NodeRegistry:
+        """The nodes belonging to one pipeline.
+
+        The registry itself stays whole — `spec(node_id)` has to answer for a
+        plan node as readily as for a research one, and every id is globally
+        unique — so this is a view for building a DAG, not a second registry.
+        """
+        return NodeRegistry(
+            {
+                node_id: node
+                for node_id, node in self._nodes.items()
+                if node.spec.run_stage is run_stage
+            }
+        )
 
 
 def _sort_key(node_id: str) -> tuple[int | str, ...]:

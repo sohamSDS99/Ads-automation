@@ -33,6 +33,9 @@ SOURCE_MODULES: tuple[str, ...] = (
     "agent.api.schemas_connections",
     "agent.api.schemas_models",
     "agent.api.schemas_documents",
+    # Stage 02.
+    "agent.api.schemas_plan",
+    "agent.schemas.plan_input",
 )
 
 
