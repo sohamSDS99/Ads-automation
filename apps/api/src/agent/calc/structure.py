@@ -492,3 +492,119 @@ def _assert_partition(ad_groups: list[dict[str, Any]], *, expected: int) -> None
             seen.add(term)
     if len(seen) != expected:
         raise CalcError(f"grouping kept {len(seen)} keyword(s) but {expected} were assignable")
+
+
+# ---------------------------------------------------------------------------
+# overlap_v1
+# ---------------------------------------------------------------------------
+
+#: One thing one campaign targets. `member` is a keyword at 2.4.2 and a demand
+#: cluster at 2.3.2 — the arithmetic is set overlap either way, and a formula
+#: per grain would be the same code twice.
+OVERLAP_COLUMNS = ("campaign_ref", "member")
+
+#: How many shared members a pair carries as examples. `shared_count` is always
+#: the true total, so a reader can see when this list is a sample and not the
+#: whole of it.
+SHARED_EXAMPLES = 10
+
+
+@formula("structure.overlap_v1", kind="calc_structure")
+def overlap_v1(members: pd.DataFrame, *, constants: PlanningConstants) -> CalcDraft:
+    """How much of the same demand two campaigns are both bidding on.
+
+    NOT IN THE PRD's §9.2 table. Node 2.3.2 publishes `overlap[]{campaign_a,
+    campaign_b, overlap_pct, resolution}` and law 14 will not let a node compute
+    that percentage itself.
+
+    **Three numbers, because the symmetric one alone is misleading.**
+    `overlap_pct` is the share of the two campaigns' combined targeting that
+    both of them hold — the headline, and symmetric so the pair reads the same
+    from either side. But a small campaign wholly contained inside a large one
+    scores low on that measure while being completely cannibalised, so
+    `a_shared_pct` and `b_shared_pct` give each campaign's own exposure. Those
+    are what tell an operator which of the two to exclude terms from.
+
+    Reporting the zero pairs rather than dropping them is deliberate: 2.3.2 has
+    to be able to say "PMax and Search do not collide", and a missing row is
+    indistinguishable from a pair nobody checked.
+    """
+    threshold = constants.get("structure.overlap_report_pct").value
+    if not 0 <= threshold <= 100:
+        raise CalcError(f"structure.overlap_report_pct must be a percentage, got {threshold}")
+
+    records = rows.records(members, OVERLAP_COLUMNS, what="campaign members")
+    sets: dict[str, set[str]] = {}
+    excluded: list[dict[str, Any]] = []
+
+    for record in records:
+        ref = rows.text(record, "campaign_ref").strip()
+        member = _normalise(rows.text(record, "member"))
+        if not ref:
+            excluded.append({"campaign_ref": ref, "reason": "campaign_ref is blank"})
+            continue
+        if not member:
+            excluded.append({"campaign_ref": ref, "reason": "member is blank"})
+            continue
+        sets.setdefault(ref, set()).add(member)
+
+    if not sets:
+        raise CalcError(
+            "no campaign carried a targetable member: "
+            + "; ".join(f"{row['campaign_ref']}: {row['reason']}" for row in excluded)
+        )
+
+    refs = sorted(sets)
+    pairs: list[dict[str, Any]] = []
+    for index, left in enumerate(refs):
+        for right in refs[index + 1 :]:
+            a, b = sets[left], sets[right]
+            shared = sorted(a & b)
+            union = a | b
+            pairs.append(
+                {
+                    "campaign_a": left,
+                    "campaign_b": right,
+                    "overlap_pct": pct(len(shared) / len(union) * 100),
+                    "a_shared_pct": pct(len(shared) / len(a) * 100),
+                    "b_shared_pct": pct(len(shared) / len(b) * 100),
+                    "shared_count": len(shared),
+                    "a_member_count": len(a),
+                    "b_member_count": len(b),
+                    "shared": shared[:SHARED_EXAMPLES],
+                }
+            )
+
+    pairs.sort(
+        key=lambda row: (
+            -float(row["overlap_pct"]),
+            str(row["campaign_a"]),
+            str(row["campaign_b"]),
+        )
+    )
+    reportable = [
+        [row["campaign_a"], row["campaign_b"]]
+        for row in pairs
+        if float(row["overlap_pct"]) >= threshold
+    ]
+    worst = max((float(row["overlap_pct"]) for row in pairs), default=0.0)
+
+    return CalcDraft(
+        inputs={"members": records, "overlap_report_pct": threshold},
+        result={
+            "pairs": pairs,
+            "reportable": reportable,
+            "max_overlap_pct": pct(worst),
+            "campaign_count": len(refs),
+            "pair_count": len(pairs),
+            "member_count": len(set().union(*sets.values())),
+        },
+        summary=(
+            f"{len(reportable)} of {len(pairs)} campaign pair(s) overlap at or above "
+            f"{threshold:g}%; worst is {pct(worst):g}%"
+            if pairs
+            else f"{len(refs)} campaign(s), so no pair to check for overlap"
+        ),
+        constants_version=constants.version,
+        excluded=excluded,
+    )

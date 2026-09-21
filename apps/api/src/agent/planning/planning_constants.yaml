@@ -14,12 +14,15 @@
 # anyone published. The Google rows need a real URL against the current help
 # centre before the first plan is frozen for a client.
 #
+# 2026.09.4 adds `budget.days_per_month` and `structure.overlap_report_pct`
+# for S2-P4 (stages 2.3 and 2.4). Both are new keys, no existing value moved.
+#
 # 2026.09.3 is a MERGE bump, not a value change. S2-P5a (`measurement`) and
 # S2-P3 (`reallocation`) were built in parallel and each bumped 2026.09.1 to
 # 2026.09.2 without seeing the other — so two different constant sets briefly
 # claimed one provenance string, which is the precise failure the header above
 # warns about. The union of them is a third set and gets its own version.
-version: "2026.09.3"
+version: "2026.09.4"
 
 learning:
   # Conversions per 30 days below which Smart Bidding cannot leave the learning
@@ -56,6 +59,14 @@ structure:
     value: 3
     source: "internal"
     reviewed_at: 2026-09-21
+  # Above this share of a pair's combined targeting, two campaigns are bidding
+  # on enough of the same demand for node 2.3.2 to have to say which one wins.
+  # Below it they are neighbours, not rivals, and reporting every pair would
+  # bury the one that matters.
+  overlap_report_pct:
+    value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21
 
 economics:
   # Lifetime gross profit must be this multiple of acquisition cost. 3.0 is the
@@ -90,6 +101,16 @@ budget:
     reviewed_at: 2026-09-21
   aggressive_step_pct:
     value: 40
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Google bills a campaign up to its average daily budget x 30.4 in a month
+  # (365/12), so a monthly figure divided by 30 sets a daily budget that
+  # overspends the envelope by about 1.3% every month. NOT IN THE PRD's seed
+  # block and NOT verified against Google's current help centre — it is the
+  # arithmetic definition of an average month, and Q7 should confirm Google
+  # still bills against it.
+  days_per_month:
+    value: 30.4
     source: "internal"
     reviewed_at: 2026-09-21
 

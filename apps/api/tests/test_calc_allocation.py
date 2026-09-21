@@ -416,3 +416,129 @@ def test_the_summary_says_breach_when_it_is_one() -> None:
     calc = allocation.whatif_v1(frame(EDITED), constants=CONSTANTS, envelope_usd=20_000)
     assert "BREACH" in calc.summary
     assert "-7.50%" in calc.summary
+
+
+# ---------------------------------------------------------------------------
+# allocation.share_v1
+# ---------------------------------------------------------------------------
+
+#: The approved split, re-grouped the way stages 2.3 and 2.4 need to read it.
+#: Worked out by hand at an envelope of $20,000:
+#:
+#:     group            lines          usd     pct      daily      target CPA
+#:     search|US        6,000 + 3,000  9,000   45.00%   296.05     216.67
+#:     pmax|US          5,000          5,000   25.00%   164.47     300.00
+#:     search|DE        4,000          4,000   20.00%   131.58     220.00
+#:     remarketing|US   2,000          2,000   10.00%    65.79     120.00
+#:                                    20,000  100.00%
+#:
+#: `search|US`'s target CPA is the one worth checking: the unweighted mean of
+#: 200 and 250 is 225, and the spend-weighted answer is 216.67. A campaign that
+#: is three quarters brand does not inherit the non-brand ceiling.
+SHARE_LINES = [
+    {
+        "group": "search|US",
+        "campaign_ref": "brand",
+        "usd": 6_000,
+        "target_cpa_usd": 200,
+        "est_conv": 30,
+    },
+    {
+        "group": "search|US",
+        "campaign_ref": "nonbrand",
+        "usd": 3_000,
+        "target_cpa_usd": 250,
+        "est_conv": 12,
+    },
+    {
+        "group": "pmax|US",
+        "campaign_ref": "pmax",
+        "usd": 5_000,
+        "target_cpa_usd": 300,
+        "est_conv": 15,
+    },
+    {
+        "group": "search|DE",
+        "campaign_ref": "nonbrand",
+        "usd": 4_000,
+        "target_cpa_usd": 220,
+        "est_conv": 16,
+    },
+    {
+        "group": "remarketing|US",
+        "campaign_ref": "remarketing",
+        "usd": 2_000,
+        "target_cpa_usd": 120,
+        "est_conv": 14,
+    },
+]
+
+
+def share(rows: list[dict[str, object]] | None = None, *, envelope: float = 20_000) -> dict:
+    calc = allocation.share_v1(
+        frame(rows if rows is not None else SHARE_LINES),
+        constants=CONSTANTS,
+        envelope_usd=envelope,
+    )
+    return calc.result
+
+
+def test_share_totals_each_group_and_its_pct_of_the_envelope() -> None:
+    assert [(row["group"], row["usd"], row["pct"]) for row in share()["groups"]] == [
+        ("search|US", 9_000.0, 45.0),
+        ("pmax|US", 5_000.0, 25.0),
+        ("search|DE", 4_000.0, 20.0),
+        ("remarketing|US", 2_000.0, 10.0),
+    ]
+
+
+def test_the_target_cpa_of_a_group_is_spend_weighted_not_averaged() -> None:
+    """216.67, not the 225 an unweighted mean of 200 and 250 would give."""
+    assert share()["groups"][0]["target_cpa_usd"] == 216.67
+
+
+def test_the_daily_budget_is_the_monthly_over_googles_month_not_thirty() -> None:
+    """9,000 / 30.4 = 296.05. Dividing by 30 would say 300.00 and overspend."""
+    assert [row["daily_usd"] for row in share()["groups"]] == [296.05, 164.47, 131.58, 65.79]
+
+
+def test_the_shares_sum_to_one_hundred_percent_when_the_lines_fill_the_envelope() -> None:
+    result = share()
+    assert result["total_usd"] == 20_000.0
+    assert result["unallocated_usd"] == 0.0
+    assert sum(row["pct"] for row in result["groups"]) == 100.0
+
+
+def test_an_envelope_larger_than_the_lines_reports_the_remainder() -> None:
+    """The shares are of the envelope, so they must not silently re-base to the lines."""
+    result = share(envelope=25_000)
+    assert result["unallocated_usd"] == 5_000.0
+    assert sum(row["pct"] for row in result["groups"]) == 80.0
+
+
+def test_the_conversions_of_a_group_are_summed() -> None:
+    assert share()["groups"][0]["est_conv"] == 42.0
+
+
+def test_a_line_with_no_group_is_excluded_with_its_reason() -> None:
+    rows = [{"group": "  ", "usd": 1_000}, *SHARE_LINES]
+    calc = allocation.share_v1(frame(rows), constants=CONSTANTS, envelope_usd=20_000)
+    assert calc.excluded[0]["reason"] == "group is blank"
+    assert calc.result["total_usd"] == 20_000.0
+
+
+def test_a_line_with_a_negative_amount_is_excluded_rather_than_netted_off() -> None:
+    rows = [{"group": "search|US", "usd": -500}, *SHARE_LINES]
+    calc = allocation.share_v1(frame(rows), constants=CONSTANTS, envelope_usd=20_000)
+    assert "must not be negative" in calc.excluded[0]["reason"]
+    assert calc.result["groups"][0]["usd"] == 9_000.0
+
+
+def test_a_non_positive_envelope_is_refused_for_a_share_too() -> None:
+    with pytest.raises(CalcError, match="envelope_usd must be positive"):
+        share(envelope=0)
+
+
+def test_no_usable_line_raises_rather_than_returning_an_empty_split() -> None:
+    with pytest.raises(CalcError, match="no allocation line could be grouped"):
+        share([{"group": "", "usd": 10}])
