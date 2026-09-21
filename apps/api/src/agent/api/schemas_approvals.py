@@ -94,6 +94,81 @@ class ReassignRequest(BaseModel):
     assignee_id: uuid.UUID | None = None
 
 
+class RecalcLine(BaseModel):
+    """One edited allocation line. Money, and the unit it belongs to.
+
+    Deliberately carries no rate. The forecast CPA, the CPC and the absorption
+    cap are read from the stored proposal server-side — a client that could
+    supply the CPA could make any budget buy any number of conversions, and
+    gate G3 exists to stop a budget being signed on a figure nobody can check.
+    """
+
+    campaign_ref: str = Field(min_length=1)
+    market: str = Field(min_length=1)
+    funnel_stage: str = Field(min_length=1)
+    usd: float = Field(ge=0, description="What this line should get. Zero switches it off.")
+
+
+class RecalcRequest(BaseModel):
+    """`POST /approvals/{id}/recalc` — what would this edit actually buy?"""
+
+    allocation: list[RecalcLine] = Field(
+        min_length=1,
+        description=(
+            "Only the lines that changed need be sent; everything else in the proposal is "
+            "re-forecast unchanged, which is what makes the envelope check meaningful."
+        ),
+    )
+    envelope_usd: float | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Raise or lower the envelope as part of the edit. Defaults to the envelope in "
+            "the proposal."
+        ),
+    )
+
+
+class RecalcResponse(BaseModel):
+    """The re-forecast. No state advanced, no model called."""
+
+    approval_id: uuid.UUID
+    envelope_usd: float
+    requested_usd: float = Field(description="What the edited lines add up to.")
+    effective_usd: float = Field(
+        description="What can actually be spent, after each line's absorption cap."
+    )
+    wasted_usd: float = Field(description="Requested minus effective — budget with nowhere to go.")
+    delta_usd: float = Field(description="Requested minus the envelope. Signed.")
+    delta_pct: float
+    envelope_breach: bool = Field(
+        description=(
+            "True when the edit misses the envelope by more than the tolerance. Advisory "
+            "here — `POST /approvals/{id}` refuses the decision independently."
+        )
+    )
+    tolerance_pct: float
+    est_conv: float
+    est_cpa_usd: float | None = None
+    baseline_usd: float
+    allocation: list[dict[str, Any]]
+    capped: list[dict[str, Any]] = Field(default_factory=list)
+    below_floor: list[dict[str, Any]] = Field(default_factory=list)
+    unknown_lines: list[str] = Field(
+        default_factory=list,
+        description="Lines sent that the proposal does not contain. Ignored, and named.",
+    )
+    switched_off: list[str] = Field(default_factory=list)
+    calc_evidence_id: uuid.UUID = Field(
+        description=(
+            "The `PlanCalc` row this what-if wrote. Put it in the edited proposal's "
+            "`calc_evidence_ids` so the approved figures cite the calculation that "
+            "produced them rather than the draft split they replaced."
+        )
+    )
+    summary: str
+
+
 class ApprovalDecisionResponse(BaseModel):
     """What the decider gets back, including whether the run picked up again."""
 

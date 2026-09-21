@@ -333,8 +333,15 @@ def _render(
         "efficiency": ratio(unit["efficiency"]),
         "forecast_cpa_usd": money(unit["forecast_cpa"]),
         "target_cpa_usd": money(unit["target_cpa"]),
+        "avg_cpc_usd": money(cpc) if cpc > 0 else None,
         "est_conv": money(usd / unit["forecast_cpa"]),
         "est_clicks": money(usd / cpc) if cpc > 0 else None,
+        # Carried onto the line, not left behind in `inputs`. Gate G3 lets a
+        # budget owner raise a unit, and `allocation.whatif_v1` can only report
+        # the raise as unspendable if the cap travels with the line the editor
+        # is editing. Without it the what-if silently forecasts conversions
+        # against impressions that are not for sale.
+        "max_spend_usd": money(unit["cap"]) if unit["cap"] is not None else None,
         "floor_applied": pin == "floor",
         "cap_applied": pin == "cap",
         "below_floor": usd + CENT < floor,

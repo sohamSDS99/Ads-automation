@@ -1,0 +1,135 @@
+{
+  "description": "The re-forecast. No state advanced, no model called.",
+  "properties": {
+    "approval_id": {
+      "format": "uuid",
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "envelope_usd": {
+      "title": "Envelope Usd",
+      "type": "number"
+    },
+    "requested_usd": {
+      "description": "What the edited lines add up to.",
+      "title": "Requested Usd",
+      "type": "number"
+    },
+    "effective_usd": {
+      "description": "What can actually be spent, after each line's absorption cap.",
+      "title": "Effective Usd",
+      "type": "number"
+    },
+    "wasted_usd": {
+      "description": "Requested minus effective \u2014 budget with nowhere to go.",
+      "title": "Wasted Usd",
+      "type": "number"
+    },
+    "delta_usd": {
+      "description": "Requested minus the envelope. Signed.",
+      "title": "Delta Usd",
+      "type": "number"
+    },
+    "delta_pct": {
+      "title": "Delta Pct",
+      "type": "number"
+    },
+    "envelope_breach": {
+      "description": "True when the edit misses the envelope by more than the tolerance. Advisory here \u2014 `POST /approvals/{id}` refuses the decision independently.",
+      "title": "Envelope Breach",
+      "type": "boolean"
+    },
+    "tolerance_pct": {
+      "title": "Tolerance Pct",
+      "type": "number"
+    },
+    "est_conv": {
+      "title": "Est Conv",
+      "type": "number"
+    },
+    "est_cpa_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Est Cpa Usd"
+    },
+    "baseline_usd": {
+      "title": "Baseline Usd",
+      "type": "number"
+    },
+    "allocation": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Allocation",
+      "type": "array"
+    },
+    "capped": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Capped",
+      "type": "array"
+    },
+    "below_floor": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Below Floor",
+      "type": "array"
+    },
+    "unknown_lines": {
+      "description": "Lines sent that the proposal does not contain. Ignored, and named.",
+      "items": {
+        "type": "string"
+      },
+      "title": "Unknown Lines",
+      "type": "array"
+    },
+    "switched_off": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Switched Off",
+      "type": "array"
+    },
+    "calc_evidence_id": {
+      "description": "The `PlanCalc` row this what-if wrote. Put it in the edited proposal's `calc_evidence_ids` so the approved figures cite the calculation that produced them rather than the draft split they replaced.",
+      "format": "uuid",
+      "title": "Calc Evidence Id",
+      "type": "string"
+    },
+    "summary": {
+      "title": "Summary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "approval_id",
+    "envelope_usd",
+    "requested_usd",
+    "effective_usd",
+    "wasted_usd",
+    "delta_usd",
+    "delta_pct",
+    "envelope_breach",
+    "tolerance_pct",
+    "est_conv",
+    "baseline_usd",
+    "allocation",
+    "calc_evidence_id",
+    "summary"
+  ],
+  "title": "RecalcResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

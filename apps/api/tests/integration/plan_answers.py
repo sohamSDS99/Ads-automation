@@ -78,6 +78,48 @@ STAGE_2_1: dict[str, Any] = {
 }
 
 
+#: Stage 2.2 (S2-P3). 2.2.1 and 2.2.3 write prose over a computed table; 2.2.2
+#: assigns clusters to the campaigns 2.1.3 agreed; 2.2.4 picks one of three
+#: costed scenarios; 2.2.5 names which computed figure each rule fires against.
+#: Not one of them states a figure.
+#:
+#: `CapacityDraft.assignments` is empty here on purpose. The clusters come from
+#: the research report the suite happens to use, so a fixed list would quietly
+#: stop covering them; `test_plan_stage_2_2.py` fills it from what 2.2.1
+#: actually found, and every other suite only needs 2.2.2 to *run* — an
+#: unassigned cluster is a visible line on the gate card, not a failure.
+STAGE_2_2: dict[str, Any] = {
+    "ForecastNotes": {
+        "method_notes": "Search volume at the impression-share target, rated on our own CTR.",
+        "caveats": ["A forecast is not a promise."],
+    },
+    "CapacityDraft": {
+        "assignments": [],
+        "notes": "Every cluster lands in the campaign for its market.",
+    },
+    "ScenariosDraft": {
+        "narratives": [
+            {
+                "name": name,
+                "case_for": f"the case for {name}",
+                "case_against": f"the case against {name}",
+            }
+            for name in ("cautious", "expected", "aggressive")
+        ],
+        "notes": "All three share a CPA under linear scaling.",
+    },
+    "ScenarioChoice": {
+        "chosen_scenario": "expected",
+        "rationale": "The forecast CPA is inside the target.",
+        "what_would_change_it": "A measured CPC above the research's range.",
+    },
+    "RulesDraft": {
+        "rules": [],
+        "review_cadence": "monthly",
+        "notes": "No rule until the account has run for a quarter.",
+    },
+}
+
 #: Stage 2.5 (S2-P5a). 2.5.1 annotates a computed tolerance table; 2.5.2
 #: selects one row of a computed upload table. Neither states a day count.
 STAGE_2_5: dict[str, Any] = {
@@ -147,4 +189,4 @@ STAGE_2_5: dict[str, Any] = {
 
 def every_plan_answer() -> dict[str, Any]:
     """Every stage's table, merged. What a whole-DAG plan run needs."""
-    return {**STAGE_2_1, **STAGE_2_5}
+    return {**STAGE_2_1, **STAGE_2_2, **STAGE_2_5}

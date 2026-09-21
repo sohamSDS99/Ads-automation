@@ -41,6 +41,12 @@ budget:
   aggressive_step_pct:          {value: 40, source: "internal", reviewed_at: 2026-09-21}
 forecast:
   impression_share_target_pct: {value: 45, source: "internal", reviewed_at: 2026-09-21}
+  default_ctr_pct:             {value: 3.2, source: "internal", reviewed_at: 2026-09-21}
+  default_cvr_pct:             {value: 2.5, source: "internal", reviewed_at: 2026-09-21}
+reallocation:
+  max_shift_pct: {value: 20, source: "internal", reviewed_at: 2026-09-21}
+  lookback_days: {value: 14, source: "internal", reviewed_at: 2026-09-21}
+  cooldown_days: {value: 14, source: "internal", reviewed_at: 2026-09-21}
 measurement:
   tolerance_floor_pct:      {value: 5, source: "internal", reviewed_at: 2026-09-21}
   tolerance_cap_pct:        {value: 40, source: "internal", reviewed_at: 2026-09-21}
@@ -141,11 +147,21 @@ def test_a_typo_in_a_field_name_is_caught_rather_than_ignored(tmp_path: Path) ->
 
 
 def test_a_missing_group_fails(tmp_path: Path) -> None:
-    body = "\n".join(
-        line
-        for line in GOOD.splitlines()
-        if not line.startswith(("forecast:", "  impression_share"))
+    """Drop the whole `forecast:` block, by indentation rather than by name.
+
+    Structurally, because a group gains keys: a filter that listed them would
+    leave the ones it had not heard of orphaned under the previous group, and
+    the load would then fail for a parsing reason rather than the missing-group
+    reason this test is about.
+    """
+    lines = GOOD.splitlines()
+    start = lines.index("forecast:")
+    end = next(
+        index
+        for index in range(start + 1, len(lines))
+        if lines[index] and not lines[index].startswith(" ")
     )
+    body = "\n".join(lines[:start] + lines[end:])
     with pytest.raises(ConstantsError) as raised:
         load_planning_constants(write(tmp_path, body))
     assert "forecast" in str(raised.value)

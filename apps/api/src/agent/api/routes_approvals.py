@@ -33,10 +33,14 @@ from agent.api.schemas_approvals import (
     ApprovalItem,
     ApprovalListResponse,
     ReassignRequest,
+    RecalcRequest,
+    RecalcResponse,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
+from agent.calc.derived import DerivedWriter
+from agent.calc.registry import FORMULAS, CalcError
 from agent.db.models import (
     Approval,
     ApprovalStatus,
@@ -49,10 +53,13 @@ from agent.db.models import (
 )
 from agent.db.repos import ApprovalRepo, GateDecider, UserRepo
 from agent.db.session import get_session
+from agent.evidence.store import EvidenceStore
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.registry import RegistryError, get_registry
 from agent.orchestrator.state import LockHolder, RunLock, RunStore
+from agent.planning import reforecast
+from agent.planning.constants import get_planning_constants
 from agent.queue import enqueue_run
 from agent.redis_client import get_redis
 
@@ -66,6 +73,15 @@ Decider = Annotated[Principal, Depends(require(Permission.APPROVAL_DECIDE))]
 
 PAGE_SIZE_DEFAULT = 50
 PAGE_SIZE_MAX = 200
+
+#: The gate a budget is decided at (Stage 02 PRD §11). The only one that hands
+#: a number back to the engine, and so the only one `/recalc` answers for.
+BUDGET_GATE = "G3"
+
+WHATIF = "allocation.whatif_v1"
+
+#: PRD §12 invariant 4. An edit outside this misses its own envelope.
+TOLERANCE_PCT = 0.5
 
 
 # ---------------------------------------------------------------------------
@@ -149,6 +165,7 @@ async def decide_approval(
     edited = body.edited_proposal if body.approved else None
     if edited is not None:
         _assert_resumable(approval.node_id, edited)
+        _assert_envelope_balanced(approval, edited)
 
     try:
         decision = await gates.decide(
@@ -283,6 +300,158 @@ async def _close_rejected(db: AsyncSession, run: Run, approval: Approval) -> Non
 
 
 # ---------------------------------------------------------------------------
+# what-if
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/approvals/{approval_id}/recalc",
+    response_model=RecalcResponse,
+    summary="Re-forecast an edited budget split without deciding the gate",
+)
+async def recalc_approval(
+    approval_id: uuid.UUID,
+    body: RecalcRequest,
+    me: AnyMember,
+    db: Db,
+) -> RecalcResponse:
+    """What would this edit actually buy? (Stage 02 PRD §8.3, §16.)
+
+    Three properties this route holds, in the order they matter:
+
+    1. **The run does not move.** No node executes, no branch resumes, the gate
+       stays `pending`. A budget owner dragging a slider must not be able to
+       advance a plan by accident.
+    2. **No model is called.** The answer is `allocation.whatif_v1` over the
+       approver's figures and the proposal's rates. It costs no tokens and
+       returns in milliseconds, which is what makes PF3's two-second budget for
+       forty campaigns across four markets comfortable rather than tight.
+    3. **The rates come from the proposal, never from the request.** See
+       `planning/reforecast.py` — a client-supplied CPA is a client-supplied
+       conversion count.
+
+    **One deliberate deviation from §16 rule 3**, which asks that this route be
+    side-effect-free apart from `Approval.recalc_state`: it also persists the
+    `PlanCalc` row and `derived` Evidence for the what-if. Without it, an
+    approved *edited* allocation would reach the plan carrying
+    `calc_evidence_ids` that point at the draft split — a citation that
+    resolves but does not justify — and PT1 ("100% of Number objects resolve to
+    a PlanCalc row") would be quietly false for every gate anyone edited. The
+    two properties rule 3 is protecting, no run advance and no model call, both
+    still hold. The write is bounded by `DerivedWriter`'s dedupe on
+    `(plan_run_id, formula_id, inputs_hash)`, so repeating the same what-if
+    writes once however many times it is asked for.
+
+    Readable by every role, like the inbox: `viewer` may see the working behind
+    a decision it cannot make. Nothing here mutates the plan.
+    """
+    repo = ApprovalRepo(db, me.workspace_id)
+    approval = await repo.get(approval_id)
+    if approval is None:
+        raise problems.not_found(f"No approval {approval_id}.")
+    if approval.gate_key != BUDGET_GATE:
+        raise problems.unprocessable(
+            f"Gate {approval.gate_key} does not carry a budget allocation, so there is "
+            "nothing to re-forecast. Only the budget gate supports what-if.",
+            title="Not a budget gate",
+            gate_key=approval.gate_key,
+        )
+
+    run = await repo.run_for(approval)
+    if run is None:  # pragma: no cover — FK is ON DELETE CASCADE
+        raise problems.not_found(f"No run for approval {approval_id}.")
+
+    proposal = approval.edited_proposal or approval.proposal
+    lines = proposal.get("allocation") or []
+    if not lines:
+        raise problems.unprocessable(
+            "This gate's proposal carries no allocation lines to re-forecast.",
+            title="Nothing to re-forecast",
+        )
+
+    envelope_usd = body.envelope_usd or _proposed_envelope(proposal)
+    if envelope_usd <= 0:
+        raise problems.unprocessable(
+            "This gate's proposal carries no envelope, and none was supplied.",
+            title="No envelope",
+        )
+
+    edited = reforecast.edited_split(lines, [item.model_dump() for item in body.allocation])
+    if not edited.usable:  # pragma: no cover — `lines` is non-empty above
+        raise problems.unprocessable("There is nothing to re-forecast.")
+
+    try:
+        result = FORMULAS[WHATIF].fn(
+            edited.frame,
+            constants=get_planning_constants().merged(
+                (await _project_of(db, run)).settings.get("planning_overrides")
+            ),
+            envelope_usd=envelope_usd,
+            tolerance_pct=TOLERANCE_PCT,
+        )
+    except CalcError as exc:
+        raise problems.unprocessable(
+            f"This edit cannot be re-forecast: {exc}",
+            title="Edit cannot be forecast",
+        ) from exc
+
+    evidence_id = await DerivedWriter(
+        db,
+        store=EvidenceStore(db, me.workspace_id),
+        project_id=run.project_id,
+        plan_run_id=run.id,
+    ).record(result, node_id=approval.node_id)
+
+    payload = result.result
+    response = RecalcResponse(
+        approval_id=approval.id,
+        envelope_usd=payload["envelope_usd"],
+        requested_usd=payload["requested_usd"],
+        effective_usd=payload["effective_usd"],
+        wasted_usd=payload["wasted_usd"],
+        delta_usd=payload["delta_usd"],
+        delta_pct=payload["delta_pct"],
+        envelope_breach=payload["envelope_breach"],
+        tolerance_pct=payload["tolerance_pct"],
+        est_conv=payload["est_conv"],
+        est_cpa_usd=payload.get("est_cpa_usd"),
+        baseline_usd=payload["baseline_usd"],
+        allocation=list(payload["allocation"]),
+        capped=list(payload.get("capped") or []),
+        below_floor=list(payload.get("below_floor") or []),
+        unknown_lines=edited.unknown,
+        switched_off=edited.switched_off,
+        calc_evidence_id=evidence_id,
+        summary=result.summary,
+    )
+    # Stored so a second approver opening the card sees the same working rather
+    # than an unexplained figure somebody else already reasoned about.
+    approval.recalc_state = response.model_dump(mode="json")
+    await db.commit()
+    return response
+
+
+def _proposed_envelope(proposal: dict[str, Any]) -> float:
+    envelope = proposal.get("envelope") or {}
+    value = envelope.get("monthly_cap_usd")
+    return float(value) if isinstance(value, int | float) and value > 0 else 0.0
+
+
+async def _project_of(db: AsyncSession, run: Run) -> Project:
+    """The run's project, for its `planning_overrides`.
+
+    Re-read rather than assumed: a project that overrides
+    `budget.min_monthly_per_campaign_usd` must have the what-if judged against
+    the same floor the split was built with, or the card would warn about a
+    line the plan itself considers fine.
+    """
+    project = await db.get(Project, run.project_id)
+    if project is None:  # pragma: no cover — FK
+        raise problems.not_found(f"No project for run {run.id}.")
+    return project
+
+
+# ---------------------------------------------------------------------------
 # reassign
 # ---------------------------------------------------------------------------
 
@@ -398,6 +567,51 @@ def _assert_resumable(node_id: str, edited: dict[str, Any]) -> None:
             node_id=node_id,
             fields=fields,
         ) from exc
+
+
+def _assert_envelope_balanced(approval: Approval, edited: dict[str, Any]) -> None:
+    """An edited budget must add up to its own envelope (Stage 02 PRD §18).
+
+        "Approver edits the split so it does not sum to the envelope — approve
+         is blocked client-side by the remainder chip and server-side by `422`
+         naming the delta. No partial write."
+
+    Client-side *and* server-side, and this is the server side. The remainder
+    chip is a courtesy; this is the guarantee, and it has to be here rather
+    than in the node because the gate node does not re-execute on approval —
+    `approvals.decide` writes `edited_proposal` straight onto the `NodeRun`
+    output, so a split that does not balance would be read by 2.2.5, 2.3.1 and
+    everything after them as if it did.
+
+    Only the budget gate: no other gate carries an envelope, and a generic
+    check would be a check nobody could name the failure of.
+    """
+    if approval.gate_key != BUDGET_GATE:
+        return
+    lines = edited.get("allocation")
+    if not isinstance(lines, list) or not lines:
+        return
+    envelope_usd = _proposed_envelope(edited) or _proposed_envelope(approval.proposal)
+    if envelope_usd <= 0:
+        return
+
+    delta_usd, delta_pct = reforecast.envelope_delta(lines, envelope_usd=envelope_usd)
+    if abs(delta_pct) <= TOLERANCE_PCT:
+        return
+
+    total = reforecast.allocation_total(lines)
+    direction = "over" if delta_usd > 0 else "under"
+    raise problems.unprocessable(
+        f"This split commits ${total:,.2f} against a ${envelope_usd:,.2f} envelope — "
+        f"${abs(delta_usd):,.2f} {direction} ({delta_pct:+.2f}%, tolerance "
+        f"±{TOLERANCE_PCT:g}%). Move the remainder or change the envelope.",
+        title="Allocation does not match the envelope",
+        delta_usd=delta_usd,
+        delta_pct=delta_pct,
+        allocated_usd=total,
+        envelope_usd=envelope_usd,
+        tolerance_pct=TOLERANCE_PCT,
+    )
 
 
 def _assert_may_decide(approval: Approval, me: Principal) -> None:

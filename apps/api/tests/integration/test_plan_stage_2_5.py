@@ -40,6 +40,7 @@ from agent.db.models import (
     RunTrigger,
 )
 from agent.nodes.plan import stage_2_5
+from agent.planning.constants import load_planning_constants
 from tests.integration.conftest import ApiClient
 from tests.integration.plan_answers import every_plan_answer
 from tests.integration.runs_support import by_output_model, execute, seed_crm
@@ -233,7 +234,12 @@ async def test_2_5_2_runs_once_g2_is_decided(
     by_node = {node["id"]: node["status"] for node in state["nodes"]}
     assert by_node["2.5.1"] == NodeRunStatus.SUCCEEDED
     assert by_node["2.5.2"] == NodeRunStatus.SUCCEEDED
-    assert state["status"] == RunStatus.SUCCEEDED
+    # The run is parked on the budget gate, not finished: G3 arrived with
+    # S2-P3 and a plan cannot end while a gate is open. That the 2.5 branch
+    # ran *anyway* is the claim this test makes — §5.3 puts it off the
+    # critical path, so it must not wait for the budget owner either.
+    assert state["status"] == RunStatus.AWAITING_APPROVAL
+    assert by_node["2.2.4"] == NodeRunStatus.AWAITING_APPROVAL
 
 
 async def test_every_2_5_number_resolves_to_a_plan_calc_row(
@@ -267,7 +273,11 @@ async def test_every_2_5_number_resolves_to_a_plan_calc_row(
             assert row.node_id == node_id
             assert row.inputs_hash
             assert row.calc_version.startswith("calc/")
-            assert row.calc_version.endswith("2026.09.2")
+            # Against the file, not a literal: the property is that the row
+            # stamps the constants it was built with, and a hard-coded version
+            # breaks on every bump — including the merge bump that two parallel
+            # phases both landing on 2026.09.2 made necessary.
+            assert row.calc_version.endswith(load_planning_constants().version)
 
 
 async def test_the_calculations_are_searchable_as_derived_evidence(

@@ -695,6 +695,32 @@ class RunExecutor:
         result: BaseModel = await node.reason(ctx, evidence)
         payload = result.model_dump(mode="json")
 
+        if ctx.plan is not None:
+            # A calculation made while *reasoning* is still a calculation this
+            # node produced, and it must be citable.
+            #
+            # Some plan nodes cannot do all their arithmetic in `gather()`,
+            # because what to compute depends on what the model chose: node
+            # 2.2.2 asks which campaign each cluster of demand belongs to and
+            # only then can check those campaigns against the learning
+            # thresholds. Requiring every `derived` row to come back from
+            # `gather()` would force the model call into `gather()` to satisfy
+            # a check rather than to serve the node.
+            #
+            # Nothing is weakened by folding them in here. `PlanCalcRunner` is
+            # the **only** door from a plan node to `agent/calc/` — enforced at
+            # build time by `check_plan_calc_imports` and at run time by
+            # `NodeSpec.calc` — so `calc.evidence` is exactly the set of
+            # `derived` rows this node computed and persisted, which is the
+            # property the citation check is about. It is if anything tighter
+            # than what it replaces: `gather.collect` can read *stored*
+            # `derived` rows another node wrote, and those were citable before.
+            known = {item.id for item in evidence}
+            evidence = [
+                *evidence,
+                *(row for row in ctx.plan.calc.evidence if row.id not in known),
+            ]
+
         gathered = {item.id for item in evidence}
         cited = collect_evidence_ids(payload)
         unknown = cited - gathered

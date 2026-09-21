@@ -153,6 +153,75 @@ SELECT user_list.id, user_list.name, user_list.description, user_list.type,
 FROM user_list
 """
 
+#: Stage 02 PRD §10.2's forecast row. Not a GAQL pull — `GenerateKeywordForecast
+#: Metrics` is a custom method on `KeywordPlanIdeaService` — so it sits outside
+#: `QUERIES` and `fetch` branches to it by name.
+KEYWORD_FORECAST = "keyword_forecast"
+
+#: How far ahead a forecast is asked for, and for how long. Google refuses a
+#: period starting in the past, so the window is measured from tomorrow; thirty
+#: days because every threshold the plan tests a forecast against
+#: (`learning.*_min_conv_30d`) is a 30-day one.
+FORECAST_LEAD_DAYS = 1
+FORECAST_DAYS = 30
+
+#: ISO-3166 alpha-2 → Google's geo target constant. Only the markets this
+#: product actually plans for; an unmapped market forecasts **without** a geo
+#: filter, and the draft says so in `geo_basis` rather than silently returning
+#: worldwide demand as if it were that market's.
+#:
+#: Resolved from a table rather than through `GeoTargetConstantService.Suggest`
+#: because the suggestion service matches on a free-text name and would turn a
+#: typo into a confident forecast for the wrong country.
+GEO_TARGET_CONSTANTS: dict[str, str] = {
+    "US": "2840",
+    "GB": "2826",
+    "UK": "2826",
+    "DE": "2276",
+    "FR": "2250",
+    "ES": "2724",
+    "IT": "2380",
+    "NL": "2528",
+    "SE": "2752",
+    "NO": "2578",
+    "DK": "2208",
+    "FI": "2246",
+    "PL": "2616",
+    "CA": "2124",
+    "AU": "2036",
+    "IE": "2372",
+    "BE": "2056",
+    "AT": "2040",
+    "CH": "2756",
+}
+
+#: ISO-639-1 → Google's language constant. Same rule: unmapped means unfiltered.
+LANGUAGE_CONSTANTS: dict[str, str] = {
+    "en": "1000",
+    "de": "1001",
+    "fr": "1002",
+    "es": "1003",
+    "it": "1004",
+    "nl": "1010",
+    "sv": "1015",
+    "da": "1009",
+    "fi": "1011",
+    "no": "1013",
+    "pl": "1030",
+    "pt": "1014",
+}
+
+#: Google's own spellings. A group asking for anything else is a caller bug, so
+#: it is rejected rather than quietly forecast as broad — broad match forecasts
+#: several times the traffic of exact, and a plan built on the wrong one is out
+#: by a multiple rather than a margin.
+MATCH_TYPES = frozenset({"EXACT", "PHRASE", "BROAD"})
+
+#: Keywords per forecast request. Google's own limit on a keyword plan ad group
+#: is higher, but a request this size already answers for a cluster, and a
+#: cluster is the grain the media plan is built at.
+MAX_FORECAST_KEYWORDS = 500
+
 #: query → the `Evidence.kind` its rows become.
 QUERIES: dict[str, str] = {
     "campaign_perf": CAMPAIGN_PERFORMANCE,
@@ -247,6 +316,27 @@ def _auth_detail(response: httpx.Response) -> str:
     hint = AUTH_HINTS.get(code)
     parts = [part for part in (code, message, hint) if part]
     return " — ".join(parts) or response.text[:200]
+
+
+def _geo_constant(market: Any) -> str | None:
+    """Google's geo target id for a market, or None to forecast unfiltered.
+
+    Accepts the two spellings a project actually carries: a bare country code
+    (`"DE"`) and a locale (`"de-DE"`, `"en-GB"`). The country is the right-hand
+    part of a locale, which is why this does not simply upper-case the string.
+    """
+    text = str(market or "").strip()
+    if not text:
+        return None
+    country = text.rsplit("-", 1)[-1].upper() if "-" in text else text.upper()
+    return GEO_TARGET_CONSTANTS.get(country)
+
+
+def _language_constant(language: Any) -> str | None:
+    text = str(language or "").strip().lower()
+    if not text:
+        return None
+    return LANGUAGE_CONSTANTS.get(text.split("-", 1)[0])
 
 
 def _dig(row: dict[str, Any], path: str) -> Any:
@@ -419,6 +509,25 @@ class GoogleAdsConnector(ReadOnlyConnector):
         client = self.context.client or build_client(self.settings)
         try:
             for kind in wanted:
+                if kind == KEYWORD_FORECAST:
+                    # Not GAQL, and deliberately never in the default `wanted`
+                    # set: a forecast is asked for a *named* set of keywords at
+                    # a named bid, so it only happens when a caller passes the
+                    # groups. A failure here degrades like any other pull.
+                    try:
+                        drafts.extend(await self._forecast(client, customer_id, params))
+                    except ConnectorAuthError as exc:
+                        # PRD §18: an unauthorised forecast service degrades the
+                        # run onto derived arithmetic. It does **not** raise the
+                        # way an unauthorised GAQL pull does, because the plan
+                        # has a defined answer without it and stopping would
+                        # take down four other pulls that are working.
+                        log.warning("google_ads.forecast_unauthorised", error=str(exc))
+                        failures.append(f"{kind}: {exc}")
+                    except ConnectorError as exc:
+                        log.warning("google_ads.forecast_failed", error=str(exc))
+                        failures.append(f"{kind}: {exc}")
+                    continue
                 template = QUERIES.get(kind)
                 if template is None:
                     failures.append(f"{kind}: unknown query")
@@ -448,6 +557,198 @@ class GoogleAdsConnector(ReadOnlyConnector):
 
             raise ConnectorDegraded("; ".join(failures), drafts)
         return drafts
+
+    # --- forecasting --------------------------------------------------------
+
+    async def _forecast(
+        self, client: httpx.AsyncClient, customer_id: str, params: dict[str, Any]
+    ) -> list[EvidenceDraft]:
+        """One forecast per keyword group (Stage 02 PRD §10.2).
+
+        `GenerateKeywordForecastMetrics` answers at **campaign** grain, not per
+        keyword: one request, one set of impressions/clicks/cost for the whole
+        keyword set it was given. The per-keyword variant lives on
+        `KeywordPlanService` and needs a saved `KeywordPlan` resource, which is
+        a mutate — forbidden here by law 12 and asserted by PS1. So the caller
+        sends the groups it wants priced, one request each, and the grain of
+        the answer is the grain of the media plan: cluster x market.
+
+        A group that fails does not take the others down. The drafts that did
+        come back are returned and `fetch` degrades the rest, because a plan
+        forecast for nine clusters out of ten is worth having and is honest
+        about the tenth.
+        """
+        groups = params.get("groups") or []
+        if not groups:
+            raise ConnectorError(
+                "keyword_forecast was requested with no `groups` — a forecast is asked for a "
+                "named set of keywords at a named bid, never for the account at large"
+            )
+
+        start, end = self._forecast_period(params)
+        url = (
+            f"{self.settings.google_ads_base_url}/{self.settings.google_ads_api_version}"
+            f"/customers/{customer_id}:generateKeywordForecastMetrics"
+        )
+        token = await self._token(client)
+        drafts: list[EvidenceDraft] = []
+        failures: list[str] = []
+
+        for group in groups:
+            label = f"{group.get('cluster') or '(unnamed)'}/{group.get('market') or '-'}"
+            try:
+                body = self._forecast_body(group, start=start, end=end)
+            except ValueError as exc:
+                failures.append(f"{label}: {exc}")
+                continue
+
+            async def call(payload: dict[str, Any] = body) -> dict[str, Any]:
+                response = await client.post(url, headers=self._headers(token), json=payload)
+                if response.status_code == 429:
+                    raise ConnectorRateLimited("Google Ads rate limit")
+                if response.status_code in (401, 403):
+                    raise ConnectorAuthError(
+                        f"the forecast service refused the request ({response.status_code}): "
+                        f"{_auth_detail(response)}"
+                    )
+                if response.status_code == 404:
+                    raise ConnectorAuthError(
+                        f"Google Ads has no {self.settings.google_ads_api_version} forecast "
+                        "endpoint (that version is retired). Update google_ads_api_version."
+                    )
+                response.raise_for_status()
+                parsed = response.json()
+                return parsed if isinstance(parsed, dict) else {}
+
+            try:
+                answer = await with_retries(
+                    call, attempts=self.settings.connector_max_retries, label="google_ads_forecast"
+                )
+            except ConnectorAuthError:
+                # Unauthorised is a property of the token, not of this group:
+                # the next nine requests would fail identically and cost nine
+                # more round trips to learn it.
+                raise
+            except ConnectorError as exc:
+                failures.append(f"{label}: {exc}")
+                continue
+
+            drafts.append(self._forecast_draft(group, answer, body, customer_id))
+
+        if failures and not drafts:
+            raise ConnectorError("; ".join(failures))
+        if failures:
+            log.warning("google_ads.forecast_partial", failures=failures, ok=len(drafts))
+        return drafts
+
+    def _forecast_period(self, params: dict[str, Any]) -> tuple[str, str]:
+        """The window to forecast. Google refuses one that starts in the past."""
+        days = int(params.get("forecast_days") or FORECAST_DAYS)
+        if days < 1:
+            raise ConnectorError(f"forecast_days must be at least 1, got {days}")
+        start = datetime.now(UTC).date() + timedelta(days=FORECAST_LEAD_DAYS)
+        return start.isoformat(), (start + timedelta(days=days - 1)).isoformat()
+
+    def _forecast_body(self, group: dict[str, Any], *, start: str, end: str) -> dict[str, Any]:
+        """One `GenerateKeywordForecastMetricsRequest`.
+
+        The bid is the caller's: it is the cluster's own volume-weighted CPC
+        from the research, so the forecast answers "what does this demand cost
+        at what we already know it costs" rather than at a figure this
+        connector chose.
+        """
+        terms = (str(term).strip() for term in (group.get("keywords") or []))
+        keywords = [term for term in terms if term]
+        if not keywords:
+            raise ValueError("no keywords")
+        if len(keywords) > MAX_FORECAST_KEYWORDS:
+            keywords = keywords[:MAX_FORECAST_KEYWORDS]
+
+        match_type = str(group.get("match_type") or "PHRASE").upper()
+        if match_type not in MATCH_TYPES:
+            raise ValueError(f"match_type {match_type!r} is not one of {sorted(MATCH_TYPES)}")
+
+        bid_usd = float(group.get("max_cpc_usd") or 0)
+        if bid_usd <= 0:
+            raise ValueError("max_cpc_usd must be positive — a forecast needs a bid")
+        bid_micros = str(int(round(bid_usd * MICROS)))
+
+        campaign: dict[str, Any] = {
+            "keywordPlanNetwork": "GOOGLE_SEARCH",
+            "biddingStrategy": {"manualCpcBiddingStrategy": {"maxCpcBidMicros": bid_micros}},
+            "adGroups": [
+                {
+                    "maxCpcBidMicros": bid_micros,
+                    "biddableKeywords": [
+                        {"keyword": {"text": term, "matchType": match_type}} for term in keywords
+                    ],
+                }
+            ],
+        }
+        geo = _geo_constant(group.get("market"))
+        if geo:
+            campaign["geoModifiers"] = [{"geoTargetConstant": f"geoTargetConstants/{geo}"}]
+        language = _language_constant(group.get("language"))
+        if language:
+            campaign["languageConstants"] = [f"languageConstants/{language}"]
+
+        return {"campaign": campaign, "forecastPeriod": {"startDate": start, "endDate": end}}
+
+    def _forecast_draft(
+        self,
+        group: dict[str, Any],
+        answer: dict[str, Any],
+        body: dict[str, Any],
+        customer_id: str,
+    ) -> EvidenceDraft:
+        """Google's answer for one cluster, in the units the plan reads.
+
+        `cost` is preferred over `clicks x averageCpc` where Google supplies it:
+        the two disagree by rounding, and the one Google states is the one a
+        reader would find in the interface.
+        """
+        metrics = answer.get("campaignForecastMetrics") or {}
+        impressions = _number(metrics.get("impressions"))
+        clicks = _number(metrics.get("clicks"))
+        average_cpc = _micros(metrics.get("averageCpc") or metrics.get("averageCpcMicros"))
+        cost = _micros(metrics.get("costMicros"))
+        if not cost and clicks and average_cpc:
+            cost = round(clicks * average_cpc, 2)
+
+        market = str(group.get("market") or "").strip()
+        geo = _geo_constant(market)
+        period = body.get("forecastPeriod") or {}
+        payload = {
+            "cluster": str(group.get("cluster") or "").strip() or None,
+            "market": market or None,
+            "keywords": len(body["campaign"]["adGroups"][0]["biddableKeywords"]),
+            "match_type": body["campaign"]["adGroups"][0]["biddableKeywords"][0]["keyword"][
+                "matchType"
+            ],
+            "max_cpc_usd": round(float(group.get("max_cpc_usd") or 0), 2),
+            "impressions": impressions,
+            "clicks": clicks,
+            "ctr": _number(metrics.get("clickThroughRate")),
+            "average_cpc": average_cpc,
+            "cost": cost,
+            "forecast_start": period.get("startDate"),
+            "forecast_end": period.get("endDate"),
+            # Named rather than implied: an unmapped market is forecast against
+            # worldwide demand, and a plan that reads that as local demand would
+            # over-buy by whatever multiple the rest of the world is.
+            "geo_basis": f"geoTargetConstants/{geo}" if geo else "unfiltered",
+        }
+        return self.draft(
+            KEYWORD_FORECAST,
+            payload,
+            source_url=f"https://ads.google.com/aw/keywordplanner?ocid={customer_id}",
+            content_text=(
+                f"Google forecast for {payload['cluster'] or 'keywords'} in "
+                f"{payload['market'] or 'all markets'}: {impressions:,.0f} impressions, "
+                f"{clicks:,.0f} clicks at ${average_cpc:,.2f} CPC over "
+                f"{period.get('startDate')} to {period.get('endDate')}"
+            ),
+        )
 
     def _to_drafts(
         self, kind: str, rows: list[dict[str, Any]], customer_id: str

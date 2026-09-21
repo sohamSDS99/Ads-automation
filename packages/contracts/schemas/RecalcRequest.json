@@ -1,0 +1,70 @@
+{
+  "$defs": {
+    "RecalcLine": {
+      "description": "One edited allocation line. Money, and the unit it belongs to.\n\nDeliberately carries no rate. The forecast CPA, the CPC and the absorption\ncap are read from the stored proposal server-side \u2014 a client that could\nsupply the CPA could make any budget buy any number of conversions, and\ngate G3 exists to stop a budget being signed on a figure nobody can check.",
+      "properties": {
+        "campaign_ref": {
+          "minLength": 1,
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "market": {
+          "minLength": 1,
+          "title": "Market",
+          "type": "string"
+        },
+        "funnel_stage": {
+          "minLength": 1,
+          "title": "Funnel Stage",
+          "type": "string"
+        },
+        "usd": {
+          "description": "What this line should get. Zero switches it off.",
+          "minimum": 0,
+          "title": "Usd",
+          "type": "number"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "market",
+        "funnel_stage",
+        "usd"
+      ],
+      "title": "RecalcLine",
+      "type": "object"
+    }
+  },
+  "description": "`POST /approvals/{id}/recalc` \u2014 what would this edit actually buy?",
+  "properties": {
+    "allocation": {
+      "description": "Only the lines that changed need be sent; everything else in the proposal is re-forecast unchanged, which is what makes the envelope check meaningful.",
+      "items": {
+        "$ref": "#/$defs/RecalcLine"
+      },
+      "minItems": 1,
+      "title": "Allocation",
+      "type": "array"
+    },
+    "envelope_usd": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Raise or lower the envelope as part of the edit. Defaults to the envelope in the proposal.",
+      "title": "Envelope Usd"
+    }
+  },
+  "required": [
+    "allocation"
+  ],
+  "title": "RecalcRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

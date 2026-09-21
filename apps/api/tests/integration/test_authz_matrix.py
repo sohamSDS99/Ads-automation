@@ -178,6 +178,26 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.APPROVAL_DECIDE,
         {"assignee_id": None},
     ),
+    # The budget what-if is `READ`, not `APPROVAL_DECIDE`, and deliberately so:
+    # it advances nothing, calls no model and changes no plan, so a `viewer`
+    # may follow the working behind a decision it cannot make. Deciding the
+    # gate is the row above and needs the permission that row names.
+    (
+        "POST",
+        "/approvals/{approval_id}/recalc",
+        "/approvals/{run}/recalc",
+        Permission.READ,
+        {
+            "allocation": [
+                {
+                    "campaign_ref": "brand",
+                    "market": "GB",
+                    "funnel_stage": "bofu",
+                    "usd": 1000,
+                }
+            ]
+        },
+    ),
     ("GET", "/projects", "/projects", Permission.READ, None),
     (
         "POST",
