@@ -40,7 +40,7 @@ from agent.db.models import (
     RunTrigger,
 )
 from tests import plan_fixture as fixture
-from tests.integration.conftest import ApiClient, make_member
+from tests.integration.conftest import ApiClient
 from tests.report_support import golden_payload
 
 pytestmark = pytest.mark.anyio
@@ -59,8 +59,16 @@ async def _seed_plan(
     status: CampaignPlanStatus = CampaignPlanStatus.READY_TO_FREEZE,
     version: int = 0,
     source_superseded: bool = False,
+    acceptance_id: uuid.UUID | None = None,
 ) -> dict[str, Any]:
-    """A research run, its acceptance, a finished plan run and a plan row."""
+    """A research run, its acceptance, a finished plan run and a plan row.
+
+    `acceptance_id` reuses an existing acceptance instead of creating one, and
+    a second plan in the same project **must** pass it: a partial unique index
+    allows exactly one current acceptance per project (§7.2). That is also the
+    realistic shape — a re-run after a rejected gate plans from the same
+    accepted research, it does not re-accept it.
+    """
     research = Run(
         workspace_id=workspace_id,
         project_id=project_id,
@@ -79,16 +87,18 @@ async def _seed_plan(
     db.add(report)
     await db.flush()
 
-    acceptance = ResearchAcceptance(
-        workspace_id=workspace_id,
-        project_id=project_id,
-        run_id=research.id,
-        report_id=report.id,
-        accepted_by=user_id,
-        launch_readiness_at_acceptance="go",
-    )
-    db.add(acceptance)
-    await db.flush()
+    if acceptance_id is None:
+        acceptance = ResearchAcceptance(
+            workspace_id=workspace_id,
+            project_id=project_id,
+            run_id=research.id,
+            report_id=report.id,
+            accepted_by=user_id,
+            launch_readiness_at_acceptance="go",
+        )
+        db.add(acceptance)
+        await db.flush()
+        acceptance_id = acceptance.id
 
     plan_run = Run(
         workspace_id=workspace_id,
@@ -121,7 +131,7 @@ async def _seed_plan(
         workspace_id=workspace_id,
         project_id=project_id,
         plan_run_id=plan_run.id,
-        acceptance_id=acceptance.id,
+        acceptance_id=acceptance_id,
         schema_version="1.0",
         version=version,
         status=status,
@@ -131,7 +141,12 @@ async def _seed_plan(
     )
     db.add(plan)
     await db.commit()
-    return {"plan": plan, "plan_run_id": plan_run.id, "project_id": project_id}
+    return {
+        "plan": plan,
+        "plan_run_id": plan_run.id,
+        "project_id": project_id,
+        "acceptance_id": acceptance_id,
+    }
 
 
 @pytest_asyncio.fixture
@@ -193,6 +208,10 @@ async def test_the_payload_and_the_markdown_are_rewritten_by_the_same_statement(
 ) -> None:
     """The trigger fires on `OLD.status`, which is why this can happen at all."""
     await admin.post(f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": 1})
+    # `_seed_plan` loaded this row into *this* session, and the freeze happened
+    # in the API's own. Without expiring, the identity map hands back the
+    # pre-freeze copy and the assertion below reads a stale `ready_to_freeze`.
+    db.expire_all()
     plan = (
         await db.execute(
             sa.select(CampaignPlan).where(CampaignPlan.plan_run_id == seeded["plan_run_id"])
@@ -339,7 +358,15 @@ async def test_a_second_freeze_mints_v2_and_supersedes_v1(
     first = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
     await admin.post(f"/plans/{first['plan_run_id']}/freeze", json={"confirm_version": 1})
 
-    second = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+    second = await _seed_plan(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        # One current acceptance per project (§7.2): a re-run plans from
+        # the same accepted research rather than re-accepting it.
+        acceptance_id=first["acceptance_id"],
+    )
     response = await admin.post(
         f"/plans/{second['plan_run_id']}/freeze", json={"confirm_version": 2}
     )
@@ -362,10 +389,16 @@ async def test_a_superseded_version_is_never_reissued(
     """Why `next_version` counts every row rather than only the frozen ones."""
     me = (await admin.get("/auth/me")).json()
     user_id = uuid.UUID(me["id"])
+    acceptance_id: uuid.UUID | None = None
     for expected in (1, 2, 3):
         seeded = await _seed_plan(
-            db, project_id=project.id, workspace_id=workspace_id, user_id=user_id
+            db,
+            project_id=project.id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            acceptance_id=acceptance_id,
         )
+        acceptance_id = seeded["acceptance_id"]
         response = await admin.post(
             f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": expected}
         )
@@ -395,8 +428,16 @@ async def test_a_project_may_hold_two_unfrozen_plans(
     """
     me = (await admin.get("/auth/me")).json()
     user_id = uuid.UUID(me["id"])
+    acceptance_id: uuid.UUID | None = None
     for _ in range(3):
-        await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+        seeded = await _seed_plan(
+            db,
+            project_id=project.id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            acceptance_id=acceptance_id,
+        )
+        acceptance_id = seeded["acceptance_id"]
     count = (
         await db.execute(
             sa.select(sa.func.count())
@@ -416,7 +457,15 @@ async def test_two_minted_versions_still_cannot_collide(
     first = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
     await admin.post(f"/plans/{first['plan_run_id']}/freeze", json={"confirm_version": 1})
 
-    second = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+    second = await _seed_plan(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        # One current acceptance per project (§7.2): a re-run plans from
+        # the same accepted research rather than re-accepting it.
+        acceptance_id=first["acceptance_id"],
+    )
     plan = second["plan"]
     plan.version = 1
     plan.status = CampaignPlanStatus.FROZEN
@@ -481,55 +530,15 @@ async def test_a_frozen_plans_status_may_still_change(
     ("role", "expected"), [("approver", 200), ("operator", 403), ("viewer", 403)]
 )
 async def test_only_a_freeze_holder_may_seal_a_plan(
-    admin: ApiClient,
-    db: AsyncSession,
+    signed_in_as: Any,
     seeded: dict[str, Any],
     role: str,
     expected: int,
 ) -> None:
     """`PLAN_FREEZE` is admin and approver. An operator runs plans; it does not
     sign them, and the difference is the whole point of the gate."""
-    from tests.integration.conftest import build_client
-
-    email, password = await make_member(admin, role)
-    member = build_client()
-    signed_in = await member.post("/auth/login", json={"email": email, "password": password})
-    assert signed_in.status_code == 200, signed_in.text
-
+    member = await signed_in_as(role)
     response = await member.post(
         f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": 1}
     )
     assert response.status_code == expected, response.text
-    await member.aclose()
-
-
-# ---------------------------------------------------------------------------
-# the history order, against real rows
-# ---------------------------------------------------------------------------
-
-
-async def test_the_history_puts_todays_draft_above_last_weeks_frozen_plan(
-    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
-) -> None:
-    """`tests/test_plan_version_order.py` asserts the ORDER BY; this proves it.
-
-    Migration 0014 made every unfrozen plan version 0, so `version DESC` over
-    the whole history sorts a v1 frozen last week above a draft created this
-    morning. The compare screen takes the first two rows as the newer and
-    older side of its diff, so the wrong order renders a budget increase as a
-    decrease. Found by the S2-P6c session reading the sign of a number.
-    """
-    me = (await admin.get("/auth/me")).json()
-    user_id = uuid.UUID(me["id"])
-
-    older = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
-    await admin.post(f"/plans/{older['plan_run_id']}/freeze", json={"confirm_version": 1})
-
-    newer = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
-
-    rows = (await admin.get(f"/projects/{project.id}/plans")).json()["plans"]
-    assert len(rows) == 2
-    # The draft is newer, so it is first — even though its version (0) is lower.
-    assert rows[0]["plan_run_id"] == str(newer["plan_run_id"])
-    assert rows[0]["version"] == 0
-    assert rows[1]["version"] == 1

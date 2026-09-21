@@ -397,6 +397,25 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # Every role may export a plan — §14 gives the deliverable to all four, and
+    # the write-shaped verb is about where the work happens (a job row and a
+    # file on the worker's volume), not about privilege.
+    (
+        "POST",
+        "/plans/{plan_run_id}/export",
+        "/plans/{run}/export?format=json",
+        Permission.READ,
+        None,
+    ),
+    # Freezing is the one thing an operator may not do. It runs plans; it does
+    # not sign them, and that difference is the point of the four gates.
+    (
+        "POST",
+        "/plans/{plan_run_id}/freeze",
+        "/plans/{run}/freeze",
+        Permission.PLAN_FREEZE,
+        {"confirm_version": 1},
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
