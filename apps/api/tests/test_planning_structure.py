@@ -257,3 +257,76 @@ def test_a_built_campaign_with_no_approved_money_raises_rather_than_shipping_unf
     built = [{"name": "X", "campaign_ref": "ghost", "ad_groups": []}]
     with pytest.raises(structure.StructureInputError, match="ghost"):
         structure.built_campaign_frame(built, allocation=ALLOCATION, capacity=CAPACITY)
+
+
+# ---------------------------------------------------------------------------
+# brand_split
+# ---------------------------------------------------------------------------
+
+
+def test_a_brand_term_is_flagged_on_the_frame() -> None:
+    frame = structure.keyword_frame(
+        KEYWORDS, demand_map=DEMAND_MAP, market="US", brand_terms=["ehs software"]
+    )
+    flagged = {row["term"]: bool(row["is_brand"]) for _, row in frame.iterrows()}
+    assert flagged == {
+        "ehs software": True,
+        "safety management system": False,
+        "what is an sds": False,
+    }
+
+
+def test_brand_matching_ignores_case_and_spacing() -> None:
+    frame = structure.keyword_frame(
+        KEYWORDS, demand_map=DEMAND_MAP, market="US", brand_terms=["  EHS   Software "]
+    )
+    assert bool(frame[frame["term"] == "ehs software"].iloc[0]["is_brand"]) is True
+
+
+def test_a_term_that_merely_contains_a_brand_word_is_not_the_brand() -> None:
+    """`safety management system` is not ours because `management` appears in a brand term."""
+    frame = structure.keyword_frame(
+        KEYWORDS, demand_map=DEMAND_MAP, market="US", brand_terms=["chemical management"]
+    )
+    assert bool(frame[frame["term"] == "safety management system"].iloc[0]["is_brand"]) is False
+
+
+def test_no_brand_terms_flags_nothing() -> None:
+    frame = structure.keyword_frame(KEYWORDS, demand_map=DEMAND_MAP, market="US")
+    assert not frame["is_brand"].any()
+
+
+def test_brand_split_returns_the_two_halves_and_loses_nothing() -> None:
+    frame = structure.keyword_frame(
+        KEYWORDS, demand_map=DEMAND_MAP, market="US", brand_terms=["ehs software"]
+    )
+    brand, nonbrand = structure.brand_split(frame)
+    assert list(brand["term"]) == ["ehs software"]
+    assert list(nonbrand["term"]) == ["safety management system", "what is an sds"]
+    assert len(brand) + len(nonbrand) == len(frame)
+
+
+def test_an_automated_channel_reports_no_ad_group_count_rather_than_zero() -> None:
+    """Display and PMax have no keyword ad groups. Counting zero and comparing it
+    to the minimum would call every automated campaign structurally broken."""
+    built = [
+        {
+            "name": "US | Display | NonBrand",
+            "campaign_ref": "brand",
+            "type": "display",
+            "ad_groups": [],
+        }
+    ]
+    frame = structure.built_campaign_frame(
+        built, allocation=ALLOCATION, capacity=CAPACITY, automated={"display"}
+    )
+    assert frame.iloc[0]["ad_group_count"] == -1
+    assert frame.iloc[0]["keyword_count"] == -1
+
+
+def test_a_keyword_channel_still_reports_its_real_counts() -> None:
+    frame = structure.built_campaign_frame(
+        BUILT, allocation=ALLOCATION, capacity=CAPACITY, automated={"display"}
+    )
+    row = frame[frame["campaign_ref"] == "brand"].iloc[0]
+    assert (row["ad_group_count"], row["keyword_count"]) == (2, 5)

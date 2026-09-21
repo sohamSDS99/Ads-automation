@@ -178,6 +178,13 @@ def volume_check_v1(
             strategy = "max_clicks"
 
         needed_budget = desired_threshold * forecast_cpa
+        # Facts, not advice, and computed whether or not the campaign clears:
+        # node 2.4.3 decides what a campaign that is optimisable and badly laid
+        # out should do. A negative count means the caller does not know the
+        # structure yet (every caller before 2.4.3) or the channel has none by
+        # design, and neither is "below the floor".
+        below_ad_groups = 0 <= ad_groups < min_ad_groups
+        below_keywords = ad_groups > 0 and 0 <= keywords < min_keywords * ad_groups
         remedy = _remedy(
             verdict=verdict,
             ad_groups=ad_groups,
@@ -203,6 +210,8 @@ def volume_check_v1(
                 "bid_strategy_recommended": strategy,
                 "verdict": verdict,
                 "remedy": remedy,
+                "below_ad_group_floor": below_ad_groups,
+                "below_keyword_floor": below_keywords,
                 "needed_budget_usd": money(needed_budget),
                 "budget_shortfall_usd": money(max(0.0, needed_budget - budget)),
             }
@@ -264,6 +273,12 @@ def _remedy(
     genuinely a budget question, and `defer_to_wave_2` is reserved for the case
     where clearing the threshold would cost more than the entire envelope —
     which is a decision about this campaign's existence, not its budget.
+
+    A campaign that *clears* gets no remedy whatever its layout — you do not
+    merge a working campaign. The structure floors it is nevertheless outside
+    are reported as `below_ad_group_floor` and `below_keyword_floor` so node
+    2.4.3 can decide what to do about a campaign that is optimisable and badly
+    laid out, which is a different question from this one.
     """
     if verdict == "clears":
         return None

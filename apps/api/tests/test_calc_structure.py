@@ -572,3 +572,49 @@ def test_a_blank_member_is_excluded_with_its_reason() -> None:
 def test_no_campaign_carrying_a_member_raises() -> None:
     with pytest.raises(CalcError, match="no campaign carried a targetable member"):
         structure.overlap_v1(frame([{"campaign_ref": "a", "member": ""}]), constants=CONSTANTS)
+
+
+# ---------------------------------------------------------------------------
+# the structure floors, once a caller actually knows the structure
+# ---------------------------------------------------------------------------
+
+
+def test_a_clearing_campaign_below_the_ad_group_floor_reports_the_fact_not_a_remedy() -> None:
+    """The division of labour the test above sets: this formula answers "can it be
+    optimised", node 2.4.3 answers "should this layout ship". So the floor is
+    reported as a fact and the remedy stays empty."""
+    row = {
+        "campaign_ref": "brand-US",
+        "monthly_budget_usd": 6_000,
+        "forecast_cpa_usd": 80,
+        "avg_cpc_usd": 3.0,
+        "ad_group_count": 1,
+        "keyword_count": 6,
+        "has_revenue_values": False,
+    }
+    checked = structure.volume_check_v1(frame([row]), constants=CONSTANTS).result["campaigns"][0]
+    assert (checked["verdict"], checked["remedy"]) == ("clears", None)
+    assert checked["below_ad_group_floor"] is True
+    assert checked["below_keyword_floor"] is False
+
+
+def test_a_well_structured_campaign_is_below_no_floor() -> None:
+    checked = row(check(), "nonbrand-US")
+    assert checked["below_ad_group_floor"] is False
+    assert checked["below_keyword_floor"] is False
+
+
+def test_an_absent_count_is_below_no_floor_because_nobody_knows_yet() -> None:
+    checked = structure.volume_check_v1(
+        frame([{"campaign_ref": "pmax-US", "monthly_budget_usd": 6_000, "forecast_cpa_usd": 80}]),
+        constants=CONSTANTS,
+    ).result["campaigns"][0]
+    assert checked["below_ad_group_floor"] is False
+    assert checked["below_keyword_floor"] is False
+
+
+def test_a_campaign_whose_counts_are_absent_is_judged_on_money_alone() -> None:
+    """An automated channel has no ad groups by design, and 2.2.2 has none yet."""
+    row = {"campaign_ref": "pmax-US", "monthly_budget_usd": 6_000, "forecast_cpa_usd": 80}
+    calc = structure.volume_check_v1(frame([row]), constants=CONSTANTS)
+    assert calc.result["campaigns"][0]["remedy"] is None

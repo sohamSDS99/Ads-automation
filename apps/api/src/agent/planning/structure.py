@@ -24,7 +24,7 @@ worth knowing about a plan is what it could not place.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Collection, Mapping, Sequence
 from typing import Any
 
 import pandas as pd
@@ -60,6 +60,7 @@ def keyword_frame(
     *,
     demand_map: DemandMap,
     market: str | None = None,
+    brand_terms: Collection[str] = (),
 ) -> pd.DataFrame:
     """Stage 01's priced keywords, in the columns `grouping_v1` declares.
 
@@ -87,6 +88,7 @@ def keyword_frame(
         )
 
     gaps = _content_gaps(demand_map)
+    brand = {_norm_term(term) for term in brand_terms if str(term).strip()}
     records: list[dict[str, Any]] = []
     for keyword in selected:
         url = (keyword.best_url or "").strip()
@@ -103,6 +105,7 @@ def keyword_frame(
                 "landing_url": url,
                 "landing_url_note": note,
                 "match_type": keyword.match_type,
+                "is_brand": _norm_term(keyword.term) in brand,
                 "market": _market_of(keyword),
                 "funnel_stage": keyword.funnel_stage or "",
             }
@@ -163,6 +166,7 @@ def built_campaign_frame(
     *,
     allocation: Sequence[Mapping[str, Any]],
     capacity: Sequence[Mapping[str, Any]] = (),
+    automated: Collection[str] = (),
 ) -> pd.DataFrame:
     """The structure 2.4.2 actually built, against the money G3 actually approved.
 
@@ -186,6 +190,11 @@ def built_campaign_frame(
                 f"a campaign nobody funded must not reach the plan"
             )
         ad_groups = list(campaign.get("ad_groups") or [])
+        # ABSENT, not zero. `volume_check_v1` reads a negative count as "the
+        # caller does not know" and skips the structure floors; zero would say
+        # "this campaign has no ad groups", and every Display and PMax campaign
+        # would be reported as structurally broken for being what it is.
+        counted = str(campaign.get("type") or "") not in automated
         records.append(
             {
                 "campaign_ref": ref,
@@ -194,16 +203,85 @@ def built_campaign_frame(
                 "forecast_cpa_usd": row["forecast_cpa_usd"],
                 "avg_cpc_usd": row["avg_cpc_usd"],
                 "has_revenue_values": bool(row["has_revenue_values"]),
-                "ad_group_count": len(ad_groups),
-                "keyword_count": sum(len(list(group.get("keywords") or [])) for group in ad_groups),
+                "ad_group_count": len(ad_groups) if counted else -1,
+                "keyword_count": (
+                    sum(len(list(group.get("keywords") or [])) for group in ad_groups)
+                    if counted
+                    else -1
+                ),
             }
         )
     return pd.DataFrame.from_records(records)
 
 
+def targeting_map(
+    slate: Sequence[Mapping[str, Any]],
+    assignments: Sequence[Mapping[str, Any]],
+    *,
+    automated: Collection[str],
+) -> dict[str, list[str]]:
+    """What each channel entry can reach, keyed `cluster|market`.
+
+    The market is part of the key because the same cluster running in two
+    markets does not compete for one impression — treating `sds management` in
+    US and DE as one member would report a collision between two campaigns that
+    never see each other's auctions.
+    """
+    by_market: dict[str, set[str]] = {}
+    by_campaign: dict[str, set[str]] = {}
+    for row in assignments:
+        cluster, market = str(row.get("cluster") or ""), str(row.get("market") or "")
+        ref = str(row.get("campaign_ref") or "")
+        if not cluster or not market:
+            continue
+        member = f"{cluster}|{market}"
+        by_market.setdefault(market, set()).add(member)
+        if ref:
+            by_campaign.setdefault(ref, set()).add(member)
+
+    targeting: dict[str, list[str]] = {}
+    for entry in slate:
+        campaign_type = str(entry.get("campaign_type") or "")
+        market = str(entry.get("market") or "")
+        in_market = by_market.get(market, set())
+        if campaign_type in automated:
+            members = set(in_market)
+        else:
+            members = set()
+            for ref in entry.get("campaign_refs") or []:
+                members |= by_campaign.get(str(ref), set())
+            members &= in_market
+        targeting[f"{campaign_type}|{market}"] = sorted(members)
+    return targeting
+
+
+def brand_split(keywords: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """The brand half and the rest, so each is grouped into its own campaign.
+
+    Splitting **before** grouping rather than after is the whole point. Two
+    terms with the same intent and the same landing page land in one ad group,
+    and `sds manager` and `sds software` are exactly that pair — so grouping
+    first would put a brand term inside a non-brand ad group, which node
+    2.6.2's check 5 makes a blocking issue and which no negative keyword can
+    undo after the fact.
+    """
+    flags = keywords["is_brand"].astype(bool)
+    return keywords[flags].reset_index(drop=True), keywords[~flags].reset_index(drop=True)
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _norm_term(term: str) -> str:
+    """Whole-term equality, case- and space-insensitive.
+
+    Deliberately not a substring test: `chemical management` being ours does
+    not make `safety management system` ours, and a substring rule would pull
+    every term sharing a common word into the brand campaign.
+    """
+    return " ".join(str(term).lower().split())
 
 
 def _market_of(keyword: PricedKeyword) -> str:
