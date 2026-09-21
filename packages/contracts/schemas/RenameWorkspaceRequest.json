@@ -1,0 +1,17 @@
+{
+  "description": "Rename only. Model routing and cost caps belong to the workspace's own\nadmins through `PATCH /workspace`, not to whoever administers the fleet.",
+  "properties": {
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "RenameWorkspaceRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

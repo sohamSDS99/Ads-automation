@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MailWarning, UserPlus } from "lucide-react";
+import { MailWarning, UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 
 import { Alert } from "@/components/ui/alert";
@@ -18,7 +18,13 @@ import { Table, Td, Th, Tr } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError, type UserSummary } from "@/lib/api";
-import { inviteUser, isLastActiveAdmin, updateUser, type InviteCreated } from "@/lib/api/users";
+import {
+  inviteUser,
+  isLastActiveAdmin,
+  removeMember,
+  updateUser,
+  type InviteCreated,
+} from "@/lib/api/users";
 import { relativeTime, shortDate } from "@/lib/format";
 import { ROLE_DESCRIPTION, ROLE_LABEL, type Role } from "@/lib/permissions";
 import { errorMessage, keys, useUsers } from "@/lib/queries";
@@ -42,7 +48,7 @@ export default function TeamPage() {
       <Card>
         <CardHeader
           title="Team"
-          description="Everyone with access to this workspace. Accounts are disabled, never deleted, so the audit log keeps its actors."
+          description="Everyone with access to this workspace. Roles are per workspace: the same person can be an admin here and a viewer elsewhere."
           actions={
             <Button size="sm" onClick={() => setInviting(true)}>
               <UserPlus aria-hidden />
@@ -87,6 +93,7 @@ function MemberRow({ user, lastAdmin }: { user: UserSummary; lastAdmin: boolean 
   const queryClient = useQueryClient();
   const session = useSession();
   const [confirmingDisable, setConfirmingDisable] = useState(false);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const isSelf = session.user.id === user.id;
 
   const patch = useMutation({
@@ -98,6 +105,20 @@ function MemberRow({ user, lastAdmin }: { user: UserSummary; lastAdmin: boolean 
     },
     onError: (error) =>
       toast.error("Not changed", {
+        description: error instanceof ApiError ? error.detail : "Try again in a moment.",
+      }),
+  });
+
+  const remove = useMutation({
+    mutationFn: () => removeMember(user.id),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: keys.users });
+      toast.success(`${user.name} removed from this workspace`, {
+        description: "Their account and everything they did here are untouched.",
+      });
+    },
+    onError: (error) =>
+      toast.error("Not removed", {
         description: error instanceof ApiError ? error.detail : "Try again in a moment.",
       }),
   });
@@ -148,27 +169,43 @@ function MemberRow({ user, lastAdmin }: { user: UserSummary; lastAdmin: boolean 
         {user.last_login_at ? relativeTime(user.last_login_at) : "Never"}
       </Td>
       <Td className="whitespace-nowrap text-right">
-        {user.status === "disabled" ? (
-          <Button
-            size="sm"
-            variant="secondary"
-            disabled={patch.isPending}
-            onClick={() => patch.mutate({ status: "active" })}
-          >
-            Enable
-          </Button>
-        ) : (
-          <Tooltip content={lockReason} wrapDisabled={Boolean(lockReason)}>
+        <div className="inline-flex items-center gap-1.5">
+          {user.status === "disabled" ? (
             <Button
               size="sm"
               variant="secondary"
-              disabled={Boolean(lockReason) || patch.isPending}
-              onClick={() => setConfirmingDisable(true)}
+              disabled={patch.isPending}
+              onClick={() => patch.mutate({ status: "active" })}
             >
-              Disable
+              Enable
+            </Button>
+          ) : (
+            <Tooltip content={lockReason} wrapDisabled={Boolean(lockReason)}>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={Boolean(lockReason) || patch.isPending}
+                onClick={() => setConfirmingDisable(true)}
+              >
+                Disable
+              </Button>
+            </Tooltip>
+          )}
+          {/* Two different endings, offered separately because they mean
+              different things: Disable is "they may come back", Remove is
+              "they have moved to another team". */}
+          <Tooltip content={lockReason} wrapDisabled={Boolean(lockReason)}>
+            <Button
+              size="sm"
+              variant="ghost"
+              aria-label={`Remove ${user.name} from this workspace`}
+              disabled={Boolean(lockReason) || remove.isPending}
+              onClick={() => setConfirmingRemove(true)}
+            >
+              <UserMinus aria-hidden />
             </Button>
           </Tooltip>
-        )}
+        </div>
 
         {/* Portalled by Radix, so it renders nothing inline — it lives in this
             cell only to stay inside valid table markup. */}
@@ -184,9 +221,27 @@ function MemberRow({ user, lastAdmin }: { user: UserSummary; lastAdmin: boolean 
               {isSelf ? " This is your own account: you will be signed out." : ""}
             </p>
           }
-          confirmLabel="Disable account"
+          confirmLabel="Disable member"
           destructive
           onConfirm={() => patch.mutateAsync({ status: "disabled" }).then(() => undefined)}
+        />
+
+        <ConfirmDialog
+          open={confirmingRemove}
+          onOpenChange={setConfirmingRemove}
+          title={`Remove ${user.name} from this workspace?`}
+          description="They keep their account and every other workspace they are in."
+          body={
+            <p className="text-sm text-fg-muted">
+              This workspace disappears from their switcher and any session they have open in it
+              stops working. Their name stays on every project, run and approval they touched
+              here, and they can be invited back at any time.
+              {isSelf ? " This is your own membership: you will lose access to this workspace." : ""}
+            </p>
+          }
+          confirmLabel="Remove from workspace"
+          destructive
+          onConfirm={() => remove.mutateAsync().then(() => undefined)}
         />
       </Td>
     </Tr>
@@ -215,7 +270,14 @@ function InviteDialog({
   const [error, setError] = useState<string | null>(null);
 
   const invite = useMutation({
-    mutationFn: () => inviteUser({ email: email.trim(), name: name.trim(), role }),
+    mutationFn: () =>
+      inviteUser({
+        email: email.trim(),
+        // Omitted rather than sent empty: the API fills in a readable
+        // placeholder from the address, and the person replaces it on accept.
+        ...(name.trim() ? { name: name.trim() } : {}),
+        role,
+      }),
     onSuccess: async (result) => {
       setCreated(result);
       setError(null);
@@ -241,12 +303,19 @@ function InviteDialog({
         description={
           created
             ? undefined
-            : "They set their own name and password when they accept. There is no public signup."
+            : "An email address is all you need. They set their own name and password when they accept — there is no public signup."
         }
       >
         {created ? (
           <>
             <DialogBody>
+              {created.has_account ? (
+                <Alert tone="info" title="They already have an account">
+                  {created.email} works in another workspace on this installation. The link adds
+                  this workspace to the account they already have — they confirm with their
+                  existing password, and nothing about that account changes.
+                </Alert>
+              ) : null}
               {created.email_delivered ? (
                 <p className="text-sm text-fg">
                   An email is on its way to <strong>{created.email}</strong>. The link below is the
@@ -294,13 +363,12 @@ function InviteDialog({
                 placeholder="name@company.com"
               />
               <Field
-                label="Name"
+                label="Name (optional)"
                 value={name}
-                required
                 maxLength={120}
                 onChange={(event) => setName(event.target.value)}
                 error={error ?? undefined}
-                hint="They can change this when they accept."
+                hint="Leave it blank and they fill it in themselves. Guessing how a colleague spells their own name is how a placeholder survives for years."
               />
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="invite-role" className="text-sm font-medium text-fg">
@@ -324,7 +392,7 @@ function InviteDialog({
               <Button type="button" variant="secondary" onClick={close}>
                 Cancel
               </Button>
-              <Button type="submit" disabled={invite.isPending || !email.trim() || !name.trim()}>
+              <Button type="submit" disabled={invite.isPending || !email.trim()}>
                 {invite.isPending ? <Spinner label="Inviting" /> : null}
                 Send invite
               </Button>

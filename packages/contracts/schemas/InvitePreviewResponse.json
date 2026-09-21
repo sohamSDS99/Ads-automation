@@ -64,6 +64,11 @@
       ],
       "default": null,
       "title": "Expires At"
+    },
+    "has_account": {
+      "default": false,
+      "title": "Has Account",
+      "type": "boolean"
     }
   },
   "required": [

@@ -77,7 +77,7 @@ async def nightly_maintenance_job(ctx: dict[str, Any]) -> dict[str, Any]:
     tight still ends the night with a fresh backup on it rather than with a
     failed dump and a tidy disk.
     """
-    from agent.auth.bootstrap import get_workspace
+    from agent.auth.bootstrap import first_workspace
     from agent.config import get_settings
     from agent.scheduling.backups import BackupError, run_backup
     from agent.scheduling.retention import prune_storage, record_sweep
@@ -100,7 +100,12 @@ async def nightly_maintenance_job(ctx: dict[str, Any]) -> dict[str, Any]:
     try:
         async with get_sessionmaker()() as session:
             outcome = await prune_storage(session, settings=settings)
-            workspace = await get_workspace(session)
+            # One row, not one per workspace. The sweep is installation-wide —
+            # it prunes a Volume, not a tenant — so it is filed in the oldest
+            # workspace's log, which is where this codebase puts facts about
+            # the installation itself. Copying a global byte count into every
+            # company's audit trail would be noise in each of them.
+            workspace = await first_workspace(session)
             if workspace is not None:
                 await record_sweep(session, workspace.id, outcome)
     except Exception as exc:  # noqa: BLE001 — see module docstring

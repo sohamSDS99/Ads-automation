@@ -11,6 +11,7 @@
       "type": "string"
     }
   },
+  "description": "Create a profile for someone. Email is the only thing an admin must know.\n\n`name` is optional because the person sets it themselves when they accept,\nalong with their password \u2014 an admin guessing at how a colleague spells\ntheir own name is not information, it is a placeholder that survives for\nyears. When it is omitted the local part of the address stands in until\nthey choose.",
   "properties": {
     "email": {
       "format": "email",
@@ -18,10 +19,17 @@
       "type": "string"
     },
     "name": {
-      "maxLength": 120,
-      "minLength": 1,
-      "title": "Name",
-      "type": "string"
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
     },
     "role": {
       "$ref": "#/$defs/UserRole"
@@ -29,7 +37,6 @@
   },
   "required": [
     "email",
-    "name",
     "role"
   ],
   "title": "InviteUserRequest",

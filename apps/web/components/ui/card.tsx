@@ -41,7 +41,16 @@ export function CardHeader({
           <p className="max-w-prose text-sm text-fg-muted">{description}</p>
         ) : null}
       </div>
-      {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
+      {/* `shrink-0` keeps the actions at full size while the title has room
+          to give; `max-w-full` and `flex-wrap` are what stop them overflowing
+          the card once it does not. Two buttons are ~300px and a 390px
+          viewport leaves ~286 inside the card, so without these the primary
+          action hangs off the right edge. */}
+      {actions ? (
+        <div className="flex max-w-full shrink-0 flex-wrap items-center justify-end gap-2">
+          {actions}
+        </div>
+      ) : null}
     </div>
   );
 }

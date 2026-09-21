@@ -14,6 +14,9 @@ export const PERMISSIONS = [
   "approval_decide",
   "user_manage",
   "audit_read",
+  // Held by no role. It comes from `user.is_superadmin` and nothing else,
+  // which is what keeps one company's workspace admin out of another's.
+  "platform_admin",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];

@@ -25,6 +25,7 @@ from agent.db.models import (
     ApprovalRequiredRole,
     ApprovalStatus,
     AuditLog,
+    Membership,
     Run,
     RunStatus,
     RunTrigger,
@@ -379,7 +380,7 @@ async def test_a_run_that_finished_is_never_reaped_even_while_its_key_lives(
 
 
 @pytest.fixture
-async def approver(db: AsyncSession, admin_user: Any) -> User:
+async def approver(db: AsyncSession, workspace_id: uuid.UUID) -> User:
     """A real approver.
 
     `orchestrator.approvals.notify_targets` deliberately does **not** notify
@@ -389,14 +390,21 @@ async def approver(db: AsyncSession, admin_user: Any) -> User:
     below; these tests need someone the reminder can actually reach.
     """
     user = User(
-        workspace_id=admin_user.workspace_id,
         email=f"approver-{uuid.uuid4().hex[:8]}@example.com",
         name="Approver",
         password_hash="x",
-        role=UserRole.APPROVER,
         status=UserStatus.ACTIVE,
     )
     db.add(user)
+    await db.flush()
+    db.add(
+        Membership(
+            workspace_id=workspace_id,
+            user_id=user.id,
+            role=UserRole.APPROVER,
+            status=UserStatus.ACTIVE,
+        )
+    )
     await db.commit()
     await db.refresh(user)
     return user
@@ -538,10 +546,14 @@ async def test_a_gate_nobody_can_answer_is_recorded_and_warned_about(
 
 
 async def test_a_first_run_has_nothing_to_compare_against(
-    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, admin_user: Any
+    admin: ApiClient,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    admin_user: Any,
+    workspace_id: uuid.UUID,
 ) -> None:
     run = Run(
-        workspace_id=admin_user.workspace_id,
+        workspace_id=workspace_id,
         project_id=project_id,
         triggered_by=admin_user.id,
         trigger=RunTrigger.MANUAL,
@@ -556,10 +568,14 @@ async def test_a_first_run_has_nothing_to_compare_against(
 
 
 async def test_a_run_cannot_be_compared_with_itself(
-    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, admin_user: Any
+    admin: ApiClient,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    admin_user: Any,
+    workspace_id: uuid.UUID,
 ) -> None:
     run = Run(
-        workspace_id=admin_user.workspace_id,
+        workspace_id=workspace_id,
         project_id=project_id,
         triggered_by=admin_user.id,
         trigger=RunTrigger.MANUAL,
@@ -577,12 +593,13 @@ async def test_runs_from_different_projects_cannot_be_compared(
     second_project_id: uuid.UUID,
     db: AsyncSession,
     admin_user: Any,
+    workspace_id: uuid.UUID,
 ) -> None:
     """Two projects' reports share a schema and nothing else."""
     runs = []
     for target in (project_id, second_project_id):
         run = Run(
-            workspace_id=admin_user.workspace_id,
+            workspace_id=workspace_id,
             project_id=target,
             triggered_by=admin_user.id,
             trigger=RunTrigger.MANUAL,
@@ -598,11 +615,15 @@ async def test_runs_from_different_projects_cannot_be_compared(
 
 
 async def test_a_run_records_the_run_it_follows(
-    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, admin_user: Any
+    admin: ApiClient,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    admin_user: Any,
+    workspace_id: uuid.UUID,
 ) -> None:
     """`parent_run_id` is set at launch, which is what makes the compare toggle appear."""
     previous = Run(
-        workspace_id=admin_user.workspace_id,
+        workspace_id=workspace_id,
         project_id=project_id,
         triggered_by=admin_user.id,
         trigger=RunTrigger.MANUAL,

@@ -23,9 +23,26 @@ class AuditAction(StrEnum):
     BOOTSTRAP = "workspace.bootstrap"
     WORKSPACE_UPDATED = "workspace.updated"
 
+    # Multi-workspace. Each of these is written to the log of the workspace it
+    # happened to, including `WORKSPACE_ENTERED`: "who came in here, and when"
+    # is a question that belongs to the workspace being entered, not to the
+    # one the visitor came from.
+    WORKSPACE_CREATED = "workspace.created"
+    WORKSPACE_ARCHIVED = "workspace.archived"
+    WORKSPACE_RESTORED = "workspace.restored"
+    WORKSPACE_ENTERED = "workspace.entered"
+    MEMBER_REMOVED = "user.removed_from_workspace"
+    SUPERADMIN_GRANTED = "user.superadmin_granted"
+    SUPERADMIN_REVOKED = "user.superadmin_revoked"
+    ACCOUNT_STATUS_CHANGED = "user.account_status_changed"
+
     LOGIN = "user.login"
     LOGIN_FAILED = "user.login_failed"
     LOGIN_LOCKED = "user.login_locked"
+    #: Correct credentials, nowhere to go — every membership revoked or every
+    #: workspace archived. Not a failure of authentication, so it is its own
+    #: action rather than another `LOGIN_FAILED`.
+    LOGIN_NO_WORKSPACE = "user.login_no_workspace"
     LOGOUT = "user.logout"
     PASSWORD_CHANGED = "user.password_changed"  # noqa: S105 — an action name, not a secret
     SESSION_REVOKED = "user.session_revoked"

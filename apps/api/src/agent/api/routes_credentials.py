@@ -60,7 +60,8 @@ from agent.credentials import (
     resolve_secret,
 )
 from agent.crypto import DecryptionError, decrypt_str, encrypt
-from agent.db.models import Credential, CredentialKind, CredentialScope, Project, User
+from agent.db.models import Credential, CredentialKind, CredentialScope, Project
+from agent.db.repos import UserRepo
 from agent.db.session import get_session
 from agent.llm.openrouter import OpenRouterError, probe_key
 from agent.redis_client import get_redis
@@ -93,14 +94,7 @@ async def list_credentials(me: AnyMember, db: Db) -> CredentialListResponse:
         .scalars()
         .all()
     )
-    names = {
-        row[0]: row[1]
-        for row in (
-            await db.execute(
-                sa.select(User.id, User.name).where(User.workspace_id == me.workspace_id)
-            )
-        ).all()
-    }
+    names = await UserRepo(db, me.workspace_id).names()
     return CredentialListResponse(
         credentials=[
             CredentialSummary(

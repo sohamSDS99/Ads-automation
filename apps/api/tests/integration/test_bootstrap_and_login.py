@@ -6,7 +6,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import AuditLog, User, UserStatus, Workspace
+from agent.db.models import AuditLog, Membership, User, UserRole, UserStatus, Workspace
 from tests.integration.conftest import ADMIN_PASSWORD, ApiClient
 from tests.integration.conftest import Workspace as Ws
 
@@ -28,10 +28,17 @@ async def test_startup_bootstrap_creates_the_workspace_and_one_admin(
     )
     admin = await bootstrap_from_environment(db, settings)
     assert admin is not None
-    assert admin.role == "admin"
     assert admin.status is UserStatus.ACTIVE
+    # The first account administers the whole installation, not just the
+    # workspace it was handed: without this nobody could create the second one.
+    assert admin.is_superadmin is True
 
     assert (await db.execute(sa.select(sa.func.count()).select_from(Workspace))).scalar_one() == 1
+    membership = (
+        await db.execute(sa.select(Membership).where(Membership.user_id == admin.id))
+    ).scalar_one()
+    assert membership.role is UserRole.ADMIN
+    assert membership.status is UserStatus.ACTIVE
     assert "workspace.bootstrap" in await actions(db)
 
 
@@ -85,6 +92,7 @@ async def test_admin_can_sign_in(client: ApiClient, workspace: Ws) -> None:
     body = response.json()
     assert body["email"] == workspace.admin_email
     assert body["role"] == "admin"
+    assert body["is_superadmin"] is True
     assert set(body["permissions"]) == {
         "read",
         "project_write",
@@ -94,7 +102,13 @@ async def test_admin_can_sign_in(client: ApiClient, workspace: Ws) -> None:
         "approval_decide",
         "user_manage",
         "audit_read",
+        # The bootstrap account is the system administrator. A workspace admin
+        # invited later holds the eight above and not this one — see
+        # `test_authz_matrix`, which runs its `admin` row through an invited
+        # account for exactly that reason.
+        "platform_admin",
     }
+    assert [w["name"] for w in body["workspaces"]] == [body["workspace_name"]]
 
 
 async def test_the_session_cookie_is_httponly_and_the_csrf_cookie_is_not(
@@ -136,9 +150,17 @@ async def test_a_wrong_password_and_an_unknown_email_look_identical(
     assert response.json()["detail"] == "That email and password don't match an active account."
 
 
-async def test_a_disabled_user_cannot_sign_in(
+async def test_a_member_disabled_in_their_only_workspace_signs_in_to_nothing(
     admin: ApiClient, second_client: ApiClient, db: AsyncSession
 ) -> None:
+    """403, not 401 — and no session either way.
+
+    Disabling a *membership* is now a statement about one workspace, so the
+    password is still correct and pretending otherwise would send someone who
+    was simply moved off a team round the password-reset loop for an account
+    that works. What they must not get is a session: the assertion that
+    matters is the missing cookie, not the status code.
+    """
     from tests.integration.conftest import make_member
 
     email, password = await make_member(admin, "viewer")
@@ -148,7 +170,27 @@ async def test_a_disabled_user_cannot_sign_in(
     ).status_code == 200
 
     response = await second_client.login(email, password)
+    assert response.status_code == 403
+    assert response.json()["title"] == "No workspace"
+    assert "ara_session" not in response.headers.get("set-cookie", "")
+    assert (await second_client.get("/auth/me")).status_code == 401
+
+
+async def test_a_disabled_account_cannot_sign_in_at_all(
+    admin: ApiClient, second_client: ApiClient, db: AsyncSession
+) -> None:
+    """The platform-wide lock still looks exactly like a wrong password."""
+    from agent.db.models import UserStatus as Status
+    from tests.integration.conftest import make_member
+
+    email, password = await make_member(admin, "viewer")
+    target = (await db.execute(sa.select(User).where(User.email == email))).scalar_one()
+    target.status = Status.DISABLED
+    await db.commit()
+
+    response = await second_client.login(email, password)
     assert response.status_code == 401
+    assert response.json()["detail"] == "That email and password don't match an active account."
 
 
 async def test_six_failed_logins_lock_the_account_out(

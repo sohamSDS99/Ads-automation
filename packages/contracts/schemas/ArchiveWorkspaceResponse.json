@@ -1,0 +1,32 @@
+{
+  "description": "What archiving did, including to the people who were inside it.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "archived_at": {
+      "format": "date-time",
+      "title": "Archived At",
+      "type": "string"
+    },
+    "sessions_ended": {
+      "title": "Sessions Ended",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "archived_at",
+    "sessions_ended"
+  ],
+  "title": "ArchiveWorkspaceResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

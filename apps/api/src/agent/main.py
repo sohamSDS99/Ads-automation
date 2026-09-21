@@ -27,6 +27,7 @@ from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
 from agent.api.routes_models import router as models_router
+from agent.api.routes_platform import router as platform_router
 from agent.api.routes_projects import router as projects_router
 from agent.api.routes_reports import router as reports_router
 from agent.api.routes_runs import router as runs_router
@@ -112,6 +113,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         users_router,
         audit_router,
         workspace_router,
+        platform_router,
         projects_router,
         credentials_router,
         models_router,

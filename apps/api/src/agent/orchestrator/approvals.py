@@ -38,6 +38,7 @@ from agent.db.models import (
     Approval,
     ApprovalRequiredRole,
     ApprovalStatus,
+    Membership,
     NodeRun,
     NodeRunStatus,
     Project,
@@ -47,6 +48,7 @@ from agent.db.models import (
     UserRole,
     UserStatus,
 )
+from agent.db.repos import UserRepo
 
 log = structlog.get_logger(__name__)
 
@@ -192,16 +194,19 @@ async def _valid_assignee(
     configured = assignee_for(project, node_id)
     if configured is None:
         return None
-    user = await db.get(User, configured)
-    if user is None or user.status is not UserStatus.ACTIVE:
+    # Read through the membership: the question is whether this person can
+    # still decide a gate *in this project's workspace*, and their role
+    # elsewhere is not an answer to it.
+    member = await UserRepo(db, project.workspace_id).get(configured)
+    if member is None or member.status is not UserStatus.ACTIVE:
         log.info("approval.assignee_unavailable", node_id=node_id, user_id=str(configured))
         return None
-    if not may_decide(user.role, required_role):
+    if not may_decide(member.role, required_role):
         log.info(
             "approval.assignee_wrong_role",
             node_id=node_id,
             user_id=str(configured),
-            role=user.role.value,
+            role=member.role.value,
         )
         return None
     return configured
@@ -226,9 +231,12 @@ async def notify_targets(
         user = await db.get(User, approval.assignee_id)
         return [user] if user is not None and user.status is UserStatus.ACTIVE else []
     rows = await db.execute(
-        sa.select(User).where(
-            User.workspace_id == workspace_id,
-            User.role == UserRole(approval.required_role.value),
+        sa.select(User)
+        .join(Membership, Membership.user_id == User.id)
+        .where(
+            Membership.workspace_id == workspace_id,
+            Membership.role == UserRole(approval.required_role.value),
+            Membership.status == UserStatus.ACTIVE,
             User.status == UserStatus.ACTIVE,
         )
     )

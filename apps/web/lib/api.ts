@@ -167,14 +167,30 @@ export type Health = {
   version: string;
 };
 
+/** One entry in the workspace switcher. */
+export type WorkspaceMembership = {
+  id: string;
+  name: string;
+  /** The caller's role here. `admin` for a system administrator visiting. */
+  role: Role;
+  /** False when they reach it as the system administrator, not as a member. */
+  is_member: boolean;
+};
+
 export type Me = {
   id: string;
   email: string;
   name: string;
+  /** The role in the *active* workspace, which is not a property of the account. */
   role: Role;
   permissions: Permission[];
   workspace_id: string;
   workspace_name: string;
+  /** Administers the whole installation: every workspace, and who may create one. */
+  is_superadmin: boolean;
+  /** True when the active workspace is reached through `is_superadmin` alone. */
+  via_superadmin: boolean;
+  workspaces: WorkspaceMembership[];
 };
 
 export type UserSummary = {
@@ -193,6 +209,12 @@ export type InvitePreview = {
   role: Role | null;
   workspace_name: string | null;
   expires_at: string | null;
+  /**
+   * True when this address already has an account. The page then asks for the
+   * password they already have rather than offering to set a new one — the
+   * link grants a workspace, never the account.
+   */
+  has_account: boolean;
 };
 
 export function getHealth(): Promise<Health> {
@@ -215,10 +237,23 @@ export function logout(): Promise<void> {
   return apiFetch<void>("/auth/logout", { method: "POST" });
 }
 
-export function acceptInvite(token: string, name: string, password: string): Promise<Me> {
+/**
+ * Accept an invite.
+ *
+ * `name` is omitted for someone who already has an account: they are joining
+ * a second workspace, and the password they type is the one they already use.
+ * The API decides which of the two this is by looking at the account, never at
+ * which fields arrived, so sending a name here could not change the outcome —
+ * but sending one for an existing member would overwrite the name they chose.
+ */
+export function acceptInvite(
+  token: string,
+  password: string,
+  name?: string,
+): Promise<Me> {
   return apiFetch<Me>(`/invites/${encodeURIComponent(token)}/accept`, {
     method: "POST",
-    body: JSON.stringify({ name, password }),
+    body: JSON.stringify(name === undefined ? { password } : { name, password }),
     redirectOn401: false,
   });
 }

@@ -16,7 +16,7 @@ import pytest
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import AuditLog, Project, User, UserRole
+from agent.db.models import AuditLog, Membership, Project, UserRole
 from tests.integration.conftest import ApiClient
 
 CONTEXT = {
@@ -315,7 +315,7 @@ async def test_a_gate_cannot_be_assigned_to_someone_who_could_not_decide_it(
     body = await create(admin)
     await signed_in_as("viewer")
     viewer_id = (
-        await db.execute(sa.select(User.id).where(User.role == UserRole.VIEWER))
+        await db.execute(sa.select(Membership.user_id).where(Membership.role == UserRole.VIEWER))
     ).scalar_one()
 
     response = await admin.patch(

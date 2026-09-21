@@ -2,14 +2,25 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import sqlalchemy as sa
 
-from agent.db.models import ALL_TABLES, EMBEDDING_DIM, Base, Credential, Evidence, User
+from agent.db.models import (
+    ALL_TABLES,
+    EMBEDDING_DIM,
+    Base,
+    Credential,
+    Evidence,
+    Membership,
+    User,
+)
 from agent.db.repo import RepoConfigurationError, WorkspaceScopedRepo
 
 EXPECTED_TABLES = {
     "workspace",
     "user",
+    "membership",
     "invite",
     "audit_log",
     "project",
@@ -25,10 +36,10 @@ EXPECTED_TABLES = {
 }
 
 
-def test_fourteen_tables() -> None:
-    """Thirteen from PRD §6, plus `project_document` for the uploaded context."""
+def test_fifteen_tables() -> None:
+    """Thirteen from PRD §6, plus `project_document` and `membership`."""
     assert set(Base.metadata.tables) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 14
+    assert len(EXPECTED_TABLES) == 15
     assert set(ALL_TABLES) == EXPECTED_TABLES
 
 
@@ -64,23 +75,55 @@ def test_credential_scope_check_constraint_exists() -> None:
     assert "ck_credential_scope_target" in checks
 
 
-def test_workspace_singleton_index_is_declared() -> None:
+def test_workspace_is_no_longer_a_singleton() -> None:
+    """The constant-expression index that held the table to one row is gone.
+
+    Asserted rather than merely deleted: it is the one line that would silently
+    turn multi-tenancy back off, and a reader of this file should be able to
+    see that its absence is deliberate.
+    """
     indexes = {index.name for index in Base.metadata.tables["workspace"].indexes}
-    assert "uq_workspace_singleton" in indexes
+    assert "uq_workspace_singleton" not in indexes
+    assert "uq_workspace_name" in indexes
+
+
+def test_membership_is_unique_per_person_per_workspace() -> None:
+    """One row per (workspace, user). Two would be two roles for one person."""
+    uniques = {
+        constraint.name: {column.name for column in constraint.columns}
+        for constraint in Base.metadata.tables["membership"].constraints
+        if isinstance(constraint, sa.UniqueConstraint)
+    }
+    assert uniques["uq_membership_workspace_user"] == {"workspace_id", "user_id"}
+
+
+def test_the_account_carries_no_role_and_no_workspace() -> None:
+    """Authorization moved to `membership`, and must not be readable from the account.
+
+    A `user.role` column left behind would be read by something eventually,
+    and it would be the wrong answer in every workspace but one.
+    """
+    columns = set(Base.metadata.tables["user"].c.keys())
+    assert "role" not in columns
+    assert "workspace_id" not in columns
+    assert {"is_superadmin", "last_workspace_id", "status"} <= columns
 
 
 def test_repo_refuses_models_without_a_workspace_column() -> None:
-    class UserRepo(WorkspaceScopedRepo[User]):
-        model = User
+    class MembershipRepo(WorkspaceScopedRepo[Membership]):
+        model = Membership
 
-    assert UserRepo.model is User
+    assert MembershipRepo.model is Membership
 
-    try:
+    for unscopable in (User, Evidence):
+        try:
 
-        class EvidenceRepo(WorkspaceScopedRepo[Evidence]):
-            model = Evidence
+            class Bad(WorkspaceScopedRepo[Any]):
+                model = unscopable
 
-    except RepoConfigurationError as exc:
-        assert "workspace_id" in str(exc)
-    else:  # pragma: no cover - the guard must fire
-        raise AssertionError("WorkspaceScopedRepo accepted a model it cannot scope")
+        except RepoConfigurationError as exc:
+            assert "workspace_id" in str(exc)
+        else:  # pragma: no cover - the guard must fire
+            raise AssertionError(
+                f"WorkspaceScopedRepo accepted {unscopable.__name__}, which it cannot scope"
+            )

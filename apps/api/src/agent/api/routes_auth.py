@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Awaitable
 from typing import Annotated
 
 import structlog
@@ -26,10 +27,12 @@ from agent.api.schemas_auth import (
     MeResponse,
     SessionListResponse,
     SessionSummary,
+    SwitchWorkspaceRequest,
     UserSummary,
+    WorkspaceMembershipSummary,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
-from agent.auth import bootstrap, passwords
+from agent.auth import bootstrap, passwords, workspaces
 from agent.auth.deps import (
     REQUEST_STATE_SESSION,
     Principal,
@@ -41,8 +44,8 @@ from agent.auth.ratelimit import LockoutState, LoginRateLimiter
 from agent.auth.rbac import Permission, permissions_for
 from agent.auth.sessions import SessionRecord, SessionStore, new_csrf_token
 from agent.config import Settings, get_settings
-from agent.db.models import User, UserStatus
-from agent.db.repos import UserRepo, utcnow
+from agent.db.models import User, UserRole, UserStatus, Workspace
+from agent.db.repos import account_by_email, utcnow
 from agent.db.session import get_session
 
 log = structlog.get_logger(__name__)
@@ -73,15 +76,53 @@ def _set_session_cookies(response: Response, record: SessionRecord, settings: Se
     response.set_cookie(CSRF_COOKIE_NAME, record.csrf_token, **csrf_cookie_kwargs(settings))
 
 
-def _me(user: User, workspace_name: str) -> MeResponse:
+async def _me(
+    db: AsyncSession,
+    user: User,
+    *,
+    workspace: Workspace,
+    role: UserRole,
+    via_superadmin: bool = False,
+) -> MeResponse:
+    """The whole of what the shell needs to render, in one round trip.
+
+    The switcher is part of it. Fetching the workspace list separately would
+    mean the first paint after a sign-in has a workspace name and no way to
+    leave it, and the shell would flash a single-workspace layout at people
+    who have six.
+    """
+    reachable = await workspaces.list_for_user(db, user)
     return MeResponse(
         id=user.id,
         email=user.email,
         name=user.name,
-        role=user.role,
-        permissions=sorted(permissions_for(user.role), key=lambda p: p.value),
-        workspace_id=user.workspace_id,
-        workspace_name=workspace_name,
+        role=role,
+        permissions=sorted(
+            permissions_for(role, superadmin=user.is_superadmin), key=lambda p: p.value
+        ),
+        workspace_id=workspace.id,
+        workspace_name=workspace.name,
+        is_superadmin=user.is_superadmin,
+        via_superadmin=via_superadmin,
+        workspaces=[
+            WorkspaceMembershipSummary(
+                id=entry.workspace.id,
+                name=entry.workspace.name,
+                role=entry.role,
+                is_member=entry.is_member,
+            )
+            for entry in reachable
+        ],
+    )
+
+
+def _me_from(db: AsyncSession, principal: Principal) -> Awaitable[MeResponse]:
+    return _me(
+        db,
+        principal.user,
+        workspace=principal.workspace,
+        role=principal.role,
+        via_superadmin=principal.via_superadmin,
     )
 
 
@@ -152,7 +193,18 @@ async def bootstrap_workspace(
         ) from exc
 
     await db.commit()
-    return UserSummary.model_validate(admin)
+    # Built rather than validated from the row: `role` and `status` on this
+    # response are the membership's, and the account object no longer carries
+    # either. The first admin's are known without a query.
+    return UserSummary(
+        id=admin.id,
+        email=admin.email,
+        name=admin.name,
+        role=UserRole.ADMIN,
+        status=UserStatus.ACTIVE,
+        last_login_at=admin.last_login_at,
+        created_at=admin.created_at,
+    )
 
 
 @router.post("/auth/login", response_model=MeResponse, summary="Sign in")
@@ -180,10 +232,10 @@ async def login(
         await _audit_login_failure(db, AuditAction.LOGIN_LOCKED, body.email, ip)
         raise _lockout_problem(state)
 
-    workspace = await bootstrap.get_workspace(db)
-    user: User | None = None
-    if workspace is not None:
-        user = await UserRepo(db, workspace.id).by_email(body.email)
+    # The account, not a member: the password lives on the account and which
+    # workspace this person lands in is a separate question, answered below
+    # only once they have proved who they are.
+    user = await account_by_email(db, body.email)
 
     stored_hash = user.password_hash if user is not None and user.password_hash else None
     password_ok = passwords.verify(stored_hash or passwords.dummy_hash(), body.password)
@@ -202,34 +254,136 @@ async def login(
             type_=problems.TYPE_UNAUTHENTICATED,
         )
 
-    if user is None or workspace is None:  # pragma: no cover — narrowed above
+    if user is None:  # pragma: no cover — narrowed above
         raise problems.unauthenticated()
+
+    # Credentials were correct, so this is no longer a sign-in failure however
+    # it ends. An account with nowhere to go is a real state — every
+    # membership revoked, or a workspace archived out from under them — and
+    # saying so is the only way the person knows to ask someone for access
+    # rather than to keep retrying a password that works.
+    workspace_id = await workspaces.default_workspace_id(db, user)
+    if workspace_id is None:
+        await limiter.clear(body.email, ip)
+        # Recorded, because it is the visible half of a decision somebody
+        # made: an admin removed this person's last workspace, and the only
+        # evidence that it landed is them turning up at the door.
+        await _audit_login_failure(db, AuditAction.LOGIN_NO_WORKSPACE, body.email, ip)
+        raise problems.Problem(
+            status_code=status.HTTP_403_FORBIDDEN,
+            title="No workspace",
+            detail=(
+                "Your sign-in worked, but you are not a member of any workspace. "
+                "Ask an administrator to add you to one."
+            ),
+            type_=problems.TYPE_FORBIDDEN,
+        )
+    access = await workspaces.resolve_access(db, user=user, workspace_id=workspace_id)
 
     if passwords.needs_rehash(stored_hash):
         user.password_hash = passwords.hash_password(body.password)
 
     await limiter.clear(body.email, ip)
     user.last_login_at = utcnow()
+    user.last_workspace_id = access.workspace.id
     record = await store.create(
         user_id=user.id,
-        workspace_id=workspace.id,
+        workspace_id=access.workspace.id,
         ip=ip,
         user_agent=user_agent(request),
     )
     write_audit(
         db,
-        workspace_id=workspace.id,
+        workspace_id=access.workspace.id,
         actor_id=user.id,
         action=AuditAction.LOGIN,
         target_type=AuditTarget.USER,
         target_id=user.id,
+        meta={"via_superadmin": True} if access.via_superadmin else {},
         ip=ip,
     )
     await db.commit()
 
     _set_session_cookies(response, record, settings)
-    log.info("auth.login", user_id=str(user.id), role=user.role)
-    return _me(user, workspace.name)
+    log.info("auth.login", user_id=str(user.id), role=access.role)
+    return await _me(
+        db,
+        user,
+        workspace=access.workspace,
+        role=access.role,
+        via_superadmin=access.via_superadmin,
+    )
+
+
+@router.post("/auth/workspace", response_model=MeResponse, summary="Switch workspace")
+async def switch_workspace(
+    me_: SignedIn,
+    body: SwitchWorkspaceRequest,
+    request: Request,
+    db: Db,
+    store: Store,
+    settings: SettingsDep,
+    response: Response,
+) -> MeResponse:
+    """Move this browser into another workspace.
+
+    The session is replaced rather than edited. Changing the workspace id in
+    place would leave one session id spanning two tenants in every log, cache
+    key and reconnecting SSE stream that captured it earlier in the request's
+    life; a new id makes "which workspace was this session in" answerable from
+    the id alone. Their other browsers are left where they are — switching tab
+    A is not a statement about tab B.
+    """
+    try:
+        access = await workspaces.resolve_access(db, user=me_.user, workspace_id=body.workspace_id)
+    except workspaces.WorkspaceAccessError as exc:
+        raise problems.Problem(
+            status_code=status.HTTP_404_NOT_FOUND
+            if exc.reason == "missing"
+            else status.HTTP_403_FORBIDDEN,
+            title="Workspace unavailable",
+            detail=exc.detail,
+            type_=problems.TYPE_FORBIDDEN,
+        ) from exc
+
+    if access.workspace.id == me_.workspace_id:
+        return await _me_from(db, me_)
+
+    ip = client_ip(request)
+    me_.user.last_workspace_id = access.workspace.id
+    write_audit(
+        db,
+        workspace_id=access.workspace.id,
+        actor_id=me_.user.id,
+        action=AuditAction.WORKSPACE_ENTERED,
+        target_type=AuditTarget.WORKSPACE,
+        target_id=access.workspace.id,
+        meta={"from": str(me_.workspace_id), "via_superadmin": access.via_superadmin},
+        ip=ip,
+    )
+    await db.commit()
+
+    await store.revoke(me_.session.sid, user_id=me_.user.id)
+    record = await store.create(
+        user_id=me_.user.id,
+        workspace_id=access.workspace.id,
+        ip=ip,
+        user_agent=user_agent(request),
+    )
+    _set_session_cookies(response, record, settings)
+    log.info(
+        "auth.workspace_switched",
+        user_id=str(me_.user.id),
+        workspace_id=str(access.workspace.id),
+        via_superadmin=access.via_superadmin,
+    )
+    return await _me(
+        db,
+        me_.user,
+        workspace=access.workspace,
+        role=access.role,
+        via_superadmin=access.via_superadmin,
+    )
 
 
 async def _audit_login_failure(
@@ -239,8 +393,13 @@ async def _audit_login_failure(
 
     Committed on its own: the request is about to raise, and an audit row that
     rolled back with the failure would leave no trace of the attempt.
+
+    A failed sign-in has no workspace of its own — nobody has proved who they
+    are yet — so it lands in the oldest one, which is the installation's own
+    log. Filing it against a guessed account's workspace would leak, by the
+    row's very location, which workspace that address belongs to.
     """
-    workspace = await bootstrap.get_workspace(db)
+    workspace = await bootstrap.first_workspace(db)
     if workspace is None:
         return
     write_audit(
@@ -289,8 +448,7 @@ async def logout(
 
 @router.get("/auth/me", response_model=MeResponse, summary="The signed-in caller")
 async def me(me_: SignedIn, db: Db) -> MeResponse:
-    workspace = await bootstrap.get_workspace(db)
-    return _me(me_.user, workspace.name if workspace else "")
+    return await _me_from(db, me_)
 
 
 @router.post(

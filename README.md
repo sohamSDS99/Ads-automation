@@ -4,8 +4,11 @@ Self-hosted **Paid Ads Research Agent** — Stage 01 of the SDS Manager marketin
 pipeline. It runs a deterministic 23-node research DAG over five evidence
 sources and emits a versioned, citation-backed Research Report.
 
-One workspace, many users, invite-only, four roles. See `PRD files/prd-research.md`
-for the full specification.
+Many workspaces, many users, invite-only, four roles per workspace and one
+administrator over the installation. See `PRD files/prd-research.md` for the
+full specification, and **Workspaces** below for where it now differs (PRD §A3
+assumed a single workspace; the product separates each company, and each
+business function inside one, into its own).
 
 > **Status: Phase P5b (Stage 1.5 + the report).** Everything P0 through P6
 > shipped, plus the six nodes that finish the DAG: the landing-page audit, the
@@ -31,10 +34,50 @@ open http://localhost:3000      # sign in as BOOTSTRAP_ADMIN_EMAIL
 That is the whole setup. `make up` is idempotent; `make clean` destroys the
 local volumes.
 
-The first boot against an empty database creates the workspace and its only
-admin from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`. After that
-there is no path to an account except an invite — change the dev password from
-the account menu, and set a real one before deploying anywhere.
+The first boot against an empty database creates the first workspace and the
+system administrator from `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`.
+After that there is no path to an account except an invite — change the dev
+password from the account menu, and set a real one before deploying anywhere.
+
+## Workspaces
+
+A workspace is one company, or one business function inside one. Nothing
+crosses the boundary: projects, runs, evidence, reports, credentials, the audit
+log and the member list all belong to exactly one workspace, and every query
+reaches them through `WorkspaceScopedRepo` or an explicit join to `membership`.
+
+Three tables carry the model, and the split between them is the whole design:
+
+| Table | Holds | Does **not** hold |
+| --- | --- | --- |
+| `user` | The person: email, password, `is_superadmin` | Any role, any workspace |
+| `membership` | `(workspace, user) → role, status` | Anything about the person |
+| `workspace` | Name, settings, `archived_at` | Its members |
+
+* **A person is one account** however many workspaces they work in — one
+  password, one place to change it. Being added to a second workspace creates
+  a membership, never a second account, and the invite link asks them to
+  confirm with the password they already have.
+* **Authorization is the pair, not the person.** `Principal.role` is read from
+  the membership on every request, so the same account can be an admin in Paid
+  Search and a viewer in Brand, and a revocation in one takes effect on the
+  next call without touching the other.
+* **The session says where, never whether.** `session.workspace_id` is
+  re-checked against the membership on every request; a revoked membership or
+  an archived workspace ends that one session and leaves the person's other
+  browsers alone.
+* **One system administrator** (`user.is_superadmin`) creates workspaces,
+  reaches every one of them without a membership, and is the only holder of
+  `Permission.PLATFORM_ADMIN` — which no role grants. Every action they take
+  inside somebody else's workspace is written to *that* workspace's audit log
+  with `via_superadmin: true`.
+* **Workspaces are archived, never deleted.** `workspace` cascades to eight
+  tables; archiving hides it and refuses new sessions while leaving every row
+  in place, and the last remaining workspace cannot be archived at all.
+
+Settings → **Workspaces** and **Accounts** are the two screens behind
+`PLATFORM_ADMIN`; everything else on that tab strip belongs to the workspace
+you are currently in, and the switcher in the top bar is how you leave it.
 
 ## What runs where
 

@@ -17,7 +17,7 @@ import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.auth.rbac import Permission, has_permission
-from agent.db.models import AuditLog, Invite, User, UserRole, Workspace
+from agent.db.models import AuditLog, Invite, Membership, User, UserRole, Workspace
 from tests.integration.conftest import ApiClient
 
 ROLES = ("admin", "operator", "approver", "viewer")
@@ -278,20 +278,82 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
     # Admin-only for the same reason `GET /models` is: its only consumer is the
     # admin settings screen.
     ("GET", "/storage", "/storage", Permission.SETTINGS_WRITE, None),
+    # Multi-workspace. Removing someone from a workspace is `user_manage`, the
+    # same as changing their role; everything that reaches *across* workspaces
+    # is `platform_admin`, which no role grants. Those rows are the ones that
+    # matter here: they are what proves one company's admin cannot create,
+    # rename, archive or enumerate another company's workspace.
+    ("DELETE", "/users/{user_id}", "/users/{target}", Permission.USER_MANAGE, None),
+    ("GET", "/workspaces", "/workspaces", Permission.READ, None),
+    (
+        "POST",
+        "/auth/workspace",
+        "/auth/workspace",
+        Permission.READ,
+        {"workspace_id": "00000000-0000-0000-0000-000000000000"},
+    ),
+    (
+        "POST",
+        "/workspaces",
+        "/workspaces",
+        Permission.PLATFORM_ADMIN,
+        {"name": "Matrix Probe Workspace"},
+    ),
+    (
+        "PATCH",
+        "/workspaces/{workspace_id}",
+        "/workspaces/{workspace}",
+        Permission.PLATFORM_ADMIN,
+        {"name": "Renamed By Probe"},
+    ),
+    (
+        "DELETE",
+        "/workspaces/{workspace_id}",
+        "/workspaces/{workspace}",
+        Permission.PLATFORM_ADMIN,
+        None,
+    ),
+    (
+        "POST",
+        "/workspaces/{workspace_id}/restore",
+        "/workspaces/{workspace}/restore",
+        Permission.PLATFORM_ADMIN,
+        None,
+    ),
+    ("GET", "/platform/accounts", "/platform/accounts", Permission.PLATFORM_ADMIN, None),
+    (
+        "PATCH",
+        "/platform/accounts/{user_id}",
+        "/platform/accounts/{target}",
+        Permission.PLATFORM_ADMIN,
+        {"status": "disabled"},
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
 
 
 async def snapshot(db: AsyncSession) -> tuple[object, ...]:
-    """Everything a forbidden call must leave untouched."""
+    """Everything a forbidden call must leave untouched.
+
+    Memberships are in the snapshot as well as accounts: the routes under test
+    can now change a role, revoke access, archive a workspace or promote a
+    system administrator, and three of those four leave `user` alone.
+    """
     rows = []
-    for model in (User, Invite, Workspace, AuditLog):
+    for model in (User, Invite, Workspace, AuditLog, Membership):
         result = await db.execute(sa.select(sa.func.count()).select_from(model))
         rows.append(result.scalar_one())
-    users = await db.execute(sa.select(User.id, User.role, User.status).order_by(User.email))
-    names = await db.execute(sa.select(Workspace.name))
-    return (*rows, tuple(users.all()), tuple(names.all()))
+    accounts = await db.execute(
+        sa.select(User.id, User.status, User.is_superadmin).order_by(User.email)
+    )
+    members = await db.execute(
+        sa.select(
+            Membership.user_id, Membership.workspace_id, Membership.role, Membership.status
+        ).order_by(Membership.user_id, Membership.workspace_id)
+    )
+    spaces = await db.execute(sa.select(Workspace.name, Workspace.archived_at))
+    return (*rows, tuple(accounts.all()), tuple(members.all()), tuple(spaces.all()))
 
 
 @pytest.mark.parametrize(("method", "router_path", "path", "permission", "body"), MUTATING)
@@ -307,12 +369,29 @@ async def test_a_role_without_the_permission_is_refused_and_writes_nothing(
     permission: Permission,
     body: dict[str, object] | None,
 ) -> None:
-    caller = admin if role == "admin" else await signed_in_as(role)  # type: ignore[operator]
-    target = (await db.execute(sa.select(User.id).where(User.role == UserRole.ADMIN))).scalar_one()
+    # Every role here is an *invited* member, including admin. The bootstrap
+    # admin would not do: it is the system administrator, and a matrix that
+    # tested `admin` through the one account holding `platform_admin` would
+    # report that a workspace admin may reach every other workspace.
+    caller = await signed_in_as(role)  # type: ignore[operator]
+    target = (
+        await db.execute(
+            sa.select(User.id)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.role == UserRole.ADMIN)
+            .order_by(User.created_at)
+            .limit(1)
+        )
+    ).scalar_one()
+    workspace_row = (
+        await db.execute(sa.select(Workspace.id).order_by(Workspace.created_at).limit(1))
+    ).scalar_one()
     # The run and project ids are deliberately fictional: `require(Permission)`
     # is a dependency, so a forbidden caller is refused before any lookup. A 403
     # that depended on the row existing would not be proving authorization.
-    url = path.format(target=target, project=uuid.uuid4(), run=uuid.uuid4())
+    url = path.format(
+        target=target, project=uuid.uuid4(), run=uuid.uuid4(), workspace=workspace_row
+    )
 
     if has_permission(UserRole(role), permission):
         pytest.skip(f"{role} legitimately holds {permission.value}")
@@ -340,7 +419,9 @@ async def test_every_guarded_route_rejects_an_anonymous_caller(
     permission: Permission,
     body: dict[str, object] | None,
 ) -> None:
-    url = path.format(target=uuid.uuid4(), project=uuid.uuid4(), run=uuid.uuid4())
+    url = path.format(
+        target=uuid.uuid4(), project=uuid.uuid4(), run=uuid.uuid4(), workspace=uuid.uuid4()
+    )
     response = await getattr(client, method.lower())(url, json=body)
     assert response.status_code == 401
     assert response.json()["type"] == "/problems/unauthenticated"
@@ -351,8 +432,8 @@ async def test_a_role_with_the_permission_is_allowed_through(
     admin: ApiClient, signed_in_as: object, db: AsyncSession, role: str
 ) -> None:
     """The mirror image: READ routes must actually work for every role."""
-    caller = admin if role == "admin" else await signed_in_as(role)  # type: ignore[operator]
-    for path in ("/auth/me", "/auth/sessions", "/users", "/workspace"):
+    caller = await signed_in_as(role)  # type: ignore[operator]
+    for path in ("/auth/me", "/auth/sessions", "/users", "/workspace", "/workspaces"):
         response = await caller.get(path)
         assert response.status_code == 200, f"{role} GET {path} -> {response.text}"
 

@@ -37,6 +37,11 @@
     "email_delivered": {
       "title": "Email Delivered",
       "type": "boolean"
+    },
+    "has_account": {
+      "default": false,
+      "title": "Has Account",
+      "type": "boolean"
     }
   },
   "required": [

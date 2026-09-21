@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 eval coverage \
-        browser browser-p6 browser-p7 browser-p8 browser-documents \
+        browser browser-p6 browser-p7 browser-p8 browser-documents browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -152,6 +152,16 @@ browser-documents: ## Upload a real PDF into step 1 and assert on what the scree
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-documents.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-workspaces: ## Drive the workspace switcher, the two admin tabs and the refusals, at 1440 and 390
+	@docker compose cp scripts/browser-check-workspaces.py worker:/tmp/browser-check-workspaces.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	# The worker's own venv, not `--with playwright==1.49.0`: the image ships
+	# the browsers *its* Playwright asks for (chromium-1243), and pulling a
+	# pinned older Playwright in alongside them fails on a missing executable.
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		python /tmp/browser-check-workspaces.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p7: ## Drive the P7 screens as four roles, at 1440 and 390

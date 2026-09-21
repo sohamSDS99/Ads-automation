@@ -46,7 +46,7 @@ from agent.db.models import (
     UserRole,
     UserStatus,
 )
-from agent.db.repos import ApprovalRepo, UserRepo
+from agent.db.repos import ApprovalRepo, GateDecider, UserRepo
 from agent.db.session import get_session
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
@@ -95,7 +95,7 @@ async def list_approvals(
     rows = await repo.page(
         run_id=run_id,
         status=approval_status,
-        decidable_by=me.user if mine else None,
+        decidable_by=GateDecider(me.user.id, me.role) if mine else None,
         limit=limit + 1,
         offset=offset,
     )
@@ -307,18 +307,21 @@ async def reassign_approval(
     if approval.status is not ApprovalStatus.PENDING:
         raise problems.conflict(f"This gate was already {approval.status.value}.")
 
-    is_admin = me.user.role is UserRole.ADMIN
+    is_admin = me.role is UserRole.ADMIN
     holds_it = approval.assignee_id is not None and approval.assignee_id == me.user.id
     unassigned_and_eligible = approval.assignee_id is None and gates.may_decide(
-        me.user.role, approval.required_role
+        me.role, approval.required_role
     )
     if not (is_admin or holds_it or unassigned_and_eligible):
         raise problems.forbidden(missing_permission="approval_decide")
 
     previous = approval.assignee_id
     if body.assignee_id is not None:
-        target = await db.get(User, body.assignee_id)
-        if target is None or target.workspace_id != me.workspace_id:
+        # Membership, not account: a gate can only be handed to someone who is
+        # in *this* workspace, and the role that qualifies them is the one they
+        # hold here.
+        target = await UserRepo(db, me.workspace_id).get(body.assignee_id)
+        if target is None:
             raise problems.not_found(f"No user {body.assignee_id}.")
         if target.status is not UserStatus.ACTIVE:
             raise problems.unprocessable("That user is not active.")
@@ -355,12 +358,12 @@ async def reassign_approval(
 
 def _assert_may_decide(approval: Approval, me: Principal) -> None:
     """PRD §6.1 Authorization 3, both halves."""
-    if not gates.may_decide(me.user.role, approval.required_role):
+    if not gates.may_decide(me.role, approval.required_role):
         raise problems.forbidden(missing_permission="approval_decide")
     if (
         approval.assignee_id is not None
         and approval.assignee_id != me.user.id
-        and me.user.role is not UserRole.ADMIN
+        and me.role is not UserRole.ADMIN
     ):
         raise problems.Problem(
             status_code=status.HTTP_403_FORBIDDEN,

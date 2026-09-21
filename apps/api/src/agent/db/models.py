@@ -1,9 +1,22 @@
 """SQLAlchemy 2.0 models — the whole schema from PRD §6.
 
-Thirteen tables, one workspace. The Workspace row is a singleton enforced in
-the database, not in application code; `user`, `invite`, `audit_log`,
-`project`, `credential`, `run` and `schedule` all hang off it, and every query
-reaches them through `WorkspaceScopedRepo` (see `repo.py`).
+Fifteen tables, many workspaces. A workspace is one company, or one business
+function inside one; `invite`, `audit_log`, `project`, `credential`, `run` and
+`schedule` all hang off it, and every query reaches them through
+`WorkspaceScopedRepo` (see `repo.py`).
+
+`user` is the exception, and the reason for `membership`. A person is one
+account with one password however many workspaces they work in, so the account
+is global and its *access* is per-workspace: `membership` carries the role and
+whether that access is live. Two consequences worth stating once, because the
+rest of the codebase depends on both:
+
+* Authorization is a property of the (user, active workspace) pair, never of
+  the user alone. `Principal.role` is the membership's role, resolved per
+  request, so revoking access in one workspace cannot leak into another.
+* `user.is_superadmin` is the one platform-wide grant. It reaches every
+  workspace without a membership row, which is exactly why every use of it is
+  written to the audit log of the workspace it touched.
 """
 
 from __future__ import annotations
@@ -176,12 +189,25 @@ def _now() -> Any:
 
 
 class Workspace(Base):
-    """The singleton workspace. Exactly one row, enforced by a unique index."""
+    """One company, or one business function inside one. Archived, never deleted.
+
+    There used to be exactly one row, held down by a unique index on a constant
+    expression. That index is gone (migration 0011): the product separates a
+    company's research from every other company's, and separates one business
+    function's from the next, and both of those are this row.
+
+    Archiving rather than deleting is not squeamishness. A workspace owns
+    projects, runs, evidence and an audit log, all of it `ON DELETE CASCADE`;
+    "remove this workspace" must not be one mis-click away from erasing the
+    record of everything that was ever decided in it.
+    """
 
     __tablename__ = "workspace"
     __table_args__ = (
-        # A unique index on a constant expression permits exactly one row.
-        sa.Index("uq_workspace_singleton", sa.text("(true)"), unique=True),
+        # Two workspaces called "Paid Search" is a mistake every time, and the
+        # switcher cannot tell them apart. Case-insensitive because `CITEXT`
+        # is what the rest of this schema uses for names people type.
+        sa.Index("uq_workspace_name", sa.text("lower(name)"), unique=True),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -189,30 +215,103 @@ class Workspace(Base):
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
+    #: NULL for the workspace the bootstrap created, which predates any account.
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Set to hide the workspace from every switcher and refuse new sessions
+    #: into it. The rows underneath are untouched.
+    archived_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True), nullable=True)
     settings: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
     )
 
+    @property
+    def is_archived(self) -> bool:
+        return self.archived_at is not None
+
 
 class User(Base):
-    """A member of the workspace. Disabled, never deleted (PRD §6.1)."""
+    """An account. Global, one password, disabled but never deleted (PRD §6.1).
+
+    Deliberately carries no role and no workspace. Which workspaces this person
+    reaches, and what they may do in each, is `membership` — see the module
+    docstring. What is left here is the identity: who they are, how they prove
+    it, and the one platform-wide grant.
+    """
 
     __tablename__ = "user"
-    __table_args__ = (sa.Index("ix_user_workspace_email", "workspace_id", "email"),)
+
+    id: Mapped[uuid.UUID] = _pk()
+    email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
+    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    # Argon2id. Never returned by any endpoint.
+    password_hash: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    #: The *account* lifecycle, which is not the same question as membership
+    #: status. `invited` means no password has ever been set; `disabled` locks
+    #: the person out of every workspace at once, however many memberships
+    #: still say `active`.
+    status: Mapped[UserStatus] = mapped_column(
+        _enum(UserStatus, "user_status"), nullable=False, server_default=UserStatus.INVITED.value
+    )
+    #: The whole-system administrator. Reaches every workspace, with or without
+    #: a membership, and is the only holder of `Permission.PLATFORM_ADMIN`.
+    is_superadmin: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    #: Where to put them on their next sign-in. A hint for choosing the active
+    #: workspace, never a grant: the membership is re-checked regardless.
+    last_workspace_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="SET NULL"), nullable=True
+    )
+    last_login_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+class Membership(Base):
+    """One person's access to one workspace, and the role they hold in it.
+
+    The join table is where authorization lives now. `role` is read from here
+    on every authenticated request, so a demotion or a revocation takes effect
+    on the caller's next call rather than whenever their session is rebuilt —
+    the same guarantee `user.role` used to give, kept while the account itself
+    became global.
+
+    `status` mirrors `user.status` in spelling and means something narrower:
+    `invited` is an unaccepted invitation to *this* workspace (the account may
+    be years old and active elsewhere), and `disabled` removes this workspace
+    from that person's switcher without touching their account.
+    """
+
+    __tablename__ = "membership"
+    __table_args__ = (
+        sa.UniqueConstraint("workspace_id", "user_id", name="uq_membership_workspace_user"),
+        # "Which workspaces can I reach?" runs on every sign-in and every
+        # render of the switcher.
+        sa.Index("ix_membership_user", "user_id"),
+        sa.Index("ix_membership_workspace_role", "workspace_id", "role"),
+    )
 
     id: Mapped[uuid.UUID] = _pk()
     workspace_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
     )
-    email: Mapped[str] = mapped_column(CITEXT, nullable=False, unique=True)
-    name: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    # Argon2id. Never returned by any endpoint.
-    password_hash: Mapped[str | None] = mapped_column(sa.Text, nullable=True)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="CASCADE"), nullable=False
+    )
     role: Mapped[UserRole] = mapped_column(_enum(UserRole, "user_role"), nullable=False)
     status: Mapped[UserStatus] = mapped_column(
         _enum(UserStatus, "user_status"), nullable=False, server_default=UserStatus.INVITED.value
     )
-    last_login_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: NULL for the founding admin of a workspace, who was not invited by anyone.
+    invited_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL"), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -693,6 +792,7 @@ class Schedule(Base):
 ALL_TABLES: tuple[str, ...] = (
     "workspace",
     "user",
+    "membership",
     "invite",
     "audit_log",
     "project",

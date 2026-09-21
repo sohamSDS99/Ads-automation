@@ -12,7 +12,7 @@ import { ApiError, login } from "@/lib/api";
 type FormState = {
   email?: string;
   password?: string;
-  form?: { title: string; detail: string };
+  form?: { title: string; detail: string; tone?: "error" | "warning" };
 };
 
 export function LoginForm({ next }: { next: string }) {
@@ -47,7 +47,17 @@ export function LoginForm({ next }: { next: string }) {
     } catch (error) {
       setPending(false);
       if (error instanceof ApiError && error.problem) {
-        setErrors({ form: { title: error.problem.title, detail: error.detail } });
+        // A correct password with no workspace behind it is not a sign-in
+        // failure, and colouring it like one sends someone round the
+        // password-reset loop for an account that works. It is amber, and it
+        // says who to ask.
+        setErrors({
+          form: {
+            title: error.problem.title,
+            detail: error.detail,
+            tone: error.status === 403 ? "warning" : "error",
+          },
+        });
         return;
       }
       setErrors({
@@ -62,7 +72,7 @@ export function LoginForm({ next }: { next: string }) {
   return (
     <form onSubmit={onSubmit} noValidate className="flex flex-col gap-3">
       {errors.form ? (
-        <Alert tone="error" title={errors.form.title}>
+        <Alert tone={errors.form.tone ?? "error"} title={errors.form.title}>
           {errors.form.detail}
         </Alert>
       ) : null}
