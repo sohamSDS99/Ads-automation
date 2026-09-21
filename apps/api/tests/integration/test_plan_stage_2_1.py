@@ -98,6 +98,16 @@ def answers() -> dict[str, Any]:
             "method_notes": "Gross profit over the CAC ratio, times the observed close rate.",
             "caveats": ["One industry carries the whole book."],
         },
+        # 2.2.1 hangs off 2.1.1, so a plan run reaches it in the same wave as
+        # the ceiling — before either gate is asked. It is scripted here rather
+        # than filtered out of the run because "the budget branch starts without
+        # waiting for a gate" is a property of the DAG worth exercising every
+        # time this file runs. `tests/integration/test_plan_stage_2_2.py` is
+        # where what it produces is asserted.
+        "ForecastNotes": {
+            "method_notes": "Search volume at the impression-share target.",
+            "caveats": ["A forecast is not a promise."],
+        },
         "CampaignTargetsDraft": {
             "objectives": [
                 {
@@ -335,7 +345,10 @@ async def test_the_calculation_is_searchable_as_derived_evidence(
         .all()
     )
     assert rows
-    assert {row.kind for row in rows} <= {"calc_economics"}
+    # `calc_forecast` joins it from S2-P3: 2.2.1 runs in the same wave as the
+    # ceiling. Both are `derived` rows with a human rendering, which is what
+    # this test is about.
+    assert {row.kind for row in rows} <= {"calc_economics", "calc_forecast"}
     assert any("Max CPL" in (row.content_text or "") for row in rows)
     assert all(row.payload["formula_id"] for row in rows)
 

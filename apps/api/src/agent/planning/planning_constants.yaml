@@ -13,7 +13,7 @@
 # constants. Every `source: internal` is a decision we made, not a number
 # anyone published. The Google rows need a real URL against the current help
 # centre before the first plan is frozen for a client.
-version: "2026.09.1"
+version: "2026.09.2"
 
 learning:
   # Conversions per 30 days below which Smart Bidding cannot leave the learning
@@ -94,6 +94,48 @@ forecast:
   # scenario is capped by measured headroom, so this is only the starting point.
   impression_share_target_pct:
     value: 45
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # LAST RESORT ONLY. PRD §18 requires node 2.2.1 to run when no Google Ads
+  # account is connected, and Stage 01's demand data carries volume and CPC but
+  # no click-through or conversion rate — so something has to stand in. These
+  # two are that something, and `planning/demand.py` records `measured: false`
+  # and raises a named gap whenever it reaches for them, so a plan built on
+  # them says so on its own budget gate card rather than reading as measured.
+  # An account with history never touches these values.
+  default_ctr_pct:
+    value: 3.2
+    source: "internal"
+    reviewed_at: 2026-09-21
+  default_cvr_pct:
+    value: 2.5
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+reallocation:
+  # Node 2.2.5's guardrails. Not in the PRD's seed block: §11 gives the rule
+  # shape (`max_shift_pct`, `lookback_days`, `cooldown_days`) without values,
+  # and law 15 forbids a policy number living in a prompt — which is exactly
+  # where it would otherwise end up, since the model writes the rules.
+  #
+  # The model selects from these; it never invents one. `max_shift_pct` is
+  # additionally bounded per rule by what the donor campaign can give up
+  # without dropping below its learning threshold, which is a calculation and
+  # lives in `structure.volume_check_v1`.
+  max_shift_pct:
+    value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Shorter than the learning period would judge a campaign on noise; much
+  # longer and a rule stops being a reallocation and becomes a re-plan.
+  lookback_days:
+    value: 14
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # Two learning periods. A budget change restarts learning, so firing again
+  # inside one measures the disturbance rather than the decision.
+  cooldown_days:
+    value: 14
     source: "internal"
     reviewed_at: 2026-09-21
 

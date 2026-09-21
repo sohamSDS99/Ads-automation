@@ -91,6 +91,15 @@ class BudgetConstants(_Group):
 
 class ForecastConstants(_Group):
     impression_share_target_pct: Constant
+    #: Used only when the account has no readable search history. See the file.
+    default_ctr_pct: Constant
+    default_cvr_pct: Constant
+
+
+class ReallocationConstants(_Group):
+    max_shift_pct: Constant
+    lookback_days: Constant
+    cooldown_days: Constant
 
 
 class TestConstants(_Group):
@@ -110,6 +119,7 @@ class PlanningConstants(BaseModel):
     economics: EconomicsConstants
     budget: BudgetConstants
     forecast: ForecastConstants
+    reallocation: ReallocationConstants
     test: TestConstants
 
     def get(self, dotted: str) -> Constant:

@@ -58,7 +58,17 @@ def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     assert stages == modules, "a stage module exists whose nodes never registered"
     # Plan nodes live in `nodes/plan/`, not in a `stage_*` module, so they are
     # checked by their own census rather than by the naming convention above.
-    assert registry.for_stage(RunStage.PLAN).ids == ("2.1.1", "2.1.2", "2.1.3", "2.1.4")
+    assert registry.for_stage(RunStage.PLAN).ids == (
+        "2.1.1",
+        "2.1.2",
+        "2.1.3",
+        "2.1.4",
+        "2.2.1",
+        "2.2.2",
+        "2.2.3",
+        "2.2.4",
+        "2.2.5",
+    )
     assert len(set(registry.ids)) == len(registry.ids)
     assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
     assert registry.spec("1.1.4").depends_on == ("1.1.2",)
@@ -100,12 +110,19 @@ def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
     `gate=True` would stop runs dead, and a node quietly losing it would skip a
     human. Both should fail this test and be argued in the pull request.
 
-    G3 (2.2.4 budget) and G4 (2.3.1 channel slate) join it in S2-P3 and S2-P4.
-    Stage 02 law 16 is "four gates, no more", so this list reaching six plan
-    entries is a bug and this test is where it shows up.
+    G3 (2.2.4 budget) arrived in S2-P3; G4 (2.3.1 channel slate) joins it in
+    S2-P4. Stage 02 law 16 is "four gates, no more", so this list reaching five
+    plan entries is a bug and this test is where it shows up.
     """
     gates = [item for item in discover().specs() if item.gate]
-    assert [item.id for item in gates] == ["1.1.5", "1.3.4", "1.5.3", "2.1.3", "2.1.4"]
+    assert [item.id for item in gates] == [
+        "1.1.5",
+        "1.3.4",
+        "1.5.3",
+        "2.1.3",
+        "2.1.4",
+        "2.2.4",
+    ]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
 
@@ -119,7 +136,7 @@ def test_only_plan_gates_carry_a_gate_key() -> None:
     """
     specs = discover().specs()
     keyed = {item.id: item.gate_key for item in specs if item.gate_key}
-    assert keyed == {"2.1.3": "G1", "2.1.4": "G2"}
+    assert keyed == {"2.1.3": "G1", "2.1.4": "G2", "2.2.4": "G3"}
     assert all(item.gate_key is None for item in specs if not item.gate)
 
 
