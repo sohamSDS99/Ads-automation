@@ -187,6 +187,115 @@ STAGE_2_5: dict[str, Any] = {
 }
 
 
+#: Stage 2.3 (S2-P4). 2.3.1 assigns a channel to each campaign 2.1.3 agreed,
+#: 2.3.3 names the brand terms and 2.3.2 says where automation may decide. None
+#: of them states a figure: the budget shares and the overlap percentages are
+#: computed from the split signed at G3.
+#:
+#: `SlateDraft` names the campaign_ref `STAGE_2_1["CampaignTargetsDraft"]`
+#: produces, so the two tables agree. Its `market` need not match the research
+#: report's: a campaign named in exactly one slate entry has only one channel it
+#: could run as, so node 2.3.1 places its funded markets there whatever they are
+#: called. A suite that overrides `CampaignTargetsDraft` with its own refs must
+#: override this too — `test_plan_stage_2_2.py` does.
+STAGE_2_3: dict[str, Any] = {
+    "SlateDraft": {
+        "slate": [
+            {
+                "campaign_type": "search",
+                "market": "US",
+                "campaign_refs": ["nonbrand-us-lead-gen"],
+                "launch_wave": 1,
+                "rationale": "Existing demand with measurable intent.",
+                "entry_criteria": ["conversion tracking verified"],
+                "exit_criteria": ["CPL above the ceiling for two months"],
+                "prerequisites": [],
+            }
+        ],
+        "rejected": [
+            {"campaign_type": "shopping", "why_not": "The offer is a subscription, not a product."}
+        ],
+        "notes": "Search first, everything else behind a wave.",
+    },
+    "BrandDraft": {
+        "brand_terms": [{"term": "sds manager", "variant_type": "exact_brand"}],
+        "brand_campaign_ref": "nonbrand-us-lead-gen",
+        "match_types": ["exact", "phrase"],
+        "negatives_for_nonbrand": ["sds manager"],
+        "reporting_rule": "Brand and non-brand are never reported as one blended CPL.",
+        "competitor_bidding_policy": "We do not bid on competitor brand terms.",
+        "notes": "Brand is defended, not grown.",
+    },
+    "AutomationDraft": {
+        "pmax_allowed": False,
+        "included_themes": [],
+        "excluded_urls": [],
+        "account_negatives": ["jobs", "free"],
+        "broad_match_campaigns": [],
+        "broad_match_guardrails": ["Only with tCPA and a shared negative list."],
+        "resolutions": [],
+        "notes": "No automated surface until brand exclusions are confirmed.",
+    },
+}
+
+#: Stage 2.4 (S2-P4). 2.4.1 gives the patterns and the vocabulary — never the
+#: regex, which is compiled from them. 2.4.2 labels ad groups that have already
+#: been formed. 2.4.3 writes prose over a verdict that is already computed.
+#:
+#: `market` and `channel` carry every value a run in this repo can produce,
+#: including `-` for research that recorded no market, so a generated name
+#: passes the convention's own regex whichever fixture the suite used.
+#:
+#: `StructureDraft.ad_groups` is empty on purpose, for the same reason
+#: `CapacityDraft.assignments` is: the keys come from the keywords the suite's
+#: research report happens to hold, so a fixed list would quietly stop matching.
+#: An unlabelled ad group keeps the theme `structure.grouping_v1` computed,
+#: which is a visible fallback rather than a failure.
+STAGE_2_4: dict[str, Any] = {
+    "NamingDraft": {
+        "patterns": {
+            "campaign": "{market} | {channel} | {brand_split}",
+            "ad_group": "{market} | {channel} | {theme}",
+        },
+        "tokens": [
+            {
+                "token": "market",
+                "allowed_values": ["US", "GB", "DE", "FR", "-"],
+                "source": "the project's markets",
+            },
+            {
+                "token": "channel",
+                "allowed_values": [
+                    "Search",
+                    "Performance Max",
+                    "Display",
+                    "Video",
+                    "Demand Gen",
+                    "Shopping",
+                ],
+                "source": "the slate agreed at gate G4",
+            },
+            {
+                "token": "brand_split",
+                "allowed_values": ["Brand", "NonBrand"],
+                "source": "node 2.3.3",
+            },
+        ],
+        "examples": ["US | Search | NonBrand"],
+        "notes": "Market first so the account sorts by market.",
+    },
+    "StructureDraft": {
+        "ad_groups": [],
+        "account_negatives": ["jobs", "free"],
+        "notes": "Themes follow the landing page.",
+    },
+    "VerdictDraft": {
+        "notes": "One campaign per market, each inside the structure floors.",
+        "risks": ["The forecast is the research's, not the account's own history."],
+    },
+}
+
+
 def every_plan_answer() -> dict[str, Any]:
     """Every stage's table, merged. What a whole-DAG plan run needs."""
-    return {**STAGE_2_1, **STAGE_2_2, **STAGE_2_5}
+    return {**STAGE_2_1, **STAGE_2_2, **STAGE_2_3, **STAGE_2_4, **STAGE_2_5}

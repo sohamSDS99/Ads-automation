@@ -52,6 +52,11 @@ PRD_FORMULAS = frozenset(
 BEYOND_THE_PRD = {
     "measurement.reconciliation_v1": "2.5.1 reconciliation[].tolerance_pct",
     "measurement.upload_window_v1": "2.5.2 upload.lag_days / upload.backfill_days",
+    "allocation.share_v1": (
+        "2.3.1 slate[].est_share_of_budget_pct, 2.3.3 brand_campaign.budget_pct, "
+        "2.4.2 campaigns[].daily_budget_usd"
+    ),
+    "structure.overlap_v1": "2.3.2 overlap[].overlap_pct",
 }
 
 EXPECTED_FORMULAS = PRD_FORMULAS | set(BEYOND_THE_PRD)

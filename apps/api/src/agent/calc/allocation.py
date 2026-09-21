@@ -487,3 +487,128 @@ def whatif_v1(
         constants_version=constants.version,
         excluded=excluded,
     )
+
+
+# ---------------------------------------------------------------------------
+# share_v1
+# ---------------------------------------------------------------------------
+
+#: One line of an already-approved split, plus the label to total it under.
+SHARE_COLUMNS = ("group", "usd")
+
+
+@formula("allocation.share_v1", kind="calc_allocation")
+def share_v1(
+    lines: pd.DataFrame,
+    *,
+    constants: PlanningConstants,
+    envelope_usd: float,
+) -> CalcDraft:
+    """Total an approved split under whatever label stages 2.3 and 2.4 read it by.
+
+    NOT IN THE PRD's §9.2 table, for the same reason `measurement.*` is not:
+    stages 2.3 and 2.4 publish figures — a channel's share of the budget, a
+    brand campaign's percentage, a campaign's daily budget — and law 14 says a
+    figure in a plan comes from a registered formula and nowhere else. Summing
+    the approved lines inside a node would be exactly the arithmetic
+    `check_calc_isolation.py` exists to fail.
+
+    The grouping is the caller's: 2.3.1 groups by campaign type and market,
+    2.3.3 by brand versus non-brand, 2.4.2 by campaign. One formula rather than
+    three because the arithmetic is identical and only the label differs, and a
+    per-caller copy is three places for the weighting to drift.
+
+    Two things this does not do. It does not re-derive anything: `usd` is what
+    the budget owner approved at G3, and re-solving it here would let stage 2.3
+    quietly move money a human signed for. And the percentages are of the
+    **envelope**, never of the lines present — a caller that groups a subset
+    gets shares that sum to less than 100, which is the honest answer to "what
+    share of the budget is this".
+    """
+    if envelope_usd <= 0:
+        raise CalcError(f"envelope_usd must be positive, got {envelope_usd}")
+    days = constants.get("budget.days_per_month").value
+    if days <= 0:
+        raise CalcError(f"budget.days_per_month must be positive, got {days}")
+
+    records = rows.records(lines, SHARE_COLUMNS, what="allocation lines")
+    buckets: dict[str, dict[str, list[Any]]] = {}
+    excluded: list[dict[str, Any]] = []
+
+    for record in records:
+        label = rows.text(record, "group").strip()
+        if not label:
+            excluded.append({"group": rows.text(record, "group"), "reason": "group is blank"})
+            continue
+        try:
+            usd = rows.number(record, "usd")
+            target_cpa = rows.number(record, "target_cpa_usd", default=0.0)
+            est_conv = rows.number(record, "est_conv", default=0.0)
+        except CalcError as exc:
+            excluded.append({"group": label, "reason": str(exc)})
+            continue
+        if usd < 0:
+            excluded.append({"group": label, "reason": f"usd must not be negative, got {usd}"})
+            continue
+
+        bucket = buckets.setdefault(
+            label, {"usd": [], "weighted": [], "weight": [], "conv": [], "members": []}
+        )
+        bucket["usd"].append(usd)
+        bucket["conv"].append(est_conv)
+        member = rows.text(record, "campaign_ref")
+        if member and member not in bucket["members"]:
+            bucket["members"].append(member)
+        # Only a line that actually carries a target contributes to the weighted
+        # mean. Treating a missing target as zero would drag a group's ceiling
+        # down in proportion to how much of it we failed to measure.
+        if target_cpa > 0:
+            bucket["weighted"].append(usd * target_cpa)
+            bucket["weight"].append(usd)
+
+    if not buckets:
+        raise CalcError(
+            "no allocation line could be grouped: "
+            + "; ".join(f"{row['group']}: {row['reason']}" for row in excluded)
+        )
+
+    groups: list[dict[str, Any]] = []
+    for label, bucket in buckets.items():
+        usd_total = rows.total(bucket["usd"])
+        weight = rows.total(bucket["weight"])
+        groups.append(
+            {
+                "group": label,
+                "usd": money(usd_total),
+                "pct": pct(usd_total / envelope_usd * 100),
+                "daily_usd": money(usd_total / days),
+                "target_cpa_usd": (
+                    money(rows.total(bucket["weighted"]) / weight) if weight > 0 else None
+                ),
+                "est_conv": money(rows.total(bucket["conv"])),
+                "line_count": len(bucket["usd"]),
+                "campaign_refs": sorted(bucket["members"]),
+            }
+        )
+
+    groups.sort(key=lambda row: (-float(row["usd"]), str(row["group"])))
+    total = rows.total(float(row["usd"]) for row in groups)
+
+    return CalcDraft(
+        inputs={"lines": records, "envelope_usd": envelope_usd, "days_per_month": days},
+        result={
+            "groups": groups,
+            "envelope_usd": money(envelope_usd),
+            "total_usd": money(total),
+            "unallocated_usd": money(max(0.0, envelope_usd - total)),
+            "allocated_pct": pct(total / envelope_usd * 100),
+            "group_count": len(groups),
+        },
+        summary=(
+            f"{len(groups)} group(s) over a ${money(envelope_usd):,.2f} envelope: "
+            + ", ".join(f"{row['group']} {row['pct']:g}%" for row in groups[:4])
+            + ("…" if len(groups) > 4 else "")
+        ),
+        constants_version=constants.version,
+        excluded=excluded,
+    )

@@ -166,4 +166,29 @@ def every_formula_result() -> list[Any]:
         measurement.upload_window_v1(
             upload_options_frame(CONSTANTS), observed_history_days=45, constants=CONSTANTS
         ),
+        allocation.share_v1(
+            frame(
+                [
+                    {
+                        "group": "search|US",
+                        "campaign_ref": "nonbrand",
+                        "usd": 12_000,
+                        "target_cpa_usd": 250,
+                        "est_conv": 48,
+                    }
+                ]
+            ),
+            constants=CONSTANTS,
+            envelope_usd=20_000,
+        ),
+        structure.overlap_v1(
+            frame(
+                [
+                    {"campaign_ref": "search-us", "member": "ehs software"},
+                    {"campaign_ref": "pmax-us", "member": "ehs software"},
+                    {"campaign_ref": "pmax-us", "member": "sds management"},
+                ]
+            ),
+            constants=CONSTANTS,
+        ),
     ]

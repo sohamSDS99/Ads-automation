@@ -477,3 +477,144 @@ def test_min_above_max_keywords_is_refused_before_any_grouping() -> None:
 
 def test_the_group_ordering_is_by_search_volume() -> None:
     assert [item["search_volume"] for item in group()["ad_groups"]] == [2_000, 1_600, 1_100]
+
+
+# ---------------------------------------------------------------------------
+# structure.overlap_v1
+# ---------------------------------------------------------------------------
+
+#: Three campaigns and what each one targets. Worked out by hand:
+#:
+#:     search-us       {ehs software, ehs platform, safety software,
+#:                      chemical management}                            4 terms
+#:     pmax-us         {ehs software, ehs platform, sds management}     3 terms
+#:     remarketing-us  {forklift training}                              1 term
+#:
+#:     pmax-us / search-us      shared 2, combined 5  -> 40.00%
+#:                              2/3 of pmax-us        -> 66.67%
+#:                              2/4 of search-us      -> 50.00%
+#:     every other pair         shared 0              ->  0.00%
+MEMBERS = [
+    {"campaign_ref": "search-us", "member": "ehs software"},
+    {"campaign_ref": "search-us", "member": "ehs platform"},
+    {"campaign_ref": "search-us", "member": "safety software"},
+    {"campaign_ref": "search-us", "member": "chemical management"},
+    {"campaign_ref": "pmax-us", "member": "ehs software"},
+    {"campaign_ref": "pmax-us", "member": "ehs platform"},
+    {"campaign_ref": "pmax-us", "member": "sds management"},
+    {"campaign_ref": "remarketing-us", "member": "forklift training"},
+]
+
+
+def overlap(rows: list[dict[str, object]] | None = None) -> dict:
+    calc = structure.overlap_v1(frame(rows if rows is not None else MEMBERS), constants=CONSTANTS)
+    return calc.result
+
+
+def test_overlap_is_the_share_of_the_combined_targeting_the_two_campaigns_share() -> None:
+    top = overlap()["pairs"][0]
+    assert (top["campaign_a"], top["campaign_b"]) == ("pmax-us", "search-us")
+    assert top["overlap_pct"] == 40.0
+    assert top["shared_count"] == 2
+
+
+def test_the_directional_shares_say_which_campaign_is_the_one_being_eaten() -> None:
+    """40% symmetric hides that two thirds of PMax is inside Search but only half the reverse."""
+    top = overlap()["pairs"][0]
+    assert top["a_shared_pct"] == 66.67
+    assert top["b_shared_pct"] == 50.0
+
+
+def test_campaigns_that_share_nothing_are_reported_as_zero_not_omitted() -> None:
+    pairs = {
+        (row["campaign_a"], row["campaign_b"]): row["overlap_pct"] for row in overlap()["pairs"]
+    }
+    assert pairs[("pmax-us", "remarketing-us")] == 0.0
+    assert pairs[("remarketing-us", "search-us")] == 0.0
+    assert len(pairs) == 3
+
+
+def test_only_pairs_at_or_above_the_reporting_threshold_are_flagged() -> None:
+    result = overlap()
+    assert result["reportable"] == [["pmax-us", "search-us"]]
+    assert result["max_overlap_pct"] == 40.0
+
+
+def test_the_shared_terms_are_named_so_a_resolution_can_be_argued() -> None:
+    assert overlap()["pairs"][0]["shared"] == ["ehs platform", "ehs software"]
+
+
+def test_a_single_campaign_has_no_pair_and_that_is_not_an_error() -> None:
+    result = overlap([{"campaign_ref": "only", "member": "ehs software"}])
+    assert result["pairs"] == []
+    assert result["max_overlap_pct"] == 0.0
+    assert result["campaign_count"] == 1
+
+
+def test_a_member_repeated_within_a_campaign_is_counted_once() -> None:
+    rows = [*MEMBERS, {"campaign_ref": "pmax-us", "member": "ehs software"}]
+    assert overlap(rows)["pairs"][0]["overlap_pct"] == 40.0
+
+
+def test_members_are_matched_case_and_whitespace_insensitively() -> None:
+    """`EHS  Software` and `ehs software` are one term, or every overlap reads as zero."""
+    rows = [*MEMBERS[:4], {"campaign_ref": "pmax-us", "member": "  EHS   Software "}]
+    assert overlap(rows)["pairs"][0]["shared"] == ["ehs software"]
+
+
+def test_a_blank_member_is_excluded_with_its_reason() -> None:
+    calc = structure.overlap_v1(
+        frame([{"campaign_ref": "a", "member": "  "}, *MEMBERS]), constants=CONSTANTS
+    )
+    assert calc.excluded[0]["reason"] == "member is blank"
+
+
+def test_no_campaign_carrying_a_member_raises() -> None:
+    with pytest.raises(CalcError, match="no campaign carried a targetable member"):
+        structure.overlap_v1(frame([{"campaign_ref": "a", "member": ""}]), constants=CONSTANTS)
+
+
+# ---------------------------------------------------------------------------
+# the structure floors, once a caller actually knows the structure
+# ---------------------------------------------------------------------------
+
+
+def test_a_clearing_campaign_below_the_ad_group_floor_reports_the_fact_not_a_remedy() -> None:
+    """The division of labour the test above sets: this formula answers "can it be
+    optimised", node 2.4.3 answers "should this layout ship". So the floor is
+    reported as a fact and the remedy stays empty."""
+    row = {
+        "campaign_ref": "brand-US",
+        "monthly_budget_usd": 6_000,
+        "forecast_cpa_usd": 80,
+        "avg_cpc_usd": 3.0,
+        "ad_group_count": 1,
+        "keyword_count": 6,
+        "has_revenue_values": False,
+    }
+    checked = structure.volume_check_v1(frame([row]), constants=CONSTANTS).result["campaigns"][0]
+    assert (checked["verdict"], checked["remedy"]) == ("clears", None)
+    assert checked["below_ad_group_floor"] is True
+    assert checked["below_keyword_floor"] is False
+
+
+def test_a_well_structured_campaign_is_below_no_floor() -> None:
+    checked = row(check(), "nonbrand-US")
+    assert checked["below_ad_group_floor"] is False
+    assert checked["below_keyword_floor"] is False
+
+
+def test_an_absent_count_is_below_no_floor_because_nobody_knows_yet() -> None:
+    checked = structure.volume_check_v1(
+        frame([{"campaign_ref": "pmax-US", "monthly_budget_usd": 6_000, "forecast_cpa_usd": 80}]),
+        constants=CONSTANTS,
+    ).result["campaigns"][0]
+    assert checked["below_ad_group_floor"] is False
+    assert checked["below_keyword_floor"] is False
+
+
+def test_a_campaign_whose_counts_are_absent_is_judged_on_money_alone() -> None:
+    """An automated channel has no ad groups by design, and 2.2.2 has none yet."""
+    row = {"campaign_ref": "pmax-US", "monthly_budget_usd": 6_000, "forecast_cpa_usd": 80}
+    calc = structure.volume_check_v1(frame([row]), constants=CONSTANTS)
+    assert calc.result["campaigns"][0]["remedy"] is None

@@ -118,9 +118,9 @@ def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
     `gate=True` would stop runs dead, and a node quietly losing it would skip a
     human. Both should fail this test and be argued in the pull request.
 
-    G3 (2.2.4 budget) arrived in S2-P3; G4 (2.3.1 channel slate) joins it in
-    S2-P4. Stage 02 law 16 is "four gates, no more", so this list reaching five
-    plan entries is a bug and this test is where it shows up.
+    G3 (2.2.4 budget) arrived in S2-P3 and G4 (2.3.1 channel slate) in S2-P4,
+    which completes the set. Stage 02 law 16 is "four gates, no more", so this
+    list reaching five plan entries is a bug and this test is where it shows up.
     """
     gates = [item for item in discover().specs() if item.gate]
     assert [item.id for item in gates] == [
@@ -130,6 +130,7 @@ def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
         "2.1.3",
         "2.1.4",
         "2.2.4",
+        "2.3.1",
     ]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
@@ -144,7 +145,7 @@ def test_only_plan_gates_carry_a_gate_key() -> None:
     """
     specs = discover().specs()
     keyed = {item.id: item.gate_key for item in specs if item.gate_key}
-    assert keyed == {"2.1.3": "G1", "2.1.4": "G2", "2.2.4": "G3"}
+    assert keyed == {"2.1.3": "G1", "2.1.4": "G2", "2.2.4": "G3", "2.3.1": "G4"}
     assert all(item.gate_key is None for item in specs if not item.gate)
 
 

@@ -417,3 +417,73 @@ async def workspace_id(db: AsyncSession, workspace: Workspace) -> uuid.UUID:
 
     result = await db.execute(sa.select(WorkspaceRow).order_by(WorkspaceRow.created_at).limit(1))
     return result.scalar_one().id
+
+
+# ---------------------------------------------------------------------------
+# plan runs
+# ---------------------------------------------------------------------------
+#
+# These two live here rather than in `plan_gates.py` beside the helpers they go
+# with: a fixture imported into a test module collides with the parameter that
+# requests it, so a shared fixture has to be somewhere pytest reads by itself.
+
+
+@pytest.fixture
+def fake_openrouter() -> Any:
+    from tests.openrouter_fake import FakeOpenRouter
+
+    return FakeOpenRouter()
+
+
+@pytest_asyncio.fixture
+async def accepted(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> dict[str, Any]:
+    """A finished research run, accepted, with the CRM and account history."""
+    import json
+
+    from agent.db.models import Report, Run, RunStage, RunStatus, RunTrigger
+    from agent.export.contract import ResearchReport
+    from tests.integration.plan_gates import LOST, WON, seed_account
+    from tests.integration.runs_support import seed_crm
+    from tests.report_support import golden_payload
+
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+
+    run = Run(
+        workspace_id=workspace_id,
+        project_id=project.id,
+        triggered_by=user_id,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.SUCCEEDED,
+        stage=RunStage.RESEARCH,
+    )
+    db.add(run)
+    await db.flush()
+
+    payload = golden_payload()
+    payload["project_id"] = str(project.id)
+    payload["run_id"] = str(run.id)
+    payload["launch_readiness"] = "go"
+    parsed = ResearchReport.model_validate(payload)
+    db.add(
+        Report(
+            run_id=run.id,
+            schema_version="1.0",
+            payload=json.loads(parsed.model_dump_json()),
+            markdown="# report",
+        )
+    )
+    await db.commit()
+
+    await seed_crm(project.id, won=WON, lost=LOST)
+    await seed_account(project.id)
+    response = await admin.post(f"/runs/{run.id}/accept", json={})
+    assert response.status_code == 201, response.text
+    return {
+        "project_id": project.id,
+        "research_run_id": run.id,
+        "user_id": user_id,
+        "workspace_id": workspace_id,
+    }

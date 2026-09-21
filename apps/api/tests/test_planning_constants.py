@@ -31,6 +31,7 @@ structure:
   min_keywords_per_ad_group:  {value: 5, source: "internal", reviewed_at: 2026-09-21}
   max_keywords_per_ad_group:  {value: 20, source: "internal", reviewed_at: 2026-09-21}
   min_ad_groups_per_campaign: {value: 3, source: "internal", reviewed_at: 2026-09-21}
+  overlap_report_pct:         {value: 20, source: "internal", reviewed_at: 2026-09-21}
 economics:
   target_cac_ratio:  {value: 3.0, source: "internal", reviewed_at: 2026-09-21}
   safety_margin_pct: {value: 15, source: "internal", reviewed_at: 2026-09-21}
@@ -39,6 +40,7 @@ budget:
   experiment_reserve_pct:       {value: 10, source: "internal", reviewed_at: 2026-09-21}
   cautious_step_pct:            {value: 25, source: "internal", reviewed_at: 2026-09-21}
   aggressive_step_pct:          {value: 40, source: "internal", reviewed_at: 2026-09-21}
+  days_per_month:               {value: 30.4, source: "internal", reviewed_at: 2026-09-21}
 forecast:
   impression_share_target_pct: {value: 45, source: "internal", reviewed_at: 2026-09-21}
   default_ctr_pct:             {value: 3.2, source: "internal", reviewed_at: 2026-09-21}

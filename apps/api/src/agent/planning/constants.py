@@ -75,6 +75,7 @@ class StructureConstants(_Group):
     min_keywords_per_ad_group: Constant
     max_keywords_per_ad_group: Constant
     min_ad_groups_per_campaign: Constant
+    overlap_report_pct: Constant
 
 
 class EconomicsConstants(_Group):
@@ -87,6 +88,7 @@ class BudgetConstants(_Group):
     experiment_reserve_pct: Constant
     cautious_step_pct: Constant
     aggressive_step_pct: Constant
+    days_per_month: Constant
 
 
 class ForecastConstants(_Group):
