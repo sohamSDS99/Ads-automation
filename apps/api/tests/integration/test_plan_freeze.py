@@ -542,3 +542,53 @@ async def test_only_a_freeze_holder_may_seal_a_plan(
         f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": 1}
     )
     assert response.status_code == expected, response.text
+
+
+# ---------------------------------------------------------------------------
+# the history order, against real rows
+# ---------------------------------------------------------------------------
+
+
+async def test_the_history_puts_todays_draft_above_last_weeks_frozen_plan(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """`tests/test_plan_version_order.py` asserts the ORDER BY; this proves it.
+
+    Migration 0014 made every unfrozen plan version 0, so `version DESC` over
+    the whole history sorts a v1 frozen last week above a draft created this
+    morning. The compare screen takes the first two rows as the newer and
+    older side of its diff, so the wrong order renders a budget increase as a
+    decrease. Found by the S2-P6c session reading the sign of a number.
+    """
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+
+    older = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+    await admin.post(f"/plans/{older['plan_run_id']}/freeze", json={"confirm_version": 1})
+
+    newer = await _seed_plan(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        acceptance_id=older["acceptance_id"],
+    )
+
+    rows = (await admin.get(f"/projects/{project.id}/plans")).json()["items"]
+    assert len(rows) == 2
+
+    # Guard the fixture before asserting on the route. `created_at` defaults to
+    # `now()`, which is the *transaction* timestamp and constant inside one — so
+    # two plans seeded in a single commit share it, the version tiebreak takes
+    # over, and this test fails as though the ordering were wrong. `_seed_plan`
+    # commits per call, and this says so out loud. The S2-P6c session lost time
+    # to exactly this shape in their own fixture.
+    assert rows[0]["created_at"] != rows[1]["created_at"], (
+        "both plans were seeded in one transaction, so they share a created_at "
+        "and this test is measuring the tiebreak rather than the ordering"
+    )
+
+    # The draft is newer, so it is first — even though its version (0) is lower.
+    assert rows[0]["plan_run_id"] == str(newer["plan_run_id"])
+    assert rows[0]["version"] == 0
+    assert rows[1]["version"] == 1
