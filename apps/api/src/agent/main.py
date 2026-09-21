@@ -41,6 +41,7 @@ from agent.auth.bootstrap import bootstrap_from_environment
 from agent.config import Settings, get_settings
 from agent.db.session import dispose_engine, get_sessionmaker
 from agent.logging_setup import configure_logging
+from agent.planning.constants import get_planning_constants
 from agent.queue import close_arq_pool
 from agent.redis_client import close_redis
 
@@ -51,6 +52,13 @@ API_PREFIX = _API_PREFIX
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     log = structlog.get_logger(__name__)
     log.info("api.startup", version=__version__)
+
+    # Deliberately outside the try below, and deliberately before anything else:
+    # global law 15 says a planning constant without a `source` fails startup,
+    # and a process that came up anyway would go on to write plans citing a
+    # threshold nobody can check. `ConstantsError` names the key.
+    constants = get_planning_constants()
+    log.info("planning.constants.loaded", version=constants.version)
 
     # First boot creates the workspace and its admin. A database that is not
     # migrated yet must not stop the process: Railway runs migrations in

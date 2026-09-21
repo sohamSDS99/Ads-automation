@@ -25,6 +25,7 @@ from agent.export.jobs import generate_export
 from agent.fileserver import FileServer
 from agent.logging_setup import configure_logging
 from agent.orchestrator.executor import RunExecutor
+from agent.planning.constants import get_planning_constants
 from agent.redis_client import close_redis, get_redis
 from agent.scheduling.jobs import (
     approval_reminders_job,
@@ -66,6 +67,11 @@ async def startup(ctx: dict[str, Any]) -> None:
     from agent.orchestrator.dag import all_dags
 
     dags = all_dags()
+    # Same reason as the api's lifespan, one process further along: the worker is
+    # what actually runs a plan, so an unattributable planning constant has to
+    # stop it here rather than surface as a wrong number inside a finished plan
+    # (global law 15).
+    constants = get_planning_constants()
 
     file_server = FileServer(settings)
     await file_server.start()
@@ -75,6 +81,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         "worker.startup",
         storage_dir=settings.storage_dir,
         nodes={stage.value: len(dag.node_ids) for stage, dag in dags.items()},
+        planning_constants=constants.version,
         file_server_port=settings.file_server_port,
     )
 

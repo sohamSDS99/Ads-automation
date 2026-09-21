@@ -33,6 +33,8 @@ dependencies = [
     "pypdf>=5.1.0",       # reads the PDFs a person uploads as business context. `weasyprint`
                           # only writes them; nothing in the image could read one before this.
     "pandas>=2.2.3",             # PRD §18 law 3: every CPA/ROAS/P&L figure is computed here, never by a model
+    "pyyaml>=6.0.2",      # reads planning_constants.yaml at startup (PRD §9.3). Was a dev-only
+                          # dependency while only tests parsed YAML; law 15 makes it a runtime one.
     "tzdata>=2025.2",     # the IANA database for `zoneinfo`. The worker image (Playwright/jammy)
                           # ships no /usr/share/zoneinfo, so without this EVERY schedule is
                           # disabled on its first poll — `ZoneInfo("UTC")` itself raises.
@@ -44,7 +46,6 @@ dev = [
     "pytest-asyncio>=0.25.0",
     "mypy>=1.14.0",
     "ruff>=0.8.4",
-    "pyyaml>=6.0.2",   # docker-compose assertions in tests/test_deployment_config.py
     "types-pyyaml>=6.0.12",
     "vcrpy>=6.0.2",    # connector cassettes (PRD §9); replayed with record_mode=none
     "pandas-stubs>=2.2.3",  # mypy strict has no types for pandas otherwise, and `frames.py` is where the arithmetic lives
