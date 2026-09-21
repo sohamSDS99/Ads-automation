@@ -141,6 +141,20 @@ export function PlanViewer({
         </Alert>
       ) : null}
 
+      {/* KNOWN DEFECT, measured and not yet fixed: at 390px this page scrolls
+          sideways by ~302px. Bounding the three prose columns took it from
+          520px (a `min-w-max` table sizes itself to an unwrapped sentence —
+          `Table`'s own header warns about exactly that) and neutralising
+          `min-w-max` on all six tables would take it to 123px, so the tables
+          are most but not all of it.
+
+          `overflow-x-clip` here and on the content column below both changed
+          the measurement by zero, which rules out "a descendant leaks out of
+          this box" and means the earlier section-removal bisect was misleading:
+          removing a large block reflows the whole page, so what it named is not
+          necessarily what contains the cause. Left uncontained rather than
+          papered over — `make browser-s2p6c` fails on it, which is where a
+          known defect belongs. */}
       <div className="flex flex-col gap-6 lg:flex-row">
         {/* Sticky, and only on wide screens: a 390px viewport has no column to
             spare, and a horizontal TOC above the plan would push the plan

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import sys
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -205,6 +206,10 @@ async def _plan_from(
                 node_id="2.6.2",
                 status=NodeRunStatus.SUCCEEDED,
                 output=critique,
+                # `checked_at` on the response is this column. Without it the
+                # fallback path reports a verdict with no time against it, which
+                # reads as "never checked" on the freeze dialog.
+                finished_at=datetime.now(UTC),
             )
         )
 
@@ -586,7 +591,11 @@ async def test_the_badge_and_the_tick_come_from_the_nodes_that_decided_them(
 
 
 async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
-    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+    admin: ApiClient,
+    db: AsyncSession,
+    project: Any,
+    second_project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
 ) -> None:
     """`null` and `[]` are different answers and must not render the same.
 
@@ -598,6 +607,12 @@ async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
     me = (await admin.get("/auth/me")).json()
     user_id = uuid.UUID(me["id"])
 
+    # Two projects, not two plans in one. `uq_campaign_plan_project_version` as
+    # shipped rejects a second version-0 row per project — the defect S2-P5b
+    # fixes in migration 0014 with a partial unique index `WHERE version > 0`,
+    # which is not on this branch. This test is about whether an unchecked tree
+    # reads as a clean one; entangling it with version numbering would make it
+    # fail for a reason it is not about.
     unchecked = await _seed(
         db,
         project_id=project.id,
@@ -613,14 +628,11 @@ async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
         group["name_valid"] is None for row in page["campaigns"] for group in row["ad_groups"]
     )
 
-    acceptance = await db.get(ResearchAcceptance, unchecked.acceptance_id)
-    assert acceptance is not None
     checked = await _seed(
         db,
-        project_id=project.id,
+        project_id=second_project_id,
         workspace_id=workspace_id,
         user_id=user_id,
-        reuse=acceptance,
         payload_overrides={"campaigns": 2, "duplicate_terms": ("sds software",)},
     )
     page = (await admin.get(f"/plans/{checked.plan_run_id}/structure")).json()
@@ -675,7 +687,7 @@ async def test_two_versions_diff_by_section(
     assert body["against_version"] == 1
     assert body["unchanged"] is False
     scalars = {row["field"]: (row["before"], row["after"]) for row in body["scalars"]}
-    assert scalars["Monthly envelope (USD)"] == (48_000.0, 60_000.0)
+    assert scalars["Monthly envelope"] == (48_000.0, 60_000.0)
     sections = {row["path"]: row for row in body["sections"]}
     assert sections["account_structure.campaigns"]["added"] == 1
     # Unchanged sections are omitted, not sent as zero rows.

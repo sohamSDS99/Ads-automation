@@ -31,7 +31,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tooltip } from "@/components/ui/tooltip";
 import type {
   PlanStructureAdGroup,
   PlanStructureCampaign,
@@ -47,11 +46,16 @@ type Row =
   | { kind: "keyword"; key: string; keyword: PlanStructureKeyword }
   | { kind: "more"; key: string };
 
-/** Estimates only — every row measures itself once it is mounted. */
+/**
+ * Measured, not guessed. Branch rows still measure themselves; leaf rows do
+ * not, so `keyword` has to be exact — 34px of content plus the 1px bottom
+ * border. A wrong estimate makes the virtualiser correct itself on every
+ * scroll, which is a source of long tasks in its own right.
+ */
 const HEIGHT: Record<Row["kind"], number> = {
-  campaign: 76,
-  ad_group: 72,
-  keyword: 34,
+  campaign: 78,
+  ad_group: 76,
+  keyword: 35,
   more: 56,
 };
 
@@ -100,12 +104,22 @@ export function StructureTree({
   }, [campaigns, expanded, hasNextPage]);
 
   const scroller = useRef<HTMLDivElement>(null);
+  // `useCallback`, not inline closures. TanStack Virtual keys its measurement
+  // cache off the identity of `estimateSize` and `getItemKey`; a fresh closure
+  // on every render throws that cache away, so every scroll frame re-measures
+  // the window from scratch. Measured: 209ms longest task while scrolling the
+  // 4,000-keyword tree, against rule 1's 16ms frame budget.
+  const estimateSize = useCallback(
+    (index: number) => HEIGHT[rows[index]?.kind ?? "keyword"],
+    [rows],
+  );
+  const getItemKey = useCallback((index: number) => rows[index]?.key ?? index, [rows]);
   const virtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scroller.current,
-    estimateSize: (index) => HEIGHT[rows[index]?.kind ?? "keyword"],
-    overscan: 12,
-    getItemKey: (index) => rows[index]?.key ?? index,
+    estimateSize,
+    overscan: 8,
+    getItemKey,
   });
 
   const items = virtualizer.getVirtualItems();
@@ -238,7 +252,13 @@ export function StructureTree({
                 <div
                   key={item.key}
                   data-index={item.index}
-                  ref={virtualizer.measureElement}
+                  // Measured only where the height genuinely varies. A keyword
+                  // row is one clamped line whose height `HEIGHT.keyword`
+                  // already states exactly, and `measureElement` puts a
+                  // ResizeObserver on every row it touches — ~74 created and
+                  // destroyed per scroll step across 4,000 leaf rows, which was
+                  // the bulk of a 180ms scroll task against a 16ms budget.
+                  ref={row.kind === "keyword" ? undefined : virtualizer.measureElement}
                   className={cn(
                     "border-b last:border-0",
                     INDENT[row.kind],
@@ -426,7 +446,10 @@ function AdGroupRow({
 
 function KeywordRow({ keyword }: { keyword: PlanStructureKeyword }) {
   return (
-    <div className="flex items-baseline gap-2 py-1.5 pr-3 text-xs">
+    // A fixed height, so `HEIGHT.keyword` is exact rather than an estimate —
+    // which is what lets this row skip measurement entirely. The term already
+    // truncates, so nothing wraps out of it.
+    <div className="flex h-[34px] items-center gap-2 pr-3 text-xs">
       <span className="min-w-0 flex-1 truncate text-fg-muted">
         <span className="sr-only">Keyword: </span>
         {keyword.term}
@@ -458,23 +481,28 @@ function KeywordRow({ keyword }: { keyword: PlanStructureKeyword }) {
  */
 function NameTick({ valid }: { valid: boolean | null }) {
   if (valid === null) return null;
+  // A native `title`, not a Radix `Tooltip`. Every row carries one of these
+  // and a badge, and Radix mounts a root per instance — with ~50 rows in the
+  // window and rows entering and leaving on every scroll frame, mounting and
+  // unmounting those roots was the bulk of the 209ms scroll task. The
+  // information is unchanged: the `sr-only` text is what a screen reader reads
+  // either way, and the tooltip was only ever a mouse affordance.
   if (valid) {
     return (
-      <Tooltip content="Matches the naming convention">
-        <span className="inline-flex">
-          <Check aria-hidden className="size-3 text-status-success" />
-          <span className="sr-only">Name matches the convention</span>
-        </span>
-      </Tooltip>
+      <span className="inline-flex" title="Matches the naming convention">
+        <Check aria-hidden className="size-3 text-status-success" />
+        <span className="sr-only">Name matches the convention</span>
+      </span>
     );
   }
   return (
-    <Tooltip content="Does not match the naming convention 2.4.1 set">
-      <span className="inline-flex items-center gap-1 text-status-gate">
-        <TriangleAlert aria-hidden className="size-3" />
-        <span className="sr-only">Name does not match the convention</span>
-      </span>
-    </Tooltip>
+    <span
+      className="inline-flex items-center gap-1 text-status-gate"
+      title="Does not match the naming convention 2.4.1 set"
+    >
+      <TriangleAlert aria-hidden className="size-3" />
+      <span className="sr-only">Name does not match the convention</span>
+    </span>
   );
 }
 
@@ -494,25 +522,20 @@ function ThresholdBadge({ campaign }: { campaign: PlanStructureCampaign }) {
       : campaign.reason;
 
   return (
-    <Tooltip
-      content={
-        <span className="block max-w-64">
-          {detail}
-          {campaign.remedy ? <span className="mt-1 block">{campaign.remedy}</span> : null}
-        </span>
-      }
+    <span
+      title={[detail, campaign.remedy].filter(Boolean).join(" ")}
+      className={cn(
+        "mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium",
+        clears ? "border-border text-fg-muted" : "border-[var(--status-gate)] text-status-gate",
+      )}
     >
-      <span
-        className={cn(
-          "mt-0.5 shrink-0 rounded-full border px-2 py-0.5 text-[0.6875rem] font-medium",
-          clears
-            ? "border-border text-fg-muted"
-            : "border-[var(--status-gate)] text-status-gate",
-        )}
-      >
-        {clears ? "Clears" : "Below threshold"}
+      {clears ? "Clears" : "Below threshold"}
+      {/* The threshold and the shortfall are the point, so they are also in
+          the accessible name rather than only in a hover. */}
+      <span className="sr-only">
+        . {detail} {campaign.remedy ?? ""}
       </span>
-    </Tooltip>
+    </span>
   );
 }
 

@@ -593,7 +593,15 @@ export function ChannelSlateSection({ payload }: SectionProps) {
                 <Td data-numeric className="text-right">
                   {typeof row.wave === "number" ? row.wave : "—"}
                 </Td>
-                <Td className="text-fg-muted">{str(row.rationale) ?? "—"}</Td>
+                <Td className="text-fg-muted">
+                  {/* The bound goes on a block INSIDE the cell: `max-width` on
+                      a `<td>` is ignored under `table-layout: auto`, so the
+                      cell sizes to the sentence and `min-w-max` then sizes the
+                      whole table to the cell. `Table`'s own header warns about
+                      the prose column; it does not say that the obvious place
+                      to put the fix is the one place CSS ignores it. */}
+                  <span className="block max-w-[36ch]">{str(row.rationale) ?? "—"}</span>
+                </Td>
               </Tr>
             ))}
           </tbody>
@@ -674,7 +682,9 @@ export function MeasurementSection({ payload }: SectionProps) {
                   <Td className="font-mono text-xs">
                     {(str(row.metric) ?? "—").replace(/_/g, " ")}
                   </Td>
-                  <Td className="text-fg-muted">{str(row.definition) ?? "—"}</Td>
+                  <Td className="text-fg-muted">
+                    <span className="block max-w-[40ch]">{str(row.definition) ?? "—"}</span>
+                  </Td>
                   <Td>{(str(row.system) ?? "—").replace(/_/g, " ")}</Td>
                   <Td>{str(row.owner) ?? "unassigned"}</Td>
                 </Tr>
@@ -896,9 +906,9 @@ export function BacklogSection({
             return (
               <Tr key={str(row.name) ?? index}>
                 <Td>
-                  <span className="block text-fg">{str(row.name) ?? "—"}</span>
+                  <span className="block max-w-[44ch] text-fg">{str(row.name) ?? "—"}</span>
                   {str(row.hypothesis) ? (
-                    <span className="mt-0.5 block text-xs text-fg-muted">
+                    <span className="mt-0.5 block max-w-[44ch] text-xs text-fg-muted">
                       {str(row.hypothesis)}
                     </span>
                   ) : null}

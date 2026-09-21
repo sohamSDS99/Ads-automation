@@ -117,8 +117,15 @@ browser-s2p6c: ## Drive the Plan Viewer, structure tree, freeze dialog and diff,
 	@docker compose cp apps/api/scripts/plan_payload.py worker:/tmp/plan_payload.py
 	@docker compose cp scripts/browser-check-s2p6c.py worker:/tmp/browser-check-s2p6c.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
+	# The venv's own Python, not `uv run --with playwright==1.49.0`.
+	# `Dockerfile` installs browsers for the Playwright in `uv.lock`, which
+	# resolves the `>=1.49.0` floor to whatever is current — build 1243 at the
+	# time of writing. A pinned 1.49.0 addresses build 1148 and dies with
+	# "Executable doesn't exist at /ms-playwright/...". The other
+	# `browser-*` targets still carry the pinned form and will fail the same
+	# way the next time their image is rebuilt.
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-s2p6c.py
+		/app/.venv/bin/python /tmp/browser-check-s2p6c.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390
