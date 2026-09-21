@@ -1,0 +1,365 @@
+{#
+  The print document (Stage 02 PRD §14). Same sections, same order and the same
+  context object as `plan.md.j2` — §14's acceptance compares the two, and
+  `tests/test_plan_parity.py` enforces it.
+
+  Everything about pages lives in `plan.css`. This file says what the document
+  contains; that one says what a page is.
+#}
+{% if watermark %}
+<div class="watermark">{{ watermark }}</div>
+<div class="draft-banner">{{ watermark }} — not authority to spend</div>
+{% endif %}
+
+<div class="cover">
+  <div>
+    <p class="project">{{ project_name }}</p>
+    <h1>Campaign Plan</h1>
+    <p><span class="status status-{{ plan.plan_status }}">{{ status_label }}</span>
+       <span class="cover-status" style="display:none">{{ status_label }}</span></p>
+    <dl>
+      <dt>Plan run</dt>
+      <dd class="mono cover-run">{{ plan.plan_run_id }}</dd>
+      <dt>Version</dt>
+      <dd>{{ version_label }}</dd>
+      <dt>Generated</dt>
+      <dd>{{ plan.generated_at|datetime }}</dd>
+      <dt>Planned from research run</dt>
+      <dd class="mono">{{ plan.source.research_run_id }}</dd>
+      <dt>Research accepted</dt>
+      <dd>{{ plan.source.accepted_at|date }}{% if plan.source.launch_readiness %} · launch readiness <em>{{ plan.source.launch_readiness|replace("_", " ") }}</em>{% endif %}</dd>
+      {% if plan.is_frozen %}
+      <dt>Frozen</dt>
+      <dd>{{ plan.generated_at|datetime }}{% if frozen_by_name %} by {{ frozen_by_name }}{% endif %}</dd>
+      {% endif %}
+      <dt>Constants</dt>
+      <dd>{{ plan.constants_version|text }} · schema {{ plan.schema_version }}</dd>
+    </dl>
+    {% if plan.source.degraded_sources %}
+    <div class="callout warning">
+      <h4>Degraded sources</h4>
+      <p>{{ plan.source.degraded_sources|commalist }} returned partial data during the research this plan is built on. Every forecast in it is correspondingly thinner.</p>
+    </div>
+    {% endif %}
+    {% if plan.source.override_reason %}
+    <div class="callout warning">
+      <h4>Accepted with an override</h4>
+      <p>{{ plan.source.override_reason }}</p>
+    </div>
+    {% endif %}
+  </div>
+  <footer>
+    {{ counts.campaigns }} campaigns · {{ counts.ad_groups }} ad groups · {{ counts.keywords }} keywords ·
+    planning cost {{ plan.cost_usd|money("USD") }}
+  </footer>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    {% for title in section_titles %}
+    <li><a href="#s{{ loop.index }}">{{ loop.index }}. {{ title }}</a></li>
+    {% endfor %}
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2>Executive summary</h2>
+  <p>{{ plan.executive_summary|text }}</p>
+
+  {% for issue in blocking_issues %}
+  <div class="callout blocking">
+    <h4>Blocking — {{ issue.section|text }}</h4>
+    <p>{{ issue.finding|text }}</p>
+    <p class="small muted"><strong>Fix.</strong> {{ issue.fix|text }}</p>
+  </div>
+  {% endfor %}
+  {% for issue in warning_issues %}
+  <div class="callout warning">
+    <h4>{{ issue.section|text }}</h4>
+    <p>{{ issue.finding|text }}</p>
+  </div>
+  {% endfor %}
+</section>
+
+<section id="s2">
+  <h2>Objectives</h2>
+  {% if plan.objectives.north_star_metric %}
+  <p><strong>North star:</strong> {{ plan.objectives.north_star_metric }}{% if plan.objectives.north_star_target %} — {{ plan.objectives.north_star_target.value|num(2) }} {{ plan.objectives.north_star_target.unit }}{% endif %}, {{ plan.objectives.north_star_period|text }}.</p>
+  {% endif %}
+
+  <h3>What we can afford to pay</h3>
+  <table>
+    <thead><tr><th>Segment</th><th class="num">ACV</th><th class="num">Margin</th><th class="num">Lead→won</th><th class="num">Max CPL</th><th class="num">Target CPL</th><th class="num">Max CPA (won)</th><th class="num">Payback</th></tr></thead>
+    <tbody>
+    {% for row in plan.objectives.unit_economics %}
+      <tr><td>{{ row.segment|text }}</td><td class="num">{{ row.acv_usd|money("USD", 0) }}</td><td class="num">{{ row.gross_margin_pct|pct }}</td><td class="num">{{ row.lead_to_won_pct|pct(1) }}</td><td class="num">{{ row.max_cpl_usd|money("USD") }}</td><td class="num">{{ row.target_cpl_usd|money("USD") }}</td><td class="num">{{ row.max_cpa_won_usd|money("USD") }}</td><td class="num">{{ row.payback_months|num(1) }} mo</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if plan.objectives.method_notes %}<p class="small muted">{{ plan.objectives.method_notes }}</p>{% endif %}
+
+  <h3>What each campaign is aiming at</h3>
+  <table>
+    <thead><tr><th>Campaign</th><th>Objective</th><th>KPI</th><th class="num">Target</th><th class="num">Ceiling</th><th>Basis</th></tr></thead>
+    <tbody>
+    {% for row in plan.objectives.campaign_objectives %}
+      <tr><td>{{ row.campaign_ref }}</td><td>{{ row.objective }}</td><td>{{ row.primary_kpi }}</td><td class="num">{{ row.target_value|num(2) }}</td><td class="num">{{ row.ceiling_value|num(2) }}</td><td class="small">{{ row.basis|text }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  <h3>What counts as a conversion</h3>
+  <table>
+    <thead><tr><th>Action</th><th>Category</th><th>Counting</th><th class="num">Value</th><th class="num">Lead→won</th><th>Primary</th></tr></thead>
+    <tbody>
+    {% for row in plan.objectives.conversion_actions %}
+      <tr><td>{{ row.name }}</td><td>{{ row.category|text }}</td><td>{{ row.counting|text }}</td><td class="num">{{ row.assigned_value_usd|money("USD") }}</td><td class="num">{{ row.lead_to_won_rate_pct|pct(1) }}</td><td>{{ row.primary|yesno }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if plan.objectives.qualified_lead %}
+  <h3>What sales agreed a qualified lead is</h3>
+  <p><strong>Required:</strong> {{ plan.objectives.qualified_lead.required_signals|commalist }}<br>
+     <strong>Disqualifying:</strong> {{ plan.objectives.qualified_lead.disqualifiers|commalist }}<br>
+     <strong>Score threshold:</strong> {{ plan.objectives.qualified_lead.threshold|text }}{% if plan.objectives.sla_response_hours %} · <strong>Response SLA:</strong> {{ plan.objectives.sla_response_hours }} hours{% endif %}</p>
+  {% endif %}
+</section>
+
+<section id="s3">
+  <h2>Media plan</h2>
+  {% if plan.media_plan.envelope %}
+  <p><strong>Envelope:</strong> {{ plan.media_plan.envelope.monthly_cap.value|money(plan.media_plan.envelope.currency) }} a month{% if plan.media_plan.envelope.quarterly_cap %}, {{ plan.media_plan.envelope.quarterly_cap.value|money(plan.media_plan.envelope.currency) }} a quarter{% endif %}. <strong>Scenario:</strong> {{ plan.media_plan.chosen_scenario|text }}{% if plan.media_plan.experiment_reserve %} · <strong>Experiment reserve:</strong> {{ plan.media_plan.experiment_reserve.value|money("USD") }}{% endif %}</p>
+  <p>{{ plan.media_plan.rationale|text }}</p>
+  {% else %}
+  <div class="callout blocking"><h4>No envelope was agreed</h4><p>This plan states no budget and cannot be frozen.</p></div>
+  {% endif %}
+
+  {% if charts.allocation %}
+  <figure class="figure">{{ charts.allocation }}<figcaption>Monthly spend by campaign.</figcaption></figure>
+  {% endif %}
+
+  <h3>Where the money goes</h3>
+  <table>
+    <thead><tr><th>Campaign</th><th>Market</th><th>Stage</th><th class="num">Monthly</th><th class="num">Share</th><th class="num">Forecast CPA</th><th class="num">Target CPA</th><th class="num">Est. conv.</th></tr></thead>
+    <tbody>
+    {% for row in plan.media_plan.allocation %}
+      <tr><td>{{ row.campaign_ref }}</td><td>{{ row.market|text }}</td><td>{{ row.funnel_stage|text }}</td><td class="num">{{ row.usd|money("USD", 0) }}</td><td class="num">{{ row.pct|pct(1) }}</td><td class="num">{{ row.forecast_cpa_usd|money("USD") }}</td><td class="num">{{ row.target_cpa_usd|money("USD") }}</td><td class="num">{{ row.est_conv|num(1) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if plan.media_plan.scenarios %}
+  <h3>The scenarios it was chosen from</h3>
+  <table>
+    <thead><tr><th>Scenario</th><th class="num">Monthly</th><th class="num">Est. clicks</th><th class="num">Est. conv.</th><th class="num">Est. CPA</th><th class="num">Est. pipeline</th></tr></thead>
+    <tbody>
+    {% for row in plan.media_plan.scenarios %}
+      <tr><td>{{ row.name }}{{ " ✓" if row.name == plan.media_plan.chosen_scenario else "" }}</td><td class="num">{{ row.monthly_total_usd|money("USD", 0) }}</td><td class="num">{{ row.est_clicks|num }}</td><td class="num">{{ row.est_conv|num(1) }}</td><td class="num">{{ row.est_cpa|money("USD") }}</td><td class="num">{{ row.est_pipeline_usd|money("USD", 0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if charts.forecast %}
+  <figure class="figure">{{ charts.forecast }}<figcaption>Forecast conversions and cost by month.</figcaption></figure>
+  {% endif %}
+
+  {% if forecast %}
+  <h3>The demand it is built on</h3>
+  <p class="small muted">Method: {{ plan.media_plan.forecast_method|text }}{% if plan.media_plan.impression_share_headroom_pct %} · impression-share headroom {{ plan.media_plan.impression_share_headroom_pct|pct(1) }}{% endif %}</p>
+  <table>
+    <thead><tr><th>Cluster</th><th>Market</th><th>Month</th><th class="num">Impr.</th><th class="num">Clicks</th><th class="num">CPC</th><th class="num">CVR</th><th class="num">Conv.</th><th class="num">Cost</th></tr></thead>
+    <tbody>
+    {% for row in forecast %}
+      <tr><td>{{ row.cluster|text }}</td><td>{{ row.market|text }}</td><td>{{ row.month|text }}</td><td class="num">{{ row.impressions|num }}</td><td class="num">{{ row.clicks|num }}</td><td class="num">{{ row.avg_cpc_usd|money("USD") }}</td><td class="num">{{ row.cvr_pct|pct(2) }}</td><td class="num">{{ row.conversions|num(1) }}</td><td class="num">{{ row.cost_usd|money("USD", 0) }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% if forecast_omitted %}<p class="truncation">{{ forecast_omitted }} further forecast row(s) omitted. The XLSX export carries the whole grid.</p>{% endif %}
+  {% endif %}
+
+  {% if plan.media_plan.reallocation_rules %}
+  <h3>When money moves without a new plan</h3>
+  <table>
+    <thead><tr><th>Rule</th><th>If</th><th>Then move</th><th class="num">Cap</th><th class="num">Cooldown</th><th>Human?</th></tr></thead>
+    <tbody>
+    {% for row in plan.media_plan.reallocation_rules %}
+      <tr><td>{{ row.id }}</td><td class="small">{{ row.trigger_metric }} {{ row.comparison }} {{ row.threshold|num(2) }} over {{ row.lookback_days|num }}d</td><td class="small">{{ row.from_campaign }} → {{ row.to_campaign }}</td><td class="num">{{ row.max_shift_pct|pct }}</td><td class="num">{{ row.cooldown_days|num }}d</td><td>{{ row.requires_human|yesno }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="small muted">Reviewed {{ plan.media_plan.review_cadence|text }}.</p>
+  {% endif %}
+</section>
+
+<section id="s4">
+  <h2>Channel slate</h2>
+  {% if charts.waves %}
+  <figure class="figure">{{ charts.waves }}<figcaption>Launch waves.</figcaption></figure>
+  {% endif %}
+  <table>
+    <thead><tr><th>Channel</th><th>Market</th><th class="num">Wave</th><th class="num">Share</th><th>Rationale</th></tr></thead>
+    <tbody>
+    {% for row in plan.channel_slate.slate %}
+      <tr><td>{{ row.campaign_type }}</td><td>{{ row.market|text }}</td><td class="num">{{ row.launch_wave|text }}</td><td class="num">{{ row.est_share_of_budget_pct|pct(1) }}</td><td class="small">{{ row.rationale|text }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+
+  {% if plan.channel_slate.rejected %}
+  <h3>Considered and rejected</h3>
+  <ul class="small">
+  {% for row in plan.channel_slate.rejected %}
+    <li><strong>{{ row.campaign_type|text }}</strong> — {{ row.why_not|text }}</li>
+  {% endfor %}
+  </ul>
+  {% endif %}
+
+  {% if plan.channel_slate.brand_isolation %}
+  <h3>Brand isolation</h3>
+  <p>Brand terms are bid on in <code>{{ plan.channel_slate.brand_isolation.brand_campaign_ref|text }}</code> only, at {{ plan.channel_slate.brand_isolation.budget_pct|pct(1) }} of budget, and are negative in every other campaign.</p>
+  <p class="small"><strong>Reporting.</strong> {{ plan.channel_slate.brand_isolation.reporting_rule|text }}<br>
+     <strong>Competitor bidding.</strong> {{ plan.channel_slate.brand_isolation.competitor_bidding_policy|text }}</p>
+  {% endif %}
+</section>
+
+<section id="s5">
+  <h2>Account structure</h2>
+  <p><strong>{{ counts.campaigns }} campaigns · {{ counts.ad_groups }} ad groups · {{ counts.keywords }} keywords.</strong>{% if plan.account_structure.structure_verdict %} Structure verdict: <strong>{{ plan.account_structure.structure_verdict|replace("_", " ") }}</strong>.{% endif %}</p>
+
+  {% for campaign in campaigns %}
+  <h3>{{ loop.index }}. {{ campaign.name }}</h3>
+  <p class="small muted">{{ campaign.type|text }} · {{ campaign.market|text }} · {{ campaign.daily_budget_usd|money("USD") }}/day ({{ campaign.monthly_budget_usd|money("USD", 0) }}/month) · {{ campaign.bid_strategy|text }}{% if campaign.target %} at {{ campaign.target|num(2) }}{% endif %}</p>
+  <table>
+    <thead><tr><th>Ad group</th><th>Theme</th><th>Landing page</th><th class="num">Keywords</th><th>Sample</th></tr></thead>
+    <tbody>
+    {% for group in ad_group_rows(campaign) %}
+      <tr>
+        <td>{{ group.name }}</td>
+        <td class="small">{{ group.theme|text }}</td>
+        <td class="small">{{ group.landing_url|text }}</td>
+        <td class="num">{{ group.keyword_count }}</td>
+        <td class="small">{% for keyword in group.keywords %}{{ keyword.term }} ({{ keyword.match_type }}){{ ", " if not loop.last }}{% endfor %}{% if group.omitted %} <em>and {{ group.omitted }} more</em>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+  {% if campaigns_omitted %}
+  <p class="truncation">{{ campaigns_omitted }} further campaign(s) omitted from this document. The Editor CSV export carries the complete account.</p>
+  {% endif %}
+
+  {% if plan.account_structure.account_negatives %}
+  <h3>Account-level negatives</h3>
+  <p class="small">{{ plan.account_structure.account_negatives|commalist }}</p>
+  {% endif %}
+  {% if plan.account_structure.orphan_terms %}
+  <p class="small muted"><strong>{{ plan.account_structure.orphan_terms|length }} researched term(s) did not fit any ad group</strong> and are not in this plan: {{ plan.account_structure.orphan_terms[:20]|commalist }}.</p>
+  {% endif %}
+</section>
+
+<section id="s6">
+  <h2>Measurement plan</h2>
+  <p><strong>Source of truth:</strong> {{ plan.measurement_plan.primary_source|text }}. {{ plan.measurement_plan.rationale|text }}</p>
+
+  {% if plan.measurement_plan.metric_definitions %}
+  <table>
+    <thead><tr><th>Metric</th><th>How it is computed</th><th>Read from</th><th>Owner</th><th>Refresh</th></tr></thead>
+    <tbody>
+    {% for row in plan.measurement_plan.metric_definitions %}
+      <tr><td>{{ row.metric|text }}</td><td class="small">{{ row.formula|text }}</td><td class="small">{{ row.source_field|text }}</td><td>{{ row.owner|text }}</td><td>{{ row.refresh|text }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if plan.measurement_plan.reconciliation %}
+  <h3>Reconciliation</h3>
+  <table>
+    <thead><tr><th>Metric</th><th>Systems</th><th class="num">Tolerance</th><th>Cadence</th><th>Owner</th></tr></thead>
+    <tbody>
+    {% for row in plan.measurement_plan.reconciliation %}
+      <tr><td>{{ row.metric|text }}</td><td class="small">{{ row.systems|text }}</td><td class="num">{{ row.tolerance_pct|pct(1) }}</td><td>{{ row.cadence|text }}</td><td>{{ row.owner|text }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+
+  {% if plan.measurement_plan.upload %}
+  <h3>Getting closed deals back into the account</h3>
+  <p class="small"><strong>Method:</strong> {{ plan.measurement_plan.upload.get("method")|text }} · <strong>Cadence:</strong> {{ plan.measurement_plan.upload.get("cadence")|text }} · <strong>Lag:</strong> {{ plan.measurement_plan.upload.get("lag_days")|days }} · <strong>Backfill:</strong> {{ plan.measurement_plan.upload.get("backfill_days")|days }}</p>
+  {% endif %}
+
+  <h3>Consent</h3>
+  <p class="small"><strong>Permitted:</strong> {{ plan.measurement_plan.consent_markets_allowed|commalist }}<br>
+     <strong>Refused at gate 1.5.3:</strong> {{ plan.measurement_plan.consent_markets_blocked|commalist }}
+     {% if plan.measurement_plan.consent_basis %}<br><strong>Lawful basis:</strong> {{ plan.measurement_plan.consent_basis|commalist }}{% endif %}</p>
+</section>
+
+<section id="s7">
+  <h2>Test backlog</h2>
+  {% if plan.experiment_backlog %}
+  <p>{{ funded_tests|length }} of {{ plan.experiment_backlog|length }} planned test(s) are funded from the experiment reserve.</p>
+  <table>
+    <thead><tr><th class="num">#</th><th>Test</th><th>Campaign</th><th>Metric</th><th class="num">Baseline</th><th class="num">Conv./arm</th><th class="num">Time to read</th><th class="num">ICE</th><th class="num">Reserve</th><th>Funded</th></tr></thead>
+    <tbody>
+    {% for row in test_rows(plan.experiment_backlog) %}
+      <tr><td class="num">{{ row.rank|text }}</td><td class="small">{{ row.hypothesis }}</td><td class="small">{{ row.campaign }}</td><td>{{ row.metric }}</td><td class="num">{{ row.baseline }}</td><td class="num">{{ row.conv_per_arm }}</td><td class="num">{{ row.days }}</td><td class="num">{{ row.ice }}</td><td class="num">{{ row.reserve }}</td><td>{{ row.funded }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No test could be sized against this plan's forecasts.</p>
+  {% endif %}
+</section>
+
+<section id="s8">
+  <h2>Decisions</h2>
+  <table>
+    <thead><tr><th>Gate</th><th>Decision</th><th>Status</th><th>Decided by</th><th>Date</th><th>Note</th></tr></thead>
+    <tbody>
+    {% for row in plan.decisions %}
+      <tr><td>{{ row.gate_key }}</td><td>{{ gate_labels.get(row.gate_key, row.name) }}</td><td>{{ row.status }}</td><td>{{ row.decided_by_name|text }}</td><td>{{ row.decided_at|date }}</td><td class="small">{{ row.note|text }}{% if row.edits_applied %} <em>({{ row.edits_applied|length }} edit(s))</em>{% endif %}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<section id="s9">
+  <h2>Open dependencies</h2>
+  {% if blocking_dependencies %}
+  <h3>Blocking — these stop the plan</h3>
+  <table>
+    <thead><tr><th>Task</th><th>Owner</th><th>Raised by</th></tr></thead>
+    <tbody>
+    {% for row in blocking_dependencies %}
+      <tr><td>{{ row.task }}</td><td>{{ row.owner }}</td><td class="small">{{ row.source|text }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if other_dependencies %}
+  <h3>Everything else</h3>
+  <ul class="small">
+  {% for row in other_dependencies %}<li>{{ row.task }} — <em>{{ row.owner }}</em></li>{% endfor %}
+  </ul>
+  {% endif %}
+  {% if not plan.open_dependencies %}<p>Nothing is outstanding.</p>{% endif %}
+
+  {% if plan.assumptions %}
+  <h3>Assumptions</h3>
+  <ol class="claims">
+  {% for claim in plan.assumptions %}<li>{{ claim.statement }} <span class="muted small">({{ claim.confidence }} confidence)</span></li>{% endfor %}
+  </ol>
+  {% endif %}
+  {% if plan.risks %}
+  <h3>Risks</h3>
+  <ol class="claims">
+  {% for claim in plan.risks %}<li>{{ claim.statement }} <span class="muted small">({{ claim.confidence }} confidence)</span></li>{% endfor %}
+  </ol>
+  {% endif %}
+
+  <p class="small muted">{{ numbers|length }} figure(s) in this plan resolve to a recorded calculation. Constants version {{ plan.constants_version|text }}.</p>
+</section>

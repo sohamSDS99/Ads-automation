@@ -156,6 +156,12 @@ def sample_size_v1(
         result={
             "tests": sized,
             "test_count": len(sized),
+            # Also on every row, and also here: node 2.5.3 states the test
+            # regime once at the head of its backlog, and reading it off
+            # `tests[0]` would make an empty-but-for-exclusions result carry
+            # no regime at all.
+            "alpha": ratio(alpha),
+            "power": ratio(power),
             "z_alpha": ratio(z_alpha),
             "z_power": ratio(z_power),
             "longest_days_to_significance": longest or None,

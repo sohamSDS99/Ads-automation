@@ -27,6 +27,9 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import (
+    CampaignPlan as CampaignPlanRow,
+)
+from agent.db.models import (
     Export,
     ExportArtifactType,
     ExportFormat,
@@ -34,12 +37,19 @@ from agent.db.models import (
     Project,
     Report,
     Run,
+    User,
 )
 from agent.db.session import get_sessionmaker
+from agent.export.budget_xlsx import render_budget_xlsx
 from agent.export.contract import ResearchReport
 from agent.export.docx import render_docx
+from agent.export.editor_csv import render_editor_csv
 from agent.export.markdown import render_markdown
 from agent.export.pdf import render_pdf
+from agent.export.plan_contract import CampaignPlan
+from agent.export.plan_docx import render_plan_docx
+from agent.export.plan_markdown import render_plan_markdown
+from agent.export.plan_pdf import render_plan_pdf
 from agent.export.tabular import render_csv, render_json_from_payload
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.redis_client import get_redis
@@ -87,6 +97,29 @@ RESEARCH_REPORT_FORMATS: frozenset[ExportFormat] = frozenset(
     }
 )
 
+#: The formats a *campaign plan* can be rendered as (Stage 02 PRD §14). Six,
+#: and not the research report's `csv`: a plan's tabular deliverable is the
+#: Editor bundle, and a single flat CSV of a campaign tree is a shape nothing
+#: can import. Enforced at the route rather than left to fail in the worker.
+CAMPAIGN_PLAN_FORMATS: frozenset[ExportFormat] = frozenset(
+    {
+        ExportFormat.PDF,
+        ExportFormat.DOCX,
+        ExportFormat.MD,
+        ExportFormat.JSON,
+        ExportFormat.EDITOR_CSV,
+        ExportFormat.XLSX,
+    }
+)
+
+#: Which formats each artifact supports, so a route can answer "not that one"
+#: from one place. A queued job that can never succeed is a worse answer than
+#: a 422 naming the formats that work.
+FORMATS_FOR: dict[ExportArtifactType, frozenset[ExportFormat]] = {
+    ExportArtifactType.RESEARCH_REPORT: RESEARCH_REPORT_FORMATS,
+    ExportArtifactType.CAMPAIGN_PLAN: CAMPAIGN_PLAN_FORMATS,
+}
+
 _UNSAFE = re.compile(r"[^a-z0-9]+")
 
 
@@ -118,6 +151,25 @@ def filename_for(fmt: ExportFormat, *, project_name: str | None, generated_at: d
     parts = ["paid-ads-research"]
     if project_name:
         parts.append(slugify(project_name))
+    parts.append(generated_at.date().isoformat())
+    return "-".join(parts) + f".{EXTENSIONS[fmt]}"
+
+
+def plan_filename_for(
+    fmt: ExportFormat, *, project_name: str | None, version: int, generated_at: datetime
+) -> str:
+    """`campaign-plan-northwind-safety-v3-2026-09-22.xlsx`.
+
+    The version is in the name because the whole point of a frozen plan is that
+    there are several, and two files called `campaign-plan-acme.pdf` in one
+    downloads folder is how the wrong one gets circulated. An unfrozen plan has
+    no version yet and says `draft` instead — which is the same warning the
+    document carries inside it.
+    """
+    parts = ["campaign-plan"]
+    if project_name:
+        parts.append(slugify(project_name, fallback="plan"))
+    parts.append(f"v{version}" if version > 0 else "draft")
     parts.append(generated_at.date().isoformat())
     return "-".join(parts) + f".{EXTENSIONS[fmt]}"
 
@@ -168,6 +220,54 @@ def render(
         )
     else:  # pragma: no cover — ExportFormat is closed and every member is above
         raise ExportError(f"No renderer for format {fmt!r}.")
+
+    return RenderedExport(filename=filename, media_type=MEDIA_TYPES[fmt], payload=payload)
+
+
+def render_plan(
+    fmt: ExportFormat,
+    plan: CampaignPlan,
+    *,
+    project_name: str | None,
+    stored_markdown: str | None = None,
+    stored_payload: dict[str, Any] | None = None,
+    frozen_by_name: str = "",
+) -> RenderedExport:
+    """Produce one plan format's bytes (Stage 02 PRD §14).
+
+    `stored_markdown` and `stored_payload` are preferred over re-rendering for
+    the same reason they are on the research side: the run wrote them, and
+    serving anything else would let a later template edit quietly change a plan
+    somebody has already signed. On a **frozen** plan that is not a preference
+    but a guarantee — the database refuses to rewrite either column (law 17),
+    so the stored bytes are the ones that were frozen.
+    """
+    filename = plan_filename_for(
+        fmt, project_name=project_name, version=plan.version, generated_at=plan.generated_at
+    )
+
+    if fmt is ExportFormat.MD:
+        markdown = stored_markdown or render_plan_markdown(
+            plan, project_name=project_name, frozen_by_name=frozen_by_name
+        )
+        payload = markdown.encode("utf-8")
+    elif fmt is ExportFormat.JSON:
+        payload = render_json_from_payload(
+            stored_payload if stored_payload is not None else plan.model_dump(mode="json")
+        )
+    elif fmt is ExportFormat.EDITOR_CSV:
+        payload = render_editor_csv(plan, project_name=project_name)
+    elif fmt is ExportFormat.XLSX:
+        payload = render_budget_xlsx(plan, project_name=project_name)
+    elif fmt is ExportFormat.DOCX:
+        payload = render_plan_docx(plan, project_name=project_name, frozen_by_name=frozen_by_name)
+    elif fmt is ExportFormat.PDF:
+        payload = render_plan_pdf(plan, project_name=project_name, frozen_by_name=frozen_by_name)
+    else:
+        raise ExportError(
+            f"A campaign plan cannot be exported as {fmt.value}. "
+            f"Available: {', '.join(sorted(item.value for item in CAMPAIGN_PLAN_FORMATS))}."
+        )
 
     return RenderedExport(filename=filename, media_type=MEDIA_TYPES[fmt], payload=payload)
 
@@ -223,16 +323,8 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
             log.info("export.already_ready", export_id=export_id)
             return {"export_id": export_id, "status": export.status.value, "path": export.path}
 
-        if export.artifact_type is not ExportArtifactType.RESEARCH_REPORT:
-            # Plan exports are S2-P5. Saying so beats looking a plan id up in
-            # `report`, finding nothing, and reporting a missing report.
-            await _finish(
-                session,
-                export,
-                status=ExportStatus.FAILED,
-                error=f"No renderer for artifact type {export.artifact_type.value}.",
-            )
-            return {"export_id": export_id, "status": ExportStatus.FAILED.value}
+        if export.artifact_type is ExportArtifactType.CAMPAIGN_PLAN:
+            return await _generate_plan_export(session, export, storage=storage)
 
         report = await session.get(Report, export.artifact_id)
         if report is None:
@@ -312,3 +404,89 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
             "path": key,
             "bytes": len(rendered.payload),
         }
+
+
+async def _generate_plan_export(
+    session: AsyncSession, export: Export, *, storage: StorageBackend
+) -> dict[str, Any]:
+    """Render one campaign-plan export (Stage 02 PRD §14).
+
+    Split from `generate_export` rather than folded into it because the two
+    artifacts resolve differently — a report through `Report.run_id`, a plan
+    through `CampaignPlan.plan_run_id` — and one function branching on every
+    line would make neither readable. The failure handling is identical and
+    deliberately so: every failure is recorded on the row, never swallowed.
+    """
+    plan_row = await session.get(CampaignPlanRow, export.artifact_id)
+    if plan_row is None:
+        await _finish(
+            session,
+            export,
+            status=ExportStatus.FAILED,
+            error="The campaign plan this export belongs to no longer exists.",
+        )
+        return {"export_id": str(export.id), "status": ExportStatus.FAILED.value}
+
+    project = await session.get(Project, plan_row.project_id)
+    frozen_by = (
+        await session.get(User, plan_row.frozen_by) if plan_row.frozen_by is not None else None
+    )
+
+    export.status = ExportStatus.RUNNING
+    await session.commit()
+
+    try:
+        parsed = CampaignPlan.model_validate(plan_row.payload)
+        rendered = render_plan(
+            export.format,
+            parsed,
+            project_name=project.name if project else None,
+            stored_markdown=plan_row.markdown,
+            stored_payload=plan_row.payload,
+            frozen_by_name=frozen_by.name if frozen_by else "",
+        )
+        key = storage_key(plan_row.plan_run_id, rendered.filename)
+        storage.put(key, rendered.payload, content_type=rendered.media_type)
+    except Exception as exc:  # noqa: BLE001 — every failure is recorded, then reported
+        log.exception(
+            "export.plan_failed",
+            export_id=str(export.id),
+            format=export.format.value,
+            error=str(exc),
+        )
+        await _finish(
+            session, export, status=ExportStatus.FAILED, error=f"{type(exc).__name__}: {exc}"
+        )
+        return {
+            "export_id": str(export.id),
+            "status": ExportStatus.FAILED.value,
+            "error": str(exc),
+        }
+
+    await _finish(session, export, status=ExportStatus.READY, path=key, size=len(rendered.payload))
+    log.info(
+        "export.plan_ready",
+        export_id=str(export.id),
+        format=export.format.value,
+        bytes=len(rendered.payload),
+        key=key,
+    )
+
+    try:
+        await RunEventStream(get_redis(), plan_row.plan_run_id).publish(
+            EventType.EXPORT_READY,
+            export_id=str(export.id),
+            plan_id=str(plan_row.id),
+            format=export.format.value,
+            bytes=len(rendered.payload),
+            filename=rendered.filename,
+        )
+    except Exception as exc:  # noqa: BLE001 — never fail a finished export on a notification
+        log.warning("export.event_failed", export_id=str(export.id), error=str(exc))
+
+    return {
+        "export_id": str(export.id),
+        "status": ExportStatus.READY.value,
+        "path": key,
+        "bytes": len(rendered.payload),
+    }

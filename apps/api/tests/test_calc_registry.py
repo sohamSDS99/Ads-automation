@@ -57,6 +57,10 @@ BEYOND_THE_PRD = {
         "2.4.2 campaigns[].daily_budget_usd"
     ),
     "structure.overlap_v1": "2.3.2 overlap[].overlap_pct",
+    "experiments.ice_rank_v1": (
+        "2.5.3 tests[].ice_score, tests[].rank, tests[].reserve_usd — the only three "
+        "figures on the backlog that `power.sample_size_v1` does not produce"
+    ),
 }
 
 EXPECTED_FORMULAS = PRD_FORMULAS | set(BEYOND_THE_PRD)

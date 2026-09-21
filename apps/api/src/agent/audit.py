@@ -72,6 +72,14 @@ class AuditAction(StrEnum):
     #: question with its own audience.
     RESEARCH_NO_GO_OVERRIDDEN = "research.no_go_overridden"
     PLAN_STARTED = "plan.started"
+    #: The seal. PS4 requires the freeze to write an audit row in the same
+    #: transaction as the change, which is what makes "who agreed to spend
+    #: this, on what basis, on what date" answerable without a thread.
+    PLAN_FROZEN = "plan.frozen"
+    #: A previously frozen plan displaced by a newer version. Written per
+    #: superseded plan rather than once for the freeze: a reader asking why
+    #: v2 stopped being current wants a row about v2.
+    PLAN_SUPERSEDED = "plan.superseded"
 
     USER_INVITED = "user.invited"
     #: A fresh link for somebody who never accepted. The old one stops working,
@@ -129,6 +137,7 @@ class AuditTarget(StrEnum):
     SCHEDULE = "schedule"
     BACKUP = "backup"
     RESEARCH_ACCEPTANCE = "research_acceptance"
+    CAMPAIGN_PLAN = "campaign_plan"
 
 
 def write_audit(
