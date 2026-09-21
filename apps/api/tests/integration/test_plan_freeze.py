@@ -501,3 +501,35 @@ async def test_only_a_freeze_holder_may_seal_a_plan(
     )
     assert response.status_code == expected, response.text
     await member.aclose()
+
+
+# ---------------------------------------------------------------------------
+# the history order, against real rows
+# ---------------------------------------------------------------------------
+
+
+async def test_the_history_puts_todays_draft_above_last_weeks_frozen_plan(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """`tests/test_plan_version_order.py` asserts the ORDER BY; this proves it.
+
+    Migration 0014 made every unfrozen plan version 0, so `version DESC` over
+    the whole history sorts a v1 frozen last week above a draft created this
+    morning. The compare screen takes the first two rows as the newer and
+    older side of its diff, so the wrong order renders a budget increase as a
+    decrease. Found by the S2-P6c session reading the sign of a number.
+    """
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+
+    older = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+    await admin.post(f"/plans/{older['plan_run_id']}/freeze", json={"confirm_version": 1})
+
+    newer = await _seed_plan(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+
+    rows = (await admin.get(f"/projects/{project.id}/plans")).json()["plans"]
+    assert len(rows) == 2
+    # The draft is newer, so it is first — even though its version (0) is lower.
+    assert rows[0]["plan_run_id"] == str(newer["plan_run_id"])
+    assert rows[0]["version"] == 0
+    assert rows[1]["version"] == 1

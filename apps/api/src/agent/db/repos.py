@@ -560,7 +560,13 @@ class CampaignPlanRepo(WorkspaceScopedRepo[CampaignPlan]):
         return int(highest or 0) + 1
 
     async def frozen_for_project(self, project_id: uuid.UUID) -> list[CampaignPlan]:
-        """Every currently-frozen plan in a project. The freeze supersedes these."""
+        """Every currently-frozen plan in a project. The freeze supersedes these.
+
+        `version DESC` is right *here* and wrong in the history list, and the
+        difference is the `status` filter: every row this returns is frozen,
+        so every one has a minted version. A query without that filter must
+        order by `created_at` — see `list_plans`.
+        """
         result = await self.session.execute(
             self.select()
             .where(

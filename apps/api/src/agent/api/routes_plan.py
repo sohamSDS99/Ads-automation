@@ -370,7 +370,16 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
                     CampaignPlan.project_id == project_id,
                     CampaignPlan.workspace_id == me.workspace_id,
                 )
-                .order_by(CampaignPlan.version.desc())
+                # Newest first by **creation**, not by version. `version` is
+                # minted at freeze and is 0 until then (migration 0014), so
+                # `version DESC` puts a v1 frozen last week above a draft
+                # created this morning — and every unfrozen plan ties at 0 and
+                # falls into whatever order the scan returned. This list is
+                # ordered, not sorted-for-display: the compare screen takes the
+                # first two rows as the newer and older side of its diff, so
+                # getting it wrong renders a budget increase as a decrease.
+                # Version is the tiebreak, for two plans frozen in one second.
+                .order_by(CampaignPlan.created_at.desc(), CampaignPlan.version.desc())
             )
         )
         .scalars()
