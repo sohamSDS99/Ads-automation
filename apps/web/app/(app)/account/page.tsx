@@ -1,11 +1,10 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Monitor } from "lucide-react";
+import { Monitor } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { ConnectionCard } from "@/components/settings/connection-card";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardFooter, CardHeader } from "@/components/ui/card";
@@ -17,10 +16,9 @@ import { Table, Td, Th, Tr } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import { changePassword, revokeSession, type SessionSummary } from "@/lib/api/account";
-import { credentialFor } from "@/lib/api/credentials";
 import { ROLE_DESCRIPTION } from "@/lib/permissions";
 import { absoluteTime, relativeTime } from "@/lib/format";
-import { errorMessage, keys, useCredentials, useSessions, useSwitchWorkspace } from "@/lib/queries";
+import { errorMessage, keys, useSessions, useSwitchWorkspace } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 
 export default function AccountPage() {
@@ -44,7 +42,6 @@ export default function AccountPage() {
       <WorkspacesCard />
       <PasswordCard />
       <SessionsCard />
-      <PersonalKeyCard />
     </div>
   );
 }
@@ -309,42 +306,3 @@ function SessionRow({
   );
 }
 
-/**
- * A personal OpenRouter key.
- *
- * Optional, and it only applies to runs this person triggers (PRD §13.4 H).
- * Anyone may set one — it is their own secret and their own spend, which is why
- * this is the one credential that does not need the admin permission.
- */
-function PersonalKeyCard() {
-  const credentials = useCredentials();
-  const spec = (credentials.data?.kinds ?? []).find((kind) => kind.kind === "openrouter");
-  const mine = credentialFor(credentials.data?.credentials ?? [], "openrouter", "user");
-
-  return (
-    <Card>
-      <CardHeader
-        title="Your own OpenRouter key"
-        description="Optional. When set, runs you launch bill to this key instead of the workspace's."
-      />
-      <CardBody>
-        {spec ? (
-          <div className="max-w-sm">
-            <ConnectionCard
-              spec={spec}
-              credential={mine}
-              canWrite
-              scope="user"
-              description="Only the runs you launch use this. Everyone else's keep billing to the workspace key."
-            />
-          </div>
-        ) : (
-          <div className="flex gap-3 text-sm text-fg-muted">
-            <KeyRound className="mt-0.5 size-4 shrink-0 text-fg-subtle" aria-hidden />
-            Loading the key vault…
-          </div>
-        )}
-      </CardBody>
-    </Card>
-  );
-}

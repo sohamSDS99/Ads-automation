@@ -18,7 +18,7 @@ import { useRouter } from "next/navigation";
 import { listAudit, type AuditFilters } from "@/lib/api/audit";
 import { listSessions } from "@/lib/api/account";
 import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
-import { listCredentials } from "@/lib/api/credentials";
+import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import { getModels } from "@/lib/api/models";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
@@ -35,7 +35,7 @@ export const keys = {
   projects: ["projects"] as const,
   project: (id: string) => ["projects", id] as const,
   projectRuns: (id: string) => ["projects", id, "runs"] as const,
-  credentials: ["credentials"] as const,
+  connections: ["connections"] as const,
   models: ["models"] as const,
   users: ["users"] as const,
   workspace: ["workspace"] as const,
@@ -80,8 +80,8 @@ export function useProjectRuns(id: string) {
   return useQuery({ queryKey: keys.projectRuns(id), queryFn: () => listProjectRuns(id) });
 }
 
-export function useCredentials() {
-  return useQuery({ queryKey: keys.credentials, queryFn: listCredentials });
+export function useConnections() {
+  return useQuery({ queryKey: keys.connections, queryFn: listConnections });
 }
 
 /**

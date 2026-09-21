@@ -465,7 +465,21 @@ class ProjectDocument(Base):
 
 
 class Credential(Base):
-    """An AES-256-GCM sealed secret. Resolution order at call time: user > project > workspace."""
+    """Retired: the vault that used to hold a per-workspace copy of every key.
+
+    Nothing reads or writes this table any more. Secrets are read from the
+    deployment's environment (`credential_kinds.KindSpec.from_env`) and a
+    workspace's only say is `SourceConnection` below.
+
+    It is still declared, and still on disk, because the rows are AES-256-GCM
+    ciphertext that no endpoint could ever read back: dropping the table would
+    destroy the only copy of any secret an operator had not also written into
+    their environment — a Google Ads refresh token most of all, which consent
+    minted directly into here and never showed anyone. `scripts/vault-to-env.py`
+    prints those rows as the `.env` lines that replace them. Drop the table
+    after that has been run, in its own migration, never as a side effect of
+    this change.
+    """
 
     __tablename__ = "credential"
     __table_args__ = (
@@ -507,6 +521,64 @@ class Credential(Base):
     )
     last_tested_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     last_test_ok: Mapped[bool | None] = mapped_column(sa.Boolean)
+
+
+class SourceConnection(Base):
+    """One workspace's decision to use one source. The row *is* the decision.
+
+    There is no `connected` column, because there is no third state: a row means
+    the administrator switched this source on, and disconnecting deletes it. A
+    boolean would let a workspace hold `connected = false`, which is the same
+    fact as no row and a second way to write it.
+
+    What the row carries besides the decision is the last verdict — the outcome
+    of the live call that `POST /connections/{kind}/test` makes, and that
+    connecting makes on the administrator's behalf. It lives here rather than in
+    memory so that "this key stopped working" survives a reload, and it is
+    deleted along with the connection because a disconnected source has no
+    state worth keeping.
+
+    The secret itself is nowhere near this table. It is in the environment, and
+    the resolution in `credentials.resolve_values` is exactly: is there a row,
+    and does the environment supply the values.
+    """
+
+    __tablename__ = "source_connection"
+    __table_args__ = (
+        # One decision per source per workspace. Connecting twice is the same
+        # decision, not a second one, so the write is an upsert against this.
+        sa.UniqueConstraint("workspace_id", "kind", name="uq_source_connection_workspace_kind"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    kind: Mapped[CredentialKind] = mapped_column(
+        _enum(CredentialKind, "credential_kind"), nullable=False
+    )
+    connected_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    connected_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    last_tested_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_test_ok: Mapped[bool | None] = mapped_column(sa.Boolean)
+    #: The sentence the upstream gave, shown next to the verdict. Never a secret:
+    #: `_run_test` builds it from the connector's own status line.
+    last_test_detail: Mapped[str | None] = mapped_column(sa.Text)
+    #: Masked hints from the last successful test — an account name, a customer
+    #: id, the last four of a key. Same rule as the retired vault's `meta`.
+    #:
+    #: `default` as well as `server_default`: the server default only fills the
+    #: column at INSERT, so a row built in Python and written to before its
+    #: first flush reads `None` here. That is exactly what `connect` does — it
+    #: adds the row, then records the verdict of the test it just ran — and it
+    #: raised `TypeError` on the merge until this existed.
+    meta: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default=sa.text("'{}'::jsonb")
+    )
 
 
 class Run(Base):
@@ -797,6 +869,7 @@ ALL_TABLES: tuple[str, ...] = (
     "audit_log",
     "project",
     "credential",
+    "source_connection",
     "run",
     "node_run",
     "evidence",

@@ -27,7 +27,7 @@ from agent.api.schemas_models import ModelListResponse, ModelOption, TaskClassRo
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
 from agent.config import get_settings
-from agent.credentials import MissingCredential, resolve_secret
+from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import CredentialKind
 from agent.db.session import get_session
 from agent.llm.estimate import usage_baseline
@@ -75,17 +75,16 @@ async def get_models(
 ) -> ModelListResponse:
     settings = get_settings()
     try:
-        api_key = await resolve_secret(
-            db,
-            workspace_id=me.workspace_id,
-            kind=CredentialKind.OPENROUTER,
-            user_id=me.user.id,
+        values = await resolve_values(
+            db, workspace_id=me.workspace_id, kind=CredentialKind.OPENROUTER
         )
+        api_key = values["api_key"]
     except MissingCredential as exc:
         raise problems.conflict(
-            str(exc),
-            title="No OpenRouter key",
+            exc.detail,
+            title="OpenRouter is not connected",
             missing_credential=CredentialKind.OPENROUTER.value,
+            reason=exc.reason,
         ) from exc
 
     try:

@@ -54,9 +54,15 @@ const ACTION_LABELS: Record<string, string> = {
   "user.status_changed": "Account enabled or disabled",
   "project.created": "Project created",
   "project.updated": "Project edited",
-  "credential.created": "Credential stored",
-  "credential.tested": "Credential tested",
-  "credential.deleted": "Credential deleted",
+  // The three `credential.*` actions are retired, not renamed: a log read a
+  // year from now must not show a key being stored on a build that cannot
+  // store one. Rows written before the change keep their own labels.
+  "credential.created": "Credential stored (retired)",
+  "credential.tested": "Credential tested (retired)",
+  "credential.deleted": "Credential deleted (retired)",
+  "source.connected": "Source connected",
+  "source.disconnected": "Source disconnected",
+  "source.tested": "Source tested",
   "run.launched": "Run launched",
   "run.cancelled": "Run cancelled",
   "run.retried": "Failed nodes retried",

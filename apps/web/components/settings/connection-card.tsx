@@ -11,37 +11,33 @@ import {
   ScanSearch,
   Search,
   Sparkles,
-  Trash2,
 } from "lucide-react";
-import { useState, type ComponentType } from "react";
+import { type ComponentType } from "react";
 
-import { ConnectDialog } from "@/components/settings/connect-dialog";
 import { Button } from "@/components/ui/button";
-import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import {
-  deleteCredential,
-  testCredential,
-  testCredentialKind,
+  connectSource,
+  disconnectSource,
+  testSource,
   type AccessibleAccount,
-  type CredentialKind,
-  type CredentialKindInfo,
-  type CredentialScope,
-  type CredentialSummary,
-} from "@/lib/api/credentials";
+  type Source,
+  type SourceKind,
+} from "@/lib/api/connections";
 import { relativeTime } from "@/lib/format";
 import { keys } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /** One icon per source, so a card is recognisable before it is read. */
-const ICONS: Partial<Record<CredentialKind, ComponentType<{ className?: string }>>> = {
+const ICONS: Partial<Record<SourceKind, ComponentType<{ className?: string }>>> = {
   google_ads: Megaphone,
   dataforseo: Search,
   webshare: Network,
@@ -49,68 +45,64 @@ const ICONS: Partial<Record<CredentialKind, ComponentType<{ className?: string }
 };
 
 /**
- * One source, as a card you can take in at a glance.
+ * One source, as a card you can take in at a glance and act on in one click.
  *
- * The whole card is four lines in a fixed order — what it is, whether it works,
- * what it gives the research, and the one thing you might want to do about it.
- * Nothing expands in place: connecting and replacing both happen in a dialog,
- * so a grid of these never reflows under the pointer and the card you were
- * reading does not move while you read it.
+ * There is nothing to type here and nowhere to type it. A key belongs to the
+ * deployment — it is in the environment, the same in every workspace, and the
+ * one thing a workspace decides is whether it may be spent. So the card is four
+ * lines in a fixed order: what it is, whether it will answer, what it gives the
+ * research, and the single switch.
  *
- * Testing and disconnecting are real but rare, so they are behind the overflow
- * menu rather than competing with the button that most visits are here for.
+ * Which makes three states, and the card says which one plainly rather than
+ * leaving them to be inferred from a greyed-out button:
+ *
+ *   not set up   the deployment supplies no key — and the card names the exact
+ *                variables to add, because "not configured" without the list is
+ *                a dead end for whoever reads it
+ *   ready        the key is there; nobody has switched it on yet
+ *   connected    switched on, with the verdict of the last real call
+ *
+ * Connecting proves itself, so the button is not a promise: the API tests the
+ * key on the way through and the toast reports what the upstream actually said.
  */
-export function ConnectionCard({
-  spec,
-  credential,
-  canWrite,
-  scope = "workspace",
-  description,
-}: {
-  spec: CredentialKindInfo;
-  credential: CredentialSummary | undefined;
-  /** Whether this person may store a key. Testing only needs `read`. */
-  canWrite: boolean;
-  /** `user` is the personal override on the account screen. */
-  scope?: CredentialScope;
-  /** Replaces the kind's own blurb where the surrounding screen needs to. */
-  description?: string;
-}) {
+export function ConnectionCard({ source, canWrite }: { source: Source; canWrite: boolean }) {
   const queryClient = useQueryClient();
-  const [connecting, setConnecting] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-  /**
-   * A stored credential records its own verdict. A key that came from the
-   * deployment's environment has no row to write one back to, so its verdict
-   * lives for as long as this screen does and no longer.
-   */
-  const [envVerdict, setEnvVerdict] = useState<"ok" | "failed" | null>(null);
+  const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.connections });
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.credentials });
-
-  const test = useMutation({
-    mutationFn: async () => {
-      if (credential) return testCredential(credential.id);
-      const result = await testCredentialKind(spec.kind);
-      setEnvVerdict(result.ok ? "ok" : "failed");
-      return result;
-    },
-    onSuccess: async (result) => {
+  const connect = useMutation({
+    mutationFn: () => connectSource(source.kind),
+    onSuccess: async (updated) => {
       await invalidate();
-      if (result.ok) toast.success(`${spec.label} is working`, { description: result.detail });
-      else toast.error(`${spec.label} did not answer`, { description: result.detail });
+      // One act, one message. Connecting runs the test, so saying "connected"
+      // and then leaving the verdict to a pill the eye has already left is how
+      // a source ends up switched on and quietly broken.
+      if (updated.last_test_ok === false) {
+        toast.error(`${source.label} is connected but not answering`, {
+          description: updated.last_test_detail ?? undefined,
+        });
+      } else {
+        toast.success(`${source.label} connected`, {
+          description: updated.last_test_detail ?? undefined,
+        });
+      }
     },
     onError: (error) =>
-      toast.error("The test could not run", {
+      toast.error(`${source.label} was not connected`, {
         description: error instanceof ApiError ? error.detail : "Try again in a moment.",
       }),
   });
 
-  const remove = useMutation({
-    mutationFn: (id: string) => deleteCredential(id),
+  const disconnect = useMutation({
+    mutationFn: () => disconnectSource(source.kind),
     onSuccess: async () => {
       await invalidate();
-      toast.success(`${spec.label} disconnected`);
+      // No confirmation step before this, on purpose. Disconnecting destroys
+      // nothing — the key is in the deployment's environment and reconnecting
+      // is the same one click — so a dialog asking "are you sure" would be
+      // guarding against an action that undoes itself.
+      toast.success(`${source.label} disconnected`, {
+        description: "Runs continue without it. Connect again whenever you need it.",
+      });
     },
     onError: (error) =>
       toast.error("Not disconnected", {
@@ -118,117 +110,80 @@ export function ConnectionCard({
       }),
   });
 
-  const connected = Boolean(credential);
-  /**
-   * This source already works with nothing stored, because the deployment put
-   * its key in a variable and no row overrides it. A stored credential still
-   * wins — `resolve_secret` looks in the vault first — so this is only ever the
-   * state of a card with no row behind it.
-   *
-   * Workspace scope only. A variable on the deployment is a default for the
-   * whole workspace and never anybody's personal key, so the account screen's
-   * card would otherwise report "Configured" for a key its owner never set.
-   */
-  const fromEnv = scope === "workspace" && !connected && Boolean(spec.env_configured);
-  const byConsent = Boolean(spec.oauth_provider) && spec.oauth_ready;
+  const test = useMutation({
+    mutationFn: () => testSource(source.kind),
+    onSuccess: async (result) => {
+      await invalidate();
+      if (result.ok) toast.success(`${source.label} is working`, { description: result.detail });
+      else toast.error(`${source.label} did not answer`, { description: result.detail });
+    },
+    onError: (error) =>
+      toast.error("The test could not run", {
+        description: error instanceof ApiError ? error.detail : "Try again in a moment.",
+      }),
+  });
+
+  const busy = connect.isPending || disconnect.isPending;
 
   return (
     <article className="flex flex-col rounded-[var(--radius)] border bg-surface-raised p-5">
       <div className="flex items-start justify-between gap-2">
         <h3 className="flex min-w-0 items-center gap-2.5 text-[length:var(--text-md)] font-semibold tracking-tight text-fg">
-          <SourceIcon kind={spec.kind} />
-          <span className="truncate">{spec.label}</span>
+          <SourceIcon kind={source.kind} />
+          <span className="truncate">{source.label}</span>
         </h3>
 
         <DropdownMenu>
           <DropdownMenuTrigger
-            aria-label={`More for ${spec.label}`}
+            aria-label={`More for ${source.label}`}
             className="-mr-1.5 -mt-1 shrink-0 rounded-[calc(var(--radius)-4px)] p-1.5 text-fg-subtle transition-colors hover:bg-surface-hover hover:text-fg"
           >
             <MoreHorizontal className="size-4" aria-hidden />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">
-            <DropdownMenuItem disabled={test.isPending} onSelect={() => test.mutate()}>
+            {/* Testing needs no permission and changes nothing. The person
+                watching a run skip a source is often not the person who can
+                switch it back on, and telling them why is the point. */}
+            <DropdownMenuItem
+              disabled={test.isPending || !source.configured}
+              onSelect={() => test.mutate()}
+            >
               <Plug aria-hidden />
               {test.isPending ? "Testing…" : "Test connection"}
             </DropdownMenuItem>
-            {connected && canWrite ? (
-              <DropdownMenuItem
-                className="text-status-failed [&_svg]:text-status-failed"
-                onSelect={() => setConfirmingDelete(true)}
-              >
-                <Trash2 aria-hidden />
-                Disconnect
-              </DropdownMenuItem>
-            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
 
       <div className="mt-3">
-        <StatePill credential={credential} fromEnv={fromEnv} envVerdict={envVerdict} />
+        <StatePill source={source} />
       </div>
 
-      <p className="mt-3 text-sm text-fg-muted">{description ?? spec.description}</p>
+      <p className="mt-3 text-sm text-fg-muted">{source.description}</p>
 
       <div className="mt-auto pt-5">
-        <p className="mb-3 min-h-8 font-mono text-xs leading-5 text-fg-subtle">
-          {credential ? <StoredMeta credential={credential} /> : null}
-          {fromEnv ? (
-            <>
-              {spec.env_var}
-              {spec.env_last4 ? ` · ••••${spec.env_last4}` : ""}
-              <br />
-              set on the deployment, not here
-            </>
-          ) : null}
-        </p>
+        <Detail source={source} />
 
         {/* No button without the permission, and no apology on every card
-            either: the screen says once, above the grid, who can store a key.
-            Six cards each repeating it is six times the words for one fact. */}
+            either: the screen says once, above the grid, who can switch a
+            source. Six cards each repeating it is six times the words for one
+            fact. */}
         {canWrite ? (
           <Button
-            variant={connected || fromEnv ? "secondary" : "primary"}
+            /* Primary only when pressing it would do something. A disabled
+               primary still reads as the next action and pulls the eye away
+               from the line above it, which on an unconfigured card is the
+               only thing that moves this forward. */
+            variant={source.connected || !source.configured ? "secondary" : "primary"}
             className="w-full"
-            onClick={() => setConnecting(true)}
+            disabled={busy || !source.configured}
+            onClick={() => (source.connected ? disconnect.mutate() : connect.mutate())}
           >
-            {connected || fromEnv
-              ? byConsent
-                ? "Reconnect Google account"
-                : "Replace key"
-              : byConsent
-                ? "Connect Google account"
-                : "Add key"}
+            {busy ? <Spinner label={source.connected ? "Disconnecting" : "Connecting"} /> : null}
+            {source.connected ? "Disconnect" : "Connect"}
           </Button>
         ) : null}
       </div>
-
-      <ConnectDialog
-        spec={spec}
-        scope={scope}
-        replacing={connected || fromEnv}
-        open={connecting}
-        onOpenChange={setConnecting}
-      />
-
-      <ConfirmDialog
-        open={confirmingDelete}
-        onOpenChange={setConfirmingDelete}
-        title={`Disconnect ${spec.label}?`}
-        description="The stored key is deleted. It cannot be recovered — you would have to paste it again."
-        body={
-          <p className="text-sm text-fg-muted">
-            Runs continue without this source, and the report says which sections lost evidence
-            because of it.
-          </p>
-        }
-        confirmLabel="Disconnect"
-        destructive
-        onConfirm={async () => {
-          if (credential) await remove.mutateAsync(credential.id);
-        }}
-      />
     </article>
   );
 }
@@ -264,32 +219,17 @@ export function StaticSourceCard({
   );
 }
 
-function SourceIcon({ kind }: { kind: CredentialKind }) {
+function SourceIcon({ kind }: { kind: SourceKind }) {
   const Icon = ICONS[kind] ?? KeyRound;
   return <Icon className="size-5 shrink-0 text-fg" />;
 }
 
 /** Whether this source will answer when a run calls it, in three words or less. */
-function StatePill({
-  credential,
-  fromEnv,
-  envVerdict,
-}: {
-  credential: CredentialSummary | undefined;
-  fromEnv: boolean;
-  envVerdict: "ok" | "failed" | null;
-}) {
-  if (!credential) {
-    // "Not connected" next to a source the deployment already configured is
-    // simply false — a run would use it. The meta line below names the
-    // variable, so the pill says configured and leaves it there.
-    if (!fromEnv) return <Pill tone="off" label="Not connected" />;
-    if (envVerdict === "ok") return <Pill tone="ok" label="Working" />;
-    if (envVerdict === "failed") return <Pill tone="bad" label="Not working" />;
-    return <Pill tone="env" label="Configured" />;
-  }
-  if (credential.last_test_ok === true) return <Pill tone="ok" label="Connected" />;
-  if (credential.last_test_ok === false) return <Pill tone="bad" label="Not working" />;
+function StatePill({ source }: { source: Source }) {
+  if (!source.configured) return <Pill tone="off" label="Not set up" />;
+  if (!source.connected) return <Pill tone="env" label="Ready to connect" />;
+  if (source.last_test_ok === true) return <Pill tone="ok" label="Working" />;
+  if (source.last_test_ok === false) return <Pill tone="bad" label="Not working" />;
   return <Pill tone="env" label="Connected, untested" />;
 }
 
@@ -321,27 +261,46 @@ function Pill({ tone, label }: { tone: keyof typeof TONES; label: string }) {
 }
 
 /**
- * Who this key belongs to and when it was last proven — the two facts about a
- * stored credential that are safe to show and worth showing.
+ * The two lines above the button, and the only place a variable name appears.
  *
- * Not every hint is a scalar: a Google Ads grant records every account it
- * reaches, and `String(list)` would put `[object Object]` on the card.
+ * Fixed height so a grid of cards keeps its buttons on one line whatever each
+ * card has to say. An unconfigured source spends it on the exact variables to
+ * set, because that is the entire instruction — a card that says "not
+ * configured" and stops has handed the reader a search rather than a task.
  */
-function StoredMeta({ credential }: { credential: CredentialSummary }) {
-  const identity = identify(credential.meta);
-  const tested = credential.last_tested_at
-    ? `tested ${relativeTime(credential.last_tested_at)}`
+function Detail({ source }: { source: Source }) {
+  if (!source.configured) {
+    return (
+      <div className="mb-3 min-h-14 text-xs leading-5">
+        <p className="text-fg-muted">Set these on the deployment, then reload:</p>
+        <p className="font-mono break-words text-fg-subtle">{source.missing_env_vars.join(" · ")}</p>
+      </div>
+    );
+  }
+
+  const identity = source.connected ? identify(source.meta) : null;
+  const tested = source.last_tested_at
+    ? `tested ${relativeTime(source.last_tested_at)}`
     : "never tested";
+
   return (
-    <>
-      {identity ? `${identity} · ` : ""}
-      {tested}
-    </>
+    <p className="mb-3 min-h-14 font-mono text-xs leading-5 break-words text-fg-subtle">
+      {source.env_vars.join(" · ")}
+      <br />
+      {source.connected ? (
+        <>
+          {identity ? `${identity} · ` : ""}
+          {tested}
+        </>
+      ) : (
+        "set on the deployment · not switched on yet"
+      )}
+    </p>
   );
 }
 
-/** The most specific masked hint the vault will show. Never the secret. */
-function identify(meta: CredentialSummary["meta"]): string | null {
+/** The most specific masked hint a test recorded. Never the secret. */
+function identify(meta: Source["meta"]): string | null {
   const accessible = meta.accessible;
   if (Array.isArray(accessible) && accessible.length) {
     const named = accessible.find((account: AccessibleAccount) => !account.manager) ?? accessible[0];
@@ -349,6 +308,7 @@ function identify(meta: CredentialSummary["meta"]): string | null {
     const name = named?.name ?? named?.customer_id ?? "";
     return extra > 0 ? `${name} +${extra} more` : name;
   }
+  if (meta.account_name) return String(meta.account_name);
   if (meta.customer_id) return String(meta.customer_id);
   if (meta.login) return String(meta.login);
   if (meta.last4) return `••••${String(meta.last4)}`;

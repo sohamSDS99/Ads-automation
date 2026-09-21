@@ -14,13 +14,13 @@ import { cn } from "@/lib/utils";
  * There used to be two places. This screen owned the workspace, and a
  * five-step wizard on each project owned the rest — so setting a project up
  * meant first working out which of the two owned the thing you wanted to
- * change, and the same credential card was rendered on three different screens
+ * change, and the same source card was rendered on three different screens
  * because nobody could decide. One strip of tabs, one card language, and the
  * answer to "where do I change X" is always Settings.
  *
  * The tabs are guarded only where the endpoint behind them would refuse.
  * Every workspace tab is readable by any member —
- * `GET /credentials`, `/workspace`, `/projects` and `/users` all need `read`
+ * `GET /connections`, `/workspace`, `/projects` and `/users` all need `read`
  * and nothing more — so someone without the write permission sees the real
  * configuration with the controls disabled and a line saying who can change
  * it, which is more use than a refusal. The audit log and the two

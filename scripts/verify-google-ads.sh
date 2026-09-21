@@ -68,35 +68,18 @@ ok "the five Google Ads values are set"
 chk "POST /auth/login as admin" "$(login "$A" "$ADMIN_EMAIL" "$ADMIN_PASSWORD")" "admin"
 [ "$PASS" -ge 2 ] || { echo "cannot continue without a session"; exit 1; }
 
-echo "── 1. the vault takes the credential, and gives nothing back ───────────"
-# Built in python, not inline: four of these five are secrets and one bad quote
-# would seal a broken JSON object that only fails two sections later.
-VALUES=$(python3 -c "
-import json, os
-values = {
-    'developer_token': os.environ['GOOGLE_ADS_DEVELOPER_TOKEN'],
-    'client_id': os.environ['GOOGLE_ADS_CLIENT_ID'],
-    'client_secret': os.environ['GOOGLE_ADS_CLIENT_SECRET'],
-    'refresh_token': os.environ['GOOGLE_ADS_REFRESH_TOKEN'],
-    'customer_id': os.environ['GOOGLE_ADS_CUSTOMER_ID'],
-}
-manager = os.environ.get('GOOGLE_ADS_LOGIN_CUSTOMER_ID')
-if manager:
-    values['login_customer_id'] = manager
-print(json.dumps(values))
-")
-# Any earlier workspace credential goes first. `resolve_secret` orders by scope
-# then `created_at DESC`, so a stale row would not be *used* — but it would be
-# tested, counted and shown, and "which of these three is live" is not a
-# question this script should leave open.
-for old in $(get "$A" "/credentials" \
-  | jq_ "' '.join(c['id'] for c in d['credentials'] if c['kind']=='google_ads' and c['scope']=='workspace')"); do
-  send "$A" DELETE "/credentials/$old" >/dev/null
-done
-CRED_ID=$(send "$A" POST "/credentials" "{\"kind\":\"google_ads\",\"values\":$VALUES}" | jq_ 'd["id"]')
-[ -n "$CRED_ID" ] && ok "the Google Ads credential is stored" || { no "stored"; exit 1; }
+echo "── 1. the source connects with nothing typed ──────────────────────────"
+# Nothing is posted here but the decision. The six values above are already in
+# this deployment's environment — that is the whole point of the change this
+# script now verifies — so connecting carries no body at all.
+BODY=$(get "$A" "/connections")
+chk "GET /connections reports Google Ads as configured" \
+    "$(printf '%s' "$BODY" | jq_ "str([s['configured'] for s in d['sources'] if s['kind']=='google_ads'][0]).lower()")" \
+    "true"
+chk "…and names the six variables it reads" \
+    "$(printf '%s' "$BODY" | jq_ "str(len([s for s in d['sources'] if s['kind']=='google_ads'][0]['env_vars']))")" \
+    "6"
 
-BODY=$(get "$A" "/credentials")
 sealed(){ # a function, not an inline `case`: `*)` inside $( ) is a parse error
   case "$1" in
     *"$GOOGLE_ADS_REFRESH_TOKEN"* | *"$GOOGLE_ADS_CLIENT_SECRET"* | *"$GOOGLE_ADS_DEVELOPER_TOKEN"*)
@@ -105,19 +88,19 @@ sealed(){ # a function, not an inline `case`: `*)` inside $( ) is a parse error
   esac
 }
 chk "no response carries a secret" "$(sealed "$BODY")" "sealed"
-chk "the vault remembers which account is connected" \
-    "$(printf '%s' "$BODY" | jq_ "([c['meta'].get('customer_id') for c in d['credentials'] if c['id']=='$CRED_ID'] or [''])[0]")" \
-    "$GOOGLE_ADS_CUSTOMER_ID"
 
-echo "── 2. the credential answers to Google, not to us ──────────────────────"
+echo "── 2. connecting makes a live call, and says what came back ───────────"
 # A live GAQL round trip: the refresh token, the developer token, the customer
-# id and the pinned API version all have to be right for this to say true.
-TEST=$(send "$A" POST "/credentials/$CRED_ID/test" '{}')
-chk "POST /credentials/{id}/test reaches the account" \
-    "$(printf '%s' "$TEST" | jq_ 'str(d["ok"]).lower()')" "true"
-printf "        %s\n" "$(printf '%s' "$TEST" | jq_ 'd["detail"]')"
+# id and the pinned API version all have to be right for this to say true. The
+# connect route runs it, so the verdict arrives with the decision rather than
+# as a second step someone has to remember.
+CONNECT=$(send "$A" POST "/connections/google_ads/connect" '{}')
+chk "POST /connections/google_ads/connect reaches the account" \
+    "$(printf '%s' "$CONNECT" | jq_ 'str(d["last_test_ok"]).lower()')" "true"
+printf "        %s\n" "$(printf '%s' "$CONNECT" | jq_ 'd.get("last_test_detail") or ""')"
 chk "…and names the account it reached" \
-    "$(printf '%s' "$TEST" | jq_ "str(bool(d.get('meta',{}).get('account_name'))).lower()")" "true"
+    "$(printf '%s' "$CONNECT" | jq_ "str(bool(d.get('meta',{}).get('account_name'))).lower()")" "true"
+chk "…and the secret is still nowhere in the response" "$(sealed "$CONNECT")" "sealed"
 
 echo "── 3. a project, holding no account history at all ─────────────────────"
 PROJECT=$(psql_ "SELECT id FROM project WHERE name = 'Google Ads verification' LIMIT 1;" | tr -d ' ')

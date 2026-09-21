@@ -1,45 +1,54 @@
-"""What each credential kind is made of, and how to prove it works.
+"""What each source is made of, which variables supply it, and how to prove it works.
 
-The vault stores one sealed string per row. Every kind here asks a person for
-exactly one value, but `google_ads` still *holds* six, because consent supplies
-the other five; a multi-field kind is sealed as a JSON object and a single-field
-kind as the bare value. That split is not a
-preference: `orchestrator/executor.py` resolves the OpenRouter secret and hands
-it straight to `build_gateway(api_key=...)`, and `nodes/gather.py` JSON-decodes
-a connector secret into `ConnectorContext.credentials`. Both already exist, so
-this module describes them rather than deciding for them.
+Every secret this product uses is read from the deployment's environment. There
+is no form, no paste, and no per-workspace copy of a key: an operator writes the
+variables into `.env` (or into Railway's variables) once, and the interface's
+only decision is whether a workspace may use what is already there.
 
-`meta` is the other half of the design. A credential is never readable back, so
-the only way the interface can say *which* account is connected is a hint saved
-alongside the ciphertext. Every field marked `secret=False` goes there; nothing
-else ever does.
+That is the whole shape of this module. A `FieldSpec` names one value *and the
+variable that carries it*; a `KindSpec` gathers the fields one connector needs.
+`from_env` turns the pair into the `dict[str, str]` that
+`ConnectorContext.credentials` expects, which is the same shape
+`nodes/gather.py` used to decode out of the vault — connectors did not change
+and did not need to.
+
+`meta` is what may be shown about a configured source. A secret is never
+readable back, so the interface can only say *which* account is in use from the
+non-secret fields plus a last-4 of the first secret. Nothing else ever goes
+there.
 """
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from agent.db.models import CredentialKind
+
+if TYPE_CHECKING:  # pragma: no cover - import cycle: config imports nothing from here
+    from agent.config import Settings
 
 
 @dataclass(frozen=True, slots=True)
 class FieldSpec:
-    """One value inside a credential."""
+    """One value inside a source's credential, and where it is read from."""
 
     name: str
     label: str
+    #: The environment variable carrying this value. `config.Settings` reads it
+    #: into a field named by lowercasing this, and `test_source_env.py` asserts
+    #: the two agree — a name that drifts would otherwise show up as a source
+    #: that is silently unconfigured rather than as an error.
+    env_var: str
     required: bool = True
-    #: Secret fields are write-only everywhere: `type=password` in the browser,
-    #: absent from `meta`, absent from every response.
+    #: Secret fields are never returned by any endpoint and never reach `meta`.
     secret: bool = True
     hint: str = ""
 
 
 @dataclass(frozen=True, slots=True)
 class KindSpec:
-    """A credential kind, as the settings and wizard screens render it."""
+    """A source, as the Connections screen renders it."""
 
     kind: CredentialKind
     label: str
@@ -47,50 +56,47 @@ class KindSpec:
     fields: tuple[FieldSpec, ...]
     #: Which connector's `test_connection()` proves it. None = tested directly.
     connector: str | None
-    #: Where in the product this credential is configured, so the two screens
-    #: that write credentials can each show only their own.
-    where: str
-    #: The environment variable that supplies this credential when no workspace
-    #: row overrides it, and the name the interface shows instead of a form.
-    #: The settings field is this name lowercased — `config.Settings` derives
-    #: its own names the same way, so the two cannot drift apart silently.
-    #: None means the vault is the only source: `google_ads` is that case,
-    #: because consent mints a refresh token that has to be stored somewhere.
-    env_var: str | None = None
-    #: When set, this credential can be obtained by sending someone to a
-    #: provider's consent screen instead of asking them to paste values. The
-    #: interface reads it rather than hardcoding which kinds have a button.
-    oauth_provider: str | None = None
-    #: The fields that consent supplies, and therefore the fields the form must
-    #: never ask for. A refresh token is not something a person has to hand, and
-    #: neither is a manager id: `accessible_accounts()` is already talking to
-    #: the account list that names it. They stay real fields because the sealed
-    #: secret still carries them and the connector still reads them — the only
-    #: claim being made here is that nobody types them.
-    oauth_fields: tuple[str, ...] = ()
+    #: True when a run cannot start without it. Only the model surface is:
+    #: every node is a call through OpenRouter, while every other source thins
+    #: the report rather than stopping it (PRD §15 NF4, §16).
+    required_for_runs: bool = False
 
     @property
-    def typed_fields(self) -> tuple[FieldSpec, ...]:
-        """The fields a person still has to supply when consent supplies the rest."""
-        return tuple(field for field in self.fields if field.name not in self.oauth_fields)
+    def env_vars(self) -> tuple[str, ...]:
+        """Every variable this source reads, in the order the screen lists them."""
+        return tuple(field.env_var for field in self.fields)
 
     @property
-    def multi_field(self) -> bool:
-        """More than one value, so the sealed secret is a JSON object."""
-        return len(self.fields) > 1
+    def required_env_vars(self) -> tuple[str, ...]:
+        return tuple(field.env_var for field in self.fields if field.required)
 
-    def seal(self, values: dict[str, str]) -> str:
-        """The string to encrypt.
+    def from_env(self, settings: Settings) -> dict[str, str]:
+        """This source's values as the deployment supplied them.
 
-        Single-field kinds seal the bare value because the run path expects it:
-        `executor._build_gateway` passes the resolved secret to OpenRouter as
-        the API key with no decoding step in between.
+        Only the fields that actually have a value, so an optional one that was
+        left blank is absent rather than empty — `GOOGLE_ADS_LOGIN_CUSTOMER_ID`
+        is the case that matters: the Google Ads connector sends the
+        `login-customer-id` header if the key is present, and an empty header is
+        not the same request as no header.
         """
-        if not self.multi_field:
-            return values[self.fields[0].name]
-        # Sorted so the same credential typed twice seals to the same plaintext,
-        # which makes "did this actually change" answerable without decrypting.
-        return json.dumps({key: values[key] for key in sorted(values)}, separators=(",", ":"))
+        found: dict[str, str] = {}
+        for field in self.fields:
+            value = _setting(settings, field.env_var)
+            if value:
+                found[field.name] = value
+        return found
+
+    def missing_env_vars(self, settings: Settings) -> tuple[str, ...]:
+        """The required variables this deployment has not set."""
+        return tuple(
+            field.env_var
+            for field in self.fields
+            if field.required and not _setting(settings, field.env_var)
+        )
+
+    def configured(self, settings: Settings) -> bool:
+        """Whether the environment supplies enough to use this source at all."""
+        return not self.missing_env_vars(settings)
 
     def meta(self, values: dict[str, str]) -> dict[str, Any]:
         """The showable hints: the non-secret fields, plus a last-4 of the first secret."""
@@ -104,25 +110,19 @@ class KindSpec:
             hints["last4"] = values[first_secret.name][-4:]
         return hints
 
-    def validate(self, values: dict[str, str]) -> dict[str, str]:
-        """Keep the known fields, reject the missing required ones.
 
-        Unknown keys are dropped rather than rejected: a client that sends an
-        extra field gets a working credential, and a field this build has never
-        heard of must not end up sealed into a secret nothing can read.
-        """
-        known = {field.name for field in self.fields}
-        cleaned = {
-            name: value.strip()
-            for name, value in values.items()
-            if name in known and isinstance(value, str) and value.strip()
-        }
-        missing = [
-            field.name for field in self.fields if field.required and field.name not in cleaned
-        ]
-        if missing:
-            raise ValueError(f"missing required value(s): {', '.join(missing)}")
-        return cleaned
+def _setting(settings: Settings, env_var: str) -> str:
+    """One variable's value, whatever type `Settings` holds it as.
+
+    The field name is the variable lowercased rather than a second mapping: a
+    third place holding the same nine names is a third place for them to
+    disagree, and the disagreement would read as an unconfigured source.
+    """
+    value = getattr(settings, env_var.lower(), None)
+    if value is None:
+        return ""
+    text = value.get_secret_value() if hasattr(value, "get_secret_value") else str(value)
+    return text.strip()
 
 
 KIND_SPECS: dict[CredentialKind, KindSpec] = {
@@ -131,56 +131,66 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         label="OpenRouter",
         description=(
             "One key reaches every model. Every step of the research is a call "
-            "through it, so nothing runs until this is set."
+            "through it, so nothing runs until this is connected."
         ),
         fields=(
             FieldSpec(
                 name="api_key",
                 label="API key",
+                env_var="OPENROUTER_API_KEY",
                 hint="Starts with sk-or-",
             ),
         ),
         connector=None,
-        where="settings",
-        env_var="OPENROUTER_API_KEY",
+        required_for_runs=True,
     ),
     CredentialKind.GOOGLE_ADS: KindSpec(
         kind=CredentialKind.GOOGLE_ADS,
         label="Google Ads",
         description=(
-            "Your own spend, conversions, search terms and past creative. Sign in "
-            "with the Google account that owns the ads and the accounts it "
-            "reaches are found automatically."
+            "Your own spend, conversions, search terms and past creative, read "
+            "from the account the deployment's credentials reach."
         ),
         fields=(
-            FieldSpec(name="developer_token", label="Developer token"),
-            FieldSpec(name="client_id", label="OAuth client ID"),
-            FieldSpec(name="client_secret", label="OAuth client secret"),
-            FieldSpec(name="refresh_token", label="Refresh token"),
+            FieldSpec(
+                name="developer_token",
+                label="Developer token",
+                env_var="GOOGLE_ADS_DEVELOPER_TOKEN",
+                hint="Issued once, in the manager account's API Center",
+            ),
+            FieldSpec(
+                name="client_id",
+                label="OAuth client ID",
+                env_var="GOOGLE_ADS_CLIENT_ID",
+            ),
+            FieldSpec(
+                name="client_secret",
+                label="OAuth client secret",
+                env_var="GOOGLE_ADS_CLIENT_SECRET",
+            ),
+            FieldSpec(
+                name="refresh_token",
+                label="Refresh token",
+                env_var="GOOGLE_ADS_REFRESH_TOKEN",
+                hint="Minted once by scripts/google-ads-oauth.py",
+            ),
             FieldSpec(
                 name="customer_id",
                 label="Customer ID",
+                env_var="GOOGLE_ADS_CUSTOMER_ID",
                 secret=False,
                 hint="The 10-digit account id, with or without dashes",
             ),
             FieldSpec(
                 name="login_customer_id",
                 label="Manager (MCC) ID",
+                env_var="GOOGLE_ADS_LOGIN_CUSTOMER_ID",
                 required=False,
                 secret=False,
-                hint="Only if the account is reached through a manager account",
+                hint="Only when the account is reached through a manager account",
             ),
         ),
         connector="google_ads",
-        where="sources",
-        oauth_provider="google",
-        oauth_fields=(
-            "client_id",
-            "client_secret",
-            "refresh_token",
-            "customer_id",
-            "login_customer_id",
-        ),
     ),
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
@@ -193,12 +203,11 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
             FieldSpec(
                 name="api_key",
                 label="API key",
+                env_var="DATAFORSEO_API_KEY",
                 hint="The Basic token on the API Access page. A login:password pair works too.",
             ),
         ),
         connector="dataforseo",
-        where="sources",
-        env_var="DATAFORSEO_API_KEY",
     ),
     CredentialKind.WEBSHARE: KindSpec(
         kind=CredentialKind.WEBSHARE,
@@ -211,6 +220,7 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
             FieldSpec(
                 name="api_key",
                 label="API key",
+                env_var="WEBSHARE_API_KEY",
                 hint=(
                     "The key from the Webshare dashboard. The proxy username, "
                     "password and host are all read from it, so this is the whole "
@@ -220,46 +230,21 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         ),
         # Tested by `connectors/proxy.probe`, not by a connector: the thing
         # proven is a transport several connectors borrow, and no single one of
-        # them owns it. `routes_credentials._run_test` dispatches on the kind
+        # them owns it. `routes_connections._run_test` dispatches on the kind
         # for exactly that reason.
         connector=None,
-        where="sources",
-        env_var="WEBSHARE_API_KEY",
     ),
 }
 
-#: SMTP is deliberately absent. It is read from the environment
-#: (`config.Settings.smtp_*`) because it belongs to the deployment, not to the
-#: workspace — PRD §18 law 9: environments differ by env-var values only.
-WRITABLE_KINDS: tuple[CredentialKind, ...] = tuple(KIND_SPECS)
+#: SMTP is deliberately absent, for the reason that now governs everything here:
+#: it belongs to the deployment, not to the workspace (PRD §18 law 9). The
+#: difference is that SMTP has nothing to switch on or off per workspace, so it
+#: needs no card.
+CONNECTABLE_KINDS: tuple[CredentialKind, ...] = tuple(KIND_SPECS)
 
 
 def spec_for(kind: CredentialKind) -> KindSpec:
     try:
         return KIND_SPECS[kind]
     except KeyError:
-        raise ValueError(f"{kind.value} is not configured through the interface") from None
-
-
-def unseal(spec: KindSpec, secret: str) -> dict[str, str]:
-    """The sealed string back as connector-shaped values.
-
-    Mirrors `nodes/gather._credentials`: a JSON object becomes the value map, a
-    bare string becomes the kind's single field.
-
-    The JSON branch is tried for every kind rather than only the multi-field
-    ones, because a kind that used to hold several values and now holds one
-    still has rows in the vault sealed the old way. Nothing is risked by
-    trying: a real single value never parses as a JSON object — an OpenRouter
-    key, a Bright Data token and a base64 Basic blob all fail on the first
-    character — so the fallback still catches every single-field credential,
-    and a connector that was connected before this change keeps working
-    without anyone retyping it.
-    """
-    try:
-        parsed = json.loads(secret)
-    except ValueError:
-        parsed = None
-    if isinstance(parsed, dict):
-        return {str(key): str(value) for key, value in parsed.items() if value is not None}
-    return {spec.fields[0].name: secret}
+        raise ValueError(f"{kind.value} is not a connectable source") from None

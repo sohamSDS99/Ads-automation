@@ -22,7 +22,6 @@ BASE=${BASE_URL:-http://localhost:3000}
 B="$BASE/api/v1"
 ADMIN_EMAIL=${ADMIN_EMAIL:-admin@example.com}
 ADMIN_PASSWORD=${ADMIN_PASSWORD:-change-me-at-least-12-chars}
-OPENROUTER_PLACEHOLDER=sk-or-v1-verify-p6-placeholder
 MEMBER_PASSWORD=${MEMBER_PASSWORD:-verify-p6-member-passphrase}
 
 PASS=0; FAIL=0
@@ -71,34 +70,45 @@ done
 chk "the workspace now holds all four roles" \
     "$(get "$A" "/users" | jq_ "len({u['role'] for u in d['users']})")" "4"
 
-echo "── 2. store a key, and prove it is unreadable ──────────────────────────"
-KEY_ID=$(get "$A" "/credentials" | jq_ "([c['id'] for c in d['credentials'] if c['kind']=='openrouter' and c['scope']=='workspace'] or [''])[0]")
-if [ -z "$KEY_ID" ]; then
-  KEY_ID=$(send "$A" POST "/credentials" \
-    "{\"kind\":\"openrouter\",\"values\":{\"api_key\":\"$OPENROUTER_PLACEHOLDER\"}}" | jq_ 'd["id"]')
-fi
-chk "POST /credentials stored an OpenRouter key" "$([ -n "$KEY_ID" ] && echo yes)" "yes"
-BODY=$(get "$A" "/credentials")
-chk "the listing carries only a hint" \
-    "$(printf '%s' "$BODY" | jq_ "([c['meta'].get('last4') for c in d['credentials'] if c['id']=='$KEY_ID'] or [''])[0]")" \
-    "${OPENROUTER_PLACEHOLDER: -4}"
+echo "── 2. connect a source, and prove no key crosses the wire ──────────────"
+BODY=$(get "$A" "/connections")
+chk "GET /connections lists every source this build knows" \
+    "$(printf '%s' "$BODY" | jq_ "str(len(d['sources']) >= 4).lower()")" "true"
+chk "…and OpenRouter is the only one a run cannot start without" \
+    "$(printf '%s' "$BODY" | jq_ "','.join(sorted(s['kind'] for s in d['sources'] if s['required_for_runs']))")" \
+    "openrouter"
 case "$BODY" in
-  *"$OPENROUTER_PLACEHOLDER"*) no "no response carries the secret" "the key came back" ;;
-  *ciphertext*|*nonce*)             no "no response carries the secret" "ciphertext leaked" ;;
-  *)                                ok "no response carries the secret" ;;
+  *api_key*|*ciphertext*|*values*) no "no response carries a secret" "a credential field leaked" ;;
+  *)                               ok "no response carries a secret" ;;
 esac
-chk "the field catalogue travels with it" \
-    "$(printf '%s' "$BODY" | jq_ "len(d['kinds'])")" "3"
 
-echo "── 3. test a connector credential ──────────────────────────────────────"
-# The OpenRouter key above is a placeholder, so the honest assertion is that a
-# test runs and reports a verdict — not that a fabricated key works.
-TEST=$(send "$A" POST "/credentials/$KEY_ID/test" '{}')
-chk "POST /credentials/{id}/test answers 200" "$(send_code "$A" POST "/credentials/$KEY_ID/test" '{}')" "200"
-chk "…with a verdict, not an error" "$(printf '%s' "$TEST" | jq_ "str('ok' in d).lower()")" "true"
-chk "…and a sentence to show the user" "$(printf '%s' "$TEST" | jq_ "str(bool(d['detail'])).lower()")" "true"
-chk "the verdict is recorded on the row" \
-    "$(get "$A" "/credentials" | jq_ "str([c['last_tested_at'] for c in d['credentials'] if c['id']=='$KEY_ID'][0] is not None).lower()")" "true"
+CONFIGURED=$(printf '%s' "$BODY" | jq_ "str([s['configured'] for s in d['sources'] if s['kind']=='openrouter'][0]).lower()")
+if [ "$CONFIGURED" = "true" ]; then
+  # One click, no body. The API tests the deployment's key on the way through,
+  # so the honest assertion is that a verdict comes back — not that whatever is
+  # in this deployment's environment happens to work.
+  CONNECT=$(send "$A" POST "/connections/openrouter/connect" '{}')
+  chk "POST /connections/openrouter/connect answers 200" \
+      "$(send_code "$A" POST "/connections/openrouter/connect" '{}')" "200"
+  chk "…with the source switched on" "$(printf '%s' "$CONNECT" | jq_ "str(d['connected']).lower()")" "true"
+  chk "…and a verdict recorded, not a promise" \
+      "$(printf '%s' "$CONNECT" | jq_ "str(d['last_tested_at'] is not None).lower()")" "true"
+else
+  ok "OpenRouter is unconfigured on this deployment — connect is refused, correctly"
+  chk "…and connecting names the variable to set" \
+      "$(send_code "$A" POST "/connections/openrouter/connect" '{}')" "422"
+fi
+
+echo "── 3. test a source ────────────────────────────────────────────────────"
+# 422 is the honest answer on a deployment that supplies no key: the test
+# cannot run, and the body names the variables to set. Either way the caller
+# gets a sentence rather than a stack trace.
+TEST=$(send "$A" POST "/connections/openrouter/test" '{}')
+TEST_CODE=$(send_code "$A" POST "/connections/openrouter/test" '{}')
+case "$TEST_CODE" in 200|422) ANSWERED=yes ;; *) ANSWERED="$TEST_CODE" ;; esac
+chk "POST /connections/{kind}/test answers 200 or 422" "$ANSWERED" "yes"
+chk "…with a sentence to show the user" \
+    "$(printf '%s' "$TEST" | jq_ "str(bool(d.get('detail'))).lower()")" "true"
 
 echo "── 4. create a project, entirely over the API the UI uses ──────────────"
 NAME="P6 verification $$"
@@ -179,16 +189,17 @@ chk "operator may edit the business context" \
     "$(send_code "$O" PATCH "/projects/$PROJECT" "$CTX")" "200"
 chk "operator may NOT choose models" \
     "$(send_code "$O" PATCH "/projects/$PROJECT" '{"models":{"synthesize":"anthropic/claude-opus-4.6"}}')" "403"
-chk "operator may NOT store a shared key" \
-    "$(send_code "$O" POST "/credentials" '{"kind":"openrouter","values":{"api_key":"sk-or-nope"}}')" "403"
+chk "operator may NOT switch a source on" \
+    "$(send_code "$O" POST "/connections/openrouter/connect" '{}')" "403"
 chk "operator may NOT read the model catalogue" "$(code "$O" "/models")" "403"
 chk "operator may NOT read the audit log" "$(code "$O" "/audit")" "403"
 chk "operator may NOT invite anyone" \
     "$(send_code "$O" POST "/users/invite" '{"email":"nope@example.com","name":"No","role":"viewer"}')" "403"
-chk "operator MAY set their own personal key" \
-    "$(send_code "$O" POST "/credentials" '{"kind":"openrouter","scope":"user","values":{"api_key":"sk-or-personal"}}')" "201"
-chk "…and the admin cannot see it" \
-    "$(get "$A" "/credentials" | jq_ "sum(1 for c in d['credentials'] if c['scope']=='user')")" "0"
+OP_TEST=$(send_code "$O" POST "/connections/openrouter/test" '{}')
+case "$OP_TEST" in 200|422) OP_ANSWERED=yes ;; *) OP_ANSWERED="$OP_TEST" ;; esac
+chk "operator MAY test a source" "$OP_ANSWERED" "yes"
+chk "operator may NOT switch one off" \
+    "$(send_code "$O" DELETE "/connections/openrouter" '')" "403"
 
 echo "── 10. the admin-only screens ──────────────────────────────────────────"
 chk "GET /workspace carries its settings" \

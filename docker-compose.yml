@@ -33,17 +33,21 @@ x-api-env: &api-env
   WORKER_INTERNAL_URL: http://worker:8081
   MAX_RUN_COST_USD: ${MAX_RUN_COST_USD:-15.00}
   CORS_ORIGINS: http://localhost:3000
-  # The OAuth client the Sources screen's "Continue with Google" uses. Unset
-  # locally means the button says so rather than opening a dead consent screen.
-  GOOGLE_ADS_OAUTH_CLIENT_ID: ${GOOGLE_ADS_OAUTH_CLIENT_ID:-}
-  GOOGLE_ADS_OAUTH_CLIENT_SECRET: ${GOOGLE_ADS_OAUTH_CLIENT_SECRET:-}
-  # The source keys, when the deployment supplies them rather than the Sources
-  # screen. This list is an allow-list — a variable absent from here never
-  # reaches the container, however carefully it was set in `.env`. A workspace
-  # credential still overrides whatever is set (`credentials.resolve_secret`).
+  # Every source key. This list is an allow-list — a variable absent from here
+  # never reaches the container, however carefully it was set in `.env` — and
+  # it is now the *only* place a key comes from: the Connections screen switches
+  # a source on and off and has nowhere to put a secret.
+  # `test_deployment_config.py` derives the list below from `KIND_SPECS`, so a
+  # source added to the backend fails this file until it is listed here.
   OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
   DATAFORSEO_API_KEY: ${DATAFORSEO_API_KEY:-}
   WEBSHARE_API_KEY: ${WEBSHARE_API_KEY:-}
+  GOOGLE_ADS_DEVELOPER_TOKEN: ${GOOGLE_ADS_DEVELOPER_TOKEN:-}
+  GOOGLE_ADS_CLIENT_ID: ${GOOGLE_ADS_CLIENT_ID:-}
+  GOOGLE_ADS_CLIENT_SECRET: ${GOOGLE_ADS_CLIENT_SECRET:-}
+  GOOGLE_ADS_REFRESH_TOKEN: ${GOOGLE_ADS_REFRESH_TOKEN:-}
+  GOOGLE_ADS_CUSTOMER_ID: ${GOOGLE_ADS_CUSTOMER_ID:-}
+  GOOGLE_ADS_LOGIN_CUSTOMER_ID: ${GOOGLE_ADS_LOGIN_CUSTOMER_ID:-}
 
 services:
   postgres:
@@ -141,11 +145,21 @@ services:
       BOOTSTRAP_ADMIN_PASSWORD: ""
       # Blanked for the same reason as the bootstrap admin: `<<: *api-env` pulls
       # whatever is in `.env`, and a suite that can see a real key stops testing
-      # the unconfigured path. `test_models_api` asserts a 409 when nothing
-      # supplies OpenRouter — with a live key inherited here it got a 200.
+      # the unconfigured path — `test_connections_api` asserts that Google Ads
+      # names the five variables it is missing, which a developer's own `.env`
+      # would otherwise fill in.
+      # `tests/integration/conftest.py` sets OPENROUTER_API_KEY back for the
+      # process, because every run resolves the model key from the environment
+      # now and a suite without one refuses every launch.
       OPENROUTER_API_KEY: ""
       DATAFORSEO_API_KEY: ""
       WEBSHARE_API_KEY: ""
+      GOOGLE_ADS_DEVELOPER_TOKEN: ""
+      GOOGLE_ADS_CLIENT_ID: ""
+      GOOGLE_ADS_CLIENT_SECRET: ""
+      GOOGLE_ADS_REFRESH_TOKEN: ""
+      GOOGLE_ADS_CUSTOMER_ID: ""
+      GOOGLE_ADS_LOGIN_CUSTOMER_ID: ""
     volumes:
       - ./apps/api/src:/app/src
       - ./apps/api/tests:/app/tests

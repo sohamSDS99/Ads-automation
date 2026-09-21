@@ -1,178 +1,145 @@
-"""How a credential is sealed, and what the vault is allowed to remember."""
+"""Where each source's credential comes from, and what may be said about it.
+
+Every secret is read from the deployment's environment now, so the invariants
+worth asserting all sit on that seam: the variable names agree with `Settings`,
+a blank variable reads as unconfigured rather than as an empty key, and what
+`from_env` produces is the shape connectors already expect.
+"""
 
 from __future__ import annotations
 
-import json
+import os
+from collections.abc import Iterator
 
 import pytest
 
-from agent.credential_kinds import KIND_SPECS, spec_for, unseal
+from agent.config import Settings, get_settings
+from agent.credential_kinds import KIND_SPECS, spec_for
 from agent.db.models import CredentialKind
 
-OPENROUTER = {"api_key": "sk-or-v1-abcdef123456"}
-DATAFORSEO = {"api_key": "ops@example.com:hunter2"}
-GOOGLE_ADS = {
-    "developer_token": "dev-token",
-    "client_id": "client-id",
-    "client_secret": "client-secret",
-    "refresh_token": "refresh-token",
-    "customer_id": "123-456-7890",
+GOOGLE_ADS_ENV = {
+    "GOOGLE_ADS_DEVELOPER_TOKEN": "dev-token",
+    "GOOGLE_ADS_CLIENT_ID": "client-id",
+    "GOOGLE_ADS_CLIENT_SECRET": "client-secret",
+    "GOOGLE_ADS_REFRESH_TOKEN": "refresh-token",
+    "GOOGLE_ADS_CUSTOMER_ID": "123-456-7890",
 }
-WEBSHARE = {"api_key": "ws-api-key-abc123"}
 
 
-def test_a_single_field_kind_seals_the_bare_value() -> None:
-    """The run path passes the OpenRouter secret straight to the gateway.
+@pytest.fixture
+def env() -> Iterator[None]:
+    """Set variables for one test and put the process back as it was."""
+    before = dict(os.environ)
+    get_settings.cache_clear()
+    yield
+    os.environ.clear()
+    os.environ.update(before)
+    get_settings.cache_clear()
 
-    `executor._build_gateway` does no decoding, so sealing JSON here would send
-    `{"api_key": "..."}` as the bearer token and every run would 401.
+
+def _set(**values: str) -> Settings:
+    os.environ.update(values)
+    get_settings.cache_clear()
+    return get_settings()
+
+
+# --- the seam between a spec and the process environment --------------------
+
+
+def test_every_field_names_a_settings_field_of_the_same_name() -> None:
+    """The one invariant holding two separate lists together.
+
+    `FieldSpec.env_var` lowercased is read off `Settings` by
+    `credential_kinds._setting`. Nothing enforces that at import time, and a
+    mismatch does not raise — `getattr(..., None)` returns None and the source
+    silently reports itself unconfigured, which reads as "the operator forgot"
+    rather than "we misspelled it". So it is asserted here instead.
     """
-    spec = spec_for(CredentialKind.OPENROUTER)
-    assert spec.seal(OPENROUTER) == "sk-or-v1-abcdef123456"
+    for spec in KIND_SPECS.values():
+        for field in spec.fields:
+            assert field.env_var.lower() in Settings.model_fields, (
+                f"{spec.kind.value}.{field.name} names {field.env_var}, "
+                "which Settings does not hold"
+            )
 
 
-def test_a_multi_field_kind_seals_json_that_gather_can_read() -> None:
-    spec = spec_for(CredentialKind.GOOGLE_ADS)
-    sealed = spec.seal(GOOGLE_ADS)
-    assert json.loads(sealed) == GOOGLE_ADS
+def test_every_variable_is_named_once_across_every_source() -> None:
+    """Two sources reading one variable would make disconnecting one a lie."""
+    seen: dict[str, str] = {}
+    for spec in KIND_SPECS.values():
+        for field in spec.fields:
+            assert field.env_var not in seen, f"{field.env_var} is claimed twice"
+            seen[field.env_var] = spec.kind.value
 
 
-@pytest.mark.parametrize(
-    ("kind", "values"),
-    [
-        (CredentialKind.OPENROUTER, OPENROUTER),
-        (CredentialKind.DATAFORSEO, DATAFORSEO),
-        (CredentialKind.GOOGLE_ADS, GOOGLE_ADS),
-        (CredentialKind.WEBSHARE, WEBSHARE),
-    ],
-)
-def test_sealing_then_unsealing_returns_the_connector_shape(
-    kind: CredentialKind, values: dict[str, str]
-) -> None:
-    spec = spec_for(kind)
-    assert unseal(spec, spec.seal(values)) == values
+def test_a_blank_variable_reads_as_unconfigured(env: None) -> None:
+    """A variable left empty in a compose file is not a key.
 
-
-def test_meta_carries_hints_and_never_a_secret() -> None:
-    spec = spec_for(CredentialKind.GOOGLE_ADS)
-    meta = spec.meta(GOOGLE_ADS)
-
-    assert meta["customer_id"] == "123-456-7890"
-    assert meta["last4"] == "oken"
-    secrets = {values for key, values in GOOGLE_ADS.items() if key != "customer_id"}
-    assert not secrets & set(map(str, meta.values()))
-
-
-def test_a_missing_required_field_is_named() -> None:
-    spec = spec_for(CredentialKind.GOOGLE_ADS)
-    with pytest.raises(ValueError, match="refresh_token"):
-        spec.validate({key: value for key, value in GOOGLE_ADS.items() if key != "refresh_token"})
-
-
-def test_an_optional_field_may_be_absent() -> None:
-    spec = spec_for(CredentialKind.GOOGLE_ADS)
-    assert "login_customer_id" not in spec.validate(GOOGLE_ADS)
-
-
-def test_an_unknown_field_is_dropped_rather_than_sealed() -> None:
-    """A field this build has never heard of must not end up inside a secret."""
-    spec = spec_for(CredentialKind.DATAFORSEO)
-    cleaned = spec.validate({**DATAFORSEO, "api_key_v3": "something-new"})
-    assert cleaned == DATAFORSEO
-
-
-def test_every_source_asks_a_person_for_exactly_one_value() -> None:
-    """The whole point of the change: one field per card, and no second step.
-
-    `typed_fields` — not `fields` — is what the settings and wizard screens
-    render, so it is what this asserts on. `google_ads` still holds six values;
-    five of them arrive from consent, and the sixth is the developer token.
-    """
-    # Derived, not listed: a hardcoded tuple here passes a correct change that
-    # adds a kind — `webshare` was the case that found this — by not looking
-    # at it at all.
-    for kind in KIND_SPECS:
-        spec = spec_for(kind)
-        typed = spec.typed_fields
-        assert len(typed) == 1, f"{kind.value} asks for {[f.name for f in typed]}"
-        assert typed[0].required, f"{kind.value}'s one field must not be optional"
-
-
-def test_a_proxy_account_is_one_key_and_nothing_else() -> None:
-    """No proxy host, no port, no username: the key is the whole credential.
-
-    Asserted on `webshare` since the SERP source was removed. The claim is the
-    same one and it matters for the same reason — `connectors/proxy.account`
-    reads the username and password off the key rather than asking a person for
-    them — and here `connector` is None because the thing the key authenticates
-    is a transport several connectors borrow, tested by `proxy.probe`.
-    """
-    spec = spec_for(CredentialKind.WEBSHARE)
-    cleaned = spec.validate(WEBSHARE)
-
-    assert cleaned == WEBSHARE
-    assert spec.connector is None
-    assert [field.name for field in spec.fields] == ["api_key"]
-    assert unseal(spec, spec.seal(cleaned)) == WEBSHARE
-
-
-def test_a_one_key_credential_shows_only_its_last_four() -> None:
-    """There is no non-secret half left to show, so `meta` must not invent one."""
-    spec = spec_for(CredentialKind.WEBSHARE)
-    meta = spec.meta(WEBSHARE)
-
-    assert meta == {"last4": "c123"}
-    assert WEBSHARE["api_key"] not in set(map(str, meta.values()))
-
-
-def test_a_credential_sealed_before_the_change_still_unseals() -> None:
-    """A workspace that connected DataForSEO last week must not have to retype it.
-
-    The old rows are JSON objects under a kind that is now single-field — this
-    one held a `login`/`password` pair. The values they carry are no longer what
-    the connector wants — that is a reconnect, and it says so — but the vault
-    must still be able to read them back rather than hand a connector the raw
-    JSON as if it were a key.
+    An empty string would sail past a `is not None` check and reach the vendor
+    as an empty bearer token, so the source would report configured and then
+    401 on every call.
     """
     spec = spec_for(CredentialKind.DATAFORSEO)
-    legacy = json.dumps({"login": "ops@example.com", "password": "pw"})
+    assert spec.configured(_set(DATAFORSEO_API_KEY="dfs-from-the-file"))
+    assert spec.from_env(get_settings()) == {"api_key": "dfs-from-the-file"}
 
-    assert unseal(spec, legacy) == {"login": "ops@example.com", "password": "pw"}
-    # And a real key, which is not JSON, still lands on the one field.
-    assert unseal(spec, "dfs-api-key-abc123") == {"api_key": "dfs-api-key-abc123"}
-
-
-def test_smtp_is_not_writable_through_the_interface() -> None:
-    """SMTP is deployment configuration (PRD §18 law 9), not workspace state."""
-    assert CredentialKind.SMTP not in KIND_SPECS
-    with pytest.raises(ValueError, match="smtp"):
-        spec_for(CredentialKind.SMTP)
+    settings = _set(DATAFORSEO_API_KEY="   ")
+    assert not spec.configured(settings)
+    assert spec.missing_env_vars(settings) == ("DATAFORSEO_API_KEY",)
+    assert spec.from_env(settings) == {}
 
 
-def test_the_run_path_and_the_test_path_decode_a_secret_the_same_way() -> None:
-    """One decoder, or a source connects and then goes missing mid-run.
+def test_an_unset_optional_field_is_absent_rather_than_empty(env: None) -> None:
+    """`login-customer-id` is a header Google Ads must not receive when empty.
 
-    `routes_credentials._run_test` and `nodes/gather._credentials` both turn a
-    sealed string back into connector-shaped values. While they were two pieces
-    of code, `gather` guessed — a bare string became `{"token": ...}` — and that
-    guess held only because every kind it reached was multi-field. A one-key
-    kind broke it silently: the card said Working and the run skipped the
-    source. This asserts they agree, for the single-field kinds that exposed it.
+    An account reached directly has no manager, and sending the header with an
+    empty value is a different request from not sending it — the API answers it
+    as a permission error on an account that is perfectly reachable.
+    """
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    settings = _set(**GOOGLE_ADS_ENV)
+
+    assert spec.configured(settings)
+    values = spec.from_env(settings)
+    assert "login_customer_id" not in values
+
+    settings = _set(GOOGLE_ADS_LOGIN_CUSTOMER_ID="999-888-7777")
+    assert spec.from_env(settings)["login_customer_id"] == "999-888-7777"
+
+
+def test_google_ads_names_every_value_it_needs(env: None) -> None:
+    """Six values, five of them required — and the screen can name the missing ones."""
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    settings = _set()
+
+    assert spec.missing_env_vars(settings) == tuple(GOOGLE_ADS_ENV)
+    assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" in spec.env_vars
+    assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" not in spec.required_env_vars
+
+
+# --- what reaches a connector -----------------------------------------------
+
+
+def test_from_env_produces_the_shape_every_connector_asks_for(env: None) -> None:
+    """`ConnectorContext.credentials` is keyed by field name, not by variable name.
+
+    This is the seam a sealed vault used to sit on, and the one it broke at: a
+    single-field kind once arrived at its connector as `{"token": ...}` while
+    the connector asked for `api_key`, so a source that tested green skipped
+    every run. Reading from the environment keeps the same key names, and this
+    asserts it for each source `gather` can reach.
     """
     from agent.nodes.gather import _CREDENTIAL_KIND
 
-    cases = {
-        CredentialKind.WEBSHARE: {"api_key": "ws-real-key"},
-        CredentialKind.DATAFORSEO: {"api_key": "ops@example.com:hunter2"},
-        CredentialKind.GOOGLE_ADS: GOOGLE_ADS,
-    }
-    for kind, values in cases.items():
-        spec = spec_for(kind)
-        sealed = spec.seal(spec.validate(values))
-        decoded = unseal(spec, sealed)
-        assert decoded == values, kind.value
-        # And the field the connector will ask for is actually present.
-        assert spec.fields[0].name in decoded, kind.value
+    settings = _set(
+        OPENROUTER_API_KEY="sk-or-v1-abcdef123456",
+        DATAFORSEO_API_KEY="ops@example.com:hunter2",
+        WEBSHARE_API_KEY="ws-api-key-abc123",
+        **GOOGLE_ADS_ENV,
+    )
+    for kind, spec in KIND_SPECS.items():
+        values = spec.from_env(settings)
+        assert spec.fields[0].name in values, kind.value
 
     # Every connector `gather` can reach has a spec, or `spec_for` raises at
     # run time on a path no test covers.
@@ -180,45 +147,29 @@ def test_the_run_path_and_the_test_path_decode_a_secret_the_same_way() -> None:
         assert spec_for(kind) is not None, connector
 
 
-def test_every_env_backed_kind_has_a_settings_field_of_the_same_name() -> None:
-    """The one invariant holding three separate lists together.
-
-    `KindSpec.env_var` lowercased is read off `Settings` by
-    `credentials.env_secret`. Nothing enforces that at import time, and a
-    mismatch does not raise — `getattr(..., None)` returns None and the source
-    silently reports itself unconfigured. So it is asserted here instead.
-    """
-    from agent.config import Settings
-    from agent.credential_kinds import KIND_SPECS
-
-    for spec in KIND_SPECS.values():
-        if spec.env_var is None:
-            continue
-        field = spec.env_var.lower()
-        assert field in Settings.model_fields, f"{spec.kind.value} names {spec.env_var}"
+def test_only_the_model_surface_stops_a_run() -> None:
+    """Every other source thins the report rather than refusing to start (PRD §15 NF4)."""
+    blocking = {kind for kind, spec in KIND_SPECS.items() if spec.required_for_runs}
+    assert blocking == {CredentialKind.OPENROUTER}
 
 
-def test_google_ads_is_not_configurable_from_a_file() -> None:
-    """Its secret is a refresh token consent mints, so there is nothing to paste."""
-    assert spec_for(CredentialKind.GOOGLE_ADS).env_var is None
+# --- what may be shown ------------------------------------------------------
 
 
-def test_the_environment_supplies_a_key_when_no_row_does() -> None:
-    from agent.config import get_settings
-    from agent.credentials import env_secret
+def test_meta_shows_the_non_secret_fields_and_a_last_four(env: None) -> None:
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    values = spec.from_env(_set(**GOOGLE_ADS_ENV))
+    hints = spec.meta(values)
 
-    get_settings.cache_clear()
-    try:
-        import os
+    assert hints["customer_id"] == "123-456-7890"
+    assert hints["last4"] == "oken"
+    for field in spec.fields:
+        if field.secret:
+            assert values[field.name] not in hints.values(), field.name
 
-        os.environ["DATAFORSEO_API_KEY"] = "dfs-from-the-file"
-        get_settings.cache_clear()
-        assert env_secret(CredentialKind.DATAFORSEO) == "dfs-from-the-file"
-        # Whitespace-only is not a key: a variable left blank in a compose file
-        # must read as unconfigured, not as an empty secret the vendor rejects.
-        os.environ["DATAFORSEO_API_KEY"] = "   "
-        get_settings.cache_clear()
-        assert env_secret(CredentialKind.DATAFORSEO) is None
-    finally:
-        os.environ.pop("DATAFORSEO_API_KEY", None)
-        get_settings.cache_clear()
+
+def test_smtp_is_not_a_connectable_source() -> None:
+    """SMTP is deployment configuration (PRD §18 law 9) with nothing to switch on."""
+    assert CredentialKind.SMTP not in KIND_SPECS
+    with pytest.raises(ValueError, match="smtp"):
+        spec_for(CredentialKind.SMTP)

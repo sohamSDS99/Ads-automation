@@ -50,7 +50,7 @@ Keep the `REDIS_PASSWORD` variable in step with whatever literal you use here �
 | `PORT` | — | injected by Railway as **8080**; never set it yourself |
 | `DATABASE_URL` | ref | `${{postgres.DATABASE_URL}}` |
 | `REDIS_URL` | ref | `${{redis.REDIS_URL}}` |
-| `APP_ENCRYPTION_KEY` | manual | 32 random bytes, base64. **Set once. Rotating it orphans every stored credential.** |
+| `APP_ENCRYPTION_KEY` | manual | 32 random bytes, base64. Set once. Still required — sessions and download tokens derive from it |
 | `FILE_TOKEN_SECRET` | manual | 32 random bytes, base64 |
 | `WORKER_INTERNAL_URL` | ref | `http://${{worker.RAILWAY_PRIVATE_DOMAIN}}:8081` |
 | `RAILWAY_DOCKERFILE_PATH` | — | **`api` only**: leave unset. `worker` needs it — see below |
@@ -67,7 +67,22 @@ Keep the `REDIS_PASSWORD` variable in step with whatever literal you use here �
 | `APP_ENV` | fixed | `production` |
 | `LOG_LEVEL` | fixed | `INFO` |
 | `SMTP_HOST` / `SMTP_PORT` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM` | manual | optional; without them invites are copyable links |
-| `WEBSHARE_*` | — | leave unset. Shape only. The Webshare account is a vault credential (`webshare`) stored from the Sources step, never an environment variable — and it is optional: with no key every crawl goes out directly |
+| `OPENROUTER_API_KEY` | manual | **required** — every node is a call through it, so a run cannot start without it |
+| `DATAFORSEO_API_KEY` | manual | optional; without it keyword volume and CPC are missing from the report |
+| `WEBSHARE_API_KEY` | manual | optional; without it every crawl goes out directly and nothing degrades |
+| `GOOGLE_ADS_DEVELOPER_TOKEN` | manual | optional as a set: these five together, or none at all. Mint the OAuth three with `make google-ads-oauth` |
+| `GOOGLE_ADS_CLIENT_ID` | manual | ↑ |
+| `GOOGLE_ADS_CLIENT_SECRET` | manual | ↑ |
+| `GOOGLE_ADS_REFRESH_TOKEN` | manual | ↑ |
+| `GOOGLE_ADS_CUSTOMER_ID` | manual | ↑ the 10-digit account the research reads |
+| `GOOGLE_ADS_LOGIN_CUSTOMER_ID` | manual | only when that account is reached through a manager (MCC) account |
+| `WEBSHARE_COUNTRY` / `WEBSHARE_PROXY_*` | — | leave unset. Shape only; every one has a working default |
+
+**Every source key is set here and nowhere else.** The interface has no form to
+type one into: Settings → Connections switches a source on or off for a
+workspace and reads its credential from these variables. A source whose
+variables are unset cannot be connected, and the screen names the missing ones.
+Changing any of them needs a redeploy — settings are read once at startup.
 
 Generate both secrets with:
 
