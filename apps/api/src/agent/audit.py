@@ -63,6 +63,16 @@ class AuditAction(StrEnum):
     RUN_CANCELLED = "run.cancelled"
     RUN_RETRIED = "run.retried"
 
+    # Stage 02. Four rows, because PRD §17 PS4 requires acceptance, the start,
+    # the override and the freeze each to be separately answerable later.
+    RESEARCH_ACCEPTED = "research.accepted"
+    RESEARCH_ACCEPTANCE_SUPERSEDED = "research.acceptance_superseded"
+    #: Carries `override_reason`. Written *alongside* RESEARCH_ACCEPTED rather
+    #: than instead of it: "who overrode a no_go, and what did they write" is a
+    #: question with its own audience.
+    RESEARCH_NO_GO_OVERRIDDEN = "research.no_go_overridden"
+    PLAN_STARTED = "plan.started"
+
     USER_INVITED = "user.invited"
     #: A fresh link for somebody who never accepted. The old one stops working,
     #: so this is a credential event and not a duplicate of `USER_INVITED`.
@@ -118,6 +128,7 @@ class AuditTarget(StrEnum):
     APPROVAL = "approval"
     SCHEDULE = "schedule"
     BACKUP = "backup"
+    RESEARCH_ACCEPTANCE = "research_acceptance"
 
 
 def write_audit(

@@ -64,12 +64,13 @@ async def startup(ctx: dict[str, Any]) -> None:
     configure_logging(settings)
     # Import-time validation: the registry and the DAG both fail loudly here
     # rather than on the first job, so a bad node declaration cannot reach a run.
-    from agent.orchestrator.dag import get_dag
+    from agent.orchestrator.dag import all_dags
 
-    dag = get_dag()
-    # Same reason, one process further along: the worker is what actually runs a
-    # plan, so an unattributable planning constant has to stop it here rather
-    # than surface as a wrong number inside a finished plan (global law 15).
+    dags = all_dags()
+    # Same reason as the api's lifespan, one process further along: the worker is
+    # what actually runs a plan, so an unattributable planning constant has to
+    # stop it here rather than surface as a wrong number inside a finished plan
+    # (global law 15).
     constants = get_planning_constants()
 
     file_server = FileServer(settings)
@@ -79,7 +80,7 @@ async def startup(ctx: dict[str, Any]) -> None:
     log.info(
         "worker.startup",
         storage_dir=settings.storage_dir,
-        nodes=len(dag.node_ids),
+        nodes={stage.value: len(dag.node_ids) for stage, dag in dags.items()},
         planning_constants=constants.version,
         file_server_port=settings.file_server_port,
     )

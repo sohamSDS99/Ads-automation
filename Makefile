@@ -5,9 +5,9 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage \
-        browser browser-p6 browser-p7 browser-p8 browser-documents browser-connections browser-workspaces \
-        coverage-calc typecheck lint fmt contracts health clean
+        verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
+        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-documents browser-connections browser-workspaces \
+        typecheck lint fmt contracts health clean
 
 API := apps/api
 WEB := apps/web
@@ -153,6 +153,16 @@ browser-p8: ## Drive the P8 screens (schedules, storage, compare, banners) at 14
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p8.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s2p0: ## Drive the Stage 02 handshake screens (tabs, lock, accept, start) at 1440 and 390
+	@docker compose cp scripts/browser-check-s2p0.py worker:/tmp/browser-check-s2p0.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	# The worker image already carries playwright and its browsers. `--with
+	# playwright==1.49.0` (what the older targets do) installs a second copy
+	# that looks for a chromium build this image does not have.
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		python /tmp/browser-check-s2p0.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-documents: ## Upload a real PDF into step 1 and assert on what the screen says

@@ -26,7 +26,15 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import Export, ExportFormat, ExportStatus, Project, Report, Run
+from agent.db.models import (
+    Export,
+    ExportArtifactType,
+    ExportFormat,
+    ExportStatus,
+    Project,
+    Report,
+    Run,
+)
 from agent.db.session import get_sessionmaker
 from agent.export.contract import ResearchReport
 from agent.export.docx import render_docx
@@ -50,6 +58,8 @@ MEDIA_TYPES: dict[ExportFormat, str] = {
     ExportFormat.MD: "text/markdown; charset=utf-8",
     ExportFormat.JSON: "application/json; charset=utf-8",
     ExportFormat.CSV: "text/csv; charset=utf-8",
+    ExportFormat.EDITOR_CSV: "text/csv; charset=utf-8",
+    ExportFormat.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 EXTENSIONS: dict[ExportFormat, str] = {
@@ -58,7 +68,24 @@ EXTENSIONS: dict[ExportFormat, str] = {
     ExportFormat.MD: "md",
     ExportFormat.JSON: "json",
     ExportFormat.CSV: "csv",
+    ExportFormat.EDITOR_CSV: "csv",
+    ExportFormat.XLSX: "xlsx",
 }
+
+#: The formats a *research report* can be rendered as. Not every member of
+#: `ExportFormat`: `editor_csv` and `xlsx` are shapes of a campaign plan and
+#: their renderers arrive in S2-P5. Enforced at the route rather than left to
+#: fail in the worker, because a queued job that can never succeed is a worse
+#: answer than a 422 that names the five formats that work.
+RESEARCH_REPORT_FORMATS: frozenset[ExportFormat] = frozenset(
+    {
+        ExportFormat.PDF,
+        ExportFormat.DOCX,
+        ExportFormat.MD,
+        ExportFormat.JSON,
+        ExportFormat.CSV,
+    }
+)
 
 _UNSAFE = re.compile(r"[^a-z0-9]+")
 
@@ -196,7 +223,18 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
             log.info("export.already_ready", export_id=export_id)
             return {"export_id": export_id, "status": export.status.value, "path": export.path}
 
-        report = await session.get(Report, export.report_id)
+        if export.artifact_type is not ExportArtifactType.RESEARCH_REPORT:
+            # Plan exports are S2-P5. Saying so beats looking a plan id up in
+            # `report`, finding nothing, and reporting a missing report.
+            await _finish(
+                session,
+                export,
+                status=ExportStatus.FAILED,
+                error=f"No renderer for artifact type {export.artifact_type.value}.",
+            )
+            return {"export_id": export_id, "status": ExportStatus.FAILED.value}
+
+        report = await session.get(Report, export.artifact_id)
         if report is None:
             await _finish(
                 session,

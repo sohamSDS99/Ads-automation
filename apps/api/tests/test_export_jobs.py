@@ -17,6 +17,7 @@ from agent.db.models import ExportFormat
 from agent.export.jobs import (
     EXTENSIONS,
     MEDIA_TYPES,
+    RESEARCH_REPORT_FORMATS,
     filename_for,
     render,
     slugify,
@@ -34,8 +35,10 @@ def test_every_format_has_a_media_type_and_an_extension() -> None:
 
 
 def test_every_format_renders() -> None:
+    """Every format a *report* can be asked for. `editor_csv`/`xlsx` are plan
+    shapes with no report renderer, and the route refuses them (S2-P0)."""
     report = golden_report()
-    for fmt in ExportFormat:
+    for fmt in RESEARCH_REPORT_FORMATS:
         if fmt is ExportFormat.PDF:
             pytest.importorskip("weasyprint", reason="native libraries are not installed")
         rendered = render(fmt, report, project_name=PROJECT_NAME)

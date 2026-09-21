@@ -1,0 +1,85 @@
+{
+  "description": "One acceptance. Returned by both accept verbs.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "report_id": {
+      "format": "uuid",
+      "title": "Report Id",
+      "type": "string"
+    },
+    "accepted_by": {
+      "format": "uuid",
+      "title": "Accepted By",
+      "type": "string"
+    },
+    "accepted_by_name": {
+      "title": "Accepted By Name",
+      "type": "string"
+    },
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "launch_readiness_at_acceptance": {
+      "title": "Launch Readiness At Acceptance",
+      "type": "string"
+    },
+    "override_reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Override Reason"
+    },
+    "is_current": {
+      "title": "Is Current",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "run_id",
+    "report_id",
+    "accepted_by",
+    "accepted_by_name",
+    "accepted_at",
+    "launch_readiness_at_acceptance",
+    "is_current"
+  ],
+  "title": "ResearchAcceptanceResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -7,7 +7,7 @@ import types
 import pytest
 from pydantic import BaseModel
 
-from agent.db.models import ApprovalRequiredRole
+from agent.db.models import ApprovalRequiredRole, RunStage
 from agent.llm.router import TaskClass
 from agent.nodes.base import LLMNode, NodeSpec
 from agent.orchestrator.registry import (
@@ -47,7 +47,8 @@ def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     discovery.
     """
     registry = discover()
-    stages = {node_id.rsplit(".", 1)[0] for node_id in registry.ids}
+    research = registry.for_stage(RunStage.RESEARCH)
+    stages = {node_id.rsplit(".", 1)[0] for node_id in research.ids}
     modules = {
         name.removeprefix("stage_").replace("_", ".")
         for name in _node_module_names()
@@ -55,6 +56,9 @@ def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     }
     assert modules, "there are no stage modules to discover"
     assert stages == modules, "a stage module exists whose nodes never registered"
+    # Plan nodes live in `nodes/plan/`, not in a `stage_*` module, so they are
+    # checked by their own census rather than by the naming convention above.
+    assert registry.for_stage(RunStage.PLAN).ids == ("2.0.1", "2.0.2")
     assert len(set(registry.ids)) == len(registry.ids)
     assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
     assert registry.spec("1.1.4").depends_on == ("1.1.2",)

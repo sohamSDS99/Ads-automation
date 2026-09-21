@@ -1,0 +1,113 @@
+{
+  "$defs": {
+    "CampaignPlanStatus": {
+      "description": "The plan lifecycle (Stage 02 PRD \u00a77.2).\n\n`blocked` is a rejected gate, not a failure: the run ended, the plan exists,\nand a human said no to part of it. `superseded` is what an older version\nbecomes when a newer one is frozen.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_freeze",
+        "frozen",
+        "superseded"
+      ],
+      "title": "CampaignPlanStatus",
+      "type": "string"
+    },
+    "PlanVersion": {
+      "description": "One row of the plan history table (PRD \u00a715.3 A, *History*).",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "plan_run_id": {
+          "format": "uuid",
+          "title": "Plan Run Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CampaignPlanStatus"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_superseded": {
+          "title": "Source Superseded",
+          "type": "boolean"
+        },
+        "frozen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frozen At"
+        },
+        "frozen_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frozen By"
+        },
+        "frozen_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frozen By Name"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "plan_run_id",
+        "version",
+        "status",
+        "schema_version",
+        "source_superseded",
+        "created_at"
+      ],
+      "title": "PlanVersion",
+      "type": "object"
+    }
+  },
+  "description": "`GET /projects/{id}/plans` \u2014 newest first.",
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/PlanVersion"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "title": "PlanVersionList",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

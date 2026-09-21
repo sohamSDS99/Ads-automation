@@ -21,7 +21,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.calc import economics
 from agent.calc.derived import DerivedWriter
 from agent.calc.registry import CalcResult, inputs_hash
-from agent.db.models import Evidence, EvidenceSource, PlanCalc, Run, RunStatus, RunTrigger
+from agent.db.models import (
+    Evidence,
+    EvidenceSource,
+    PlanCalc,
+    Run,
+    RunStage,
+    RunStatus,
+    RunTrigger,
+)
 from agent.evidence.store import EvidenceStore
 from agent.planning.constants import load_planning_constants
 
@@ -40,19 +48,43 @@ SEGMENTS = pd.DataFrame(
 )
 
 
-@pytest.fixture
-async def plan_run(db: AsyncSession, project: Any) -> Run:
+async def _make_plan_run(db: AsyncSession, project: Any) -> Run:
+    """A real `stage='plan'` run, with the research run it consumes.
+
+    Not a bare `Run`: migration 0013's `CHECK ((stage = 'plan') = (source_run_id
+    IS NOT NULL))` makes "a plan run" and "a run with a source" one statement, so
+    a fixture that skipped the source would be inserting a research run and
+    calling it a plan.
+    """
+    research = Run(
+        workspace_id=project.workspace_id,
+        project_id=project.id,
+        triggered_by=None,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.SUCCEEDED,
+        stage=RunStage.RESEARCH,
+    )
+    db.add(research)
+    await db.flush()
     run = Run(
         workspace_id=project.workspace_id,
         project_id=project.id,
         triggered_by=None,
         trigger=RunTrigger.MANUAL,
         status=RunStatus.RUNNING,
+        stage=RunStage.PLAN,
+        source_run_id=research.id,
+        input_hash="0" * 64,
     )
     db.add(run)
     await db.commit()
     await db.refresh(run)
     return run
+
+
+@pytest.fixture
+async def plan_run(db: AsyncSession, project: Any) -> Run:
+    return await _make_plan_run(db, project)
 
 
 def writer(db: AsyncSession, project: Any, plan_run: Run) -> DerivedWriter:
@@ -66,6 +98,12 @@ def writer(db: AsyncSession, project: Any, plan_run: Run) -> DerivedWriter:
 
 async def count(db: AsyncSession, table: Any) -> int:
     return int((await db.execute(sa.select(sa.func.count()).select_from(table))).scalar_one())
+
+
+async def test_the_fixture_really_is_a_plan_run(plan_run: Run) -> None:
+    """Otherwise every test below would be about a research run."""
+    assert plan_run.stage == RunStage.PLAN
+    assert plan_run.source_run_id is not None
 
 
 async def test_a_calculation_writes_one_plan_calc_row_and_one_derived_evidence_row(
@@ -192,16 +230,7 @@ async def test_the_same_calculation_in_a_second_plan_run_gets_its_own_row(
     must not be shared is the `PlanCalc` row: it is how plan version 2 shows its
     own arithmetic even when nothing changed.
     """
-    second = Run(
-        workspace_id=project.workspace_id,
-        project_id=project.id,
-        triggered_by=None,
-        trigger=RunTrigger.MANUAL,
-        status=RunStatus.RUNNING,
-    )
-    db.add(second)
-    await db.commit()
-    await db.refresh(second)
+    second = await _make_plan_run(db, project)
 
     result = economics.max_cpa_v1(SEGMENTS, constants=CONSTANTS)
     first_id = await writer(db, project, plan_run).record(result, node_id="2.1.2")

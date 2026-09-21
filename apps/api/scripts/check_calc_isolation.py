@@ -23,10 +23,15 @@ this needs no database, no environment and no imports of the code it inspects.
    Without `min_length` an empty list would satisfy the type, which is a number
    with no calculation behind it passing schema validation.
 
-`nodes/plan/` does not exist until S2-P2. Checks 2 and 3 report zero files
-rather than passing silently, and `tests/test_calc_isolation.py` proves their
-detection against synthetic source so the guard is known to work before there
-is anything for it to catch.
+Checks 2 and 3 run against whatever `nodes/plan/` holds, and report how many
+modules they matched rather than passing silently — S2-P0 put two placeholder
+nodes there that S2-P2 deletes, and a guard that printed "passed" over an empty
+directory would read exactly like a guard that had checked something.
+
+Neither placeholder contains arithmetic or an output model, so the two checks
+have nothing to catch yet either way. `tests/test_calc_isolation.py` therefore
+proves every rule against synthetic source — one module that violates it, one
+that does not — so the guard is known to work before S2-P2's real nodes arrive.
 
 Run: `uv run python scripts/check_calc_isolation.py`
 """

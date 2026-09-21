@@ -305,7 +305,7 @@
     },
     "Competitor": {
       "additionalProperties": true,
-      "description": "1.3.1 `competitor_set`.",
+      "description": "1.3.1 `competitor_set`.\n\n`threat` and `positioning` were reaching the payload through `extra=\"allow\"`\nand no renderer knew they existed, which is why the competitor table led\nwith youtube.com: overlap alone ranks a keyword vendor's organic-SERP\nneighbours, and on a term like \"safety data sheet\" those are Wikipedia, OSHA\nand YouTube. 1.3.1 had already judged them irrelevant. Declaring the field\nis what lets the table say so.",
       "properties": {
         "evidence_ids": {
           "items": {
@@ -351,6 +351,30 @@
           },
           "title": "Overlap Basis",
           "type": "array"
+        },
+        "threat": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threat"
+        },
+        "positioning": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Positioning"
         }
       },
       "required": [
@@ -494,6 +518,30 @@
           ],
           "default": null,
           "title": "Screenshot Path"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "theme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme"
         }
       },
       "required": [

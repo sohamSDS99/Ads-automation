@@ -22,6 +22,7 @@ from check_calc_isolation import (  # noqa: E402
     BANNED_IMPORTS,
     CALC_DIR,
     PURITY_EXEMPT,
+    SRC,
     check_calc_citations,
     check_calc_purity,
     check_plan_arithmetic,
@@ -74,8 +75,13 @@ def test_the_guard_exits_zero_on_the_real_tree() -> None:
     )
     assert completed.returncode == 0, completed.stderr
     assert "Calc isolation check passed" in completed.stdout
-    # The two checks with nothing to match say so rather than passing silently.
-    assert "nodes/plan/ does not exist yet" in completed.stdout
+    # Not "0 module(s)": S2-P0 put placeholder nodes in nodes/plan/, so checks 2
+    # and 3 are doing real work rather than passing over an empty directory. The
+    # count is asserted because a silent zero reads exactly like a real pass.
+    plan_modules = len(list((SRC / "agent" / "nodes" / "plan").glob("*.py"))) - 1
+    assert plan_modules > 0
+    assert f"{plan_modules} module(s) in nodes/plan/" in completed.stdout
+    assert "does not exist yet" not in completed.stdout
 
 
 # --- check 1: calc/ is pure -------------------------------------------------

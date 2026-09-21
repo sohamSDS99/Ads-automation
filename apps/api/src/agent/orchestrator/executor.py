@@ -55,6 +55,7 @@ from agent.db.models import (
     NodeRunStatus,
     Project,
     Run,
+    RunStage,
     RunStatus,
     Workspace,
 )
@@ -189,8 +190,14 @@ class RunExecutor:
         self.redis = redis
         self.settings = settings or get_settings()
         self.registry = registry or get_registry()
-        self.dag = dag or get_dag()
+        # Resolved per run in `execute()`, from `Run.stage`: one executor drives
+        # both pipelines and the graph is a property of the run, not of the
+        # process. An explicit `dag=` still wins, which is how tests pin one.
+        self._dag_override = dag
+        self.dag = dag or get_dag(RunStage.RESEARCH)
         self.store = RunStore(db)
+        # Re-bound to the run's stage in `execute()`; a plan run and a
+        # research run on one project hold different keys.
         self.lock = RunLock(redis)
         self.cancel = CancelFlag(redis)
         self._gateway = gateway
@@ -207,6 +214,9 @@ class RunExecutor:
             log.warning("run.missing", run_id=str(run_id))
             return ExecutionResult(run_id, RunStatus.FAILED, Decimal(0), 0, {"code": "not_found"})
         run, project = loaded
+        if self._dag_override is None:
+            self.dag = get_dag(run.stage)
+        self.lock = RunLock(self.redis, run.stage)
 
         if run.status in TERMINAL_STATUSES:
             # arq redelivered a job for a run that already ended. Doing nothing

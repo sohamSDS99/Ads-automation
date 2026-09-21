@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pytest
 
+from agent.db.models import RunStage
 from agent.nodes.stage_1_6 import ALL_RESEARCH_NODES
 from agent.orchestrator.dag import Dag, DagError, get_dag
 
@@ -56,7 +57,7 @@ EXTRA_EDGES: tuple[tuple[str, str], ...] = (("1.3.1", "1.3.3"),)
 
 def test_the_real_dag_matches_the_prd_edge_list() -> None:
     """PRD §10, the whole graph."""
-    dag = get_dag()
+    dag = get_dag(RunStage.RESEARCH)
     assert set(dag.node_ids) == {
         "1.1.1",
         "1.1.2",
@@ -100,7 +101,7 @@ def test_the_real_dag_matches_the_prd_edge_list() -> None:
 
 def test_selecting_the_last_node_pulls_in_the_whole_chain_behind_it() -> None:
     """A partial run is widened to something executable, never rejected."""
-    assert get_dag().closure(["1.4.5"]) == {
+    assert get_dag(RunStage.RESEARCH).closure(["1.4.5"]) == {
         "1.1.1",
         "1.1.2",
         "1.2.2",
@@ -114,7 +115,7 @@ def test_selecting_the_last_node_pulls_in_the_whole_chain_behind_it() -> None:
 
 
 def test_selecting_the_gate_pulls_in_the_node_it_reads() -> None:
-    assert get_dag().closure(["1.1.5"]) == {"1.1.1", "1.1.5"}
+    assert get_dag(RunStage.RESEARCH).closure(["1.1.5"]) == {"1.1.1", "1.1.5"}
 
 
 def test_independent_nodes_share_a_wave() -> None:

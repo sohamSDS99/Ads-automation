@@ -36,7 +36,7 @@ from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
-from agent.db.models import NodeRun, Run, RunMode, RunStatus, RunTrigger
+from agent.db.models import NodeRun, Run, RunMode, RunStage, RunStatus, RunTrigger
 from agent.db.repos import ProjectRepo, ReportRepo, RunRepo, UserRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
@@ -94,7 +94,9 @@ async def launch_run(
     if project is None:
         raise problems.not_found(f"No project {project_id}.")
 
-    dag = get_dag()
+    # Research only: a plan run is started from `POST /projects/{id}/plan/runs`,
+    # which has its own permission, its own lock and its own preconditions.
+    dag = get_dag(RunStage.RESEARCH)
     selection = _resolve_selection(dag, body)
 
     try:
@@ -136,7 +138,7 @@ async def launch_run(
 @router.get("/runs/{run_id}", response_model=RunResponse, summary="Run state")
 async def get_run(run_id: uuid.UUID, me: AnyMember, db: Db) -> RunResponse:
     run = await _load_run(db, run_id, me)
-    return await _run_response(db, run, dag=get_dag(), registry=get_registry())
+    return await _run_response(db, run, dag=get_dag(run.stage), registry=get_registry())
 
 
 @router.get(
@@ -318,16 +320,16 @@ async def cancel_run(run_id: uuid.UUID, me: RunOperator, request: Request, db: D
         # between a cancelled run and one that sits paused forever.
         await store.finish_run(run, status=RunStatus.CANCELLED, error={"code": "cancelled"})
         await store.record_skipped(
-            run_id=run.id, node_ids=list(_selected_ids(run, get_dag())), reason="cancelled"
+            run_id=run.id, node_ids=list(_selected_ids(run, get_dag(run.stage))), reason="cancelled"
         )
         # An open gate on a cancelled run is a question nobody can act on.
         await expire_pending(db, run.id)
-        await RunLock(redis).release(run.project_id, run.id)
+        await RunLock(redis, run.stage).release(run.project_id, run.id)
         await RunEventStream(redis, run.id).publish(
             EventType.RUN_COMPLETED, run_id=str(run.id), status=RunStatus.CANCELLED
         )
     await db.commit()
-    return await _run_response(db, run, dag=get_dag(), registry=get_registry())
+    return await _run_response(db, run, dag=get_dag(run.stage), registry=get_registry())
 
 
 @router.post(
@@ -347,7 +349,7 @@ async def retry_failed(run_id: uuid.UUID, me: RunOperator, request: Request, db:
     # conflict discovered after that would have erased the failure record of a
     # run this caller is not allowed to restart.
     redis = get_redis()
-    lock = RunLock(redis)
+    lock = RunLock(redis, run.stage)
     holder = await lock.acquire(
         run.project_id, LockHolder(run_id=run.id, user_id=me.user.id, user_name=me.user.name)
     )
@@ -386,7 +388,7 @@ async def retry_failed(run_id: uuid.UUID, me: RunOperator, request: Request, db:
     # Not unique: this run id has already been queued once, and arq would treat
     # a second enqueue under the same job id as a duplicate and drop it.
     await enqueue_run(run.id, unique=False)
-    return await _run_response(db, run, dag=get_dag(), registry=get_registry())
+    return await _run_response(db, run, dag=get_dag(run.stage), registry=get_registry())
 
 
 # ---------------------------------------------------------------------------

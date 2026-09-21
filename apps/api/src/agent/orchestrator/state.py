@@ -25,7 +25,7 @@ import structlog
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import NodeRun, NodeRunStatus, Project, Run, RunStatus
+from agent.db.models import NodeRun, NodeRunStatus, Project, Run, RunStage, RunStatus
 from agent.llm.ledger import RunLedger, quantize_money
 
 log = structlog.get_logger(__name__)
@@ -47,7 +47,17 @@ def utcnow() -> datetime:
     return datetime.now(UTC)
 
 
-def lock_key(project_id: uuid.UUID) -> str:
+def lock_key(project_id: uuid.UUID, stage: RunStage = RunStage.RESEARCH) -> str:
+    """Where one project's lock for one pipeline lives.
+
+    Two keys, not one, and deliberately so: a plan run and a research run are
+    different work on the same project and neither should keep the other
+    waiting (Stage 02 PRD §4.2 E4). The research key keeps its Stage 01
+    spelling because locks held in a live deployment must survive the deploy
+    that introduces this function.
+    """
+    if stage is RunStage.PLAN:
+        return f"project:{project_id}:plan_lock"
     return f"run:lock:project:{project_id}"
 
 
@@ -72,15 +82,22 @@ class LockHolder:
 
 
 class RunLock:
-    """One run per project at a time."""
+    """One run per project per pipeline at a time.
 
-    def __init__(self, redis: Redis) -> None:
+    `stage` picks the key. It is a constructor argument rather than a
+    per-method one because a single `RunLock` is never asked about both
+    pipelines: every caller has a `Run` in hand, or is launching one, and
+    already knows which it is.
+    """
+
+    def __init__(self, redis: Redis, stage: RunStage = RunStage.RESEARCH) -> None:
         self._redis = redis
+        self._stage = stage
 
     async def acquire(self, project_id: uuid.UUID, holder: LockHolder) -> LockHolder | None:
         """Take the lock, or return whoever already has it."""
         acquired = await self._redis.set(
-            lock_key(project_id),
+            lock_key(project_id, self._stage),
             json.dumps(holder.as_dict()),
             nx=True,
             ex=RUN_LOCK_TTL_SECONDS,
@@ -92,7 +109,7 @@ class RunLock:
             # It expired between the SET and the GET. One more try, then give up
             # and let the caller see a conflict rather than loop.
             acquired = await self._redis.set(
-                lock_key(project_id),
+                lock_key(project_id, self._stage),
                 json.dumps(holder.as_dict()),
                 nx=True,
                 ex=RUN_LOCK_TTL_SECONDS,
@@ -103,7 +120,7 @@ class RunLock:
         return current
 
     async def holder(self, project_id: uuid.UUID) -> LockHolder | None:
-        raw = await self._redis.get(lock_key(project_id))
+        raw = await self._redis.get(lock_key(project_id, self._stage))
         if not raw:
             return None
         try:
@@ -120,14 +137,14 @@ class RunLock:
         """Extend the TTL while a long run is still making progress."""
         current = await self.holder(project_id)
         if current is not None and current.run_id == run_id:
-            await self._redis.expire(lock_key(project_id), RUN_LOCK_TTL_SECONDS)
+            await self._redis.expire(lock_key(project_id, self._stage), RUN_LOCK_TTL_SECONDS)
 
     async def release(self, project_id: uuid.UUID, run_id: uuid.UUID) -> None:
         """Release only if this run still holds it — never another run's lock."""
         current = await self.holder(project_id)
         if current is None or current.run_id != run_id:
             return
-        await self._redis.delete(lock_key(project_id))
+        await self._redis.delete(lock_key(project_id, self._stage))
 
 
 class CancelFlag:

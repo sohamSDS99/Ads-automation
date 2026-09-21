@@ -3,6 +3,7 @@
 import { FileText, GitCompare, Info } from "lucide-react";
 import { useMemo, useState } from "react";
 
+import { AcceptResearch } from "@/components/plan/accept-research";
 import { ComparePanel } from "@/components/report/compare";
 import { ExportButton } from "@/components/report/export-button";
 import { ReadinessBadge } from "@/components/report/readiness-badge";
@@ -29,6 +30,7 @@ import { citedEvidenceIds } from "@/lib/api/reports";
 import { useCitations } from "@/lib/citations";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, useReport, useRun, useRunDiff } from "@/lib/queries";
+import { Can } from "@/lib/session";
 
 /**
  * The report viewer (PRD §13.4 C).
@@ -111,7 +113,17 @@ export function ReportViewer({
             <span className="font-mono text-xs">{payload.schema_version}</span>
           </p>
         </div>
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          {/* Stage 02's first manual step (Stage 02 PRD §4.1). It lives on the
+              report and not on the plan tab because accepting is an act of
+              having *read this*, and the report is where that happens. */}
+          <Can permission="approval_decide">
+            <AcceptResearch
+              projectId={projectId}
+              runId={runId}
+              readiness={payload.launch_readiness}
+            />
+          </Can>
           {canCompare ? (
             <Button
               variant="secondary"
