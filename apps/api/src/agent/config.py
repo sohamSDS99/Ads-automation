@@ -181,6 +181,23 @@ class Settings(BaseSettings):
     # --- budget -------------------------------------------------------------
     max_run_cost_usd: Decimal = Decimal("15.00")
 
+    # --- stage 02: the handshake (Stage 02 PRD §4.2, §4.3) ------------------
+    #: Which `Report.schema_version` values Stage 02 knows how to read. Version
+    #: skew is caught at trigger time and not mid-run (§4.3 rule 5), so this is
+    #: read by `/plan/eligibility` and by `build_plan_input`, and by nothing
+    #: that runs after a token has been spent.
+    plan_supported_research_schemas: frozenset[str] = frozenset({"1.0"})
+    #: Past this, acceptance age is a *warning* on the Start button: the plan
+    #: is still startable and the forecast behind it is getting old.
+    plan_source_max_age_days: int = 30
+    #: Past this it is a blocker, and only an `admin` override gets past it.
+    #: A 90-day-old demand curve is not evidence, it is a memory.
+    plan_source_hard_age_days: int = 90
+    #: The per-plan-run ceiling, separate from `max_run_cost_usd`: a plan run
+    #: is a different shape of work from a research run and PRD §17 PF4 prices
+    #: it separately.
+    max_plan_cost_usd: Decimal = Decimal("8.00")
+
     # --- source keys supplied by the deployment ----------------------------
     # Every secret the product uses, and the only place any of them lives. The
     # interface never accepts a key and has nowhere to put one: what a
