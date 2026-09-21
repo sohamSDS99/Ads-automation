@@ -336,6 +336,40 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PLATFORM_ADMIN,
         {"status": "disabled"},
     ),
+    # Stage 02, S2-P0. Accepting research reuses APPROVAL_DECIDE — it is an
+    # approval-class act, so the people who decided the research gates are the
+    # people who sign off that the report is fit to plan from — while starting
+    # a plan run is PLAN_EXECUTE, which `approver` does not hold and `operator`
+    # does. That asymmetry is the whole reason the two are separate rows.
+    (
+        "POST",
+        "/runs/{research_run_id}/accept",
+        "/runs/{run}/accept",
+        Permission.APPROVAL_DECIDE,
+        {},
+    ),
+    (
+        "DELETE",
+        "/runs/{research_run_id}/accept",
+        "/runs/{run}/accept",
+        Permission.APPROVAL_DECIDE,
+        None,
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/plan/eligibility",
+        "/projects/{project}/plan/eligibility",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/plan/runs",
+        "/projects/{project}/plan/runs",
+        Permission.PLAN_EXECUTE,
+        None,
+    ),
+    ("GET", "/projects/{project_id}/plans", "/projects/{project}/plans", Permission.READ, None),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

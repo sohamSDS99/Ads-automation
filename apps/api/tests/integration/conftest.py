@@ -39,6 +39,9 @@ REAL_REDIS_URL = os.environ.get("REDIS_URL", "")
 
 TABLES = (
     "audit_log",
+    "plan_calc",
+    "campaign_plan",
+    "research_acceptance",
     "export",
     "report",
     "approval",

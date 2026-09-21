@@ -611,7 +611,22 @@ async def _accept(
     readiness: str,
     ip: str | None,
 ) -> ResearchAcceptance:
-    """Supersede whatever was current, then make this one current. In that order."""
+    """Move "current" from one row to another without ever holding two.
+
+    Three statements, and the order is forced by two constraints that pull in
+    opposite directions:
+
+    * the partial unique index on `(project_id) WHERE superseded_by IS NULL`
+      is checked at the end of every statement, not at commit, so the old row
+      must stop being current *before* the new one starts;
+    * `superseded_by` is a foreign key, also checked per statement, so the old
+      row cannot point at the new one until the new one exists.
+
+    So: withdraw the old row onto itself, insert or revive the new one, then
+    point the old row at its replacement. Each step is valid on its own, and
+    the two-statement version that looks obviously correct is the one that
+    raises.
+    """
     previous = await _current_acceptance(db, me.workspace_id, run.project_id)
     existing = (
         await db.execute(sa.select(ResearchAcceptance).where(ResearchAcceptance.run_id == run.id))
@@ -624,25 +639,36 @@ async def _accept(
         existing.override_reason = override_reason
         return existing
 
-    acceptance = existing or ResearchAcceptance(
-        workspace_id=me.workspace_id,
-        project_id=run.project_id,
-        run_id=run.id,
-        report_id=report.id,
-        accepted_by=me.user.id,
-        accepted_at=_utcnow(),
-        launch_readiness_at_acceptance=readiness,
-    )
+    if previous is not None:
+        # Step 1 — nothing is current. Self-reference is this column's
+        # "withdrawn"; it becomes "replaced by" in step 3.
+        previous.superseded_by = previous.id
+        await db.flush()
+
+    if existing is not None:
+        # Re-accepting a run whose acceptance had been withdrawn or superseded.
+        acceptance = existing
+        acceptance.superseded_by = None
+        acceptance.accepted_by = me.user.id
+        acceptance.accepted_at = _utcnow()
+        acceptance.launch_readiness_at_acceptance = readiness
+    else:
+        acceptance = ResearchAcceptance(
+            workspace_id=me.workspace_id,
+            project_id=run.project_id,
+            run_id=run.id,
+            report_id=report.id,
+            accepted_by=me.user.id,
+            accepted_at=_utcnow(),
+            launch_readiness_at_acceptance=readiness,
+        )
+        db.add(acceptance)
     acceptance.note = note
     acceptance.override_reason = override_reason
-    if existing is None:
-        db.add(acceptance)
-    await db.flush()  # the new row needs an id before `previous` can point at it
+    await db.flush()  # step 2 — exactly one row is current again
 
     if previous is not None:
-        previous.superseded_by = acceptance.id
-        # Flushed on its own so the partial unique index sees one current row
-        # at the end of each statement, which is when it is checked.
+        previous.superseded_by = acceptance.id  # step 3 — say what replaced it
         await db.flush()
         write_audit(
             db,
@@ -658,13 +684,6 @@ async def _accept(
             ),
             ip=ip,
         )
-
-    if existing is not None:
-        # Re-accepting a run whose acceptance had been withdrawn or superseded.
-        acceptance.superseded_by = None
-        acceptance.accepted_by = me.user.id
-        acceptance.accepted_at = _utcnow()
-        acceptance.launch_readiness_at_acceptance = readiness
 
     write_audit(
         db,
