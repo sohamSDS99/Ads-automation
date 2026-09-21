@@ -5,7 +5,7 @@ from __future__ import annotations
 import types
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from agent.db.models import ApprovalRequiredRole, RunStage
 from agent.llm.router import TaskClass
@@ -58,7 +58,7 @@ def test_discovery_finds_the_nodes_that_exist_without_being_told() -> None:
     assert stages == modules, "a stage module exists whose nodes never registered"
     # Plan nodes live in `nodes/plan/`, not in a `stage_*` module, so they are
     # checked by their own census rather than by the naming convention above.
-    assert registry.for_stage(RunStage.PLAN).ids == ("2.0.1", "2.0.2")
+    assert registry.for_stage(RunStage.PLAN).ids == ("2.1.1", "2.1.2", "2.1.3", "2.1.4")
     assert len(set(registry.ids)) == len(registry.ids)
     assert registry.ids == tuple(sorted(registry.ids, key=_sort_key))
     assert registry.spec("1.1.4").depends_on == ("1.1.2",)
@@ -94,15 +94,91 @@ def test_a_gate_node_registers_now_that_approvals_exist() -> None:
 
 
 def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
-    """PRD §10 marks three gates, and all three are now registered.
+    """Three research gates from PRD §10, plus Stage 02's G1 and G2.
 
     The census is deliberate here rather than derived: a node quietly gaining
     `gate=True` would stop runs dead, and a node quietly losing it would skip a
     human. Both should fail this test and be argued in the pull request.
+
+    G3 (2.2.4 budget) and G4 (2.3.1 channel slate) join it in S2-P3 and S2-P4.
+    Stage 02 law 16 is "four gates, no more", so this list reaching six plan
+    entries is a bug and this test is where it shows up.
     """
     gates = [item for item in discover().specs() if item.gate]
-    assert [item.id for item in gates] == ["1.1.5", "1.3.4", "1.5.3"]
+    assert [item.id for item in gates] == ["1.1.5", "1.3.4", "1.5.3", "2.1.3", "2.1.4"]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
+
+
+def test_only_plan_gates_carry_a_gate_key() -> None:
+    """`Approval.gate_key` labels the four plan gates and nothing else.
+
+    Migration 0013 chose `R0` for everything written before it rather than
+    inventing R1..R3 for the research gates, and this is the assertion that
+    keeps the choice — a research gate that quietly acquired a key would
+    start writing a label nothing agreed on.
+    """
+    specs = discover().specs()
+    keyed = {item.id: item.gate_key for item in specs if item.gate_key}
+    assert keyed == {"2.1.3": "G1", "2.1.4": "G2"}
+    assert all(item.gate_key is None for item in specs if not item.gate)
+
+
+def test_two_nodes_cannot_claim_one_gate_key() -> None:
+    """Law 16's "four gates, no more", enforced where it is cheapest to see."""
+    with pytest.raises(RegistryError, match="claimed by both"):
+        NodeRegistry.of(
+            [
+                make_node(
+                    "2.9",
+                    gate=True,
+                    required_role="approver",
+                    run_stage=RunStage.PLAN,
+                    gate_key="G1",
+                ),
+                make_node(
+                    "2.8",
+                    gate=True,
+                    required_role="approver",
+                    run_stage=RunStage.PLAN,
+                    gate_key="G1",
+                ),
+            ]
+        )
+
+
+def test_the_same_gate_key_in_two_pipelines_is_fine() -> None:
+    """The key identifies a decision inside one pipeline, not across both."""
+    registry = NodeRegistry.of(
+        [
+            make_node("1.9", gate=True, required_role="approver", gate_key="G1"),
+            make_node(
+                "2.9", gate=True, required_role="approver", run_stage=RunStage.PLAN, gate_key="G1"
+            ),
+        ]
+    )
+    assert len(registry) == 2
+
+
+def test_a_plan_gate_without_a_key_is_refused() -> None:
+    with pytest.raises(ValidationError, match="declares no gate_key"):
+        make_node("2.9", gate=True, required_role="approver", run_stage=RunStage.PLAN)
+
+
+def test_a_gate_key_on_a_node_that_is_not_a_gate_is_refused() -> None:
+    with pytest.raises(ValidationError, match="is not a gate"):
+        make_node("2.9", run_stage=RunStage.PLAN, gate_key="G1")
+
+
+def test_a_node_cannot_permit_a_formula_that_does_not_exist() -> None:
+    """A typo in `NodeSpec.calc` is a misspelling, and says so at import."""
+    with pytest.raises(ValidationError, match="unregistered formula"):
+        make_node("2.9", run_stage=RunStage.PLAN, calc=("economics.max_cpa_v9",))
+
+
+def test_a_registered_formula_is_accepted() -> None:
+    assert make_node("2.9", run_stage=RunStage.PLAN, calc=("economics.max_cpa_v1",)).spec.calc == (
+        "economics.max_cpa_v1",
+    )
 
 
 def test_a_stage_that_is_not_the_id_prefix_is_refused() -> None:

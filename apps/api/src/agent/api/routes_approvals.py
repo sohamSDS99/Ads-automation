@@ -17,11 +17,12 @@ and nothing was queued.
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any
 
 import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
@@ -50,7 +51,7 @@ from agent.db.repos import ApprovalRepo, GateDecider, UserRepo
 from agent.db.session import get_session
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
-from agent.orchestrator.registry import get_registry
+from agent.orchestrator.registry import RegistryError, get_registry
 from agent.orchestrator.state import LockHolder, RunLock, RunStore
 from agent.queue import enqueue_run
 from agent.redis_client import get_redis
@@ -145,6 +146,10 @@ async def decide_approval(
     if run is None:  # pragma: no cover — FK is ON DELETE CASCADE
         raise problems.not_found(f"No run for approval {approval_id}.")
 
+    edited = body.edited_proposal if body.approved else None
+    if edited is not None:
+        _assert_resumable(approval.node_id, edited)
+
     try:
         decision = await gates.decide(
             db,
@@ -153,7 +158,7 @@ async def decide_approval(
             approved=body.approved,
             decided_by=me.user.id,
             note=body.note,
-            edited_proposal=body.edited_proposal if body.approved else None,
+            edited_proposal=edited,
         )
     except gates.ApprovalConflict as exc:
         await db.rollback()
@@ -356,6 +361,45 @@ async def reassign_approval(
 # ---------------------------------------------------------------------------
 
 
+def _assert_resumable(node_id: str, edited: dict[str, Any]) -> None:
+    """An edited proposal must still be a shape the DAG can consume (PRD §8.4).
+
+    On approval the branch resumes with `edited_proposal` if there is one, and
+    the nodes downstream read it as the gate node's output. An approver who
+    deletes a required field, or types a target where a list belongs, would
+    otherwise take the run down four nodes later with a `KeyError` naming
+    neither them nor the field — so the shape is re-validated here, the gate
+    stays `pending`, and the 422 says which field.
+
+    A node the registry does not know is not an error here: research runs
+    predate this check, and a gate whose node has since been renamed should
+    still be decidable. The edit is then passed through unvalidated, which is
+    what happened before this function existed.
+    """
+    try:
+        output_model = get_registry().spec(node_id).output_model
+    except RegistryError:
+        log.warning("approval.edit_unvalidated", node_id=node_id, reason="node not registered")
+        return
+
+    try:
+        output_model.model_validate(edited)
+    except ValidationError as exc:
+        fields = [
+            ".".join(str(part) for part in error["loc"]) or "(root)" for error in exc.errors()
+        ]
+        raise problems.unprocessable(
+            f"This edit is not a shape node {node_id} can hand on: "
+            + "; ".join(
+                f"{field} — {error['msg']}"
+                for field, error in zip(fields, exc.errors(), strict=True)
+            ),
+            title="Edited proposal is invalid",
+            node_id=node_id,
+            fields=fields,
+        ) from exc
+
+
 def _assert_may_decide(approval: Approval, me: Principal) -> None:
     """PRD §6.1 Authorization 3, both halves."""
     if not gates.may_decide(me.role, approval.required_role):
@@ -449,6 +493,7 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
                 project_id=run.project_id if run else uuid.UUID(int=0),
                 node_id=row.node_id,
                 node_name=spec.name if spec else row.node_id,
+                gate_key=row.gate_key,
                 status=row.status,
                 required_role=row.required_role,
                 assignee_id=row.assignee_id,

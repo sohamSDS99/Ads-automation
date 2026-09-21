@@ -1,11 +1,20 @@
 """The planning DAG (Stage 02 PRD §11).
 
-Empty of real nodes in S2-P0. What lives here is the two-node placeholder the
-handshake needs: a plan run has to be startable, executable and observable
-over SSE before there is anything worth planning, or the handshake could only
-be tested against a mock of the thing it hands off to.
+Twenty nodes when it is finished, across stages 2.1 to 2.6. S2-P2 builds the
+first four:
 
-S2-P2 replaces `handshake.py` with nodes 2.1.1–2.1.4 and the stages that
-follow. It is the only file in this package that S2-P2 deletes rather than
-extends.
+* `stage_2_1.py` — 2.1.1 `conversion_taxonomy`, 2.1.2 `unit_economics_ceiling`,
+  2.1.3 ⛳ `campaign_targets` (gate **G1**) and 2.1.4 ⛳ `lead_definition`
+  (gate **G2**).
+
+S2-P0's two placeholder nodes, `2.0.1` and `2.0.2`, lived here until this
+phase and are gone: they existed so that `stage='plan'` was something the
+executor could be proven to run before there was anything worth planning, and
+`stage_2_1.py` is what replaced them.
+
+Every module in this package is walked by `scripts/check_calc_isolation.py`,
+which fails the build on an arithmetic operator applied to a field and on any
+`*Output` model that declares a number without `calc_evidence_ids`. That is
+global law 14 made mechanical: a plan node selects and labels, `agent/calc/`
+computes.
 """

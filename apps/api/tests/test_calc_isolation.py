@@ -1,9 +1,10 @@
 """`scripts/check_calc_isolation.py` — PRD §17 PT4 and §9.1 items 2, 4 and 5.
 
-`nodes/plan/` does not exist until S2-P2, so two of the guard's three checks
-currently match nothing. A guard that has never caught anything is a guard
-nobody knows works, so every rule is exercised here against synthetic source:
-one module that violates it, one that does not.
+Every rule is exercised here against synthetic source, one module that
+violates it and one that does not, so a rule stays proven even when no
+shipped node happens to exercise it. S2-P2 added the fourth: a plan node
+reaches `agent/calc/` only through `ctx.plan.calc.run()`, never by importing
+a formula module.
 """
 
 from __future__ import annotations
@@ -21,11 +22,14 @@ from check_calc_isolation import (  # noqa: E402
     BANNED_AGENT_MODULES,
     BANNED_IMPORTS,
     CALC_DIR,
+    CALC_IMPORTS_ALLOWED,
+    PLAN_NODES_DIR,
     PURITY_EXEMPT,
     SRC,
     check_calc_citations,
     check_calc_purity,
     check_plan_arithmetic,
+    check_plan_calc_imports,
     main,
 )
 
@@ -42,6 +46,10 @@ def arithmetic(source: str) -> list[str]:
 
 def citations(source: str) -> list[str]:
     return check_calc_citations(FAKE, source)
+
+
+def calc_imports(source: str) -> list[str]:
+    return check_plan_calc_imports(FAKE, source)
 
 
 # --- the guard passes on what actually ships --------------------------------
@@ -334,3 +342,60 @@ def test_a_cycle_between_models_does_not_hang_the_walker() -> None:
 
 def test_main_returns_zero_on_the_real_tree() -> None:
     assert main() == 0
+
+
+# ---------------------------------------------------------------------------
+# 4. a plan node reaches calc/ only through the runner
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "import agent.calc",
+        "import agent.calc.economics",
+        "from agent.calc import economics",
+        "from agent.calc.economics import max_cpa_v1",
+        "from agent.calc.forecast import traffic_v1",
+        "from agent.calc.derived import DerivedWriter",
+    ],
+)
+def test_importing_a_formula_into_a_plan_node_is_caught(line: str) -> None:
+    """Each of these would let a node compute a figure with no `PlanCalc` row."""
+    found = calc_imports(f"{line}\n")
+    assert len(found) == 1
+    assert "ctx.plan.calc.run()" in found[0]
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "from agent.calc.registry import CalcError",
+        "from agent.calc.registry import FORMULAS, CalcResult",
+        "import agent.calc.registry",
+        "from agent.planning import crm",
+        "from agent.orchestrator.plan_calc import Calculation",
+    ],
+)
+def test_naming_a_formula_id_or_an_error_is_allowed(line: str) -> None:
+    """`registry` carries ids and exception types — names, not arithmetic."""
+    assert calc_imports(f"{line}\n") == []
+    assert "agent.calc.registry" in CALC_IMPORTS_ALLOWED
+
+
+def test_the_shipped_plan_nodes_go_through_the_runner() -> None:
+    """The real assertion: no module in `nodes/plan/` imports a formula.
+
+    Parameterised synthetic source proves the rule; this proves the rule is
+    being *applied* to the code that ships, which is the half a guard can
+    quietly stop doing when a directory is renamed.
+    """
+    modules = sorted(path for path in PLAN_NODES_DIR.glob("*.py") if path.name != "__init__.py")
+    assert modules, "nodes/plan/ holds no node modules — checks 2-4 would match nothing"
+    for path in modules:
+        assert calc_imports(path.read_text(encoding="utf-8")) == [], path.name
+
+
+def test_a_relative_calc_import_is_not_mistaken_for_an_absolute_one() -> None:
+    """`from . import x` inside nodes/plan is not an `agent.calc` import."""
+    assert calc_imports("from . import prompts\nfrom .. import gather\n") == []

@@ -58,6 +58,24 @@ log = structlog.get_logger(__name__)
 #: documented meaning for `assignee_id IS NULL`.
 GATE_ASSIGNEES = "gate_assignees"
 
+#: Where Stage 02 stores its four gate owners (Stage 02 PRD §5.3, §7.1):
+#: `project.settings["plan_approvers"] = {"G1": "<user id>", ...}`. Keyed by
+#: gate rather than by node id, because that is how the PRD and the settings
+#: screen talk about them — "who signs the budget", not "who decides 2.2.4" —
+#: and because a node id can change while the gate it carries does not.
+PLAN_APPROVERS = "plan_approvers"
+
+#: What a gate with no `gate_key` of its own is written as. It is the column's
+#: own server default, so passing it explicitly changes no row — it is passed
+#: anyway because reading `approval.gate_key` back after a flush that omitted
+#: the column is a post-insert fetch, and a lazy load inside async SQLAlchemy
+#: is a `MissingGreenlet` rather than a value.
+#:
+#: The three research gates keep it. Migration 0013 chose `R0` over inventing
+#: R1..R3 for history, and relabelling them is a Stage 01 decision that this
+#: phase has no reason to make.
+UNLABELLED_GATE = "R0"
+
 #: The optional per-gate SLA in hours, written by the same wizard step
 #: (`agent.gates.SETTINGS_SLA`). It is a *reminder* clock, never an expiry one:
 #: PRD §16 is explicit that there is no auto-approve, so passing the SLA emails
@@ -90,18 +108,36 @@ def utcnow() -> datetime:
 # ---------------------------------------------------------------------------
 
 
-def assignee_for(project: Project, node_id: str) -> uuid.UUID | None:
-    """The default approver this project configured for one gate, if any."""
-    mapping = (project.settings or {}).get(GATE_ASSIGNEES)
+def assignee_for(project: Project, node_id: str, gate_key: str | None = None) -> uuid.UUID | None:
+    """The default approver this project configured for one gate, if any.
+
+    Two settings, tried in that order. `plan_approvers[gate_key]` is Stage 02's
+    (§5.3: G1 and G4 to the marketing lead, G2 to sales, G3 to the budget
+    owner); `gate_assignees[node_id]` is Stage 01's, written by the setup
+    wizard. A plan gate reads both so that a project which named an approver
+    by node id before Stage 02 existed keeps that setting working, and so that
+    S2-P6's settings screen has one key to write rather than a per-node map to
+    keep in step with the DAG.
+    """
+    settings = project.settings or {}
+    if gate_key:
+        found = _configured(settings.get(PLAN_APPROVERS), gate_key, where=PLAN_APPROVERS)
+        if found is not None:
+            return found
+    return _configured(settings.get(GATE_ASSIGNEES), node_id, where=GATE_ASSIGNEES)
+
+
+def _configured(mapping: Any, key: str, *, where: str) -> uuid.UUID | None:
+    """One user id out of a free-form settings map, or None if it is not usable."""
     if not isinstance(mapping, dict):
         return None
-    raw = mapping.get(node_id)
+    raw = mapping.get(key)
     if not raw:
         return None
     try:
         return uuid.UUID(str(raw))
     except ValueError:
-        log.warning("approval.bad_assignee_setting", node_id=node_id, value=str(raw))
+        log.warning("approval.bad_assignee_setting", setting=where, key=key, value=str(raw))
         return None
 
 
@@ -113,6 +149,7 @@ async def open_gate(
     node_id: str,
     required_role: ApprovalRequiredRole,
     proposal: dict[str, Any],
+    gate_key: str | None = None,
 ) -> Approval:
     """Create the pending approval for a gate that has just produced its proposal.
 
@@ -124,7 +161,7 @@ async def open_gate(
     if existing is not None:
         return existing
 
-    assignee_id = await _valid_assignee(db, project, node_id, required_role)
+    assignee_id = await _valid_assignee(db, project, node_id, required_role, gate_key)
     approval = Approval(
         run_id=run.id,
         node_id=node_id,
@@ -133,6 +170,7 @@ async def open_gate(
         assignee_id=assignee_id,
         proposal=proposal,
         due_at=due_at_for(project, node_id),
+        gate_key=gate_key or UNLABELLED_GATE,
     )
     db.add(approval)
     await db.flush()
@@ -141,6 +179,7 @@ async def open_gate(
         run_id=str(run.id),
         node_id=node_id,
         approval_id=str(approval.id),
+        gate_key=approval.gate_key,
         required_role=required_role.value,
         assignee_id=str(assignee_id) if assignee_id else None,
     )
@@ -183,6 +222,7 @@ async def _valid_assignee(
     project: Project,
     node_id: str,
     required_role: ApprovalRequiredRole,
+    gate_key: str | None = None,
 ) -> uuid.UUID | None:
     """The configured assignee, but only if they can still decide this gate.
 
@@ -191,7 +231,7 @@ async def _valid_assignee(
     the fallback happens when the gate opens, not when someone finally notices
     the card is addressed to a deactivated account.
     """
-    configured = assignee_for(project, node_id)
+    configured = assignee_for(project, node_id, gate_key)
     if configured is None:
         return None
     # Read through the membership: the question is whether this person can

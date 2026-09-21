@@ -45,6 +45,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.config import Settings, get_settings
+from agent.connectors import assert_read_only
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     Approval,
@@ -60,19 +61,46 @@ from agent.db.models import (
     Workspace,
 )
 from agent.db.session import get_sessionmaker
+from agent.evidence.store import EvidenceStore
 from agent.llm.gateway import LLMAuthError, LLMGateway, build_gateway
 from agent.llm.ledger import BudgetExceeded, RunLedger
 from agent.llm.router import ModelRouter
-from agent.nodes.base import Node, NodeSpec, NodeTelemetry, RunContext, collect_evidence_ids
+from agent.nodes.base import (
+    Node,
+    NodeContractError,
+    NodeSpec,
+    NodeTelemetry,
+    PlanContext,
+    RunContext,
+    collect_calc_evidence_ids,
+    collect_evidence_ids,
+    derived_ids,
+)
 from agent.notify.email import send_approval_request
 from agent.orchestrator import approvals
 from agent.orchestrator.dag import Dag, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.heartbeat import RunHeartbeat
+from agent.orchestrator.plan_calc import PlanResources
+from agent.orchestrator.plan_input import PlanInputError, build_plan_input_for_run, constants_for
 from agent.orchestrator.registry import NodeRegistry, get_registry
 from agent.orchestrator.state import TERMINAL_STATUSES, CancelFlag, RunLock, RunStore, utcnow
+from agent.planning.constants import ConstantsError
 
 log = structlog.get_logger(__name__)
+
+#: `NodeContractError` is re-exported rather than declared: it moved to
+#: `nodes/base.py` when `RunContext` gained a reason to raise it, and
+#: everything that imported it from here still can. One class, one message
+#: style, two import paths.
+__all__ = [
+    "ExecutionResult",
+    "NodeContractError",
+    "NodeFailed",
+    "NodeHalted",
+    "RunCancelled",
+    "RunExecutor",
+]
 
 #: Independent nodes inside one wave (PRD §7.2 item 2).
 WAVE_CONCURRENCY = 4
@@ -91,10 +119,6 @@ MAX_GATE_PASSES = 20
 
 class RunCancelled(RuntimeError):
     """The cancel flag was set (PRD §7.2 item 6)."""
-
-
-class NodeContractError(RuntimeError):
-    """Output cites evidence the node did not gather (PRD §18 law 1)."""
 
 
 class NodeHalted(RuntimeError):
@@ -200,6 +224,10 @@ class RunExecutor:
         # research run on one project hold different keys.
         self.lock = RunLock(redis)
         self.cancel = CancelFlag(redis)
+        # Resolved per run in `execute()`, like `dag` and `lock`. None on a
+        # research run; a plan run cannot start without it, so a plan node
+        # never sees the None.
+        self._plan: PlanResources | None = None
         self._gateway = gateway
         self._http_client = http_client
         self._backoff_base = backoff_base
@@ -243,6 +271,21 @@ class RunExecutor:
             return await self._abort(
                 run, events, ledger, RunStatus.FAILED, {"code": "routing", "message": str(exc)}
             )
+
+        if run.stage is RunStage.PLAN:
+            try:
+                self._plan = await self._plan_resources(run, project)
+            except (PlanInputError, ConstantsError) as exc:
+                # Law 13: Stage 02 reads Stage 01 only through `PlanInput`.
+                # Without one there is nothing to plan from, and every node
+                # would fail the same way three times over. Stop here, before
+                # a token is spent.
+                if client is not None and self._http_client is None:
+                    await client.aclose()
+                code = getattr(exc, "code", "planning_constants")
+                return await self._abort(
+                    run, events, ledger, RunStatus.FAILED, {"code": code, "message": str(exc)}
+                )
 
         crashed = await self.store.fail_stale_running(run.id)
         if crashed:
@@ -538,6 +581,7 @@ class RunExecutor:
                 outputs=outputs,
                 node_id=node_id,
                 scratch=scratch,
+                plan=self._plan_context(node.spec, scope),
                 _progress=_progress_sink(events),
             )
 
@@ -596,6 +640,14 @@ class RunExecutor:
         """One attempt: gather → (cache?) → reason → validate → checkpoint."""
         spec = node.spec
         run, project = scope.run, scope.project
+        if run.stage is RunStage.PLAN:
+            # Before `gather()`, so before any HTTP and before a token is
+            # spent: Stage 02 law 12 and PRD §17 PS1 say a plan run reaches
+            # no source that could write to an ad account. A `MutationForbidden`
+            # here fails the node rather than degrading it, because the wrong
+            # answer to "may this run mutate?" is not something to carry on past.
+            for connector in spec.connectors:
+                assert_read_only(connector, why=f"node {spec.id}")
         evidence: list[Evidence] = await node.gather(ctx)
         input_hash = _input_hash(
             spec_id=spec.id,
@@ -604,6 +656,12 @@ class RunExecutor:
             outputs=ctx.outputs,
             depends_on=spec.depends_on,
             model=router.chain(spec.task_class)[0],
+            # PRD §8.3: a plan run's cache key includes the constants it was
+            # parameterised with. Without it, changing a learning threshold
+            # would leave every deterministic node serving an output computed
+            # under the old one, and `calc_version` on the reused `PlanCalc`
+            # row would say so while the node output did not.
+            constants_version=ctx.plan.constants.version if ctx.plan else None,
         )
 
         # A gate is never served from cache. The cached value is the *proposal*,
@@ -645,6 +703,23 @@ class RunExecutor:
                 f"node {spec.id} cited evidence it did not gather: "
                 + ", ".join(sorted(str(item) for item in unknown))
             )
+
+        # PRD §9.1 item 4 — the Stage 02 half of the same check. `evidence_ids`
+        # is checked against everything gathered; `calc_evidence_ids` only
+        # against the `derived` rows, so a node cannot present a connector's
+        # observation as the calculation behind a figure.
+        computed = collect_calc_evidence_ids(payload)
+        if computed:
+            produced = derived_ids(evidence)
+            uncomputed = computed - produced
+            if uncomputed:
+                raise NodeContractError(
+                    f"node {spec.id} cited {len(uncomputed)} calc evidence id(s) that are not "
+                    f"`derived` rows it produced: "
+                    + ", ".join(sorted(str(item) for item in uncomputed))
+                    + ". Every number comes from an @formula in agent/calc/ (law 14); call it "
+                    "through ctx.plan.calc.run() and return the row from gather()."
+                )
 
         telemetry = ctx.telemetry
         if spec.gate:
@@ -741,6 +816,7 @@ class RunExecutor:
             node_id=spec.id,
             required_role=spec.required_role,
             proposal=payload,
+            gate_key=spec.gate_key,
         )
         write_audit(
             scope.db,
@@ -751,6 +827,7 @@ class RunExecutor:
             meta={
                 "run_id": str(run.id),
                 "node_id": spec.id,
+                "gate_key": approval.gate_key,
                 "required_role": approval.required_role.value,
                 "assignee_id": str(approval.assignee_id) if approval.assignee_id else None,
             },
@@ -883,6 +960,38 @@ class RunExecutor:
         )
         return gateway, client
 
+    async def _plan_resources(self, run: Run, project: Project) -> PlanResources:
+        """The `PlanInput` and constants this plan run executes against.
+
+        Both are resolved once, before the first wave. `PlanInput` because law
+        13 says a node never re-reads the `Report`; the constants because
+        every `PlanCalc` row in one run must claim the same `calc_version`,
+        and a per-node merge is how two nodes in the same plan end up
+        disagreeing about which thresholds they used.
+        """
+        plan_input = await build_plan_input_for_run(self.db, run, workspace_id=project.workspace_id)
+        constants = constants_for(project)
+        log.info(
+            "plan.resources",
+            run_id=str(run.id),
+            research_run_id=str(plan_input.research_run_id),
+            constants_version=constants.version,
+            degraded_sources=plan_input.degraded_sources,
+        )
+        return PlanResources(input=plan_input, constants=constants)
+
+    def _plan_context(self, spec: NodeSpec, scope: NodeScope) -> PlanContext | None:
+        """`ctx.plan` for one node, or None on a research run."""
+        if self._plan is None:
+            return None
+        return self._plan.context_for(
+            spec,
+            session=scope.db,
+            store=EvidenceStore(scope.db, scope.run.workspace_id),
+            project_id=scope.project.id,
+            plan_run_id=scope.run.id,
+        )
+
     async def _build_router(self, run: Run, project: Project) -> ModelRouter:
         workspace = await self.db.get(Workspace, run.workspace_id)
         return ModelRouter.resolve(
@@ -963,14 +1072,18 @@ def _input_hash(
     outputs: dict[str, dict[str, Any]],
     depends_on: tuple[str, ...],
     model: str,
+    constants_version: str | None = None,
 ) -> str:
     """The cache key of PRD §7.1: a node is pure w.r.t. its inputs and its version.
 
     The model id is part of it on purpose — the same inputs answered by a
     different model are a different output, and reusing across that boundary
-    would silently attribute one model's work to another.
+    would silently attribute one model's work to another. `constants_version`
+    is the Stage 02 addition (PRD §8.3) and is None on a research run, so
+    research cache keys are byte-identical to what they were before Stage 02
+    existed and no completed research node is invalidated by this change.
     """
-    material = {
+    material: dict[str, Any] = {
         "node": spec_id,
         "version": version,
         "model": model,
@@ -981,5 +1094,7 @@ def _input_hash(
         },
         "inputs": {dep: outputs.get(dep) for dep in depends_on},
     }
+    if constants_version is not None:
+        material["constants"] = constants_version
     encoded = json.dumps(material, sort_keys=True, default=str, separators=(",", ":"))
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

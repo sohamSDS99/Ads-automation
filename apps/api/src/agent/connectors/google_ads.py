@@ -26,12 +26,12 @@ import httpx
 import structlog
 
 from agent.connectors.base import (
-    BaseConnector,
     ConnectorAuthError,
     ConnectorError,
     ConnectorRateLimited,
     ConnectorStatus,
     EvidenceDraft,
+    ReadOnlyConnector,
     build_client,
     with_retries,
 )
@@ -259,8 +259,15 @@ def _dig(row: dict[str, Any], path: str) -> Any:
     return current
 
 
-class GoogleAdsConnector(BaseConnector):
-    """24 months of our own account, as seven kinds of evidence."""
+class GoogleAdsConnector(ReadOnlyConnector):
+    """24 months of our own account, as seven kinds of evidence.
+
+    `ReadOnlyConnector` is the marker Stage 02 asserts on (law 12, PRD §17
+    PS1): every operation in here is a GAQL `search` or an account listing, so
+    a plan run reaching Google Ads through this class cannot change anything.
+    Stage 04's mutating client is a different class, and the day it is written
+    it must not inherit this one.
+    """
 
     name = "google_ads"
     source = EvidenceSource.GOOGLE_ADS
