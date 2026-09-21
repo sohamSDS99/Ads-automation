@@ -282,6 +282,12 @@ async def remove_member(
     # the audit entry that outlives it is the only record of what was taken.
     email, role = target.email, target.membership.role.value
     await db.delete(target.membership)
+    # And the open invite with it. `uq_invite_open_email` is unique on
+    # `(workspace_id, email) WHERE accepted_at IS NULL`, so an invite left
+    # behind here burned the address permanently: every later invite to it
+    # answered 409 "Invite already open" against a membership that no longer
+    # existed, with no way to clear it from any screen.
+    await invitations.void_open_invite(db, workspace_id=me.workspace_id, email=email)
     write_audit(
         db,
         workspace_id=me.workspace_id,
@@ -302,3 +308,50 @@ async def remove_member(
         revoked=revoked,
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/users/{user_id}/invite",
+    response_model=InviteCreatedResponse,
+    summary="Reissue somebody's invite link",
+)
+async def reissue_invite(
+    me: UserAdmin,
+    user_id: uuid.UUID,
+    request: Request,
+    db: Db,
+    settings: SettingsDep,
+) -> InviteCreatedResponse:
+    """Mint a fresh link for a member who has not accepted yet.
+
+    The token is stored only as a hash, so the link shown when the invite was
+    created cannot be looked up again — which on a deployment with no mail
+    server, where the link *is* how invitations travel, meant a link the admin
+    forgot to copy stranded that person permanently. This is the other half of
+    that design.
+
+    The previous link stops working immediately.
+    """
+    target = await UserRepo(db, me.workspace_id).get(user_id)
+    if target is None:
+        raise problems.Problem(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No such user",
+            detail="That user is not a member of this workspace.",
+        )
+
+    try:
+        invitation = await invitations.reissue_invite(
+            db,
+            workspace=me.workspace,
+            member=target.user,
+            invited_by=me.user,
+            role=target.membership.role,
+            settings=settings,
+            ip=client_ip(request),
+            audit_meta=me.audit_meta(),
+        )
+    except invitations.InvitationError as exc:
+        raise problems.conflict(exc.detail, title=exc.title) from exc
+
+    return _invite_response(invitation)

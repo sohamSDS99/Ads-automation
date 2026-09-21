@@ -1,0 +1,16 @@
+{
+  "description": "Which workspace's invite to reissue.\n\nRequired, and not inferred: somebody can be pending in more than one\nworkspace at once, and guessing which link the administrator meant would\nsilently invalidate the other one.",
+  "properties": {
+    "workspace_id": {
+      "format": "uuid",
+      "title": "Workspace Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "workspace_id"
+  ],
+  "title": "ReissueInviteRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

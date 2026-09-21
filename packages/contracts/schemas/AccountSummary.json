@@ -95,6 +95,13 @@
       },
       "title": "Workspaces",
       "type": "array"
+    },
+    "pending": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceMembershipSummary"
+      },
+      "title": "Pending",
+      "type": "array"
     }
   },
   "required": [

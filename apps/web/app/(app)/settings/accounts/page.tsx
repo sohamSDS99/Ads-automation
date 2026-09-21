@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { NoAccess } from "@/components/auth/no-access";
 import { InviteResult } from "@/components/settings/invite-result";
+import { ReissueLinkButton } from "@/components/settings/reissue-link-button";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -19,7 +20,12 @@ import { Table, Td, Th, Tr } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api";
-import { createAccount, updateAccount, type AccountSummary } from "@/lib/api/platform";
+import {
+  createAccount,
+  reissueAccountInvite,
+  updateAccount,
+  type AccountSummary,
+} from "@/lib/api/platform";
 import type { InviteCreated } from "@/lib/api/users";
 import type { WorkspaceSummary } from "@/lib/api/workspace";
 import { relativeTime } from "@/lib/format";
@@ -177,23 +183,37 @@ function AccountRow({
           unbounded list of chips pushed the actions column off the right edge
           of the card at 1440 and a cap on the `<td>` changed nothing. */}
       <Td>
-        {account.workspaces.length === 0 ? (
-          <span className="text-xs text-fg-subtle">
-            {account.is_superadmin ? "Every workspace" : "None — cannot sign in anywhere"}
-          </span>
-        ) : (
-          <ul className="flex max-w-sm flex-wrap gap-1.5">
-            {account.workspaces.map((workspace) => (
-              <li
-                key={workspace.id}
-                className="rounded-full border px-2 py-0.5 text-xs text-fg-muted"
-              >
-                {workspace.name}
-                <span className="text-fg-subtle"> · {ROLE_LABEL[workspace.role]}</span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* 16rem, not 24rem: the actions column gained a third control
+            ("Get link") and the table went 17px past its card. The chips wrap
+            onto another line happily; the buttons had nowhere to go. */}
+        <ul className="flex max-w-64 flex-wrap gap-1.5">
+          {account.workspaces.map((workspace) => (
+            <li
+              key={workspace.id}
+              className="rounded-full border px-2 py-0.5 text-xs text-fg-muted"
+            >
+              {workspace.name}
+              <span className="text-fg-subtle"> · {ROLE_LABEL[workspace.role]}</span>
+            </li>
+          ))}
+          {/* Dashed, because an unaccepted invite is not access. Naming the
+              workspace is the point: the row used to say "invited" and leave
+              you to guess invited to what. */}
+          {account.pending.map((workspace) => (
+            <li
+              key={workspace.id}
+              className="rounded-full border border-dashed px-2 py-0.5 text-xs text-fg-subtle"
+            >
+              {workspace.name}
+              <span> · invited as {ROLE_LABEL[workspace.role].toLowerCase()}</span>
+            </li>
+          ))}
+          {account.workspaces.length === 0 && account.pending.length === 0 ? (
+            <li className="text-xs text-fg-subtle">
+              {account.is_superadmin ? "Every workspace" : "None — cannot sign in anywhere"}
+            </li>
+          ) : null}
+        </ul>
       </Td>
       <Td className="whitespace-nowrap text-fg-muted">
         {account.last_login_at ? relativeTime(account.last_login_at) : "Never"}
@@ -203,6 +223,16 @@ function AccountRow({
             flex row sizes to max-content and never wraps, so the wrap has to
             be given something to wrap against. */}
         <div className="ml-auto flex w-44 flex-wrap items-center justify-end gap-1.5">
+          {/* One pending invite is the ordinary case, so its workspace is
+              implied; several would need choosing, and this hands back the
+              first rather than guessing — so it is only offered for one. */}
+          {account.pending.length === 1 ? (
+            <ReissueLinkButton
+              name={account.name}
+              showWorkspace
+              reissue={() => reissueAccountInvite(account.id, account.pending[0]!.id)}
+            />
+          ) : null}
           <Tooltip content={lockReason} wrapDisabled={Boolean(lockReason)}>
             <Button
               size="sm"

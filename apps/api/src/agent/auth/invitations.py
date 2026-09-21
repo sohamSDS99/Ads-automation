@@ -24,6 +24,7 @@ all of it:
 
 from __future__ import annotations
 
+import uuid
 from dataclasses import dataclass
 
 import structlog
@@ -214,5 +215,130 @@ async def invite_member(
         role=role,
         link=link,
         had_account=had_account,
+        email_delivered=delivery.delivered,
+    )
+
+
+async def void_open_invite(
+    db: AsyncSession, *, workspace_id: uuid.UUID, email: str
+) -> Invite | None:
+    """Delete the open invite for this address in this workspace, if there is one.
+
+    Deleted rather than flagged, and that is the security posture rather than
+    laziness: the row's only content is the SHA-256 of a live credential, and
+    a superseded credential's hash has no reason to stay in the database.
+    What happened is in `audit_log`, which is where history belongs.
+
+    It also has to be a delete because of `uq_invite_open_email` — unique on
+    `(workspace_id, email) WHERE accepted_at IS NULL`. Leaving the row behind
+    is what made removing a pending person burn their address permanently:
+    every later invite to it answered 409 "Invite already open" against an
+    invite whose membership no longer existed.
+    """
+    invite = await InviteRepo(db, workspace_id).open_for_email(email)
+    if invite is not None:
+        await db.delete(invite)
+        await db.flush()
+    return invite
+
+
+async def reissue_invite(
+    db: AsyncSession,
+    *,
+    workspace: Workspace,
+    member: User,
+    invited_by: User,
+    role: UserRole,
+    settings: Settings,
+    ip: str | None = None,
+    audit_meta: dict[str, object] | None = None,
+) -> Invitation:
+    """Mint a fresh link for somebody who has not accepted yet. Commits.
+
+    The reason this exists is that the token is stored only as a hash, so a
+    lost link cannot be looked up — `agent.auth.invites` says exactly that and
+    then nothing implemented the other half. When the link *is* the delivery
+    mechanism, as it is on an internal tool with no mail server, a link the
+    admin failed to copy left the person stranded in `invited` forever with no
+    way forward and no way back.
+
+    The previous link stops working the moment this returns. That is the point
+    of a single-use token and it is stated on the screen: two live links to one
+    account is one more than anybody intended.
+    """
+    if workspace.is_archived:
+        raise InvitationError(
+            f"{workspace.name} is archived. Restore it before inviting anyone into it.",
+            title="Workspace archived",
+        )
+
+    membership = await workspaces.membership_for(db, workspace_id=workspace.id, user_id=member.id)
+    if membership is None:
+        raise InvitationError(
+            f"{member.email} is not a member of {workspace.name}.", title="Not a member"
+        )
+    if membership.status is not UserStatus.INVITED:
+        raise InvitationError(
+            f"{member.email} has already accepted. There is no link to reissue — "
+            "they sign in with the password they set.",
+            title="Already accepted",
+        )
+
+    superseded = await void_open_invite(db, workspace_id=workspace.id, email=member.email)
+
+    token = invites.new_token()
+    db.add(
+        invites.build(
+            workspace_id=workspace.id,
+            email=member.email,
+            role=role,
+            invited_by=invited_by.id,
+            token=token,
+        )
+    )
+    await db.flush()
+
+    invite = await InviteRepo(db, workspace.id).open_for_email(member.email)
+    if invite is None:  # pragma: no cover — just flushed
+        raise InvitationError("The link could not be reissued.", title="Reissue failed")
+
+    write_audit(
+        db,
+        workspace_id=workspace.id,
+        actor_id=invited_by.id,
+        action=AuditAction.INVITE_REISSUED,
+        target_type=AuditTarget.INVITE,
+        target_id=invite.id,
+        meta={
+            "email": member.email,
+            "role": role.value,
+            "superseded": str(superseded.id) if superseded is not None else None,
+            **(audit_meta or {}),
+        },
+        ip=ip,
+    )
+    await db.commit()
+
+    link = invite_link(settings, token)
+    delivery = await send_invite(
+        settings,
+        to=member.email,
+        link=link,
+        workspace_name=workspace.name,
+        inviter=invited_by.name,
+    )
+    log.info(
+        "invite.reissued",
+        email=member.email,
+        workspace_id=str(workspace.id),
+        superseded=str(superseded.id) if superseded is not None else None,
+    )
+    return Invitation(
+        invite=invite,
+        account=member,
+        workspace=workspace,
+        role=role,
+        link=link,
+        had_account=member.password_hash is not None,
         email_delivered=delivery.delivered,
     )
