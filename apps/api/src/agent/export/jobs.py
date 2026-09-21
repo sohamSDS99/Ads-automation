@@ -26,7 +26,15 @@ from typing import Any
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import Export, ExportFormat, ExportStatus, Project, Report, Run
+from agent.db.models import (
+    Export,
+    ExportArtifactType,
+    ExportFormat,
+    ExportStatus,
+    Project,
+    Report,
+    Run,
+)
 from agent.db.session import get_sessionmaker
 from agent.export.contract import ResearchReport
 from agent.export.docx import render_docx
@@ -196,7 +204,18 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
             log.info("export.already_ready", export_id=export_id)
             return {"export_id": export_id, "status": export.status.value, "path": export.path}
 
-        report = await session.get(Report, export.report_id)
+        if export.artifact_type is not ExportArtifactType.RESEARCH_REPORT:
+            # Plan exports are S2-P5. Saying so beats looking a plan id up in
+            # `report`, finding nothing, and reporting a missing report.
+            await _finish(
+                session,
+                export,
+                status=ExportStatus.FAILED,
+                error=f"No renderer for artifact type {export.artifact_type.value}.",
+            )
+            return {"export_id": export_id, "status": ExportStatus.FAILED.value}
+
+        report = await session.get(Report, export.artifact_id)
         if report is None:
             await _finish(
                 session,

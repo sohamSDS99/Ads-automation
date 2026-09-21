@@ -40,7 +40,15 @@ from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import EXPORT_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import Settings, get_settings
-from agent.db.models import Export, ExportFormat, ExportStatus, Project, Report, Run
+from agent.db.models import (
+    Export,
+    ExportArtifactType,
+    ExportFormat,
+    ExportStatus,
+    Project,
+    Report,
+    Run,
+)
 from agent.db.repos import ExportRepo, ProjectRepo, ReportRepo, RunRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
@@ -69,7 +77,7 @@ def _to_job(export: Export, run: Run, *, project_name: str | None) -> ExportJob:
     generated_at = export.created_at
     return ExportJob(
         id=export.id,
-        report_id=export.report_id,
+        report_id=export.artifact_id,
         run_id=run.id,
         format=export.format,
         status=export.status,
@@ -150,7 +158,12 @@ async def request_export(
     report, run = await _load_report(db, me, run_id)
     project = await ProjectRepo(db, me.workspace_id).get(run.project_id)
 
-    export = ExportRepo(db, me.workspace_id).add(report.id, export_format, requested_by=me.user.id)
+    export = ExportRepo(db, me.workspace_id).add(
+        report.id,
+        export_format,
+        artifact_type=ExportArtifactType.RESEARCH_REPORT,
+        requested_by=me.user.id,
+    )
     await db.flush()
 
     write_audit(

@@ -99,6 +99,19 @@ class RunMode(StrEnum):
     PARTIAL = "partial"
 
 
+class RunStage(StrEnum):
+    """Which pipeline a run executes (Stage 02 PRD §7.1).
+
+    One `run` table, two DAGs. A plan run consumes exactly one research run and
+    says so in `source_run_id`; the `CHECK` in migration 0013 makes the two
+    facts inseparable, so "a plan run" and "a run with a source" are the same
+    statement rather than two that can drift apart.
+    """
+
+    RESEARCH = "research"
+    PLAN = "plan"
+
+
 class NodeRunStatus(StrEnum):
     """Per-node lifecycle.
 
@@ -148,13 +161,50 @@ class ApprovalRequiredRole(StrEnum):
 
 
 class ExportFormat(StrEnum):
-    """The five deliverables of PRD §12. `csv` arrived in migration 0004."""
+    """The five deliverables of PRD §12. `csv` arrived in migration 0004.
+
+    `editor_csv` and `xlsx` are Stage 02's two (migration 0013): the Google Ads
+    Editor import sheets and the media plan as a workbook. Neither has a writer
+    until S2-P5 — the values exist here because the enum and the exporters ship
+    in different phases, and a format the database cannot spell is a worse
+    place to discover that than a format nothing requests yet.
+    """
 
     PDF = "pdf"
     DOCX = "docx"
     MD = "md"
     JSON = "json"
     CSV = "csv"
+    EDITOR_CSV = "editor_csv"
+    XLSX = "xlsx"
+
+
+class ExportArtifactType(StrEnum):
+    """What an `Export` row points at (Stage 02 PRD §7.1).
+
+    `Export.artifact_id` deliberately carries no foreign key: two tables are
+    exportable and Postgres cannot reference both from one column. This enum is
+    the discriminator that says which one to look in, and `ExportRepo` is the
+    only place that turns the pair back into a row.
+    """
+
+    RESEARCH_REPORT = "research_report"
+    CAMPAIGN_PLAN = "campaign_plan"
+
+
+class CampaignPlanStatus(StrEnum):
+    """The plan lifecycle (Stage 02 PRD §7.2).
+
+    `blocked` is a rejected gate, not a failure: the run ended, the plan exists,
+    and a human said no to part of it. `superseded` is what an older version
+    becomes when a newer one is frozen.
+    """
+
+    DRAFT = "draft"
+    BLOCKED = "blocked"
+    READY_TO_FREEZE = "ready_to_freeze"
+    FROZEN = "frozen"
+    SUPERSEDED = "superseded"
 
 
 class ExportStatus(StrEnum):
@@ -587,6 +637,18 @@ class Run(Base):
     __tablename__ = "run"
     __table_args__ = (
         sa.Index("ix_run_project_started", "project_id", sa.text("started_at DESC")),
+        sa.Index(
+            "ix_run_project_stage_started",
+            "project_id",
+            "stage",
+            sa.text("started_at DESC"),
+        ),
+        # A plan run is defined by the research it consumes, so the two facts
+        # are one constraint rather than two columns that can disagree.
+        sa.CheckConstraint(
+            "(stage = 'plan') = (source_run_id IS NOT NULL)",
+            name="ck_run_plan_has_source",
+        ),
         # The reaper's sweep has no project to narrow by, so the composite index
         # above cannot serve it (PRD §16, "Worker killed").
         sa.Index("ix_run_status", "status"),
@@ -622,6 +684,20 @@ class Run(Base):
     parent_run_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="SET NULL")
     )
+    stage: Mapped[RunStage] = mapped_column(
+        _enum(RunStage, "run_stage"), nullable=False, server_default=RunStage.RESEARCH.value
+    )
+    #: The research run this plan run consumes. NULL for research runs, and
+    #: never NULL for plan runs — see `ck_run_plan_has_source`. Distinct from
+    #: `parent_run_id`, which keeps its Stage 01 meaning: the previous run of
+    #: the *same* stage.
+    source_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE")
+    )
+    #: sha256 of the `PlanInput` this run was started from. Written at launch,
+    #: never recomputed: it is what lets a later run tell whether it is looking
+    #: at the same research it was planned against.
+    input_hash: Mapped[str | None] = mapped_column(sa.Text)
 
 
 class NodeRun(Base):
@@ -712,6 +788,7 @@ class Approval(Base):
     __tablename__ = "approval"
     __table_args__ = (
         sa.Index("ix_approval_status_role", "status", "required_role"),
+        sa.Index("ix_approval_gate_status", "gate_key", "status"),
         # One *open* question per gate per run (migration 0004). Partial, so a
         # gate that was rejected and re-run keeps its history alongside the new
         # pending row.
@@ -758,6 +835,13 @@ class Approval(Base):
     reminders_sent: Mapped[list[str]] = mapped_column(
         JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
     )
+    #: Which gate this is: 'G1'..'G4' for plan gates, 'R1'..'R3' for research.
+    #: Rows written before migration 0013 read 'R0' — not one of the three,
+    #: because labelling them would be an invention rather than a backfill.
+    gate_key: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="R0")
+    #: The last what-if payload shown to the approver on a budget gate. Stage
+    #: 02 S2-P3 writes it; nothing reads it before then.
+    recalc_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -792,9 +876,15 @@ class Export(Base):
     __tablename__ = "export"
 
     id: Mapped[uuid.UUID] = _pk()
-    report_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), sa.ForeignKey("report.id", ondelete="CASCADE"), nullable=False
+    artifact_type: Mapped[ExportArtifactType] = mapped_column(
+        _enum(ExportArtifactType, "export_artifact_type"),
+        nullable=False,
+        server_default=ExportArtifactType.RESEARCH_REPORT.value,
     )
+    #: The `report.id` or `campaign_plan.id` this export renders. No foreign
+    #: key: the target table is `artifact_type`, and Postgres cannot reference
+    #: two tables from one column. `ExportRepo` is the only resolver.
+    artifact_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False)
     format: Mapped[ExportFormat] = mapped_column(
         _enum(ExportFormat, "export_format"), nullable=False
     )
@@ -819,7 +909,7 @@ class Export(Base):
     )
 
     __table_args__ = (
-        sa.Index("ix_export_report_id", "report_id"),
+        sa.Index("ix_export_artifact", "artifact_type", "artifact_id"),
         sa.Index("ix_export_status", "status"),
     )
 
@@ -860,6 +950,190 @@ class Schedule(Base):
     next_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
 
 
+# ---------------------------------------------------------------------------
+# Stage 02 — the campaign plan (Stage 02 PRD §7.2)
+# ---------------------------------------------------------------------------
+
+
+class ResearchAcceptance(Base):
+    """A human read a finished research report and considers it fit to plan from.
+
+    This is not a fourth research gate. The three gates are already decided by
+    the time a report exists; acceptance is the separate, deliberate act that
+    Stage 02 keys off, and the reason nothing chains automatically from a
+    research run finishing (Stage 02 law 18).
+
+    A project accumulates acceptances over time and exactly one of them is
+    current — the one with `superseded_by IS NULL`, enforced by a partial
+    unique index rather than by application code, because "current" is a fact
+    about the table and two processes accepting at once must not both win.
+    """
+
+    __tablename__ = "research_acceptance"
+    __table_args__ = (
+        sa.Index(
+            "uq_research_acceptance_current",
+            "project_id",
+            unique=True,
+            postgresql_where=sa.text("superseded_by IS NULL"),
+        ),
+        sa.Index("ix_research_acceptance_project", "project_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    #: One acceptance per research run, ever. Re-accepting the same run is the
+    #: same statement twice, not a new fact.
+    run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    report_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("report.id", ondelete="CASCADE"), nullable=False
+    )
+    accepted_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    accepted_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    note: Mapped[str | None] = mapped_column(sa.Text)
+    #: The verdict at the moment of acceptance, copied rather than joined: a
+    #: re-run of research must not retroactively change what was accepted.
+    launch_readiness_at_acceptance: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: Non-null only when an admin accepted a `no_go` report. Printed on the
+    #: plan cover page and written to the audit log (Stage 02 PRD §18).
+    override_reason: Mapped[str | None] = mapped_column(sa.Text)
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("research_acceptance.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+    @property
+    def is_current(self) -> bool:
+        return self.superseded_by is None
+
+
+class CampaignPlan(Base):
+    """One version of a media plan. Frozen versions are immutable (Stage 02 law 17).
+
+    The immutability is a database trigger, not a code path: `payload`,
+    `markdown` and `version` cannot change once `status = 'frozen'`, whichever
+    process is doing the writing. Everything else on the row stays writable,
+    because a frozen plan whose source research was re-accepted still has to be
+    able to raise `source_superseded`.
+    """
+
+    __tablename__ = "campaign_plan"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "version", name="uq_campaign_plan_project_version"),
+        sa.Index("ix_campaign_plan_project_version", "project_id", sa.text("version DESC")),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    plan_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    #: RESTRICT, not CASCADE: the acceptance is the plan's provenance, and a
+    #: plan that cannot name what it was planned from is not auditable.
+    acceptance_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("research_acceptance.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: 1, 2, 3 … per project. Minted at freeze, unique with `project_id`.
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    status: Mapped[CampaignPlanStatus] = mapped_column(
+        _enum(CampaignPlanStatus, "campaign_plan_status"),
+        nullable=False,
+        server_default=CampaignPlanStatus.DRAFT.value,
+    )
+    payload: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    markdown: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="")
+    frozen_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    frozen_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL")
+    )
+    #: The four gate decisions the freeze sealed. Ids rather than a join,
+    #: because the freeze is a snapshot of what was decided at that moment.
+    frozen_approval_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    #: Set when a newer research acceptance lands. A frozen plan stays valid
+    #: and gains a banner; a draft cannot be frozen until it is re-run (§4.4).
+    source_superseded: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+    @property
+    def is_frozen(self) -> bool:
+        return self.status is CampaignPlanStatus.FROZEN
+
+
+class PlanCalc(Base):
+    """The audit trail behind one number in the plan (Stage 02 law 14).
+
+    Every figure a plan asserts comes from a registered `@formula` in `calc/`
+    and leaves one of these rows behind, so an approver can ask "where did
+    $47 come from" and get the formula, its inputs and the constants version
+    rather than a model's recollection.
+
+    The unique key is `(plan_run_id, formula_id, inputs_hash)`: recomputing the
+    same formula over the same inputs inside one run reuses the row instead of
+    writing a second answer to the same question.
+    """
+
+    __tablename__ = "plan_calc"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "plan_run_id", "formula_id", "inputs_hash", name="uq_plan_calc_run_formula_inputs"
+        ),
+        sa.Index("ix_plan_calc_run_node", "plan_run_id", "node_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    plan_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False
+    )
+    node_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: e.g. 'economics.max_cpa_v1'. The registry key, not a description.
+    formula_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: Constants-file version plus code version, so a number can be reproduced
+    #: against the thresholds that were current when it was computed.
+    calc_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    inputs_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    #: The `derived` Evidence row this calculation produced. Nullable so the
+    #: calculation survives evidence pruning; the number keeps its provenance
+    #: either way.
+    evidence_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("evidence.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
 #: Every table the migration must create, in dependency order.
 ALL_TABLES: tuple[str, ...] = (
     "workspace",
@@ -878,4 +1152,7 @@ ALL_TABLES: tuple[str, ...] = (
     "export",
     "schedule",
     "project_document",
+    "research_acceptance",
+    "campaign_plan",
+    "plan_calc",
 )

@@ -26,7 +26,9 @@ from agent.db.models import (
     ApprovalRequiredRole,
     ApprovalStatus,
     AuditLog,
+    CampaignPlan,
     Export,
+    ExportArtifactType,
     ExportFormat,
     Invite,
     Membership,
@@ -450,19 +452,48 @@ class ReportRepo:
 
 
 class ExportRepo:
-    """Export jobs, scoped through report → run, for the same reason as above."""
+    """Export jobs, scoped through whichever artifact they render.
+
+    `Export.artifact_id` has no foreign key — two tables are exportable and one
+    column cannot reference both (Stage 02 PRD §7.1) — so this repo is the only
+    place that turns `(artifact_type, artifact_id)` back into a row, and
+    therefore the only place that can answer "may this workspace see it".
+
+    Both branches are written out even though nothing creates a plan export
+    until S2-P5. A predicate that silently excludes a whole artifact type is
+    not a narrower scope, it is a row that will one day be invisible to the
+    workspace that owns it.
+    """
 
     def __init__(self, session: AsyncSession, workspace_id: uuid.UUID) -> None:
         self.session = session
         self.workspace_id = workspace_id
 
-    def _scoped(self) -> sa.Select[tuple[Export]]:
-        return (
-            sa.select(Export)
-            .join(Report, Report.id == Export.report_id)
+    def _in_workspace(self) -> sa.ColumnElement[bool]:
+        """`True` for exports of an artifact this workspace owns, of either kind."""
+        research = (
+            sa.select(sa.literal(1))
+            .select_from(Report)
             .join(Run, Run.id == Report.run_id)
-            .where(Run.workspace_id == self.workspace_id)
+            .where(Report.id == Export.artifact_id, Run.workspace_id == self.workspace_id)
+            .exists()
         )
+        plan = (
+            sa.select(sa.literal(1))
+            .select_from(CampaignPlan)
+            .where(
+                CampaignPlan.id == Export.artifact_id,
+                CampaignPlan.workspace_id == self.workspace_id,
+            )
+            .exists()
+        )
+        return sa.or_(
+            sa.and_(Export.artifact_type == ExportArtifactType.RESEARCH_REPORT, research),
+            sa.and_(Export.artifact_type == ExportArtifactType.CAMPAIGN_PLAN, plan),
+        )
+
+    def _scoped(self) -> sa.Select[tuple[Export]]:
+        return sa.select(Export).where(self._in_workspace())
 
     async def get(self, export_id: uuid.UUID) -> Export | None:
         result = await self.session.execute(self._scoped().where(Export.id == export_id))
@@ -471,24 +502,46 @@ class ExportRepo:
     async def for_report(self, report_id: uuid.UUID, *, limit: int = 50) -> list[Export]:
         result = await self.session.execute(
             self._scoped()
-            .where(Export.report_id == report_id)
+            .where(
+                Export.artifact_type == ExportArtifactType.RESEARCH_REPORT,
+                Export.artifact_id == report_id,
+            )
             .order_by(Export.created_at.desc(), Export.id.desc())
             .limit(limit)
         )
         return list(result.scalars().all())
 
     async def run_for(self, export_id: uuid.UUID) -> Run | None:
+        """The research run behind a report export. `None` for a plan export."""
         result = await self.session.execute(
             sa.select(Run)
             .join(Report, Report.run_id == Run.id)
-            .join(Export, Export.report_id == Report.id)
+            .join(
+                Export,
+                sa.and_(
+                    Export.artifact_id == Report.id,
+                    Export.artifact_type == ExportArtifactType.RESEARCH_REPORT,
+                ),
+            )
             .where(Export.id == export_id, Run.workspace_id == self.workspace_id)
         )
         return result.scalar_one_or_none()
 
-    def add(self, report_id: uuid.UUID, fmt: ExportFormat, *, requested_by: uuid.UUID) -> Export:
+    def add(
+        self,
+        artifact_id: uuid.UUID,
+        fmt: ExportFormat,
+        *,
+        artifact_type: ExportArtifactType,
+        requested_by: uuid.UUID,
+    ) -> Export:
         """Stage a queued export. The row exists before the file does (PRD §12)."""
-        export = Export(report_id=report_id, format=fmt, requested_by=requested_by)
+        export = Export(
+            artifact_type=artifact_type,
+            artifact_id=artifact_id,
+            format=fmt,
+            requested_by=requested_by,
+        )
         self.session.add(export)
         return export
 
