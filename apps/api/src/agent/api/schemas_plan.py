@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -135,3 +135,35 @@ class PlanVersionList(BaseModel):
     """`GET /projects/{id}/plans` — newest first."""
 
     items: list[PlanVersion] = Field(default_factory=list)
+
+
+class PlanCalcRow(BaseModel):
+    """One calculation behind one number in the plan (PRD §15.3 B, *Calc* tab).
+
+    This is the read side of Stage 02 law 14: the model never does arithmetic,
+    so every figure a node asserts has a registered `@formula` behind it and
+    leaves a `plan_calc` row. The console renders these so an approver can ask
+    "where did $47 come from" and get the formula, its inputs and the constants
+    version rather than a model's recollection.
+
+    `evidence_id` is nullable by design — evidence can be pruned, and the
+    calculation has to outlive it. A row with no evidence still reproduces.
+    """
+
+    id: uuid.UUID
+    node_id: str
+    #: The registry key, e.g. `economics.max_cpa_v1` — not a description.
+    formula_id: str
+    #: Constants-file version plus code version, so a number can be reproduced
+    #: against the thresholds current when it was computed.
+    calc_version: str
+    inputs: dict[str, Any]
+    result: dict[str, Any]
+    evidence_id: uuid.UUID | None = None
+    created_at: datetime
+
+
+class PlanCalcList(BaseModel):
+    """`GET /plans/{plan_run_id}/calcs` — oldest first, the order they computed in."""
+
+    items: list[PlanCalcRow] = Field(default_factory=list)

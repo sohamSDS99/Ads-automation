@@ -1,0 +1,62 @@
+{
+  "description": "One calculation behind one number in the plan (PRD \u00a715.3 B, *Calc* tab).\n\nThis is the read side of Stage 02 law 14: the model never does arithmetic,\nso every figure a node asserts has a registered `@formula` behind it and\nleaves a `plan_calc` row. The console renders these so an approver can ask\n\"where did $47 come from\" and get the formula, its inputs and the constants\nversion rather than a model's recollection.\n\n`evidence_id` is nullable by design \u2014 evidence can be pruned, and the\ncalculation has to outlive it. A row with no evidence still reproduces.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "node_id": {
+      "title": "Node Id",
+      "type": "string"
+    },
+    "formula_id": {
+      "title": "Formula Id",
+      "type": "string"
+    },
+    "calc_version": {
+      "title": "Calc Version",
+      "type": "string"
+    },
+    "inputs": {
+      "additionalProperties": true,
+      "title": "Inputs",
+      "type": "object"
+    },
+    "result": {
+      "additionalProperties": true,
+      "title": "Result",
+      "type": "object"
+    },
+    "evidence_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Id"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "node_id",
+    "formula_id",
+    "calc_version",
+    "inputs",
+    "result",
+    "created_at"
+  ],
+  "title": "PlanCalcRow",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

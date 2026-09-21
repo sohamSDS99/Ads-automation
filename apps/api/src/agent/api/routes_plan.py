@@ -34,6 +34,8 @@ from agent.api.schemas_plan import (
     AcceptedSource,
     AcceptResearchRequest,
     Blocker,
+    PlanCalcList,
+    PlanCalcRow,
     PlanEligibility,
     PlanRunAccepted,
     PlanVersion,
@@ -53,6 +55,7 @@ from agent.db.models import (
     CampaignPlan,
     CampaignPlanStatus,
     CredentialKind,
+    PlanCalc,
     Report,
     ResearchAcceptance,
     Run,
@@ -370,6 +373,73 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
                 frozen_at=row.frozen_at,
                 frozen_by=row.frozen_by,
                 frozen_by_name=names.get(row.frozen_by) if row.frozen_by else None,
+                created_at=row.created_at,
+            )
+            for row in rows
+        ]
+    )
+
+
+@router.get(
+    "/plans/{plan_run_id}/calcs",
+    response_model=PlanCalcList,
+    summary="The calculations behind a plan run's numbers",
+)
+async def list_plan_calcs(
+    plan_run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    node_id: str | None = None,
+) -> PlanCalcList:
+    """`GET /plans/{plan_run_id}/calcs?node_id=` — PRD §16.
+
+    The read side of law 14. `node_id` is the console's filter: the Calc tab
+    asks for one node at a time, and the Plan Viewer asks for the lot.
+
+    Scoped through the run rather than off `plan_calc` directly — the table has
+    no `workspace_id` of its own, so the run it belongs to is what decides who
+    may read it. A research run simply has no calc rows and answers `[]`.
+    """
+    run = await RunRepo(db, me.workspace_id).get(plan_run_id)
+    if run is None:
+        raise problems.not_found(f"No run {plan_run_id}.")
+
+    query = sa.select(PlanCalc).where(PlanCalc.plan_run_id == plan_run_id)
+    if node_id is not None:
+        query = query.where(PlanCalc.node_id == node_id)
+    # Oldest first: the order they were computed in is the order that reads as
+    # an argument, and a node's later figures are usually built on its earlier
+    # ones.
+    #
+    # `created_at` alone is not an order. It defaults to `now()`, which in
+    # Postgres is the *transaction* timestamp, so every row a node writes in one
+    # commit shares it and the sort is then whatever the heap felt like. The
+    # remaining three columns are the table's unique key, so this is total.
+    rows = list(
+        (
+            await db.execute(
+                query.order_by(
+                    PlanCalc.created_at,
+                    PlanCalc.node_id,
+                    PlanCalc.formula_id,
+                    PlanCalc.inputs_hash,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    return PlanCalcList(
+        items=[
+            PlanCalcRow(
+                id=row.id,
+                node_id=row.node_id,
+                formula_id=row.formula_id,
+                calc_version=row.calc_version,
+                inputs=row.inputs,
+                result=row.result,
+                evidence_id=row.evidence_id,
                 created_at=row.created_at,
             )
             for row in rows

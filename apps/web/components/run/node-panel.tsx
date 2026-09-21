@@ -4,6 +4,7 @@ import { Hourglass } from "lucide-react";
 import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { CalcPanel } from "@/components/run/calc-panel";
 import { NodeEvidence } from "@/components/run/node-evidence";
 import { NodeDot, stateOf } from "@/components/run/node-status";
 import { stageTitle } from "@/components/run/stages";
@@ -14,12 +15,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs } from "@/components/ui/tabs";
 import { ApiError } from "@/lib/api";
 import type { ApprovalItem } from "@/lib/api/approvals";
-import { nodeLabel, type NodeState } from "@/lib/api/runs";
+import { nodeLabel, type NodeState, type RunStage } from "@/lib/api/runs";
 import { absoluteTime, usd } from "@/lib/format";
 import { useNodeRun } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type TabId = "output" | "evidence" | "prompt" | "metrics";
+type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc";
 
 /**
  * Everything one node did (PRD §13.4 B, right panel).
@@ -35,6 +36,7 @@ export function NodePanel({
   node,
   approval,
   onDecided,
+  stage = "research",
   className,
 }: {
   runId: string;
@@ -42,6 +44,8 @@ export function NodePanel({
   node: NodeState | null;
   approval: ApprovalItem | null;
   onDecided: () => void;
+  /** A plan run gains the Calc tab; a research run has no arithmetic to show. */
+  stage?: RunStage;
   className?: string;
 }) {
   const [tab, setTab] = useState<TabId>("output");
@@ -97,6 +101,10 @@ export function NodePanel({
           },
           { id: "prompt", label: "Prompt" },
           { id: "metrics", label: "Metrics" },
+          // Stage 02 PRD §15.3 B: the fifth tab, and only on a plan run. A
+          // research node has no `plan_calc` rows, so offering it there would
+          // be a tab that is always empty.
+          ...(stage === "plan" ? [{ id: "calc", label: "Calc" }] : []),
         ]}
       />
 
@@ -136,6 +144,12 @@ export function NodePanel({
             {tab === "prompt" ? <Prompt text={data.prompt} /> : null}
 
             {tab === "metrics" ? <Metrics detail={data} /> : null}
+
+            {/* `runId` is the plan run: `plan_calc` rows are keyed by it and
+                the node, which is exactly this panel's subject. */}
+            {tab === "calc" ? (
+              <CalcPanel planRunId={runId} nodeId={node.id} projectId={projectId} />
+            ) : null}
           </>
         ) : null}
       </div>
