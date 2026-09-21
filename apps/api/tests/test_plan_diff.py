@@ -12,6 +12,7 @@ nothing changed will not read the next one.
 
 from __future__ import annotations
 
+import json
 import sys
 import uuid
 from copy import deepcopy
@@ -224,6 +225,65 @@ def test_a_re_minted_citation_is_not_a_change() -> None:
     previous["objectives"]["blended_target_cpl"]["calc_evidence_id"] = str(uuid.uuid4())
     for row in previous["experiment_backlog"]:
         row["required_conv_per_arm"]["calc_evidence_id"] = str(uuid.uuid4())
+
+    assert compare(current, previous).is_empty
+
+
+def as_stored(value: Any) -> Any:
+    """The payload as JSONB actually holds it.
+
+    Pydantic serialises a `Decimal` to a JSON *string*, so `Number.value` comes
+    back as `"48000"` rather than `48000`. `json.dumps(..., default=str)` does
+    not reproduce that — this fixture holds floats, which serialise as numbers —
+    so the shape has to be built deliberately or the round-trip test passes
+    without testing anything.
+    """
+    if isinstance(value, dict):
+        converted = {key: as_stored(item) for key, item in value.items()}
+        figure = converted.get("value")
+        if isinstance(converted.get("unit"), str) and isinstance(figure, (int, float)):
+            converted["value"] = str(figure)
+        return converted
+    if isinstance(value, list):
+        return [as_stored(item) for item in value]
+    return value
+
+
+def test_a_payload_read_back_out_of_jsonb_is_the_same_plan() -> None:
+    """The writer's `Decimal` reaches the reader as a string.
+
+    Lossless — it re-parses — but invisible to an `isinstance(v, int | float)`
+    check on the raw payload. A fixture built in Python and a payload read back
+    from the database must still compare as the same plan, or the first diff
+    after any serialisation change reports the whole media plan as rewritten.
+
+    This is the round trip S2-P5b's export tests were missing, and the same
+    hole: a field that survives in Python and dies in JSON passes every test
+    that starts from the in-memory model.
+    """
+    current = payload()
+    stored = json.loads(json.dumps(as_stored(current)))
+
+    # The shape is genuinely different, or this test proves nothing.
+    assert isinstance(stored["media_plan"]["envelope"]["monthly_cap"]["value"], str)
+    assert isinstance(current["media_plan"]["envelope"]["monthly_cap"]["value"], float)
+
+    assert compare(stored, current).is_empty
+    assert compare(current, stored).is_empty
+
+
+def test_the_freeze_stamps_are_not_reported_as_changes() -> None:
+    """A draft against a frozen version must not report the freeze itself.
+
+    `plan_status`, `version` and `generated_at` all move when a plan is frozen.
+    A row that is true of every draft-versus-frozen comparison is noise, and the
+    picker on the compare screen already labels each version with its status.
+    """
+    current = payload(plan_status="frozen", version=2)
+    previous = deepcopy(current)
+    previous["plan_status"] = "draft"
+    previous["version"] = 0
+    previous["generated_at"] = "2026-09-01T09:30:00+00:00"
 
     assert compare(current, previous).is_empty
 

@@ -58,8 +58,14 @@ from agent.export.diff import (
 #: `extra="allow"`, which means a reader that insists on one spelling is a
 #: reader that goes blank on the next rename — and a blank figure on a media
 #: plan is indistinguishable from a figure that did not change.
+#: **`plan_status`, `version` and `generated_at` are deliberately absent.** The
+#: freeze stamps all three, so a draft compared with a frozen version reports
+#: them as changed whichever else moved — and a reader who picked those two
+#: versions already knows: the picker labels each one with its status. A diff
+#: row that is true of every comparison carries no information and costs the
+#: attention of the rows that do. `version` and `generated_at` travel on the
+#: result header instead, where they belong.
 SCALARS: tuple[tuple[tuple[str, ...], str], ...] = (
-    (("plan_status",), "Plan status"),
     (("executive_summary",), "Executive summary"),
     (
         ("media_plan.envelope.monthly_cap", "media_plan.envelope.monthly_cap_usd"),
@@ -298,7 +304,18 @@ def _normalise(payload: Any) -> dict[str, Any]:
 #: excludes `evidence_ids` for exactly this reason — left in, every `Number` in
 #: the plan would report as changed on every comparison, and a diff that cries
 #: wolf is worse than no diff.
-CITATIONS = frozenset({"calc_evidence_id", "calc_evidence_ids", "evidence_ids"})
+CITATIONS = frozenset(
+    {
+        "calc_evidence_id",
+        "calc_evidence_ids",
+        "evidence_ids",
+        # Minted afresh by every freeze, so a diff across two frozen versions
+        # would report four changed ids that mean nothing. Not currently on the
+        # payload, but every section of the contract is `extra="allow"` and this
+        # is cheaper than noticing it later.
+        "frozen_approval_ids",
+    }
+)
 
 
 def _convert(value: Any) -> Any:
