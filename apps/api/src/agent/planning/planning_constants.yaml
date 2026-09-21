@@ -1,0 +1,112 @@
+# Google's thresholds, our internal minimums, and the statistics defaults.
+#
+# PRD §9.3 / global law 15: these live here and nowhere else. Never in a prompt,
+# never in a function body. Every constant carries `value`, `source` and
+# `reviewed_at`; one missing `source` fails startup and names the key.
+#
+# `version` is stamped into every PlanCalc row, so any plan can be re-derived
+# against the constants it was actually built with. Bump it whenever a value
+# changes — a silent edit makes two plans claim the same provenance for
+# different arithmetic.
+#
+# WARNING (PRD §9.3, Q7): the values below are SEED values, not verified
+# constants. Every `source: internal` is a decision we made, not a number
+# anyone published. The Google rows need a real URL against the current help
+# centre before the first plan is frozen for a client.
+version: "2026.09.1"
+
+learning:
+  # Conversions per 30 days below which Smart Bidding cannot leave the learning
+  # period with a usable model.
+  tcpa_min_conv_30d:
+    value: 30
+    source: "https://support.google.com/google-ads/answer/6268632"
+    reviewed_at: 2026-09-21
+  troas_min_conv_30d:
+    value: 50
+    source: "https://support.google.com/google-ads/answer/6268637"
+    reviewed_at: 2026-09-21
+  # Below this a campaign has no optimisation signal at all, whatever the
+  # strategy. It is the floor that makes a `below` verdict, not a `marginal` one.
+  absolute_min_conv_30d:
+    value: 15
+    source: "internal"
+    reviewed_at: 2026-09-21
+  learning_period_days:
+    value: 7
+    source: "https://support.google.com/google-ads/answer/9053913"
+    reviewed_at: 2026-09-21
+
+structure:
+  min_keywords_per_ad_group:
+    value: 5
+    source: "internal"
+    reviewed_at: 2026-09-21
+  max_keywords_per_ad_group:
+    value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21
+  min_ad_groups_per_campaign:
+    value: 3
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+economics:
+  # Lifetime gross profit must be this multiple of acquisition cost. 3.0 is the
+  # B2B SaaS convention, not a law of nature.
+  target_cac_ratio:
+    value: 3.0
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # How far under the ceiling a target sits. The ceiling is where the unit
+  # economics break even against the CAC ratio; planning to it leaves no room
+  # for a CPC that moves.
+  safety_margin_pct:
+    value: 15
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+budget:
+  min_monthly_per_campaign_usd:
+    value: 1000
+    source: "internal"
+    reviewed_at: 2026-09-21
+  experiment_reserve_pct:
+    value: 10
+    source: "internal"
+    reviewed_at: 2026-09-21
+  # NOT IN THE PRD's seed block. `scenarios.envelope_v1` (§9.2) has to know how
+  # far cautious and aggressive sit from expected, and law 15 forbids that
+  # number living in the function body. Added here rather than hardcoded.
+  cautious_step_pct:
+    value: 25
+    source: "internal"
+    reviewed_at: 2026-09-21
+  aggressive_step_pct:
+    value: 40
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+forecast:
+  # The share of available impressions a plan assumes it can win. Also not in
+  # the PRD's seed block, and for the same reason: `forecast.traffic_v1` turns
+  # search volume into impressions and needs this factor. The aggressive
+  # scenario is capped by measured headroom, so this is only the starting point.
+  impression_share_target_pct:
+    value: 45
+    source: "internal"
+    reviewed_at: 2026-09-21
+
+test:
+  alpha:
+    value: 0.05
+    source: "internal"
+    reviewed_at: 2026-09-21
+  power:
+    value: 0.80
+    source: "internal"
+    reviewed_at: 2026-09-21
+  min_mde_pct:
+    value: 20
+    source: "internal"
+    reviewed_at: 2026-09-21

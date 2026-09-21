@@ -1,6 +1,6 @@
 """SQLAlchemy 2.0 models — the whole schema from PRD §6.
 
-Fifteen tables, many workspaces. A workspace is one company, or one business
+Seventeen tables, many workspaces. A workspace is one company, or one business
 function inside one; `invite`, `audit_log`, `project`, `credential`, `run` and
 `schedule` all hang off it, and every query reaches them through
 `WorkspaceScopedRepo` (see `repo.py`).
@@ -860,6 +860,63 @@ class Schedule(Base):
     next_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
 
 
+class PlanCalc(Base):
+    """One registered calculation behind one number in a campaign plan (PRD §7.2).
+
+    Stage 02's audit trail. Global law 14 says the LLM never does arithmetic:
+    every figure is produced by an `@formula` in `agent/calc/`, written here with
+    the inputs it consumed and the `calc_version` it ran under, and cited by
+    `calc_evidence_ids` on the node output. A number that cannot be resolved back
+    to a row in this table is a number the plan is not allowed to contain.
+
+    `UNIQUE(plan_run_id, formula_id, inputs_hash)` is what makes re-running cheap
+    and honest at once: the same formula over the same inputs inside one plan run
+    is the same answer, so the second call reuses the row rather than writing a
+    second `derived` Evidence row that says the same thing.
+
+    Shared with S2-P0: the PRD assigns this table to the `stage02_handshake`
+    revision, but S2-P1 (the calculation engine) is specified to be buildable in
+    parallel with the handshake and `calc/derived.py` cannot be tested without
+    it. Migration `0013_plan_calc` therefore creates this table and nothing else,
+    and S2-P0's revision must omit it. `plan_calc` references only `run` and
+    `evidence`, both of which predate Stage 02, so the split is safe.
+    """
+
+    __tablename__ = "plan_calc"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "plan_run_id", "formula_id", "inputs_hash", name="uq_plan_calc_inputs"
+        ),
+        sa.Index("ix_plan_calc_run_node", "plan_run_id", "node_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    plan_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The plan node that asked for the calculation, e.g. `2.1.2`.
+    node_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `economics.max_cpa_v1` — the id the formula is registered under.
+    formula_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `calc/1.0+constants/2026.09.1` — code version and constants version.
+    calc_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    inputs: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    inputs_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    result: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    #: The `derived` Evidence row this calculation produced. Not nullable: a
+    #: calculation nobody can cite has no reason to be persisted.
+    evidence_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("evidence.id", ondelete="CASCADE"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
 #: Every table the migration must create, in dependency order.
 ALL_TABLES: tuple[str, ...] = (
     "workspace",
@@ -878,4 +935,5 @@ ALL_TABLES: tuple[str, ...] = (
     "export",
     "schedule",
     "project_document",
+    "plan_calc",
 )
