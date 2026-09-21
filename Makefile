@@ -7,7 +7,7 @@
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
         browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-documents browser-connections browser-workspaces \
-        typecheck lint fmt contracts health clean
+        typecheck lint fmt contracts health clean google-ads-push
 
 API := apps/api
 WEB := apps/web
@@ -104,6 +104,9 @@ verify-webshare: ## Prove the crawl proxy against the live Webshare account (no 
 
 google-ads-oauth: ## Mint a Google Ads refresh token and list the accounts it reaches
 	python3 scripts/google-ads-oauth.py --write-env
+
+google-ads-push: ## Send the Google Ads values from .env to Railway (api AND worker)
+	./scripts/push-google-ads-env.sh
 
 browser-autofill: ## Drive "let the agent work it out" on step 1, at 1440 and 390
 	@docker compose cp scripts/browser-check-autofill.py worker:/tmp/browser-check-autofill.py
