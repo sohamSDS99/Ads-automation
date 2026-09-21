@@ -7,6 +7,7 @@
  * would show up as a button that does nothing (Stage 02 PRD §4.2).
  */
 import { apiFetch } from "@/lib/api";
+import type { FieldChange, SectionDiff } from "@/lib/api/diff";
 import type { LaunchReadiness } from "@/lib/api/reports";
 import type { RunStatus } from "@/lib/api/projects";
 
@@ -322,3 +323,279 @@ export function asDemandForecast(value: unknown): DemandForecastOutput | null {
   if (!months.every((row) => isRecord(row) && typeof row.month === "string")) return null;
   return value as unknown as DemandForecastOutput;
 }
+
+// ---------------------------------------------------------------------------
+// the plan itself — the read side (Stage 02 PRD §15.3 D, E, F; §16)
+// ---------------------------------------------------------------------------
+
+/**
+ * §12 `Number` — a figure with its calculation behind it.
+ *
+ * Every traced figure in the plan is one of these, which is what lets the
+ * viewer put a citation chip on it. Sections still carry plain numbers where
+ * §12 does (`media_plan.allocation[].usd`, priced keywords), so the renderer
+ * below accepts either and only draws a chip when there is something to open.
+ */
+export type PlanNumber = {
+  value: number;
+  unit: "usd" | "pct" | "count" | "days" | "months" | "ratio";
+  calc_evidence_id: string | null;
+  confidence: "high" | "medium" | "low";
+};
+
+/** What a figure can arrive as. The payload is written by 2.6.1, not by us. */
+export type PlanFigure = PlanNumber | number | string | null | undefined;
+
+export function asPlanNumber(value: PlanFigure): PlanNumber | null {
+  if (typeof value !== "object" || value === null) return null;
+  return typeof (value as PlanNumber).value === "number" ? (value as PlanNumber) : null;
+}
+
+/** The scalar behind a figure, whichever shape it arrived in. */
+export function figureValue(value: PlanFigure): number | null {
+  const traced = asPlanNumber(value);
+  if (traced) return traced.value;
+  if (typeof value === "number") return value;
+  if (typeof value === "string" && value.trim() !== "" && Number.isFinite(Number(value))) {
+    return Number(value);
+  }
+  return null;
+}
+
+export type PlanGateDecision = {
+  gate_key: string;
+  node_id: string;
+  /** `approved` | `rejected` | `pending` | `expired` | `not_reached`. */
+  status: string;
+  decided_by: string | null;
+  decided_by_name: string | null;
+  decided_at: string | null;
+  note: string | null;
+  edited: boolean;
+};
+
+export type PlanCritique = {
+  verdict: string | null;
+  blocking: string[];
+  advisory: string[];
+  checked_at: string | null;
+};
+
+export type PlanTotals = {
+  campaigns: number;
+  ad_groups: number;
+  keywords: number;
+};
+
+/**
+ * `GET /plans/{plan_run_id}` — one plan version, whole.
+ *
+ * `payload` is the §12 object exactly as node 2.6.1 wrote it, deliberately
+ * untyped past the sections this app reads. It is not validated here: §15.4
+ * rule 5 asks for zod generated from the API's JSON Schema, and the API does
+ * not declare a schema for it — the contract lives in `plan_contract.py` and is
+ * filled by a phase that ships after this one. So each section reads what it
+ * needs and renders an honest absence when it is not there, which is also the
+ * behaviour a partial payload from an early plan run needs.
+ *
+ * Where `status` and `payload.plan_status` disagree, `status` wins: it is the
+ * column the freeze transaction locks on, and a plan frozen a second ago
+ * reports `frozen` here while its payload still says `ready_to_freeze`.
+ */
+export type PlanDetail = {
+  id: string;
+  project_id: string;
+  plan_run_id: string;
+  /** 0 until the plan is frozen. Rendered as an em dash, never as "version 0". */
+  version: number;
+  /** What a freeze would mint, and the number the freeze dialog asks for. */
+  next_version: number;
+  status: PlanStatus;
+  schema_version: string;
+  source_superseded: boolean;
+  payload: Record<string, unknown>;
+  markdown: string;
+  frozen_at: string | null;
+  frozen_by: string | null;
+  frozen_by_name: string | null;
+  frozen_approval_ids: string[];
+  created_at: string;
+  updated_at: string;
+  source: AcceptedSource | null;
+  gates: PlanGateDecision[];
+  critique: PlanCritique | null;
+  totals: PlanTotals;
+};
+
+export type PlanStructureKeyword = {
+  term: string;
+  match_type: string | null;
+  forecast_cpc_usd: number | null;
+  search_volume: number | null;
+};
+
+export type PlanStructureAdGroup = {
+  name: string;
+  theme: string | null;
+  landing_url: string | null;
+  primary_message: string | null;
+  market: string | null;
+  coherence: number | null;
+  negatives: string[];
+  /** `null` means unchecked — 2.4.1 emitted no regex — not "failed". */
+  name_valid: boolean | null;
+  keywords: PlanStructureKeyword[];
+  keyword_count: number;
+};
+
+export type PlanStructureCampaign = {
+  campaign_ref: string;
+  name: string;
+  type: string | null;
+  market: string | null;
+  language: string | null;
+  monthly_budget_usd: number | null;
+  daily_budget_usd: number | null;
+  bid_strategy: string | null;
+  target: number | null;
+  locations: string[];
+  negatives: string[];
+  name_valid: boolean | null;
+  /** 2.4.3's verdict — the learning-threshold badge. */
+  verdict: string | null;
+  threshold: number | null;
+  forecast_conv_30d: number | null;
+  action: string | null;
+  remedy: string | null;
+  reason: string | null;
+  ad_groups: PlanStructureAdGroup[];
+  ad_group_count: number;
+  keyword_count: number;
+};
+
+export type PlanStructurePage = {
+  plan_run_id: string;
+  version: number;
+  status: PlanStatus;
+  /** The whole plan, never this page. */
+  totals: PlanTotals;
+  campaigns: PlanStructureCampaign[];
+  next_cursor: string | null;
+  validator_regex: string | null;
+  /** `checked` or `skipped` — whether the live-account collision pass ran. */
+  collision_check: string | null;
+  /**
+   * Names that failed the convention's regex.
+   *
+   * `null` means node 2.4.2 never checked; `[]` means it checked and every name
+   * passed. The two must not be rendered the same way — a clean bill of health
+   * on a tree nobody validated is the same error as a green tick on an
+   * unchecked name.
+   */
+  invalid_names: string[] | null;
+  /** Keywords in more than one ad group. Three-state, as above. */
+  duplicate_terms: string[] | null;
+  account_negatives: string[];
+  orphan_terms: string[];
+};
+
+export type PlanDiff = {
+  plan_run_id: string;
+  against_plan_run_id: string;
+  version: number;
+  against_version: number;
+  generated_at: string | null;
+  against_generated_at: string | null;
+  scalars: FieldChange[];
+  sections: SectionDiff[];
+  unchanged: boolean;
+};
+
+export function getPlan(planRunId: string): Promise<PlanDetail> {
+  return apiFetch(`/plans/${planRunId}`);
+}
+
+export function getPlanStructure(
+  planRunId: string,
+  cursor?: string | null,
+  limit?: number,
+): Promise<PlanStructurePage> {
+  const query = new URLSearchParams();
+  if (cursor) query.set("cursor", cursor);
+  if (limit) query.set("limit", String(limit));
+  const suffix = query.size ? `?${query}` : "";
+  return apiFetch(`/plans/${planRunId}/structure${suffix}`);
+}
+
+export function getPlanDiff(planRunId: string, against: string): Promise<PlanDiff> {
+  return apiFetch(`/plans/${planRunId}/diff?against=${encodeURIComponent(against)}`);
+}
+
+/**
+ * What a freeze answers with — a receipt, not the plan.
+ *
+ * Deliberately not a `PlanDetail`: it carries no payload, no gates and no
+ * totals. Typing it as one and writing it into the plan cache would blank the
+ * viewer behind the dialog on a *successful* freeze, which is the worst possible
+ * moment for a screen to go empty.
+ */
+export type PlanFreezeResult = {
+  plan_id: string;
+  plan_run_id: string;
+  project_id: string;
+  version: number;
+  status: PlanStatus;
+  frozen_at: string | null;
+  frozen_by: string | null;
+  frozen_approval_ids: string[];
+  /** Plan ids this freeze marked superseded. */
+  superseded: string[];
+  /** True on the idempotent 200 — already frozen at this same version. */
+  already_frozen: boolean;
+};
+
+/**
+ * `POST /plans/{plan_run_id}/freeze` — S2-P5b's transaction, this app's dialog.
+ *
+ * Idempotent on `confirm_version` (§16 rule 2): freezing an already-frozen plan
+ * at the same version answers 200 with `already_frozen: true` rather than an
+ * error, so a double submit is not a failure the approver has to interpret. A
+ * mismatched version, an undecided gate or a blocking critique answers 409 with
+ * a `blockers[]` array — plus `expected_version` and `submitted_version` on a
+ * version race — which the dialog renders with the same component the
+ * eligibility panel uses.
+ */
+export function freezePlan(
+  planRunId: string,
+  confirmVersion: number,
+): Promise<PlanFreezeResult> {
+  return apiFetch(`/plans/${planRunId}/freeze`, {
+    method: "POST",
+    body: JSON.stringify({ confirm_version: confirmVersion }),
+  });
+}
+
+/**
+ * A payload figure, read from the first path that answers.
+ *
+ * `export/plan_contract.py` names these fields and §12's sketch did not, so
+ * every headline figure has the contract's spelling first and the node output's
+ * second. Every section of that contract is `extra="allow"`, so a reader that
+ * insists on one spelling goes blank on the next rename — and a blank figure on
+ * a media plan is indistinguishable from one that is genuinely absent.
+ *
+ * The fallbacks are meant to decay. When `plan_contract.py` has been stable for
+ * a while, the second entry in each list should be deleted rather than kept.
+ */
+export const FIGURE_PATHS = {
+  monthlyEnvelope: ["media_plan.envelope.monthly_cap", "media_plan.envelope.monthly_cap_usd"],
+  quarterlyEnvelope: [
+    "media_plan.envelope.quarterly_cap",
+    "media_plan.envelope.quarterly_cap_usd",
+  ],
+  experimentReserve: ["media_plan.experiment_reserve"],
+  blendedTarget: ["objectives.blended_target_cpl", "objectives.blended_target_cpa_usd"],
+  blendedCeiling: ["objectives.blended_max_cpa_won", "objectives.max_cpa_ceiling_usd"],
+  blendedMaxCpl: ["objectives.blended_max_cpl"],
+  northStar: ["objectives.north_star_target"],
+} as const;

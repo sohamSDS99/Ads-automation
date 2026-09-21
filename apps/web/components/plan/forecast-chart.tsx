@@ -300,7 +300,13 @@ export function ForecastLine({
   forecast,
   className,
 }: {
-  forecast: DemandForecastOutput;
+  /**
+   * Narrowed to what the chart reads, so the Plan Viewer can hand it the
+   * `media_plan` section of a `CampaignPlan` payload without that payload
+   * having to carry 2.2.1's method notes and caveats. Every existing caller
+   * passes the whole node output and still type-checks.
+   */
+  forecast: Pick<DemandForecastOutput, "monthly_totals" | "confidence_band">;
   className?: string;
 }) {
   const [measure, setMeasure] = useState<Measure>("cost");
@@ -451,7 +457,11 @@ function MeasureToggle({
  * by default: the chart answers the shape question and the table answers "what
  * exactly was March", and only one of those is asked first.
  */
-function ForecastTable({ forecast }: { forecast: DemandForecastOutput }) {
+function ForecastTable({
+  forecast,
+}: {
+  forecast: Pick<DemandForecastOutput, "monthly_totals">;
+}) {
   // A *named* group. `group-open:` compiles to a selector matching any open
   // `.group` ancestor, and this table lives inside another disclosure on the
   // budget gate card — unnamed, it announced "Hide the table" the moment that

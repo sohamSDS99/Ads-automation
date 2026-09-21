@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-s2p6b browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -111,6 +111,32 @@ browser-autofill: ## Drive "let the agent work it out" on step 1, at 1440 and 39
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
 		-e PROJECT_ID="$(PROJECT_ID)" worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-autofill.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s2p6c: ## Drive the Plan Viewer, structure tree, freeze dialog and diff, at 1440 and 390
+	@docker compose cp apps/api/scripts/plan_payload.py worker:/tmp/plan_payload.py
+	@docker compose cp scripts/browser-check-s2p6c.py worker:/tmp/browser-check-s2p6c.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	# The venv's own Python, not `uv run --with playwright==1.49.0`.
+	# `Dockerfile` installs browsers for the Playwright in `uv.lock`, which
+	# resolves the `>=1.49.0` floor to whatever is current — build 1243 at the
+	# time of writing. A pinned 1.49.0 addresses build 1148 and dies with
+	# "Executable doesn't exist at /ms-playwright/...".
+	#
+	# This trap has now been diagnosed FOUR separate times in this file:
+	# `browser-s2p0`, `browser-s2p6a` and `browser-workspaces` each carry their
+	# own comment block explaining it, each fixed only its own target, and each
+	# left the rest alone. The result is four different invocations doing the
+	# same job — bare `python`, `uv run python`, this one, and seven still on
+	# the pinned form that cannot work: browser, browser-p6, browser-p7,
+	# browser-p8, browser-autofill, browser-connections, browser-documents.
+	#
+	# Fixing those seven is one line each and is deliberately NOT done here:
+	# they belong to merged phases and a repo-wide Makefile change does not
+	# belong inside a feature PR, which is exactly how the previous three fixes
+	# stayed local. Raised separately instead.
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-s2p6c.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390

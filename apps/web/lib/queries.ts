@@ -14,6 +14,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
+import { useMemo } from "react";
 
 import { listAudit, type AuditFilters } from "@/lib/api/audit";
 import { listSessions } from "@/lib/api/account";
@@ -21,7 +22,16 @@ import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import { getModels } from "@/lib/api/models";
-import { getPlanEligibility, listPlanCalcs, listPlans } from "@/lib/api/plan";
+import {
+  freezePlan,
+  getPlan,
+  getPlanDiff,
+  getPlanEligibility,
+  getPlanStructure,
+  listPlanCalcs,
+  listPlans,
+} from "@/lib/api/plan";
+import type { PlanCalcRow } from "@/lib/api/plan";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
 import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
@@ -55,6 +65,10 @@ export const keys = {
   runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
   planEligibility: (projectId: string) => ["projects", projectId, "plan", "eligibility"] as const,
   plans: (projectId: string) => ["projects", projectId, "plans"] as const,
+  plan: (planRunId: string) => ["plans", planRunId] as const,
+  planStructure: (planRunId: string) => ["plans", planRunId, "structure"] as const,
+  planDiff: (planRunId: string, against: string) =>
+    ["plans", planRunId, "diff", against] as const,
   planCalcs: (planRunId: string, nodeId: string) =>
     ["plans", planRunId, "calcs", nodeId] as const,
 };
@@ -121,6 +135,94 @@ export function usePlanCalcs(planRunId: string, nodeId: string | null, enabled =
     queryKey: keys.planCalcs(planRunId, nodeId ?? ""),
     queryFn: () => listPlanCalcs(planRunId, nodeId),
     enabled: enabled && Boolean(nodeId),
+  });
+}
+
+/**
+ * Every calculation in a plan run, indexed by the evidence id a figure cites.
+ *
+ * The Plan Viewer puts a chip on every §12 `Number`, and a `Number` carries a
+ * `calc_evidence_id` rather than the calculation itself. One request per chip
+ * would be hundreds on a full plan, so the rows arrive once and the chips read
+ * the map — the same shape `useCitations` uses for a report's evidence.
+ *
+ * `node_id` is deliberately unfiltered here: the viewer shows figures from
+ * every stage at once, and the Calc tab is the caller that wants one node.
+ */
+export function usePlanCalcIndex(planRunId: string) {
+  const query = useQuery({
+    queryKey: keys.planCalcs(planRunId, ""),
+    queryFn: () => listPlanCalcs(planRunId, null),
+    enabled: Boolean(planRunId),
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const byEvidenceId = useMemo(() => {
+    const index = new Map<string, PlanCalcRow>();
+    for (const row of query.data?.items ?? []) {
+      if (row.evidence_id) index.set(row.evidence_id, row);
+    }
+    return index;
+  }, [query.data]);
+
+  return { byEvidenceId, loading: query.isPending };
+}
+
+export function usePlan(planRunId: string) {
+  return useQuery({
+    queryKey: keys.plan(planRunId),
+    queryFn: () => getPlan(planRunId),
+    enabled: Boolean(planRunId),
+  });
+}
+
+/**
+ * The structure tree, one page of campaigns at a time.
+ *
+ * `useInfiniteQuery` rather than one request: §16 rule 4 paginates by campaign
+ * precisely so a 4,000-keyword plan never arrives in one payload, and the tree
+ * is virtualised over whatever has loaded so far.
+ */
+export function usePlanStructure(planRunId: string, enabled = true) {
+  return useInfiniteQuery({
+    queryKey: keys.planStructure(planRunId),
+    queryFn: ({ pageParam }) => getPlanStructure(planRunId, pageParam),
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.next_cursor,
+    enabled: enabled && Boolean(planRunId),
+  });
+}
+
+export function usePlanDiff(planRunId: string | null, against: string | null) {
+  return useQuery({
+    queryKey: keys.planDiff(planRunId ?? "", against ?? ""),
+    queryFn: () => getPlanDiff(planRunId as string, against as string),
+    enabled: Boolean(planRunId && against),
+  });
+}
+
+/**
+ * Freezing a plan (§15.3 E). The transaction is S2-P5b's; this is the call.
+ *
+ * **Invalidated, never written into the cache.** The response is a receipt —
+ * `{plan_id, version, status, superseded[], already_frozen}` — and not a
+ * `PlanDetail`: no payload, no gates, no totals. An earlier version of this
+ * hook did `setQueryData(keys.plan(...), result)`, which would have replaced
+ * the viewer's plan with that receipt and blanked the screen behind the dialog
+ * at the exact moment the freeze succeeded.
+ *
+ * Both keys go: a freeze mints a version, supersedes the previous one, and
+ * changes the history table three screens away.
+ */
+export function useFreezePlan(planRunId: string, projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmVersion: number) => freezePlan(planRunId, confirmVersion),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.plan(planRunId) });
+      void client.invalidateQueries({ queryKey: keys.plans(projectId) });
+      void client.invalidateQueries({ queryKey: keys.planStructure(planRunId) });
+    },
   });
 }
 
