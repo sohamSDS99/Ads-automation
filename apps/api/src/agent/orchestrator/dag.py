@@ -1,4 +1,11 @@
-"""The research DAG (PRD §7.2 items 1–2).
+"""The DAGs (PRD §7.2 items 1–2; Stage 02 PRD §8.1).
+
+One executor, two graphs. `Run.stage` selects which one a run executes, and
+`get_dag` takes that stage rather than defaulting to one: a plan run rendered
+against the research graph would show the wrong nodes and execute none of
+them, and a default argument is how that becomes a quiet bug instead of a
+type error.
+
 
 The edge list is not written out by hand: every node already declares
 `depends_on`, and two statements of the same graph would eventually disagree.
@@ -16,6 +23,7 @@ from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from functools import lru_cache
 
+from agent.db.models import RunStage
 from agent.orchestrator.registry import NodeRegistry, get_registry
 
 
@@ -141,12 +149,17 @@ class Dag:
                 deps.difference_update(ready)
 
 
-@lru_cache(maxsize=1)
-def get_dag() -> Dag:
-    """The process-wide DAG, derived from the registry and validated once."""
-    return Dag.from_registry(get_registry())
+@lru_cache(maxsize=len(RunStage))
+def get_dag(stage: RunStage) -> Dag:
+    """The DAG for one pipeline, derived from the registry and validated once."""
+    return Dag.from_registry(get_registry().for_stage(stage))
 
 
-def validate_selection(node_ids: Sequence[str]) -> set[str]:
+def all_dags() -> dict[RunStage, Dag]:
+    """Every DAG, built and validated. What the worker checks at boot."""
+    return {stage: get_dag(stage) for stage in RunStage}
+
+
+def validate_selection(node_ids: Sequence[str], stage: RunStage) -> set[str]:
     """Widen a `node_filter` to something executable, or raise `DagError`."""
-    return get_dag().closure(node_ids)
+    return get_dag(stage).closure(node_ids)

@@ -58,6 +58,8 @@ MEDIA_TYPES: dict[ExportFormat, str] = {
     ExportFormat.MD: "text/markdown; charset=utf-8",
     ExportFormat.JSON: "application/json; charset=utf-8",
     ExportFormat.CSV: "text/csv; charset=utf-8",
+    ExportFormat.EDITOR_CSV: "text/csv; charset=utf-8",
+    ExportFormat.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 }
 
 EXTENSIONS: dict[ExportFormat, str] = {
@@ -66,7 +68,24 @@ EXTENSIONS: dict[ExportFormat, str] = {
     ExportFormat.MD: "md",
     ExportFormat.JSON: "json",
     ExportFormat.CSV: "csv",
+    ExportFormat.EDITOR_CSV: "csv",
+    ExportFormat.XLSX: "xlsx",
 }
+
+#: The formats a *research report* can be rendered as. Not every member of
+#: `ExportFormat`: `editor_csv` and `xlsx` are shapes of a campaign plan and
+#: their renderers arrive in S2-P5. Enforced at the route rather than left to
+#: fail in the worker, because a queued job that can never succeed is a worse
+#: answer than a 422 that names the five formats that work.
+RESEARCH_REPORT_FORMATS: frozenset[ExportFormat] = frozenset(
+    {
+        ExportFormat.PDF,
+        ExportFormat.DOCX,
+        ExportFormat.MD,
+        ExportFormat.JSON,
+        ExportFormat.CSV,
+    }
+)
 
 _UNSAFE = re.compile(r"[^a-z0-9]+")
 

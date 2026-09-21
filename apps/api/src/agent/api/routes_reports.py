@@ -52,7 +52,7 @@ from agent.db.models import (
 from agent.db.repos import ExportRepo, ProjectRepo, ReportRepo, RunRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
-from agent.export.jobs import MEDIA_TYPES, filename_for
+from agent.export.jobs import MEDIA_TYPES, RESEARCH_REPORT_FORMATS, filename_for
 from agent.queue import enqueue_export
 
 log = structlog.get_logger(__name__)
@@ -155,6 +155,12 @@ async def request_export(
         Query(alias="format", description="pdf | docx | md | json | csv"),
     ],
 ) -> ExportAccepted:
+    if export_format not in RESEARCH_REPORT_FORMATS:
+        raise problems.unprocessable(
+            f"A research report cannot be exported as {export_format.value}. "
+            f"Choose one of: {', '.join(sorted(f.value for f in RESEARCH_REPORT_FORMATS))}.",
+            title="Unsupported export format",
+        )
     report, run = await _load_report(db, me, run_id)
     project = await ProjectRepo(db, me.workspace_id).get(run.project_id)
 

@@ -35,6 +35,7 @@ from agent.db.models import (
     Project,
     Report,
     Run,
+    RunStage,
     RunStatus,
     Schedule,
     User,
@@ -274,25 +275,37 @@ class ProjectRepo(WorkspaceScopedRepo[Project]):
 class RunRepo(WorkspaceScopedRepo[Run]):
     model = Run
 
-    async def for_project(self, project_id: uuid.UUID, *, limit: int = 50) -> list[Run]:
+    async def for_project(
+        self, project_id: uuid.UUID, *, stage: RunStage | None = None, limit: int = 50
+    ) -> list[Run]:
+        query = self.select().where(Run.project_id == project_id)
+        if stage is not None:
+            query = query.where(Run.stage == stage)
         result = await self.session.execute(
-            self.select()
-            .where(Run.project_id == project_id)
-            .order_by(Run.started_at.desc().nullslast(), Run.id.desc())
-            .limit(limit)
+            query.order_by(Run.started_at.desc().nullslast(), Run.id.desc()).limit(limit)
         )
         return list(result.scalars().all())
 
-    async def latest_succeeded(self, project_id: uuid.UUID) -> Run | None:
-        """The newest run of this project that produced a report.
+    async def latest_succeeded(
+        self, project_id: uuid.UUID, *, stage: RunStage = RunStage.RESEARCH
+    ) -> Run | None:
+        """The newest run of this project and pipeline that finished.
 
         `parent_run_id` points here, so the Report Viewer's compare toggle is
         only ever offered against a run that has something to compare. A failed
         or cancelled run wrote no report.
+
+        Scoped by stage because `parent_run_id` means "the previous run of the
+        *same* stage" (Stage 02 PRD §7.1): a plan run whose parent is a
+        research run would make the compare view diff two different documents.
         """
         result = await self.session.execute(
             self.select()
-            .where(Run.project_id == project_id, Run.status == RunStatus.SUCCEEDED)
+            .where(
+                Run.project_id == project_id,
+                Run.status == RunStatus.SUCCEEDED,
+                Run.stage == stage,
+            )
             .order_by(Run.finished_at.desc().nullslast(), Run.id.desc())
             .limit(1)
         )

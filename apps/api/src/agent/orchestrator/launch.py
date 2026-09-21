@@ -29,7 +29,7 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.audit import AuditAction, AuditTarget, write_audit
-from agent.db.models import Project, Run, RunMode, RunStatus, RunTrigger
+from agent.db.models import Project, Run, RunMode, RunStage, RunStatus, RunTrigger
 from agent.db.repos import RunRepo
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.state import LockHolder, RunLock, RunStore
@@ -69,6 +69,17 @@ class LaunchRequest:
     node_ids: set[str] = field(default_factory=set)
     reuse_cache: bool = True
     ip: str | None = None
+    #: Which pipeline to run. A plan launch takes a different lock, a
+    #: different DAG and a different audit action; everything else about
+    #: "take the lock, write the row, audit it, enqueue it, and unwind all of
+    #: that if the queue is down" is identical, which is why it stays here
+    #: rather than becoming a second copy in `routes_plan`.
+    stage: RunStage = RunStage.RESEARCH
+    #: The accepted research run a plan consumes. Required for `stage=plan`
+    #: and forbidden otherwise — `ck_run_plan_has_source` is the backstop.
+    source_run_id: uuid.UUID | None = None
+    #: sha256 of the `PlanInput` this run was built from.
+    input_hash: str | None = None
     #: Extra fields folded into the audit row — how the scheduler records which
     #: schedule fired.
     audit_meta: dict[str, str | None] = field(default_factory=dict)
@@ -77,12 +88,15 @@ class LaunchRequest:
 async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
     """Create, lock, record and enqueue one run. Raises `ProjectBusy` or `QueueUnavailable`."""
     project = request.project
-    lock = RunLock(redis)
+    lock = RunLock(redis, request.stage)
     runs = RunRepo(db, request.workspace_id)
-    previous = await runs.latest_succeeded(project.id)
+    previous = await runs.latest_succeeded(project.id, stage=request.stage)
 
     run = Run(
         project_id=project.id,
+        stage=request.stage,
+        source_run_id=request.source_run_id,
+        input_hash=request.input_hash,
         triggered_by=request.actor_id,
         trigger=request.trigger,
         status=RunStatus.QUEUED,
@@ -112,11 +126,16 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
         db,
         workspace_id=request.workspace_id,
         actor_id=request.actor_id,
-        action=AuditAction.RUN_LAUNCHED,
+        action=(
+            AuditAction.PLAN_STARTED if request.stage is RunStage.PLAN else AuditAction.RUN_LAUNCHED
+        ),
         target_type=AuditTarget.RUN,
         target_id=run.id,
         meta={
             "project_id": str(project.id),
+            "stage": request.stage.value,
+            "source_run_id": str(request.source_run_id) if request.source_run_id else None,
+            "input_hash": request.input_hash,
             "trigger": request.trigger.value,
             "mode": run.mode.value,
             "node_ids": sorted(request.node_ids) if request.node_ids else None,
