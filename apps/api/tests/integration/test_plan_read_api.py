@@ -456,6 +456,48 @@ async def test_another_workspaces_plan_is_not_readable(
     assert response.status_code in (401, 404)
 
 
+async def test_the_history_is_newest_first_even_when_every_draft_is_version_zero(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """§15.3 A asks for "newest first", and after 0014 that is not version order.
+
+    Every unfrozen plan sits at version 0, so `ORDER BY version DESC` puts a v1
+    frozen last week above a draft created this morning. The compare screen
+    takes the first two rows as the newer and older side of its diff, so the
+    wrong order here renders every delta backwards — which is how this was
+    found: by reading the browser check's assertion about the sign of a
+    six-thousand-dollar envelope change.
+    """
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+
+    frozen = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        status=CampaignPlanStatus.FROZEN,
+        version=1,
+    )
+    acceptance = await db.get(ResearchAcceptance, frozen.acceptance_id)
+    assert acceptance is not None
+    draft = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        reuse=acceptance,
+        status=CampaignPlanStatus.READY_TO_FREEZE,
+    )
+
+    items = (await admin.get(f"/projects/{project.id}/plans")).json()["items"]
+    assert [row["id"] for row in items] == [str(draft.id), str(frozen.id)], (
+        "the draft was created second and must sort first; version order would invert these"
+    )
+    assert items[0]["version"] == 0
+    assert items[1]["version"] == 1
+
+
 # ---------------------------------------------------------------------------
 # GET /plans/{plan_run_id}/structure
 # ---------------------------------------------------------------------------

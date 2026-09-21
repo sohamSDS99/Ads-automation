@@ -497,6 +497,24 @@ def drive_tree(page: Page, ids: dict[str, str]) -> None:
         or page.get_by_text("Clears").count() >= 1,
     )
 
+    # **Load the whole tree before measuring.** The structure endpoint pages by
+    # campaign, so on mount only the first 10 of 40 are present — expanding
+    # those gives 10 + 100 = 110 rows, and a check that passes at 110 says
+    # nothing about rule 1's stated size. Scroll the tree's own scroller until
+    # the "showing the first N" caption disappears, which is the component's own
+    # signal that `campaigns.length` has reached `totals.campaigns`.
+    scroller = page.locator("div[aria-label='Account structure']").locator("..")
+    for _attempt in range(12):
+        if page.get_by_text("showing the first", exact=False).count() == 0:
+            break
+        scroller.evaluate("node => { node.scrollTop = node.scrollHeight; }")
+        page.wait_for_timeout(400)
+    check(
+        f"all {CAMPAIGNS} campaigns page in before the tree is measured",
+        page.get_by_text("showing the first", exact=False).count() == 0,
+        "the tree never finished paging, so the size below is not rule 1's size",
+    )
+
     # Expand everything and measure. `performance.getEntriesByType('longtask')`
     # is not available without an observer, so the observer is installed first
     # and the longest task after the click is what gets reported.
@@ -515,11 +533,19 @@ def drive_tree(page: Page, ids: dict[str, str]) -> None:
     page.wait_for_timeout(1200)
 
     dom_rows = page.locator("button[aria-expanded]").count()
+    expanded_rows = page.locator("button[aria-expanded='true']").count()
+    check(
+        "expand all really expanded the loaded tree",
+        expanded_rows > CAMPAIGNS,
+        f"only {expanded_rows} rows report expanded; with {CAMPAIGNS} campaigns and their ad "
+        "groups open this should be well above the campaign count",
+    )
     check(
         "the tree is windowed, not fully rendered",
         0 < dom_rows <= MAX_DOM_ROWS,
-        f"{dom_rows} expandable rows in the DOM; a virtualised {CAMPAIGNS}-campaign tree "
-        f"should hold at most {MAX_DOM_ROWS}",
+        f"{dom_rows} expandable rows in the DOM; fully expanded the tree holds "
+        f"{CAMPAIGNS + CAMPAIGNS * AD_GROUPS_PER}, so anything near that means the "
+        "virtualiser is being bypassed",
     )
 
     longest = page.evaluate("() => ({ longest: window.__longest, missing: window.__noLongtask })")

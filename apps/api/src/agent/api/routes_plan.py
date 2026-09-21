@@ -363,7 +363,19 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
                     CampaignPlan.project_id == project_id,
                     CampaignPlan.workspace_id == me.workspace_id,
                 )
-                .order_by(CampaignPlan.version.desc(), CampaignPlan.created_at.desc())
+                # `created_at` first, and `version` only as the tiebreak.
+                #
+                # §15.3 A asks for "newest first", and after migration 0014 every
+                # unfrozen plan sits at version 0 — so ordering by version would
+                # put a v1 frozen last week *above* a draft created this
+                # morning, which is the opposite of newest first. For frozen
+                # plans the two orders coincide, because versions are minted in
+                # time order; for drafts only this one is right.
+                #
+                # The compare screen depends on it: it takes the first two rows
+                # as the newer and older side of the diff, so a wrong order here
+                # renders every delta backwards.
+                .order_by(CampaignPlan.created_at.desc(), CampaignPlan.version.desc())
             )
         )
         .scalars()
@@ -1104,7 +1116,19 @@ async def _eligibility(db: AsyncSession, me: Principal, project_id: uuid.UUID) -
                     CampaignPlan.acceptance_id == acceptance.id,
                     CampaignPlan.status == CampaignPlanStatus.FROZEN,
                 )
-                .order_by(CampaignPlan.version.desc(), CampaignPlan.created_at.desc())
+                # `created_at` first, and `version` only as the tiebreak.
+                #
+                # §15.3 A asks for "newest first", and after migration 0014 every
+                # unfrozen plan sits at version 0 — so ordering by version would
+                # put a v1 frozen last week *above* a draft created this
+                # morning, which is the opposite of newest first. For frozen
+                # plans the two orders coincide, because versions are minted in
+                # time order; for drafts only this one is right.
+                #
+                # The compare screen depends on it: it takes the first two rows
+                # as the newer and older side of the diff, so a wrong order here
+                # renders every delta backwards.
+                .order_by(CampaignPlan.created_at.desc(), CampaignPlan.version.desc())
                 .limit(1)
             )
         ).scalar_one_or_none()
