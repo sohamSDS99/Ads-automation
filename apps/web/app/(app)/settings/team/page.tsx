@@ -5,6 +5,7 @@ import { UserMinus, UserPlus } from "lucide-react";
 import { useState } from "react";
 
 import { InviteResult } from "@/components/settings/invite-result";
+import { ReissueLinkButton } from "@/components/settings/reissue-link-button";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -21,6 +22,7 @@ import { ApiError, type UserSummary } from "@/lib/api";
 import {
   inviteUser,
   isLastActiveAdmin,
+  reissueInvite,
   removeMember,
   updateUser,
   type InviteCreated,
@@ -169,7 +171,12 @@ function MemberRow({ user, lastAdmin }: { user: UserSummary; lastAdmin: boolean 
         {user.last_login_at ? relativeTime(user.last_login_at) : "Never"}
       </Td>
       <Td className="whitespace-nowrap text-right">
-        <div className="inline-flex items-center gap-1.5">
+        <div className="inline-flex flex-wrap items-center justify-end gap-1.5">
+          {/* The link is the whole onboarding step here, and it was shown
+              once. Offered on exactly the rows where it means something. */}
+          {user.status === "invited" ? (
+            <ReissueLinkButton name={user.name} reissue={() => reissueInvite(user.id)} />
+          ) : null}
           {user.status === "disabled" ? (
             <Button
               size="sm"

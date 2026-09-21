@@ -47,6 +47,17 @@ export function inviteUser(body: {
 }
 
 /**
+ * Mint a fresh link for a pending member of this workspace.
+ *
+ * The previous link stops working. Needed because the token is stored only as
+ * a hash: a link the admin did not copy cannot be looked up, and on a
+ * deployment with no mail server that used to strand the person permanently.
+ */
+export function reissueInvite(id: string): Promise<InviteCreated> {
+  return apiFetch(`/users/${id}/invite`, { method: "POST" });
+}
+
+/**
  * Take away this workspace's access, and nothing else.
  *
  * The account survives, along with their name on everything they did here.

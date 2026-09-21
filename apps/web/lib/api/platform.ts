@@ -20,6 +20,8 @@ export type AccountSummary = {
   last_login_at: string | null;
   created_at: string;
   workspaces: WorkspaceMembership[];
+  /** Invited but not accepted. Not access — but the thing needing action. */
+  pending: WorkspaceMembership[];
 };
 
 export function listAccounts(): Promise<{ accounts: AccountSummary[] }> {
@@ -50,4 +52,19 @@ export function createAccount(body: {
   role: Role;
 }): Promise<InviteCreated> {
   return apiFetch("/platform/accounts", { method: "POST", body: JSON.stringify(body) });
+}
+
+
+/**
+ * Mint a fresh link for somebody who has not accepted yet, in any workspace.
+ *
+ * The previous link stops working. The token is only ever stored hashed, so
+ * "show me that link again" is not a thing the server can do — reissuing is
+ * the only recovery, and it is the honest one.
+ */
+export function reissueAccountInvite(id: string, workspaceId: string): Promise<InviteCreated> {
+  return apiFetch(`/platform/accounts/${id}/invite`, {
+    method: "POST",
+    body: JSON.stringify({ workspace_id: workspaceId }),
+  });
 }

@@ -24,6 +24,7 @@ WEB = "http://web:3000"
 API = "http://api:8000/api/v1"
 ADMIN = ("admin@example.com", "change-me-at-least-12-chars")
 MEMBER_PASSWORD = "browser-check-member-passphrase"
+JOINER_PASSWORD = "browser-check-joiner-passphrase"
 SHOT = "/tmp/shots"
 DESKTOP = {"width": 1440, "height": 900}
 MOBILE = {"width": 390, "height": 844}
@@ -344,6 +345,74 @@ def main() -> int:
             page.get_by_text("Jo Patel").first.is_visible(),
         )
         shoot(page, "ws-team-after-invite")
+
+        # --- the link flow, end to end --------------------------------------
+        # An admin who closed the dialog without copying used to have stranded
+        # this person permanently, so this is the path that matters most.
+        row = page.locator("tr", has_text=nameless)
+        row.get_by_role("button", name="Get an invite link").click()
+        page.wait_for_timeout(2000)
+        check(
+            "a pending member offers a fresh link",
+            page.get_by_role("heading", name="Invite link for").is_visible(),
+        )
+        check(
+            "…framed as the way they join, not as a failed email",
+            page.get_by_text("Send this link to").first.is_visible(),
+        )
+        check("…and says it is single use", page.get_by_text("single use").first.is_visible())
+        link = page.locator("code").first.inner_text()
+        shoot(page, "ws-reissued-link")
+        page.get_by_role("button", name="Done").click()
+        page.wait_for_timeout(600)
+
+        # …and the link actually works: a stranger opens it and sets a password.
+        joiner = browser.new_context(viewport=DESKTOP)
+        jpage = joiner.new_page()
+        watch(jpage)
+        jpage.goto(link.replace("http://localhost:3000", WEB), wait_until="networkidle")
+        jpage.wait_for_timeout(800)
+        check(
+            "opening the link asks them to choose a password",
+            jpage.get_by_label("Password", exact=True).is_visible(),
+        )
+        check(
+            "…and not for one they do not have",
+            jpage.get_by_text("Choose a password").first.is_visible(),
+        )
+        shoot(jpage, "ws-accept-from-link")
+        jpage.get_by_label("Your name").fill("Jo Patel")
+        jpage.get_by_label("Password", exact=True).fill(JOINER_PASSWORD)
+        jpage.get_by_label("Confirm password").fill(JOINER_PASSWORD)
+        jpage.get_by_role("button", name="Create account").click()
+        jpage.wait_for_url(lambda url: "/invite" not in url, timeout=20_000)
+        jpage.wait_for_load_state("networkidle")
+        check(
+            "…and they land signed in, not back at the sign-in page",
+            "/login" not in jpage.url,
+            jpage.url,
+        )
+        shoot(jpage, "ws-joined-from-link")
+        joiner.close()
+
+        # The link is single use, so the one they just spent is spent.
+        spent = browser.new_context(viewport=DESKTOP)
+        spage = spent.new_page()
+        spage.goto(link.replace("http://localhost:3000", WEB), wait_until="networkidle")
+        spage.wait_for_timeout(600)
+        check(
+            "a spent link says so rather than offering a dead form",
+            spage.get_by_text("already been used").first.is_visible(),
+        )
+        shoot(spage, "ws-link-already-used")
+        spent.close()
+
+        page.reload(wait_until="networkidle")
+        page.wait_for_timeout(1200)
+        check(
+            "…and the member list now shows them as active",
+            page.locator("tr", has_text="Jo Patel").get_by_role("button", name="Get an invite link").count() == 0,
+        )
         context.close()
 
         # --- a plain workspace admin ----------------------------------------

@@ -284,6 +284,20 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
     # matter here: they are what proves one company's admin cannot create,
     # rename, archive or enumerate another company's workspace.
     ("DELETE", "/users/{user_id}", "/users/{target}", Permission.USER_MANAGE, None),
+    (
+        "POST",
+        "/users/{user_id}/invite",
+        "/users/{target}/invite",
+        Permission.USER_MANAGE,
+        None,
+    ),
+    (
+        "POST",
+        "/platform/accounts/{user_id}/invite",
+        "/platform/accounts/{target}/invite",
+        Permission.PLATFORM_ADMIN,
+        {"workspace_id": "00000000-0000-0000-0000-000000000000"},
+    ),
     ("GET", "/workspaces", "/workspaces", Permission.READ, None),
     (
         "POST",

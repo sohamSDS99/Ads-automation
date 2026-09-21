@@ -304,6 +304,11 @@ class AccountSummary(BaseModel):
     created_at: datetime
     #: Every workspace they are an active member of, for the account row.
     workspaces: list[WorkspaceMembershipSummary] = Field(default_factory=list)
+    #: Workspaces they have been invited to and have not accepted. Kept apart
+    #: from `workspaces` because an unaccepted invite is not access — but it
+    #: is the thing an administrator most often needs to act on, and without
+    #: it the screen showed "invited" without saying invited to *what*.
+    pending: list[WorkspaceMembershipSummary] = Field(default_factory=list)
 
 
 class AccountListResponse(BaseModel):
@@ -335,6 +340,17 @@ class CreateAccountRequest(BaseModel):
         if value is None:
             return None
         return value.strip() or None
+
+
+class ReissueInviteRequest(BaseModel):
+    """Which workspace's invite to reissue.
+
+    Required, and not inferred: somebody can be pending in more than one
+    workspace at once, and guessing which link the administrator meant would
+    silently invalidate the other one.
+    """
+
+    workspace_id: uuid.UUID
 
 
 class UpdateAccountRequest(BaseModel):

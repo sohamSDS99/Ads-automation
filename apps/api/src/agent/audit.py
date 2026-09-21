@@ -59,6 +59,9 @@ class AuditAction(StrEnum):
     RUN_RETRIED = "run.retried"
 
     USER_INVITED = "user.invited"
+    #: A fresh link for somebody who never accepted. The old one stops working,
+    #: so this is a credential event and not a duplicate of `USER_INVITED`.
+    INVITE_REISSUED = "user.invite_reissued"
     INVITE_ACCEPTED = "user.invite_accepted"
     USER_ROLE_CHANGED = "user.role_changed"
     USER_STATUS_CHANGED = "user.status_changed"

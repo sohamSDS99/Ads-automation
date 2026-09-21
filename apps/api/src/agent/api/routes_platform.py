@@ -33,6 +33,7 @@ from agent.api.schemas_auth import (
     AccountSummary,
     CreateAccountRequest,
     InviteCreatedResponse,
+    ReissueInviteRequest,
     UpdateAccountRequest,
     WorkspaceMembershipSummary,
 )
@@ -74,14 +75,22 @@ async def list_accounts(me: PlatformAdmin, db: Db) -> AccountListResponse:
     rows = await db.execute(
         sa.select(Membership, Workspace)
         .join(Workspace, Workspace.id == Membership.workspace_id)
-        .where(Membership.status == UserStatus.ACTIVE, Workspace.archived_at.is_(None))
+        .where(
+            Membership.status.in_([UserStatus.ACTIVE, UserStatus.INVITED]),
+            Workspace.archived_at.is_(None),
+        )
         .order_by(sa.func.lower(Workspace.name))
     )
     by_user: dict[uuid.UUID, list[WorkspaceMembershipSummary]] = {}
+    pending: dict[uuid.UUID, list[WorkspaceMembershipSummary]] = {}
     for membership, workspace in rows.all():
-        by_user.setdefault(membership.user_id, []).append(
+        bucket = by_user if membership.status is UserStatus.ACTIVE else pending
+        bucket.setdefault(membership.user_id, []).append(
             WorkspaceMembershipSummary(
-                id=workspace.id, name=workspace.name, role=membership.role, is_member=True
+                id=workspace.id,
+                name=workspace.name,
+                role=membership.role,
+                is_member=membership.status is UserStatus.ACTIVE,
             )
         )
 
@@ -96,6 +105,7 @@ async def list_accounts(me: PlatformAdmin, db: Db) -> AccountListResponse:
                 last_login_at=account.last_login_at,
                 created_at=account.created_at,
                 workspaces=by_user.get(account.id, []),
+                pending=pending.get(account.id, []),
             )
             for account in accounts
         ]
@@ -148,6 +158,74 @@ async def create_account(
             ip=client_ip(request),
             # The workspace's own admins will read this row and should be able
             # to see that the person did not come from among them.
+            audit_meta={"via_platform_admin": True},
+        )
+    except invitations.InvitationError as exc:
+        raise problems.conflict(exc.detail, title=exc.title) from exc
+
+    return InviteCreatedResponse(
+        invite_id=invitation.invite.id,
+        email=invitation.invite.email,
+        role=invitation.role,
+        expires_at=invitation.invite.expires_at,
+        link=invitation.link,
+        email_delivered=invitation.email_delivered,
+        has_account=invitation.had_account,
+        workspace_id=invitation.workspace.id,
+        workspace_name=invitation.workspace.name,
+    )
+
+
+@router.post(
+    "/platform/accounts/{user_id}/invite",
+    response_model=InviteCreatedResponse,
+    summary="Reissue somebody's invite link, in any workspace",
+)
+async def reissue_account_invite(
+    me: PlatformAdmin,
+    user_id: uuid.UUID,
+    body: ReissueInviteRequest,
+    request: Request,
+    db: Db,
+    settings: SettingsDep,
+) -> InviteCreatedResponse:
+    """The cross-workspace twin of `POST /users/{user_id}/invite`.
+
+    Two routes rather than one because the permission is resolved against the
+    workspace the session is in: `user_manage` means "in here", and reaching
+    into another workspace is `platform_admin` and nothing else. The work
+    underneath is the same call.
+    """
+    workspace = await workspaces.get(db, body.workspace_id)
+    if workspace is None:
+        raise problems.Problem(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No such workspace",
+            detail="That workspace does not exist.",
+        )
+    account = await db.get(User, user_id)
+    if account is None:
+        raise problems.Problem(
+            status_code=status.HTTP_404_NOT_FOUND,
+            title="No such account",
+            detail="That account does not exist.",
+        )
+
+    membership = await workspaces.membership_for(db, workspace_id=workspace.id, user_id=account.id)
+    if membership is None:
+        raise problems.conflict(
+            f"{account.email} is not a member of {workspace.name}.", title="Not a member"
+        )
+
+    try:
+        invitation = await invitations.reissue_invite(
+            db,
+            workspace=workspace,
+            member=account,
+            invited_by=me.user,
+            role=membership.role,
+            settings=settings,
+            ip=client_ip(request),
             audit_meta={"via_platform_admin": True},
         )
     except invitations.InvitationError as exc:
@@ -281,11 +359,20 @@ async def _account(db: AsyncSession, account: User) -> AccountSummary:
         .join(Workspace, Workspace.id == Membership.workspace_id)
         .where(
             Membership.user_id == account.id,
-            Membership.status == UserStatus.ACTIVE,
+            Membership.status.in_([UserStatus.ACTIVE, UserStatus.INVITED]),
             Workspace.archived_at.is_(None),
         )
         .order_by(sa.func.lower(Workspace.name))
     )
+    joined: list[WorkspaceMembershipSummary] = []
+    waiting: list[WorkspaceMembershipSummary] = []
+    for membership, workspace in rows.all():
+        active = membership.status is UserStatus.ACTIVE
+        (joined if active else waiting).append(
+            WorkspaceMembershipSummary(
+                id=workspace.id, name=workspace.name, role=membership.role, is_member=active
+            )
+        )
     return AccountSummary(
         id=account.id,
         email=account.email,
@@ -294,10 +381,6 @@ async def _account(db: AsyncSession, account: User) -> AccountSummary:
         is_superadmin=account.is_superadmin,
         last_login_at=account.last_login_at,
         created_at=account.created_at,
-        workspaces=[
-            WorkspaceMembershipSummary(
-                id=workspace.id, name=workspace.name, role=membership.role, is_member=True
-            )
-            for membership, workspace in rows.all()
-        ],
+        workspaces=joined,
+        pending=waiting,
     )
