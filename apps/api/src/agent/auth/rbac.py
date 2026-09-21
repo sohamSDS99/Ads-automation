@@ -8,6 +8,12 @@ hierarchy. `operator` is not "viewer plus more" in any way the code should rely
 on — `approver` outranks `operator` on approvals and is outranked by it
 everywhere else — so a role's permissions are written out in full and the test
 suite compares them against the PRD row by row.
+
+Roles are per workspace. The same account can be an admin of one and a viewer
+of another, so every answer here is about the workspace the caller is currently
+in — see `agent.auth.deps.Principal`. The single exception is the system
+administrator (`user.is_superadmin`), who holds `PLATFORM_ADMIN` and everything
+else everywhere, and is the only way `PLATFORM_ADMIN` is ever granted.
 """
 
 from __future__ import annotations
@@ -44,9 +50,23 @@ class Permission(StrEnum):
     AUDIT_READ = "audit_read"
     """Read the audit log."""
 
+    PLATFORM_ADMIN = "platform_admin"
+    """Create workspaces, reach every one of them, and promote other admins.
+
+    The only permission no role grants. It comes from `user.is_superadmin` and
+    nothing else, which is what keeps one company's workspace admin out of
+    another company's data (PRD §6.1, Authorization 1).
+    """
+
+
+#: Everything a workspace admin holds. `PLATFORM_ADMIN` is excluded by
+#: construction rather than by omission: a permission added later is a
+#: workspace permission unless it is deliberately listed here.
+WORKSPACE_PERMISSIONS: frozenset[Permission] = frozenset(Permission) - {Permission.PLATFORM_ADMIN}
+
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
-    UserRole.ADMIN: frozenset(Permission),
+    UserRole.ADMIN: WORKSPACE_PERMISSIONS,
     UserRole.OPERATOR: frozenset(
         {
             Permission.READ,
@@ -64,10 +84,26 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
 }
 
 
-def permissions_for(role: UserRole) -> frozenset[Permission]:
-    """The permission set of a role. Unknown roles get nothing, never everything."""
+def permissions_for(role: UserRole | None, *, superadmin: bool = False) -> frozenset[Permission]:
+    """What this caller may do in the workspace they are currently in.
+
+    `role` is the role on the *membership*, so the same account can hold
+    different permissions in two workspaces and the answer changes with the
+    one it is asked about.
+
+    `superadmin` short-circuits to everything, including `PLATFORM_ADMIN`.
+    `role` is then irrelevant and may be None: the whole point of the
+    system administrator is reaching a workspace they were never added to.
+    Unknown or missing roles get nothing, never everything.
+    """
+    if superadmin:
+        return frozenset(Permission)
+    if role is None:
+        return frozenset()
     return ROLE_PERMISSIONS.get(role, frozenset())
 
 
-def has_permission(role: UserRole, permission: Permission) -> bool:
-    return permission in permissions_for(role)
+def has_permission(
+    role: UserRole | None, permission: Permission, *, superadmin: bool = False
+) -> bool:
+    return permission in permissions_for(role, superadmin=superadmin)

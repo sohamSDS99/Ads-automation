@@ -207,6 +207,27 @@ class SessionStore:
         results = await pipe.execute()
         return sum(1 for deleted in results[:-1] if deleted)
 
+    async def revoke_for_user_in_workspace(
+        self, user_id: uuid.UUID, workspace_id: uuid.UUID
+    ) -> int:
+        """Kill this person's sessions *in one workspace*. Returns how many were live.
+
+        The narrow cousin of `revoke_all_for_user`, and the right one when the
+        decision was about one workspace: demoting someone in Paid Search must
+        not sign them out of Brand, where nothing about them changed. Whole-
+        account events — a disable, a password change — still use the wide one.
+        """
+        records = await self.list_for_user(user_id)
+        doomed = [r for r in records if r.workspace_id == workspace_id]
+        if not doomed:
+            return 0
+        pipe = self._redis.pipeline()
+        for record in doomed:
+            pipe.delete(_session_key(record.sid))
+        pipe.srem(_user_key(user_id), *[r.sid for r in doomed])
+        results = await pipe.execute()
+        return sum(1 for deleted in results[:-1] if deleted)
+
     async def list_for_user(self, user_id: uuid.UUID) -> list[SessionRecord]:
         """Live sessions, newest first. Prunes sids whose key has already expired."""
         decoded = await self._members(_user_key(user_id))

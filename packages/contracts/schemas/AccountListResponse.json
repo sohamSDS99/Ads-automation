@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "AccountSummary": {
+      "description": "One account on the installation, as the system administrator sees it.\n\nDeliberately not `UserSummary`: that one is a *membership* in one\nworkspace, this one is the person across all of them, and giving the two\nthe same shape is how a screen ends up showing a workspace role next to a\nplatform-wide switch.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "email": {
+          "title": "Email",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/UserStatus"
+        },
+        "is_superadmin": {
+          "title": "Is Superadmin",
+          "type": "boolean"
+        },
+        "last_login_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Login At"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "workspaces": {
+          "items": {
+            "$ref": "#/$defs/WorkspaceMembershipSummary"
+          },
+          "title": "Workspaces",
+          "type": "array"
+        }
+      },
+      "required": [
+        "id",
+        "email",
+        "name",
+        "status",
+        "is_superadmin",
+        "created_at"
+      ],
+      "title": "AccountSummary",
+      "type": "object"
+    },
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    },
+    "UserStatus": {
+      "enum": [
+        "invited",
+        "active",
+        "disabled"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    },
+    "WorkspaceMembershipSummary": {
+      "description": "One entry in the workspace switcher.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        },
+        "is_member": {
+          "title": "Is Member",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "is_member"
+      ],
+      "title": "WorkspaceMembershipSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "accounts": {
+      "items": {
+        "$ref": "#/$defs/AccountSummary"
+      },
+      "title": "Accounts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "accounts"
+  ],
+  "title": "AccountListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

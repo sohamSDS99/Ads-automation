@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, CircleCheck, Info } from "lucide-react";
+import { CircleAlert, CircleCheck, Info, TriangleAlert } from "lucide-react";
 import { Toaster as Sonner, toast } from "sonner";
 
 /**
@@ -32,6 +32,9 @@ export function Toaster() {
         success: <CircleCheck className="size-4 shrink-0 text-status-success" aria-hidden />,
         error: <CircleAlert className="size-4 shrink-0 text-status-failed" aria-hidden />,
         info: <Info className="size-4 shrink-0 text-fg-subtle" aria-hidden />,
+        // Same glyph and same colour as `Alert tone="warning"`. A toast that
+        // means "it half worked" must not look like one that means "done".
+        warning: <TriangleAlert className="size-4 shrink-0 text-status-gate" aria-hidden />,
       }}
     />
   );

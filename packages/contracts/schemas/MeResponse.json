@@ -10,7 +10,8 @@
         "settings_write",
         "approval_decide",
         "user_manage",
-        "audit_read"
+        "audit_read",
+        "platform_admin"
       ],
       "title": "Permission",
       "type": "string"
@@ -24,9 +25,38 @@
       ],
       "title": "UserRole",
       "type": "string"
+    },
+    "WorkspaceMembershipSummary": {
+      "description": "One entry in the workspace switcher.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/UserRole"
+        },
+        "is_member": {
+          "title": "Is Member",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "is_member"
+      ],
+      "title": "WorkspaceMembershipSummary",
+      "type": "object"
     }
   },
-  "description": "The signed-in caller plus the permissions the UI should render against.\n\n`permissions` is advisory for the client. The server checks it again on\nevery route; hiding a button is cosmetic (PRD \u00a718 law 6).",
+  "description": "The signed-in caller, the workspace they are in, and the ones they may switch to.\n\n`permissions` is advisory for the client. The server checks it again on\nevery route; hiding a button is cosmetic (PRD \u00a718 law 6).",
   "properties": {
     "id": {
       "format": "uuid",
@@ -59,6 +89,23 @@
     "workspace_name": {
       "title": "Workspace Name",
       "type": "string"
+    },
+    "is_superadmin": {
+      "default": false,
+      "title": "Is Superadmin",
+      "type": "boolean"
+    },
+    "via_superadmin": {
+      "default": false,
+      "title": "Via Superadmin",
+      "type": "boolean"
+    },
+    "workspaces": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceMembershipSummary"
+      },
+      "title": "Workspaces",
+      "type": "array"
     }
   },
   "required": [

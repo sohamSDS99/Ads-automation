@@ -22,6 +22,10 @@ MATRIX: list[tuple[str, Permission, bool, bool, bool, bool]] = [
     ("Set model routing & budget caps", Permission.SETTINGS_WRITE, True, False, False, False),
     ("Invite / remove users, change roles", Permission.USER_MANAGE, True, False, False, False),
     ("Read audit log", Permission.AUDIT_READ, True, False, False, False),
+    # Not a PRD §4.1 row: no role grants it. It is the whole-system
+    # administrator (`user.is_superadmin`), and the four Falses are the point —
+    # a workspace admin must not reach another workspace.
+    ("Administer the installation", Permission.PLATFORM_ADMIN, False, False, False, False),
 ]
 
 ROLE_ORDER = (UserRole.ADMIN, UserRole.OPERATOR, UserRole.APPROVER, UserRole.VIEWER)
@@ -50,8 +54,25 @@ def test_every_role_has_an_entry() -> None:
     assert set(ROLE_PERMISSIONS) == set(UserRole)
 
 
-def test_admin_holds_every_permission() -> None:
-    assert permissions_for(UserRole.ADMIN) == frozenset(Permission)
+def test_admin_holds_every_permission_except_the_platform() -> None:
+    """A workspace admin runs their workspace completely, and stops there."""
+    assert permissions_for(UserRole.ADMIN) == frozenset(Permission) - {Permission.PLATFORM_ADMIN}
+
+
+def test_superadmin_holds_everything_with_or_without_a_role() -> None:
+    """The system administrator reaches a workspace they were never added to.
+
+    `role=None` is that case exactly — no membership row — and it must come
+    back with the full set rather than with nothing.
+    """
+    assert permissions_for(UserRole.VIEWER, superadmin=True) == frozenset(Permission)
+    assert permissions_for(None, superadmin=True) == frozenset(Permission)
+    assert Permission.PLATFORM_ADMIN in permissions_for(None, superadmin=True)
+
+
+def test_no_role_without_superadmin_gets_nothing() -> None:
+    """A signed-in account with no membership here is not a viewer by default."""
+    assert permissions_for(None) == frozenset()
 
 
 def test_viewer_can_only_read() -> None:

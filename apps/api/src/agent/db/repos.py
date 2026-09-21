@@ -1,13 +1,20 @@
-"""Concrete repositories. Every P0b query starts here, already workspace-scoped.
+"""Concrete repositories. Every query starts here, already workspace-scoped.
 
 `WorkspaceScopedRepo.select()` is the only query constructor, so forgetting the
 `workspace_id` filter is not something a route can do by accident (PRD §6).
+
+Four repositories cannot use that base class because their model carries no
+`workspace_id` column — `UserRepo`, `ApprovalRepo`, `ReportRepo`, `ExportRepo`.
+Each reaches the workspace through a join instead, in one `_scoped()` method
+that every other method on the class is built from. The rule is the same; only
+the number of tables between the row and the workspace differs.
 """
 
 from __future__ import annotations
 
 import uuid
 from collections.abc import Collection
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
@@ -22,6 +29,7 @@ from agent.db.models import (
     Export,
     ExportFormat,
     Invite,
+    Membership,
     Project,
     Report,
     Run,
@@ -34,45 +42,173 @@ from agent.db.models import (
 from agent.db.repo import WorkspaceScopedRepo
 
 
-class UserRepo(WorkspaceScopedRepo[User]):
-    model = User
+@dataclass(frozen=True, slots=True)
+class GateDecider:
+    """Who is asking, for the queries that filter by what a person may decide.
 
-    async def by_email(self, email: str) -> User | None:
-        result = await self.session.execute(self.select().where(User.email == email))
-        return result.scalar_one_or_none()
+    A pair rather than a `User` because the role is no longer on the account:
+    the same person is an approver in one workspace and a viewer in the next,
+    and a query that took a `User` could not tell which workspace it was
+    being asked about.
+    """
 
-    async def all_ordered(self) -> list[User]:
-        result = await self.session.execute(self.select().order_by(User.created_at.asc()))
-        return list(result.scalars().all())
+    id: uuid.UUID
+    role: UserRole
+
+
+class Member:
+    """A person and the membership that puts them in this workspace.
+
+    A pair rather than a widened `User` because the two halves answer
+    different questions and change for different reasons: `user.name` follows
+    the person between workspaces, `membership.role` does not.
+    """
+
+    __slots__ = ("user", "membership")
+
+    def __init__(self, user: User, membership: Membership) -> None:
+        self.user = user
+        self.membership = membership
+
+    # The response models read a member as one flat object, and writing the
+    # same six lines at each call site is how they drift apart.
+    @property
+    def id(self) -> uuid.UUID:
+        return self.user.id
+
+    @property
+    def email(self) -> str:
+        return self.user.email
+
+    @property
+    def name(self) -> str:
+        return self.user.name
+
+    @property
+    def role(self) -> UserRole:
+        return self.membership.role
+
+    @property
+    def status(self) -> UserStatus:
+        """The workspace's answer, narrowed by the account's.
+
+        A globally disabled account cannot sign in anywhere, so showing it as
+        an active member of this workspace would be a lie the Team page tells
+        about someone who has left the company.
+        """
+        if self.user.status is UserStatus.DISABLED:
+            return UserStatus.DISABLED
+        return self.membership.status
+
+    @property
+    def last_login_at(self) -> datetime | None:
+        return self.user.last_login_at
+
+    @property
+    def created_at(self) -> datetime:
+        """When they joined *this* workspace, which is what the Team page means."""
+        return self.membership.created_at
+
+
+class UserRepo:
+    """Members of one workspace.
+
+    Not a `WorkspaceScopedRepo`: `user` has no `workspace_id` any more, and the
+    base class refuses a model it cannot scope rather than quietly returning
+    every account on the installation. The scope is the join to `membership`,
+    applied by `_scoped()` and by nothing else — same contract, one table
+    further along. `ApprovalRepo` and `ReportRepo` below reach their workspace
+    the same way.
+    """
+
+    def __init__(self, session: AsyncSession, workspace_id: uuid.UUID) -> None:
+        self.session = session
+        self.workspace_id = workspace_id
+
+    def _scoped(self) -> sa.Select[tuple[User, Membership]]:
+        return (
+            sa.select(User, Membership)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.workspace_id == self.workspace_id)
+        )
+
+    async def get(self, user_id: uuid.UUID) -> Member | None:
+        """A member of *this* workspace. An account with no membership here is
+        not found, which is the answer that keeps one workspace's admin from
+        editing another's people."""
+        result = await self.session.execute(self._scoped().where(User.id == user_id))
+        row = result.first()
+        return Member(*row) if row is not None else None
+
+    async def by_email(self, email: str) -> Member | None:
+        result = await self.session.execute(self._scoped().where(User.email == email))
+        row = result.first()
+        return Member(*row) if row is not None else None
+
+    async def all_ordered(self) -> list[Member]:
+        result = await self.session.execute(self._scoped().order_by(Membership.created_at.asc()))
+        return [Member(user, membership) for user, membership in result.all()]
 
     async def names(self, ids: Collection[uuid.UUID] | None = None) -> dict[uuid.UUID, str]:
         """Id → display name, for the whole workspace or just the ids asked for.
 
         One query for a whole page of rows. A join per row would read more
         tidily and would issue a query per project on a list of thirty.
+
+        Ids outside this workspace are answered for as well when they are asked
+        for by name: a run launched by someone whose membership was later
+        revoked still has to render its author, and "Unknown" on a year of run
+        history is worse than a name the workspace can no longer edit.
         """
         if ids is not None and not ids:
             return {}
-        statement = sa.select(User.id, User.name).where(User.workspace_id == self.workspace_id)
-        if ids is not None:
-            statement = statement.where(User.id.in_(list(ids)))
+        if ids is None:
+            statement = (
+                sa.select(User.id, User.name)
+                .join(Membership, Membership.user_id == User.id)
+                .where(Membership.workspace_id == self.workspace_id)
+            )
+        else:
+            statement = sa.select(User.id, User.name).where(User.id.in_(list(ids)))
         rows = await self.session.execute(statement)
         return {row[0]: row[1] for row in rows.all()}
 
-    async def lock_active_admins(self) -> list[User]:
-        """Row-lock every active admin, then return them.
+    async def lock_active_admins(self) -> list[Member]:
+        """Row-lock every active admin of this workspace, then return them.
 
         The lock is what makes the last-admin rule hold under concurrency: two
         simultaneous demotions serialise here, so the second one sees the first
         one's effect instead of both counting the same two admins and both
         succeeding (PRD §6.1, Authorization 4).
+
+        Locked `FOR UPDATE OF membership`: the rows being changed are the
+        memberships, and locking the `user` rows too would make an unrelated
+        rename in another workspace wait on this transaction.
         """
         result = await self.session.execute(
-            self.select()
-            .where(User.role == UserRole.ADMIN, User.status == UserStatus.ACTIVE)
-            .with_for_update()
+            self._scoped()
+            .where(
+                Membership.role == UserRole.ADMIN,
+                Membership.status == UserStatus.ACTIVE,
+                User.status == UserStatus.ACTIVE,
+            )
+            .with_for_update(of=Membership)
         )
-        return list(result.scalars().all())
+        return [Member(user, membership) for user, membership in result.all()]
+
+
+async def account_by_email(db: AsyncSession, email: str) -> User | None:
+    """An account anywhere on the installation, membership or not.
+
+    A free function rather than a `UserRepo` method, and the distinction is
+    load-bearing: everything on that class is scoped to one workspace, and a
+    lookup that deliberately is not has no business borrowing the shape of one.
+    Sign-in needs it — the password is on the account, and which workspace the
+    person lands in is decided afterwards — and so does inviting someone who
+    already works in a different workspace.
+    """
+    result = await db.execute(sa.select(User).where(User.email == email))
+    return result.scalar_one_or_none()
 
 
 class InviteRepo(WorkspaceScopedRepo[Invite]):
@@ -212,7 +348,7 @@ class ApprovalRepo:
         *,
         run_id: uuid.UUID | None = None,
         status: ApprovalStatus | None = None,
-        decidable_by: User | None = None,
+        decidable_by: GateDecider | None = None,
         limit: int = 50,
         offset: int = 0,
     ) -> list[Approval]:

@@ -19,9 +19,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.logging_middleware import bind_actor_role
+from agent.auth import workspaces
 from agent.auth.rbac import Permission, permissions_for
 from agent.auth.sessions import SessionRecord, SessionStore
-from agent.db.models import User, UserStatus
+from agent.db.models import Membership, User, UserRole, UserStatus, Workspace
 from agent.db.session import get_session
 from agent.redis_client import get_redis
 
@@ -42,16 +43,45 @@ def get_session_store(redis: Annotated[Redis, Depends(get_redis_client)]) -> Ses
 
 @dataclass(frozen=True, slots=True)
 class Principal:
-    """The caller. Everything a route needs to authorize and to audit."""
+    """The caller, in one workspace. Everything a route needs to authorize and audit.
+
+    A principal is a *pair*, not a person: the same account calling from two
+    browsers signed into two workspaces produces two principals with different
+    roles and different permissions. Routes that reach for `me.user.role` will
+    not find it — there is no such thing any more, and `me.role` (the role on
+    this workspace's membership) is the question they meant to ask.
+    """
 
     user: User
     session: SessionRecord
     permissions: frozenset[Permission]
+    workspace: Workspace
+    membership: Membership | None
+    role: UserRole
+    #: True when the caller is in this workspace as the system administrator
+    #: rather than as a member of it. Written to every audit row they cause.
+    via_superadmin: bool = False
 
     @property
     def workspace_id(self) -> uuid.UUID:
         """The workspace every repository this caller opens must be scoped to."""
-        return self.user.workspace_id
+        return self.workspace.id
+
+    @property
+    def is_superadmin(self) -> bool:
+        return self.user.is_superadmin
+
+    def audit_meta(self, **extra: object) -> dict[str, object]:
+        """Audit metadata with the visiting-administrator fact attached.
+
+        A system administrator acting inside somebody else's workspace looks
+        exactly like that workspace's own admin in the log unless the log says
+        otherwise. This is what says otherwise.
+        """
+        meta: dict[str, object] = dict(extra)
+        if self.via_superadmin:
+            meta["via_superadmin"] = True
+        return meta
 
 
 async def current_user(
@@ -59,12 +89,13 @@ async def current_user(
     db: Annotated[AsyncSession, Depends(get_session)],
     store: Annotated[SessionStore, Depends(get_session_store)],
 ) -> Principal:
-    """Resolve the session cookie to a live, active user.
+    """Resolve the session cookie to a live account with live access.
 
-    The `user` row is read on every request on purpose. Caching the role in the
-    session would mean a demotion or a disable only took effect the next time
-    the session was rebuilt; reading it here makes both immediate, which is what
-    the acceptance criteria measure.
+    Both halves are re-read on every request on purpose. Caching the role in
+    the session would mean a demotion or a disable only took effect the next
+    time the session was rebuilt; reading the `user` row and the `membership`
+    row here makes both immediate, and makes the workspace id in the session a
+    statement of where the browser is rather than permission to be there.
     """
     record: SessionRecord | None = getattr(request.state, REQUEST_STATE_SESSION, None)
     if record is None:
@@ -81,8 +112,31 @@ async def current_user(
         log.info("auth.session_revoked_inactive_user", user_id=str(user.id), status=user.status)
         raise problems.unauthenticated("This account is no longer active.")
 
-    bind_actor_role(user.role.value)
-    return Principal(user=user, session=record, permissions=permissions_for(user.role))
+    try:
+        access = await workspaces.resolve_access(db, user=user, workspace_id=record.workspace_id)
+    except workspaces.WorkspaceAccessError as exc:
+        # Only this one session dies. The account may still hold other
+        # workspaces, and signing them out of those because access to this one
+        # ended would be a second punishment for someone else's decision.
+        await store.revoke(record.sid, user_id=user.id)
+        log.info(
+            "auth.session_revoked_no_access",
+            user_id=str(user.id),
+            workspace_id=str(record.workspace_id),
+            reason=exc.reason,
+        )
+        raise problems.unauthenticated(exc.detail) from exc
+
+    bind_actor_role(access.role.value)
+    return Principal(
+        user=user,
+        session=record,
+        permissions=permissions_for(access.role, superadmin=user.is_superadmin),
+        workspace=access.workspace,
+        membership=access.membership,
+        role=access.role,
+        via_superadmin=access.via_superadmin,
+    )
 
 
 CurrentUser = Annotated[Principal, Depends(current_user)]
@@ -100,7 +154,8 @@ def require(permission: Permission) -> Callable[[Principal], Awaitable[Principal
             log.info(
                 "auth.forbidden",
                 user_id=str(principal.user.id),
-                role=principal.user.role,
+                role=principal.role,
+                workspace_id=str(principal.workspace_id),
                 missing_permission=permission.value,
             )
             raise problems.forbidden(missing_permission=permission.value)

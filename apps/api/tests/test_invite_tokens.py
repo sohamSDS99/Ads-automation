@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from agent.auth import invites
 from agent.auth.invites import InviteState
 from agent.db.models import Invite
@@ -57,3 +59,34 @@ def test_an_accepted_invite_reads_as_accepted_even_after_it_expires() -> None:
         expires_at=datetime.now(UTC) - timedelta(days=20),
     )
     assert invites.state_of(spent) is InviteState.ACCEPTED
+
+
+# ---------------------------------------------------------------------------
+# The placeholder name an invite starts with
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("email", "expected"),
+    [
+        ("jo.patel@example.com", "Jo Patel"),
+        ("alex_moreno@example.com", "Alex Moreno"),
+        ("mary-jane.watson@example.com", "Mary Jane Watson"),
+        ("cfo@example.com", "Cfo"),
+        # Already capitalised, and the middle of a word is left alone: "McRae"
+        # must not come back as "Mcrae".
+        ("Ada.McRae@example.com", "Ada McRae"),
+        # Nothing usable in the local part — the address itself is better than
+        # an empty name, which would render as a blank row.
+        ("...@example.com", "...@example.com"),
+    ],
+)
+def test_a_placeholder_name_is_readable(email: str, expected: str) -> None:
+    """An admin should not have to invent a colleague's name to add them.
+
+    Whatever this produces is replaced the moment they accept; until then it
+    is what the member list shows, and a list of raw addresses is unreadable.
+    """
+    from agent.api.routes_users import default_name
+
+    assert default_name(email) == expected

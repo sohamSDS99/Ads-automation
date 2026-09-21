@@ -24,6 +24,7 @@ arrive (RFC 9110 §13.1.1).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 from email.utils import format_datetime, parsedate_to_datetime
 from typing import Annotated
@@ -65,6 +66,7 @@ from agent.config import get_settings
 from agent.db.models import (
     Credential,
     CredentialKind,
+    Membership,
     Project,
     Run,
     User,
@@ -103,7 +105,7 @@ async def list_projects(me: AnyMember, db: Db) -> ProjectListResponse:
     if not projects:
         return ProjectListResponse(projects=[])
 
-    names = await _user_names(db, me.workspace_id)
+    names = await _user_names(db, me.workspace_id, also=[item.created_by for item in projects])
     counts, latest = await _run_rollup(db, me.workspace_id, [item.id for item in projects])
     return ProjectListResponse(
         projects=[
@@ -379,7 +381,9 @@ async def autofill_project(
 async def list_project_runs(project_id: uuid.UUID, me: AnyMember, db: Db) -> RunListResponse:
     await _load(db, me, project_id)
     runs = await RunRepo(db, me.workspace_id).for_project(project_id, limit=RUN_PAGE_SIZE)
-    names = await _user_names(db, me.workspace_id)
+    names = await _user_names(
+        db, me.workspace_id, also=[run.triggered_by for run in runs if run.triggered_by]
+    )
     return RunListResponse(runs=[_run_summary(run, names) for run in runs])
 
 
@@ -452,10 +456,13 @@ async def _assert_assignees_exist(
     rows = (
         (
             await db.execute(
-                sa.select(User.id).where(
-                    User.workspace_id == me.workspace_id,
+                sa.select(User.id)
+                .join(Membership, Membership.user_id == User.id)
+                .where(
+                    Membership.workspace_id == me.workspace_id,
                     User.id.in_(wanted),
-                    User.role.in_([UserRole.APPROVER, UserRole.ADMIN]),
+                    Membership.role.in_([UserRole.APPROVER, UserRole.ADMIN]),
+                    Membership.status != UserStatus.DISABLED,
                     User.status != UserStatus.DISABLED,
                 )
             )
@@ -471,9 +478,22 @@ async def _assert_assignees_exist(
         )
 
 
-async def _user_names(db: AsyncSession, workspace_id: uuid.UUID) -> dict[uuid.UUID, str]:
-    """Id → display name for everyone in the workspace."""
-    return await UserRepo(db, workspace_id).names()
+async def _user_names(
+    db: AsyncSession, workspace_id: uuid.UUID, *, also: Collection[uuid.UUID] = ()
+) -> dict[uuid.UUID, str]:
+    """Id → display name for everyone in the workspace, plus the ids named.
+
+    `also` carries the authors of the rows about to be rendered. Membership is
+    revocable now, so the person who created a project two months ago may no
+    longer be in the workspace — and a project list that says "Unknown"
+    against half its rows because three people changed teams is worse than
+    one that can still name them.
+    """
+    names = await UserRepo(db, workspace_id).names()
+    missing = [item for item in also if item is not None and item not in names]
+    if missing:
+        names.update(await UserRepo(db, workspace_id).names(missing))
+    return names
 
 
 async def _run_rollup(
@@ -535,7 +555,7 @@ def _run_summary(run: Run, names: dict[uuid.UUID, str]) -> RunSummary:
 async def _detail(
     db: AsyncSession, me: Principal, project: Project, response: Response
 ) -> ProjectDetail:
-    names = await _user_names(db, me.workspace_id)
+    names = await _user_names(db, me.workspace_id, also=[project.created_by])
     counts, latest = await _run_rollup(db, me.workspace_id, [project.id])
     assignments = _assignments(project)
 

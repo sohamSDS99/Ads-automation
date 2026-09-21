@@ -16,18 +16,42 @@ export type InviteCreated = {
   expires_at: string;
   /** False when SMTP is unset or the send failed — copy the link instead. */
   email_delivered: boolean;
+  /**
+   * True when the address already had an account. They are being added to
+   * this workspace rather than signed up, and the link asks them to confirm
+   * with the password they already have.
+   */
+  has_account: boolean;
 };
 
 export function listUsers(): Promise<{ users: UserSummary[] }> {
   return apiFetch("/users");
 }
 
+/**
+ * Create a profile for someone.
+ *
+ * Email is the only thing an admin must know. `name` is optional because the
+ * person sets it themselves when they accept — an admin guessing at how a
+ * colleague spells their own name is a placeholder that survives for years.
+ */
 export function inviteUser(body: {
   email: string;
-  name: string;
+  name?: string;
   role: Role;
 }): Promise<InviteCreated> {
   return apiFetch("/users/invite", { method: "POST", body: JSON.stringify(body) });
+}
+
+/**
+ * Take away this workspace's access, and nothing else.
+ *
+ * The account survives, along with their name on everything they did here.
+ * Removing is right for someone who has moved to another team; `updateUser`
+ * with `status: "disabled"` is right for someone who may come back.
+ */
+export function removeMember(id: string): Promise<void> {
+  return apiFetch(`/users/${id}`, { method: "DELETE" });
 }
 
 export function updateUser(

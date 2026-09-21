@@ -49,6 +49,7 @@ TABLES = (
     "credential",
     "project",
     "invite",
+    "membership",
     '"user"',  # `user` is a reserved word in Postgres
     "workspace",
 )
@@ -318,13 +319,13 @@ async def admin_user(db: AsyncSession, workspace: Workspace) -> Any:
 
 
 @pytest_asyncio.fixture
-async def project(db: AsyncSession, admin_user: Any) -> Any:
+async def project(db: AsyncSession, admin_user: Any, workspace_id: uuid.UUID) -> Any:
     """One project with an OpenRouter credential — the minimum a run needs."""
     from agent.credentials import new_credential
     from agent.db.models import CredentialKind, Project
 
     row = Project(
-        workspace_id=admin_user.workspace_id,
+        workspace_id=workspace_id,
         created_by=admin_user.id,
         name="SDS Manager",
         domain="sdsmanager.com",
@@ -338,7 +339,7 @@ async def project(db: AsyncSession, admin_user: Any) -> Any:
     db.add(row)
     db.add(
         new_credential(
-            workspace_id=admin_user.workspace_id,
+            workspace_id=workspace_id,
             kind=CredentialKind.OPENROUTER,
             secret="sk-or-test-key",
             created_by=admin_user.id,
@@ -376,12 +377,14 @@ async def project_id(project: Any) -> uuid.UUID:
 
 
 @pytest_asyncio.fixture
-async def second_project_id(db: AsyncSession, admin_user: Any) -> uuid.UUID:
+async def second_project_id(
+    db: AsyncSession, admin_user: Any, workspace_id: uuid.UUID
+) -> uuid.UUID:
     """A second project in the same workspace, for cross-project dedupe tests."""
     from agent.db.models import Project
 
     row = Project(
-        workspace_id=admin_user.workspace_id,
+        workspace_id=workspace_id,
         created_by=admin_user.id,
         name="Second Product",
         domain="second.example",
@@ -392,5 +395,14 @@ async def second_project_id(db: AsyncSession, admin_user: Any) -> uuid.UUID:
 
 
 @pytest_asyncio.fixture
-async def workspace_id(admin_user: Any) -> uuid.UUID:
-    return admin_user.workspace_id
+async def workspace_id(db: AsyncSession, workspace: Workspace) -> uuid.UUID:
+    """The bootstrapped workspace's id.
+
+    Read from `workspace` rather than from the admin: the account stopped
+    carrying a workspace when membership took over, and a fixture that went
+    looking for one on it would be asking the wrong table.
+    """
+    from agent.db.models import Workspace as WorkspaceRow
+
+    result = await db.execute(sa.select(WorkspaceRow).order_by(WorkspaceRow.created_at).limit(1))
+    return result.scalar_one().id

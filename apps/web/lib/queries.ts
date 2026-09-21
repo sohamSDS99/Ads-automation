@@ -6,7 +6,14 @@
  */
 "use client";
 
-import { useInfiniteQuery, useQuery, type UseQueryResult } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseQueryResult,
+} from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 
 import { listAudit, type AuditFilters } from "@/lib/api/audit";
 import { listSessions } from "@/lib/api/account";
@@ -21,7 +28,8 @@ import { listUsers } from "@/lib/api/users";
 import { getRunDiff } from "@/lib/api/diff";
 import { listSchedules } from "@/lib/api/schedules";
 import { getStorageUsage } from "@/lib/api/storage";
-import { getWorkspace } from "@/lib/api/workspace";
+import { listAccounts } from "@/lib/api/platform";
+import { getWorkspace, listWorkspaces, switchWorkspace } from "@/lib/api/workspace";
 
 export const keys = {
   projects: ["projects"] as const,
@@ -31,6 +39,8 @@ export const keys = {
   models: ["models"] as const,
   users: ["users"] as const,
   workspace: ["workspace"] as const,
+  workspaces: (includeArchived: boolean) => ["workspaces", includeArchived] as const,
+  accounts: ["platform", "accounts"] as const,
   audit: (filters: AuditFilters) => ["audit", filters] as const,
   sessions: ["sessions"] as const,
   run: (runId: string) => ["runs", runId] as const,
@@ -203,5 +213,48 @@ export function useRunDiff(runId: string, against: string | undefined, enabled: 
     // A finished run's report never changes, so neither does its diff.
     staleTime: Infinity,
     retry: false,
+  });
+}
+
+
+/**
+ * Every workspace this caller can open.
+ *
+ * `enabled` so the administration screen can ask for archived ones without a
+ * second hook, and so the switcher never fires it for a caller who has only
+ * the one workspace in `me.workspaces`.
+ */
+export function useWorkspaces(includeArchived = false, enabled = true) {
+  return useQuery({
+    queryKey: keys.workspaces(includeArchived),
+    queryFn: () => listWorkspaces(includeArchived),
+    enabled,
+  });
+}
+
+export function useAccounts(enabled = true) {
+  return useQuery({ queryKey: keys.accounts, queryFn: listAccounts, enabled });
+}
+
+/**
+ * Switch workspace, then forget everything.
+ *
+ * `clear()`, not `invalidateQueries()`. Every cached list, project, run and
+ * report belongs to the workspace it was fetched in, and invalidating leaves
+ * the stale data on screen while the refetch is in flight — which means a
+ * beat during which someone is looking at another company's project names.
+ * `router.refresh()` afterwards re-runs the server layout so the shell picks
+ * up the new session.
+ */
+export function useSwitchWorkspace() {
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  return useMutation({
+    mutationFn: (workspaceId: string) => switchWorkspace(workspaceId),
+    onSuccess: () => {
+      queryClient.clear();
+      router.push("/");
+      router.refresh();
+    },
   });
 }

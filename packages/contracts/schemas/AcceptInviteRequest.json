@@ -1,10 +1,18 @@
 {
+  "description": "Accepting is one form with two shapes.\n\nA new account sets a name and a password. An existing account proves it is\ntheirs with the password they already have, and keeps the name it already\nhas. Both arrive here; `routes_invites` decides which by looking at the\naccount, never at which fields the client chose to send.",
   "properties": {
     "name": {
-      "maxLength": 120,
-      "minLength": 1,
-      "title": "Name",
-      "type": "string"
+      "anyOf": [
+        {
+          "maxLength": 120,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
     },
     "password": {
       "maxLength": 512,
@@ -14,7 +22,6 @@
     }
   },
   "required": [
-    "name",
     "password"
   ],
   "title": "AcceptInviteRequest",

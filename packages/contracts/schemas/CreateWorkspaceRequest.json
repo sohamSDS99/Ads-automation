@@ -1,0 +1,30 @@
+{
+  "description": "A new company, or a new business function inside one.\n\n`admin_email` is optional and does the obvious thing when present: the new\nworkspace is created with somebody already able to run it. Without it the\nworkspace has no members at all, reachable only by the system\nadministrator, which is a legitimate state \u2014 you make the workspace, then\nyou invite its people \u2014 but a quiet one, so the response says so.",
+  "properties": {
+    "name": {
+      "maxLength": 120,
+      "minLength": 1,
+      "title": "Name",
+      "type": "string"
+    },
+    "admin_email": {
+      "anyOf": [
+        {
+          "format": "email",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Admin Email"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "CreateWorkspaceRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

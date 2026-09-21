@@ -1,0 +1,42 @@
+{
+  "$defs": {
+    "UserStatus": {
+      "enum": [
+        "invited",
+        "active",
+        "disabled"
+      ],
+      "title": "UserStatus",
+      "type": "string"
+    }
+  },
+  "description": "Both optional; at least one must be present.",
+  "properties": {
+    "is_superadmin": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Is Superadmin"
+    },
+    "status": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/UserStatus"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "UpdateAccountRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

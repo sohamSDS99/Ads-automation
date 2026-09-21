@@ -20,7 +20,7 @@ import { changePassword, revokeSession, type SessionSummary } from "@/lib/api/ac
 import { credentialFor } from "@/lib/api/credentials";
 import { ROLE_DESCRIPTION } from "@/lib/permissions";
 import { absoluteTime, relativeTime } from "@/lib/format";
-import { errorMessage, keys, useCredentials, useSessions } from "@/lib/queries";
+import { errorMessage, keys, useCredentials, useSessions, useSwitchWorkspace } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 
 export default function AccountPage() {
@@ -33,16 +33,86 @@ export default function AccountPage() {
         <p className="mt-1 text-sm text-fg-muted">
           {user.name} · {user.email}
         </p>
-        <div className="mt-2 flex items-center gap-2">
+        <div className="mt-2 flex flex-wrap items-center gap-2">
           <RoleBadge role={user.role} />
-          <span className="text-xs text-fg-subtle">{ROLE_DESCRIPTION[user.role]}</span>
+          <span className="text-xs text-fg-subtle">
+            {ROLE_DESCRIPTION[user.role]} in {user.workspace_name}
+          </span>
         </div>
       </header>
 
+      <WorkspacesCard />
       <PasswordCard />
       <SessionsCard />
       <PersonalKeyCard />
     </div>
+  );
+}
+
+/**
+ * Where this account can go, and what it is in each place.
+ *
+ * Worth a card of its own because the role in the topbar is only true of the
+ * workspace you happen to be in. Someone who is an admin here and a viewer
+ * next door has no other way to see both facts at once, and "why can't I do
+ * that any more?" is usually answered by this table.
+ */
+function WorkspacesCard() {
+  const { user } = useSession();
+  const switcher = useSwitchWorkspace();
+
+  return (
+    <Card>
+      <CardHeader
+        title="Your workspaces"
+        description="One account, one password. Your role is set separately in each workspace."
+      />
+      <Table label="Workspaces you can open">
+        <thead>
+          <tr>
+            <Th>Workspace</Th>
+            <Th>Your role</Th>
+            <Th className="text-right">Actions</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {user.workspaces.map((workspace) => {
+            const current = workspace.id === user.workspace_id;
+            return (
+              <Tr key={workspace.id}>
+                <Td>
+                  <p className="font-medium text-fg">
+                    {workspace.name}
+                    {current ? (
+                      <span className="ml-2 text-xs text-fg-subtle">you are here</span>
+                    ) : null}
+                  </p>
+                </Td>
+                <Td>
+                  {workspace.is_member ? (
+                    <RoleBadge role={workspace.role} />
+                  ) : (
+                    <span className="text-xs text-fg-subtle">Visiting as system administrator</span>
+                  )}
+                </Td>
+                <Td className="whitespace-nowrap text-right">
+                  {current ? null : (
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={switcher.isPending}
+                      onClick={() => switcher.mutate(workspace.id)}
+                    >
+                      Open
+                    </Button>
+                  )}
+                </Td>
+              </Tr>
+            );
+          })}
+        </tbody>
+      </Table>
+    </Card>
   );
 }
 

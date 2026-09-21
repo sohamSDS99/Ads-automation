@@ -5,7 +5,7 @@ from __future__ import annotations
 import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import AuditLog, User, UserRole, UserStatus
+from agent.db.models import AuditLog, Membership, User, UserRole, UserStatus
 from tests.integration.conftest import ApiClient, build_client, make_member
 
 
@@ -22,7 +22,13 @@ async def test_an_admin_can_change_a_role(admin: ApiClient, db: AsyncSession) ->
     assert response.json()["role"] == "operator"
 
     db.expire_all()
-    row = (await db.execute(sa.select(User).where(User.email == email))).scalar_one()
+    row = (
+        await db.execute(
+            sa.select(Membership)
+            .join(User, User.id == Membership.user_id)
+            .where(User.email == email)
+        )
+    ).scalar_one()
     assert row.role is UserRole.OPERATOR
 
 
@@ -71,7 +77,7 @@ async def test_the_last_active_admin_cannot_be_demoted(admin: ApiClient, db: Asy
     assert response.json()["title"] == "Last admin"
 
     db.expire_all()
-    row = (await db.execute(sa.select(User).where(User.id == target))).scalar_one()
+    row = (await db.execute(sa.select(Membership).where(Membership.user_id == target))).scalar_one()
     assert row.role is UserRole.ADMIN
     assert row.status is UserStatus.ACTIVE
 
@@ -82,7 +88,7 @@ async def test_the_last_active_admin_cannot_be_disabled(admin: ApiClient, db: As
     assert response.status_code == 409
 
     db.expire_all()
-    row = (await db.execute(sa.select(User).where(User.id == target))).scalar_one()
+    row = (await db.execute(sa.select(Membership).where(Membership.user_id == target))).scalar_one()
     assert row.status is UserStatus.ACTIVE
 
 
@@ -100,8 +106,8 @@ async def test_an_admin_can_be_demoted_once_a_second_one_exists(
     remaining = (
         await db.execute(
             sa.select(sa.func.count())
-            .select_from(User)
-            .where(User.role == UserRole.ADMIN, User.status == UserStatus.ACTIVE)
+            .select_from(Membership)
+            .where(Membership.role == UserRole.ADMIN, Membership.status == UserStatus.ACTIVE)
         )
     ).scalar_one()
     assert remaining == 1

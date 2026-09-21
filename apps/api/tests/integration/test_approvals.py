@@ -20,6 +20,7 @@ from agent.db.models import (
     Approval,
     ApprovalStatus,
     AuditLog,
+    Membership,
     NodeRunStatus,
     Project,
     RunStatus,
@@ -120,7 +121,9 @@ async def test_the_decision_is_audit_logged_with_the_deciding_user(
     assert decided.meta["note"] == "Fine as drafted."
     assert decided.meta["run_id"] == created["id"]
 
-    who = await db.get(User, decided.actor_id)
+    who = (
+        await db.execute(sa.select(Membership).where(Membership.user_id == decided.actor_id))
+    ).scalar_one_or_none()
     assert who is not None and who.role is UserRole.APPROVER
 
 

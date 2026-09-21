@@ -20,7 +20,7 @@
       "type": "string"
     },
     "UserSummary": {
-      "description": "One member of the workspace, as any authenticated caller may see them.",
+      "description": "One member of the workspace, as any authenticated caller may see them.\n\n`role`, `status` and `created_at` describe the *membership*, not the\naccount: the same person may be an admin here and a viewer next door, and\nthe Team page is only ever asking about here.",
       "properties": {
         "id": {
           "format": "uuid",

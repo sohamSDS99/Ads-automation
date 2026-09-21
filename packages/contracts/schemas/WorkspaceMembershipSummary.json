@@ -1,0 +1,42 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    }
+  },
+  "description": "One entry in the workspace switcher.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "role": {
+      "$ref": "#/$defs/UserRole"
+    },
+    "is_member": {
+      "title": "Is Member",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "role",
+    "is_member"
+  ],
+  "title": "WorkspaceMembershipSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

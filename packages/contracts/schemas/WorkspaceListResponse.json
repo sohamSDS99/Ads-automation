@@ -1,0 +1,113 @@
+{
+  "$defs": {
+    "UserRole": {
+      "enum": [
+        "admin",
+        "operator",
+        "approver",
+        "viewer"
+      ],
+      "title": "UserRole",
+      "type": "string"
+    },
+    "WorkspaceSummary": {
+      "description": "One workspace in a list \u2014 the switcher's, or the administrator's.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        },
+        "archived_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Archived At"
+        },
+        "member_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Member Count"
+        },
+        "role": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/UserRole"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "is_member": {
+          "default": true,
+          "title": "Is Member",
+          "type": "boolean"
+        },
+        "current": {
+          "default": false,
+          "title": "Current",
+          "type": "boolean"
+        },
+        "admin_invited": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Admin Invited"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "created_at"
+      ],
+      "title": "WorkspaceSummary",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "workspaces": {
+      "items": {
+        "$ref": "#/$defs/WorkspaceSummary"
+      },
+      "title": "Workspaces",
+      "type": "array"
+    }
+  },
+  "required": [
+    "workspaces"
+  ],
+  "title": "WorkspaceListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -136,17 +136,23 @@ async def test_the_avatar_row_is_capped_but_the_count_is_honest(
     """A run with more viewers than the row can draw still reports all of them."""
     import sqlalchemy as sa
 
-    from agent.db.models import User, UserRole, UserStatus
+    from agent.db.models import Membership, User, UserRole, UserStatus
     from agent.db.session import get_sessionmaker
 
     async with get_sessionmaker()() as session:
         for index in range(MAX_VIEWERS + 3):
+            watcher = User(
+                email=f"crowd-{index}@example.com",
+                name=f"Crowd {index:02d}",
+                password_hash="x",
+                status=UserStatus.ACTIVE,
+            )
+            session.add(watcher)
+            await session.flush()
             session.add(
-                User(
+                Membership(
                     workspace_id=project.workspace_id,
-                    email=f"crowd-{index}@example.com",
-                    name=f"Crowd {index:02d}",
-                    password_hash="x",
+                    user_id=watcher.id,
                     role=UserRole.VIEWER,
                     status=UserStatus.ACTIVE,
                 )

@@ -35,7 +35,14 @@ async function preview(token: string): Promise<InvitePreview> {
 }
 
 function unusable(): InvitePreview {
-  return { state: "invalid", email: null, role: null, workspace_name: null, expires_at: null };
+  return {
+    state: "invalid",
+    email: null,
+    role: null,
+    workspace_name: null,
+    expires_at: null,
+    has_account: false,
+  };
 }
 
 export default async function InvitePage({ params }: { params: Promise<{ token: string }> }) {
@@ -54,8 +61,14 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
         <h1 className="text-[length:var(--text-xl)] font-semibold tracking-tight text-fg">
           Join {invite.workspace_name ?? "the workspace"}
         </h1>
+        {/* Two different sentences because they are two different acts. A new
+            person is creating an account; someone who already has one is
+            adding a workspace to it, and telling them to "choose a password"
+            would read as an instruction to change the one they use. */}
         <p className="mt-2 text-sm text-fg-muted">
-          Choose a password and your account is ready. This link works once.
+          {invite.has_account
+            ? "You already have an account. Confirm your password to add this workspace to it — everything you have elsewhere stays exactly as it is."
+            : "Choose a password and your account is ready. This link works once."}
         </p>
       </div>
 
@@ -73,7 +86,12 @@ export default async function InvitePage({ params }: { params: Promise<{ token: 
         </div>
       </dl>
 
-      <AcceptInviteForm token={token} email={invite.email ?? ""} />
+      <AcceptInviteForm
+        token={token}
+        email={invite.email ?? ""}
+        hasAccount={invite.has_account}
+        workspaceName={invite.workspace_name ?? "this workspace"}
+      />
     </div>
   );
 }
