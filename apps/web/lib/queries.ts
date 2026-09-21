@@ -21,7 +21,7 @@ import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import { getModels } from "@/lib/api/models";
-import { getPlanEligibility, listPlans } from "@/lib/api/plan";
+import { getPlanEligibility, listPlanCalcs, listPlans } from "@/lib/api/plan";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
 import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
@@ -55,6 +55,8 @@ export const keys = {
   runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
   planEligibility: (projectId: string) => ["projects", projectId, "plan", "eligibility"] as const,
   plans: (projectId: string) => ["projects", projectId, "plans"] as const,
+  planCalcs: (planRunId: string, nodeId: string) =>
+    ["plans", planRunId, "calcs", nodeId] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -103,6 +105,22 @@ export function usePlanEligibility(projectId: string) {
       query.state.data?.blockers.some((item) => item.code === "plan_in_flight")
         ? PLAN_POLL_MS
         : false,
+  });
+}
+
+/**
+ * The calculations one node of a plan run produced (Stage 02 PRD §15.3 B).
+ *
+ * Keyed by node because that is how the Calc tab asks: an approver reading one
+ * node wants that node's arithmetic, not the run's. Unlike `useNodeRun` this
+ * does not 404 on a node that has not run — it answers `[]`, so an empty list
+ * and "nothing computed here" are the same state and need no error branch.
+ */
+export function usePlanCalcs(planRunId: string, nodeId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.planCalcs(planRunId, nodeId ?? ""),
+    queryFn: () => listPlanCalcs(planRunId, nodeId),
+    enabled: enabled && Boolean(nodeId),
   });
 }
 

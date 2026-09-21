@@ -447,6 +447,7 @@ async def _run_response(
     return RunResponse(
         id=run.id,
         project_id=run.project_id,
+        stage=run.stage,
         status=run.status,
         mode=run.mode,
         trigger=run.trigger,

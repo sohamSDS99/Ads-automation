@@ -9,7 +9,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from agent.db.models import NodeRunStatus, RunMode, RunStatus, RunTrigger
+from agent.db.models import NodeRunStatus, RunMode, RunStage, RunStatus, RunTrigger
 from agent.llm.router import TaskClass
 
 
@@ -93,6 +93,15 @@ class RunResponse(BaseModel):
 
     id: uuid.UUID
     project_id: uuid.UUID
+    stage: RunStage = Field(
+        default=RunStage.RESEARCH,
+        description=(
+            "Which DAG this run executes. The console reads it to refuse a run opened "
+            "under the wrong stage's route, so a research id pasted into the plan "
+            "console says so instead of rendering a plan-shaped shell around research "
+            "nodes."
+        ),
+    )
     status: RunStatus
     mode: RunMode
     trigger: RunTrigger

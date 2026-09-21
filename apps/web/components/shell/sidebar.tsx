@@ -86,7 +86,6 @@ export function Sidebar() {
         })}
       </ul>
 
-      <p className="hidden px-4 py-3 text-xs text-fg-subtle md:block">Stage 01 · Research</p>
     </nav>
   );
 }

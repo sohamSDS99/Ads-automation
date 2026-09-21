@@ -120,3 +120,34 @@ export function withdrawAcceptance(runId: string): Promise<ResearchAcceptance> {
 export function startPlanRun(projectId: string): Promise<PlanRunAccepted> {
   return apiFetch<PlanRunAccepted>(`/projects/${projectId}/plan/runs`, { method: "POST" });
 }
+
+/**
+ * One calculation behind one number in the plan (Stage 02 PRD §15.3 B).
+ *
+ * Law 14 says the model never does arithmetic: every figure a node asserts
+ * comes from a registered `@formula` and leaves one of these rows behind. The
+ * Calc tab renders them so an approver can audit a number without leaving the
+ * console.
+ */
+export type PlanCalcRow = {
+  id: string;
+  node_id: string;
+  /** The registry key, e.g. `economics.max_cpa_v1` — not a description. */
+  formula_id: string;
+  /** Constants-file version plus code version: what the number is reproducible against. */
+  calc_version: string;
+  inputs: Record<string, unknown>;
+  result: Record<string, unknown>;
+  /** Null once the `derived` Evidence row has been pruned. The calculation survives it. */
+  evidence_id: string | null;
+  created_at: string;
+};
+
+/** `GET /plans/{planRunId}/calcs` — oldest first, the order they computed in. */
+export function listPlanCalcs(
+  planRunId: string,
+  nodeId?: string | null,
+): Promise<{ items: PlanCalcRow[] }> {
+  const query = nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : "";
+  return apiFetch<{ items: PlanCalcRow[] }>(`/plans/${planRunId}/calcs${query}`);
+}

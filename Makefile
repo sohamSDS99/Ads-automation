@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -164,6 +164,15 @@ browser-s2p0: ## Drive the Stage 02 handshake screens (tabs, lock, accept, start
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		python /tmp/browser-check-s2p0.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s2p6a: ## Drive the Plan Console (rail, Calc tab, stage guard) at 1440 and 390
+	@docker compose cp scripts/browser-check-s2p6a.py worker:/tmp/browser-check-s2p6a.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	# The worker's own venv: the image ships the playwright its browsers were
+	# installed for, and `--with playwright==1.49.0` pulls a second copy that
+	# then cannot find them.
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run python /tmp/browser-check-s2p6a.py
 
 browser-documents: ## Upload a real PDF into step 1 and assert on what the screen says
 	@docker compose cp scripts/browser-check-documents.py worker:/tmp/browser-check-documents.py

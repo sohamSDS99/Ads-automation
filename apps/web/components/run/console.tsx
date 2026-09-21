@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
-import { isLive, nodeLabel, type RunDetail } from "@/lib/api/runs";
+import { isLive, nodeLabel, type RunDetail, type RunStage } from "@/lib/api/runs";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, keys, useApprovals, useRun } from "@/lib/queries";
 import { describe, useRunStream, type RunEvent } from "@/lib/run-events";
@@ -37,7 +37,21 @@ import { cn } from "@/lib/utils";
  * stream replays its history — the console asks the API again rather than
  * guessing.
  */
-export function RunConsole({ runId, projectId }: { runId: string; projectId: string }) {
+export function RunConsole({
+  runId,
+  projectId,
+  stage = "research",
+}: {
+  runId: string;
+  projectId: string;
+  /**
+   * Which pipeline this console is showing (Stage 02 PRD §15.3 B). The DAG,
+   * the rail and the node panel are all driven by what the API returns, so
+   * this changes exactly two things: the node panel gains its Calc tab, and
+   * the console refuses a run that belongs to the other stage.
+   */
+  stage?: RunStage;
+}) {
   const queryClient = useQueryClient();
   const run = useRun(runId);
   const approvals = useApprovals({ run_id: runId });
@@ -139,6 +153,33 @@ export function RunConsole({ runId, projectId }: { runId: string; projectId: str
 
   const detail = run.data;
 
+  // A run id from the other stage renders a console that looks right and
+  // describes the wrong pipeline — plan stage headings over research nodes, a
+  // Calc tab with nothing behind it. Cheaper to say so and offer the way
+  // across than to let someone read it as the run they asked for.
+  //
+  // Fails open on an absent `stage`: `web` and `api` deploy separately, and a
+  // guard that treated "the api is older than this build" as "wrong stage"
+  // would blank every console in the gap. Unknown is not mismatched.
+  if (detail.stage !== undefined && detail.stage !== stage) {
+    const href =
+      detail.stage === "plan"
+        ? `/projects/${projectId}/plan/runs/${runId}`
+        : `/projects/${projectId}/runs/${runId}`;
+    return (
+      <Alert tone="warning" title="This run belongs to the other stage">
+        <p>
+          {detail.stage === "plan"
+            ? "This is a campaign planning run, opened under the research console."
+            : "This is a research run, opened under the campaign planning console."}
+        </p>
+        <Link href={href} className="mt-2 inline-block text-accent hover:underline">
+          Open it where it belongs
+        </Link>
+      </Alert>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-[34rem] flex-col overflow-hidden rounded-[var(--radius)] border bg-surface-raised">
       <header className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 border-b px-4 py-3">
@@ -158,13 +199,18 @@ export function RunConsole({ runId, projectId }: { runId: string; projectId: str
             <RefreshCw aria-hidden className={cn(run.isFetching && "animate-spin")} />
             <span className="sr-only">Refresh</span>
           </Button>
-          <Link
-            href={`/projects/${projectId}/runs/${runId}/report`}
-            className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
-          >
-            <FileText className="size-4" aria-hidden />
-            Report
-          </Link>
+          {/* Research only for now. The plan run's equivalent is the Plan
+              Viewer at `/plan/runs/{id}/plan`, which is the next slice — a
+              link to a route that does not exist yet is worse than no link. */}
+          {stage === "research" ? (
+            <Link
+              href={`/projects/${projectId}/runs/${runId}/report`}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <FileText className="size-4" aria-hidden />
+              Report
+            </Link>
+          ) : null}
         </div>
       </header>
 
@@ -237,6 +283,7 @@ export function RunConsole({ runId, projectId }: { runId: string; projectId: str
           node={selectedNode}
           approval={pendingApproval}
           onDecided={onReconnect}
+          stage={stage}
           className="min-h-0 flex-1 border-t xl:w-[26.25rem] xl:flex-none xl:border-t-0 xl:border-l"
         />
       </div>

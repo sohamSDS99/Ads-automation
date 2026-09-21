@@ -370,6 +370,13 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         None,
     ),
     ("GET", "/projects/{project_id}/plans", "/projects/{project}/plans", Permission.READ, None),
+    (
+        "GET",
+        "/plans/{plan_run_id}/calcs",
+        "/plans/{run}/calcs",
+        Permission.READ,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

@@ -254,6 +254,15 @@
       "title": "RunMode",
       "type": "string"
     },
+    "RunStage": {
+      "description": "Which pipeline a run executes (Stage 02 PRD \u00a77.1).\n\nOne `run` table, two DAGs. A plan run consumes exactly one research run and\nsays so in `source_run_id`; the `CHECK` in migration 0013 makes the two\nfacts inseparable, so \"a plan run\" and \"a run with a source\" are the same\nstatement rather than two that can drift apart.",
+      "enum": [
+        "research",
+        "plan"
+      ],
+      "title": "RunStage",
+      "type": "string"
+    },
     "RunStatus": {
       "enum": [
         "queued",
@@ -297,6 +306,11 @@
       "format": "uuid",
       "title": "Project Id",
       "type": "string"
+    },
+    "stage": {
+      "$ref": "#/$defs/RunStage",
+      "default": "research",
+      "description": "Which DAG this run executes. The console reads it to refuse a run opened under the wrong stage's route, so a research id pasted into the plan console says so instead of rendering a plan-shaped shell around research nodes."
     },
     "status": {
       "$ref": "#/$defs/RunStatus"

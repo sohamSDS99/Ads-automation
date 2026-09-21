@@ -55,9 +55,22 @@ export type DegradedSource = {
   severity: "degraded" | "unavailable";
 };
 
+export type RunStage = "research" | "plan";
+
 export type RunDetail = {
   id: string;
   project_id: string;
+  /**
+   * Which DAG this run executes. The plan console reads it to refuse a run
+   * opened under the wrong route rather than drawing a plan-shaped shell
+   * around research nodes.
+   *
+   * Optional on purpose. `web` and `api` are separate Railway services and
+   * deploy independently, so a browser running this build can be talking to an
+   * api that predates the field. Absent means "unknown", which must not read as
+   * "mismatched".
+   */
+  stage?: RunStage;
   status: RunStatus;
   mode: "full" | "partial";
   trigger: "manual" | "schedule";
