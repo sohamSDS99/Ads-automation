@@ -129,8 +129,7 @@ def max_cpa_v1(segments: pd.DataFrame, *, constants: PlanningConstants) -> CalcD
     return CalcDraft(
         inputs={
             "segments": [
-                {key: record.get(key) for key in (*CEILING_COLUMNS, "deals")}
-                for record in records
+                {key: record.get(key) for key in (*CEILING_COLUMNS, "deals")} for record in records
             ],
             "target_cac_ratio": cac_ratio,
             "safety_margin_pct": safety,
@@ -180,7 +179,9 @@ def _blend(
         weights = [1.0] * len(by_segment)
         weight_total = float(len(by_segment))
 
-    acv = rows.total(row["acv_usd"] * weight for row, weight in zip(by_segment, weights, strict=True))
+    acv = rows.total(
+        row["acv_usd"] * weight for row, weight in zip(by_segment, weights, strict=True)
+    )
     acv /= weight_total
     profit = rows.total(
         row["gross_profit_usd"] * weight for row, weight in zip(by_segment, weights, strict=True)

@@ -115,5 +115,13 @@ def flag(row: Row, key: str, *, default: bool = False) -> bool:
 
 
 def total(values: Iterable[float]) -> float:
-    """`math.fsum`, not `sum`: 160 allocation rows of float error do add up."""
+    """Exactly-rounded summation.
+
+    `math.fsum` rather than `sum` for a narrower reason than it first looks:
+    CPython 3.12 gave `sum()` Neumaier compensation, so on this interpreter the
+    two agree on any ordinary column of money. `fsum` is the one whose result is
+    *guaranteed* exactly rounded, and an allocation that has to add up to its own
+    envelope to the cent should not depend on an interpreter optimisation that
+    arrived one version ago and applies only to floats.
+    """
     return math.fsum(values)

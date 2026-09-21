@@ -34,13 +34,15 @@ EXPECTED_TABLES = {
     "export",
     "schedule",
     "project_document",
+    "plan_calc",
 }
 
 
-def test_sixteen_tables() -> None:
-    """Thirteen from PRD §6, plus `project_document`, `membership` and `source_connection`."""
+def test_seventeen_tables() -> None:
+    """Thirteen from PRD §6, plus `project_document`, `membership` and
+    `source_connection`, plus Stage 02's `plan_calc` (Stage 02 PRD §7.2)."""
     assert set(Base.metadata.tables) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 16
+    assert len(EXPECTED_TABLES) == 17
     assert set(ALL_TABLES) == EXPECTED_TABLES
 
 

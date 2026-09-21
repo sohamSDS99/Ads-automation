@@ -874,18 +874,24 @@ class PlanCalc(Base):
     is the same answer, so the second call reuses the row rather than writing a
     second `derived` Evidence row that says the same thing.
 
-    Shared with S2-P0: the PRD assigns this table to the `stage02_handshake`
-    revision, but S2-P1 (the calculation engine) is specified to be buildable in
-    parallel with the handshake and `calc/derived.py` cannot be tested without
-    it. Migration `0013_plan_calc` therefore creates this table and nothing else,
-    and S2-P0's revision must omit it. `plan_calc` references only `run` and
-    `evidence`, both of which predate Stage 02, so the split is safe.
+    OWNED BY S2-P0, DUPLICATED HERE ON PURPOSE. PRD §7.2 assigns this table to
+    S2-P0's `stage02_handshake` revision, and that revision already creates it on
+    `feat/s2-p0-handshake`. §21 also specifies S2-P1 as buildable in parallel,
+    and `calc/derived.py` — this table's only writer — cannot be proven without
+    it, so S2-P1 carries its own copy and stays green standalone.
+
+    The copy is deliberately identical to S2-P0's: same columns, same
+    nullability, same `uq_plan_calc_run_formula_inputs` and
+    `ix_plan_calc_run_node` names. **When `0013_stage02_handshake` lands on main,
+    delete this class and `alembic/versions/0013_plan_calc.py` and take S2-P0's.**
+    Nothing in `agent/calc/` changes when you do — that is the point of matching
+    the names.
     """
 
     __tablename__ = "plan_calc"
     __table_args__ = (
         sa.UniqueConstraint(
-            "plan_run_id", "formula_id", "inputs_hash", name="uq_plan_calc_inputs"
+            "plan_run_id", "formula_id", "inputs_hash", name="uq_plan_calc_run_formula_inputs"
         ),
         sa.Index("ix_plan_calc_run_node", "plan_run_id", "node_id"),
     )
@@ -900,17 +906,15 @@ class PlanCalc(Base):
     formula_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
     #: `calc/1.0+constants/2026.09.1` — code version and constants version.
     calc_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    inputs: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
-    )
+    inputs: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     inputs_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    result: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
-    )
-    #: The `derived` Evidence row this calculation produced. Not nullable: a
-    #: calculation nobody can cite has no reason to be persisted.
-    evidence_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), sa.ForeignKey("evidence.id", ondelete="CASCADE"), nullable=False
+    result: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    #: The `derived` Evidence row this calculation produced. Nullable so the
+    #: calculation survives evidence pruning — the formula, its inputs and its
+    #: constants version keep the number's provenance either way, and
+    #: `DerivedWriter` re-mints the citation the next time it is asked for.
+    evidence_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("evidence.id", ondelete="SET NULL")
     )
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False

@@ -50,9 +50,37 @@ DAYS_30 = 30.0
 #: for. These are only the words that carry no intent at all.
 STOPWORDS = frozenset(
     {
-        "a", "an", "and", "are", "as", "at", "be", "best", "by", "do", "does",
-        "for", "from", "how", "in", "is", "it", "me", "my", "near", "of", "on",
-        "or", "our", "the", "to", "top", "vs", "what", "with", "your",
+        "a",
+        "an",
+        "and",
+        "are",
+        "as",
+        "at",
+        "be",
+        "best",
+        "by",
+        "do",
+        "does",
+        "for",
+        "from",
+        "how",
+        "in",
+        "is",
+        "it",
+        "me",
+        "my",
+        "near",
+        "of",
+        "on",
+        "or",
+        "our",
+        "the",
+        "to",
+        "top",
+        "vs",
+        "what",
+        "with",
+        "your",
     }
 )
 
@@ -362,9 +390,7 @@ def grouping_v1(keywords: pd.DataFrame, *, constants: PlanningConstants) -> Calc
     ad_groups.sort(key=lambda group: (-int(group["search_volume"]), str(group["key"])))
     thin = [group["key"] for group in ad_groups if group["thin"]]
     assigned = sum(int(group["keyword_count"]) for group in ad_groups)
-    mean_coherence = (
-        rows.total(float(group["coherence"]) for group in ad_groups) / len(ad_groups)
-    )
+    mean_coherence = rows.total(float(group["coherence"]) for group in ad_groups) / len(ad_groups)
 
     return CalcDraft(
         inputs={"keywords": records, "min_size": min_size, "max_size": max_size},
@@ -404,12 +430,8 @@ def _split(members: list[dict[str, Any]], max_size: int) -> list[list[dict[str, 
     if len(members) <= max_size:
         return [members]
 
-    counts = Counter(
-        token for member in members for token in member["tokens"]
-    )
-    discriminating = [
-        token for token, count in counts.items() if 2 <= count < len(members)
-    ]
+    counts = Counter(token for member in members for token in member["tokens"])
+    discriminating = [token for token, count in counts.items() if 2 <= count < len(members)]
     if not discriminating:
         return [members[start : start + max_size] for start in range(0, len(members), max_size)]
 
@@ -429,7 +451,8 @@ def _theme(chunk: list[dict[str, Any]]) -> str:
     """
     counts = Counter(token for member in chunk for token in member["tokens"])
     if not counts:
-        return chunk[0]["term"]
+        # Every token was a stopword, so the term itself is the best label there is.
+        return str(chunk[0]["term"])
     ranked = sorted(counts.items(), key=lambda item: (-item[1], item[0]))
     return " ".join(token for token, _ in ranked[:3])
 

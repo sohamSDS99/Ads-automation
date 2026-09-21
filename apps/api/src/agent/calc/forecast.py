@@ -92,7 +92,10 @@ def traffic_v1(
             continue
         if not 0 < row_share <= 100:
             excluded.append(
-                {"row": label, "reason": f"impression_share_target_pct {row_share} outside (0, 100]"}
+                {
+                    "row": label,
+                    "reason": f"impression_share_target_pct {row_share} outside (0, 100]",
+                }
             )
             continue
         if ctr > 100 or cvr > 100:

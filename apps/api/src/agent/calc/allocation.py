@@ -139,9 +139,7 @@ def split_v1(
             "unallocated_usd": money(envelope_usd - allocated),
             "unit_count": len(allocation),
             "totals": {
-                "est_clicks": money(
-                    rows.total(row["est_clicks"] or 0.0 for row in allocation)
-                ),
+                "est_clicks": money(rows.total(row["est_clicks"] or 0.0 for row in allocation)),
                 "est_conv": money(rows.total(row["est_conv"] for row in allocation)),
             },
         },
@@ -200,9 +198,7 @@ def _solve(candidates: list[dict[str, Any]], *, envelope_usd: float, floor: floa
             )
 
 
-def _attempt(
-    pool: list[dict[str, Any]], *, envelope_usd: float, floor: float
-) -> _Solution | None:
+def _attempt(pool: list[dict[str, Any]], *, envelope_usd: float, floor: float) -> _Solution | None:
     """One fixed-point pass. None when `pool`'s floors exceed the envelope."""
     if floor * len(pool) > envelope_usd + CENT:
         return None
@@ -215,9 +211,7 @@ def _attempt(
         if not free:
             break
         weight_total = rows.total(unit["weight"] for unit in free)
-        shares = {
-            unit["key"]: remaining * unit["weight"] / weight_total for unit in free
-        }
+        shares = {unit["key"]: remaining * unit["weight"] / weight_total for unit in free}
         changed = False
         for unit in free:
             share = shares[unit["key"]]
@@ -248,30 +242,69 @@ def _attempt(
         else:
             awarded.append((unit, money(remaining * unit["weight"] / weight_total)))
 
-    _settle(awarded, envelope_usd=envelope_usd, pinned=reasons)
+    _absorb_surplus(awarded, envelope_usd=envelope_usd)
+    _settle(awarded, envelope_usd=envelope_usd)
     solution.awarded = awarded
     return solution
 
 
-def _settle(
-    awarded: list[tuple[dict[str, Any], float]],
-    *,
-    envelope_usd: float,
-    pinned: dict[str, str],
-) -> None:
+def _absorb_surplus(awarded: list[tuple[dict[str, Any], float]], *, envelope_usd: float) -> None:
+    """Spread anything the fixed point left over across the units that can take it.
+
+    The fixed point pins a unit that fell under the floor at exactly the floor
+    and then stops reconsidering it. That is right while the envelope is the
+    binding constraint and wrong once the *caps* are: a unit can end up held at
+    its $1,000 minimum while the envelope still has $3,000 nobody is allowed to
+    spend, purely because the pass that pinned it ran before the passes that
+    capped everything above it.
+
+    A floor is a minimum, so a floored unit may absorb more; a cap is a ceiling,
+    so nothing goes past it. Whatever is still unspent once every unit is at its
+    cap is genuinely unspendable and is reported as `unallocated_usd`.
+    """
+    for _ in range(len(awarded) + 1):
+        surplus = envelope_usd - rows.total(usd for _, usd in awarded)
+        if surplus < CENT:
+            return
+        room = {
+            index: (unit["cap"] - usd if unit["cap"] is not None else surplus)
+            for index, (unit, usd) in enumerate(awarded)
+            if unit["cap"] is None or usd + CENT < unit["cap"]
+        }
+        if not room:
+            return
+        weight_total = rows.total(awarded[index][0]["weight"] for index in room)
+        moved = False
+        for index, available in room.items():
+            unit, usd = awarded[index]
+            share = min(surplus * unit["weight"] / weight_total, available)
+            if share > CENT:
+                awarded[index] = (unit, money(usd + share))
+                moved = True
+        if not moved:
+            return
+
+
+def _settle(awarded: list[tuple[dict[str, Any], float]], *, envelope_usd: float) -> None:
     """Hand the rounding residual to one unit so the column sums exactly.
 
-    It goes to the largest unit that is not pinned at a cap — a cap is a real
-    ceiling and quietly spending a cent over it would make the one figure a
-    reader might check wrong. A floor is a minimum, so exceeding one is fine.
+    It goes to the largest unit that can still take it **without breaking its
+    cap** — which is not the same as "is not pinned at a cap". A unit whose
+    proportional share landed just under its ceiling was never pinned, and
+    handing it the stray cent would put it a fraction over the one figure a
+    reader might actually check. A floor is a minimum, so exceeding one is fine.
+
+    When no unit can take the residual the envelope simply does not divide, and
+    the difference is reported as `unallocated_usd` rather than hidden inside a
+    row that now contradicts its own cap.
     """
     residual = envelope_usd - rows.total(usd for _, usd in awarded)
     if abs(residual) < CENT:
         return
     eligible = [
         index
-        for index, (unit, _) in enumerate(awarded)
-        if pinned.get(unit["key"]) != "cap"
+        for index, (unit, usd) in enumerate(awarded)
+        if usd + residual >= 0 and (unit["cap"] is None or usd + residual <= unit["cap"])
     ]
     if not eligible:
         return
@@ -368,7 +401,12 @@ def whatif_v1(
             capped.append(
                 {"unit": key, "requested_usd": money(edited), "absorbable_usd": money(effective)}
             )
-        if 0 < edited + CENT < floor:
+        # Zero is not under the floor. An approver who types 0 is switching a
+        # campaign off, which is an allocation decision; the floor exists to
+        # catch a campaign funded too thinly to ever leave the learning period,
+        # and one that is not running cannot have that problem.
+        underfunded = edited > CENT and edited + CENT < floor
+        if underfunded:
             below_floor.append({"unit": key, "usd": money(edited), "floor_usd": money(floor)})
 
         allocation.append(
@@ -386,7 +424,7 @@ def whatif_v1(
                 "forecast_cpa_usd": money(forecast_cpa),
                 "est_conv": money(effective / forecast_cpa),
                 "est_clicks": money(effective / cpc) if cpc > 0 else None,
-                "below_floor": 0 < edited + CENT < floor,
+                "below_floor": underfunded,
                 "cap_applied": wasted > CENT,
             }
         )

@@ -86,7 +86,9 @@ def sample_size_v1(
             )
             continue
         if arms < 2 or not float(arms).is_integer():
-            excluded.append({"id": test_id, "reason": f"arms must be a whole number >= 2, got {arms}"})
+            excluded.append(
+                {"id": test_id, "reason": f"arms must be a whole number >= 2, got {arms}"}
+            )
             continue
 
         p1 = baseline_pct / 100
@@ -161,8 +163,7 @@ def sample_size_v1(
         summary=(
             f"{len(sized)} test(s) sized at alpha {alpha:g} / power {power:g}; "
             f"{sized[0]['required_conv_per_arm']:,} conversions per arm for "
-            f"{sized[0]['id']}"
-            + (f"; longest run {longest} day(s)" if longest else "")
+            f"{sized[0]['id']}" + (f"; longest run {longest} day(s)" if longest else "")
         ),
         constants_version=constants.version,
         excluded=excluded,
