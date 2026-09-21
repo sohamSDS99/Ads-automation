@@ -421,6 +421,26 @@ class ForecastTotals(BaseModel):
     cpa_usd: float | None = None
 
 
+class MonthlyTotals(ForecastTotals):
+    """One month of the forecast, with the label the plan calls that month.
+
+    `forecast.demand_v1` already groups its rows by month and returns the label
+    on every monthly row; validating those rows as a bare `ForecastTotals`
+    silently dropped it, because pydantic ignores a key the model does not
+    declare. Nothing downstream had noticed, since nothing downstream read
+    `monthly_totals` — but a twelve-month line cannot label its x-axis from a
+    list of unlabelled totals, and reconstructing the labels in the frontend
+    from `forecast[].month` would only work while both lists happen to be built
+    in the same order.
+
+    `month` is a label the caller chose, never a date: `2027-01`, `Jan` and
+    `wave 2` are all legal and all preserved verbatim. Anything that renders it
+    must not parse it.
+    """
+
+    month: str
+
+
 class ConfidenceBand(BaseModel):
     """What the CPC range works out to, or that there was no range to use."""
 
@@ -433,7 +453,7 @@ class DemandForecastOutput(BaseModel):
     """2.2.1 — impressions to cost, per cluster per market per month."""
 
     forecast: list[ForecastRow]
-    monthly_totals: list[ForecastTotals] = Field(default_factory=list)
+    monthly_totals: list[MonthlyTotals] = Field(default_factory=list)
     totals: ForecastTotals
     method: Method
     confidence_band: ConfidenceBand
@@ -522,7 +542,7 @@ class DemandForecastNode(LLMNode):
         return DemandForecastOutput(
             forecast=[ForecastRow.model_validate(row) for row in basis.rows],
             monthly_totals=[
-                ForecastTotals.model_validate(row) for row in result.get("monthly_totals") or []
+                MonthlyTotals.model_validate(row) for row in result.get("monthly_totals") or []
             ],
             totals=ForecastTotals.model_validate(result["totals"]),
             method=result["method"],

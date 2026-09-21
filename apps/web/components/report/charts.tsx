@@ -16,6 +16,7 @@ import {
 } from "recharts";
 import { useMemo } from "react";
 
+import { AXIS, ChartFrame, GRID, TOOLTIP_STYLE } from "@/components/ui/chart";
 import {
   INTENT_LABEL,
   type Intent,
@@ -36,8 +37,6 @@ import { cn } from "@/lib/utils";
  * would need a monthly series no node emits — the same question is answered
  * with the data that does exist, and the axis is labelled for what it is.
  */
-const AXIS = { stroke: "var(--fg-subtle)", fontSize: 11 };
-const GRID = "var(--border)";
 
 /** Intent is categorical, so it gets its own small scale, not the status one. */
 const INTENT_COLOR: Record<string, string> = {
@@ -67,39 +66,6 @@ const PLOTTED_INTENTS = new Set([
   "navigational",
   "unclassified",
 ]);
-
-export function ChartFrame({
-  title,
-  note,
-  children,
-  className,
-}: {
-  title: string;
-  note?: string;
-  children: React.ReactNode;
-  className?: string;
-}) {
-  return (
-    <figure className={cn("rounded-[var(--radius)] border bg-surface-raised p-4", className)}>
-      <figcaption className="mb-3">
-        <h4 className="text-sm font-medium text-fg">{title}</h4>
-        {note ? <p className="mt-0.5 text-xs text-fg-subtle">{note}</p> : null}
-      </figcaption>
-      {children}
-    </figure>
-  );
-}
-
-const TOOLTIP_STYLE = {
-  contentStyle: {
-    background: "var(--surface-raised)",
-    border: "1px solid var(--border)",
-    borderRadius: "var(--radius)",
-    fontSize: "0.75rem",
-    color: "var(--fg)",
-  },
-  labelStyle: { color: "var(--fg-muted)" },
-} as const;
 
 /** Cost against conversions, per search term the account already ran. */
 export function SpendChart({
@@ -478,31 +444,6 @@ export function SeasonalityChart({ keywords }: { keywords: PricedKeyword[] }) {
         })}
       </ol>
     </ChartFrame>
-  );
-}
-
-/**
- * A figure the report promised and this run could not draw.
- *
- * Rendering nothing leaves a silent hole where a reader expects a chart, and a
- * reader who does not know the chart exists cannot tell a missing source from a
- * finding of "no competitors advertise". Saying which source was missing turns
- * an absence into information.
- */
-export function ChartMissing({ title, reason }: { title: string; reason: string }) {
-  return (
-    <figure className="rounded-[var(--radius)] border border-dashed bg-surface p-4">
-      <figcaption>
-        <h4 className="text-sm font-medium text-fg-muted">{title}</h4>
-        <p className="mt-0.5 text-xs text-fg-subtle">{reason}</p>
-      </figcaption>
-      <div
-        aria-hidden
-        className="mt-3 flex h-24 items-center justify-center rounded-[4px] border border-dashed text-xs text-fg-subtle"
-      >
-        no data to plot
-      </div>
-    </figure>
   );
 }
 

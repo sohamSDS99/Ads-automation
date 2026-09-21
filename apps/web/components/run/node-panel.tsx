@@ -4,6 +4,7 @@ import { Hourglass } from "lucide-react";
 import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { PlanNodeFigure } from "@/components/plan/node-figure";
 import { CalcPanel } from "@/components/run/calc-panel";
 import { NodeEvidence } from "@/components/run/node-evidence";
 import { NodeDot, stateOf } from "@/components/run/node-status";
@@ -131,7 +132,14 @@ export function NodePanel({
 
             {tab === "output" ? (
               data.output ? (
-                <JsonTree value={data.output} />
+                <>
+                  {/* Only a plan run has nodes with a shape worth drawing; a
+                      research node id never matches, so the call is free. */}
+                  {stage === "plan" ? (
+                    <PlanNodeFigure nodeId={node.id} output={data.output} />
+                  ) : null}
+                  <JsonTree value={data.output} />
+                </>
               ) : (
                 <p className="text-sm text-fg-subtle">No output recorded for this attempt.</p>
               )

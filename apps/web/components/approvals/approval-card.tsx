@@ -2,8 +2,15 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { Check, Pencil, ShieldCheck, X } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
+import {
+  AllocationEditor,
+  buildEditedProposal,
+  initialEdit,
+  readEdit,
+  type BudgetEdit,
+} from "@/components/plan/allocation-editor";
 import { EvidenceCard } from "@/components/run/node-evidence";
 import { Button } from "@/components/ui/button";
 import { JsonTree } from "@/components/ui/json-tree";
@@ -16,10 +23,16 @@ import {
   decideApproval,
   type ApprovalItem,
 } from "@/lib/api/approvals";
+import { asBudgetProposal, asDemandForecast, asScenariosOutput } from "@/lib/api/plan";
 import { nodeLabel } from "@/lib/api/runs";
 import { absoluteTime, relativeTime } from "@/lib/format";
-import { useEvidence } from "@/lib/queries";
+import { useEvidence, useNodeRun } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+
+/** The gate that carries a budget, and the two nodes its card reads for context. */
+const BUDGET_GATE = "G3";
+const SCENARIOS_NODE = "2.2.3";
+const FORECAST_NODE = "2.2.1";
 
 /**
  * One gate, and the decision it is waiting for (PRD §13.4 B and F).
@@ -53,12 +66,50 @@ export function ApprovalCard({
 
   const edited = parseEdit(draft, proposal);
 
+  // The budget gate gets its own editor (Stage 02 PRD §15.3 C). Every other
+  // gate keeps the JSON textarea, which is the right shape for a proposal
+  // whose fields are prose.
+  const budgetProposal = approval.gate_key === BUDGET_GATE ? asBudgetProposal(proposal) : null;
+  const isBudget = budgetProposal !== null;
+  const readOnly = !pending || !approval.can_decide;
+
+  const scenariosQuery = useNodeRun(approval.run_id, SCENARIOS_NODE, isBudget);
+  const forecastQuery = useNodeRun(approval.run_id, FORECAST_NODE, isBudget);
+  const scenarios = asScenariosOutput(scenariosQuery.data?.output);
+  const forecast = asDemandForecast(forecastQuery.data?.output);
+
+  // Held against the approval it belongs to, so a card re-rendered for a
+  // different gate does not inherit the last one's typed figures.
+  const [budget, setBudget] = useState<{ forId: string; edit: BudgetEdit } | null>(null);
+  const fresh = useMemo(
+    () => (budgetProposal ? initialEdit(approval, budgetProposal) : null),
+    // `approval.recalc_state` is what a second approver's working arrives on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [approval.id, approval.recalc_state, budgetProposal !== null],
+  );
+  const budgetEdit = budget?.forId === approval.id ? budget.edit : fresh;
+  const budgetState =
+    budgetProposal && budgetEdit ? readEdit(budgetProposal, budgetEdit) : null;
+
   const decide = useMutation({
     mutationFn: (decision: "approve" | "reject") =>
       decideApproval(approval.id, {
         decision,
         note: note.trim() || undefined,
-        edited_proposal: decision === "approve" && editing && edited.value ? edited.value : undefined,
+        edited_proposal:
+          decision !== "approve"
+            ? undefined
+            : isBudget
+              ? // Only when something actually moved, and only carrying the
+                // server's own re-forecast — `readEdit` refuses the decision
+                // until one answers the figures on screen, so the approved
+                // numbers cite the calculation that produced them.
+                budgetState?.dirty && budgetState.answered && budgetEdit
+                ? buildEditedProposal(budgetProposal, budgetEdit, budgetState.answered, scenarios)
+                : undefined
+              : editing && edited.value
+                ? edited.value
+                : undefined,
       }),
     onSuccess: async (result, decision) => {
       await queryClient.invalidateQueries({ queryKey: ["approvals"] });
@@ -107,46 +158,69 @@ export function ApprovalCard({
       </header>
 
       <div className="space-y-3 px-3.5 py-3">
-        <div>
-          <div className="mb-1.5 flex items-center justify-between gap-2">
-            <h4 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
-              What the agent proposes
-            </h4>
-            {pending && approval.can_decide ? (
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setEditing(!editing)}
-                aria-pressed={editing}
-              >
-                <Pencil aria-hidden />
-                {editing ? "Stop editing" : "Edit"}
-              </Button>
-            ) : null}
-          </div>
+        {budgetProposal && budgetEdit ? (
+          <>
+            <AllocationEditor
+              approval={approval}
+              proposal={budgetProposal}
+              scenarios={scenarios}
+              forecast={forecast}
+              value={budgetEdit}
+              onChange={(next) => setBudget({ forId: approval.id, edit: next })}
+              readOnly={readOnly}
+            />
+            <details className="group/raw">
+              <summary className="cursor-pointer list-none text-xs text-fg-subtle hover:text-fg-muted [&::-webkit-details-marker]:hidden">
+                <span className="group-open/raw:hidden">Show the raw proposal</span>
+                <span className="hidden group-open/raw:inline">Hide the raw proposal</span>
+              </summary>
+              <div className="mt-1.5 max-h-72 overflow-y-auto rounded-[var(--radius)] border bg-surface p-2.5">
+                <JsonTree value={proposal} />
+              </div>
+            </details>
+          </>
+        ) : (
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <h4 className="text-xs font-medium tracking-wide text-fg-muted uppercase">
+                What the agent proposes
+              </h4>
+              {pending && approval.can_decide ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setEditing(!editing)}
+                  aria-pressed={editing}
+                >
+                  <Pencil aria-hidden />
+                  {editing ? "Stop editing" : "Edit"}
+                </Button>
+              ) : null}
+            </div>
 
-          {editing ? (
-            <div className="space-y-1.5">
-              <Textarea
-                value={draft}
-                onChange={(event) => setDraft(event.target.value)}
-                rows={14}
-                spellCheck={false}
-                aria-label="Proposal"
-                invalid={edited.error !== null}
-                className="font-mono text-xs"
-              />
-              <p className={cn("text-xs", edited.error ? "text-status-failed" : "text-fg-subtle")}>
-                {edited.error ??
-                  "Approving sends this edited version — everything downstream reads it, not the draft."}
-              </p>
-            </div>
-          ) : (
-            <div className="max-h-72 overflow-y-auto rounded-[var(--radius)] border bg-surface p-2.5">
-              <JsonTree value={proposal} />
-            </div>
-          )}
-        </div>
+            {editing ? (
+              <div className="space-y-1.5">
+                <Textarea
+                  value={draft}
+                  onChange={(event) => setDraft(event.target.value)}
+                  rows={14}
+                  spellCheck={false}
+                  aria-label="Proposal"
+                  invalid={edited.error !== null}
+                  className="font-mono text-xs"
+                />
+                <p className={cn("text-xs", edited.error ? "text-status-failed" : "text-fg-subtle")}>
+                  {edited.error ??
+                    "Approving sends this edited version — everything downstream reads it, not the draft."}
+                </p>
+              </div>
+            ) : (
+              <div className="max-h-72 overflow-y-auto rounded-[var(--radius)] border bg-surface p-2.5">
+                <JsonTree value={proposal} />
+              </div>
+            )}
+          </div>
+        )}
 
         <ProposalEvidence approval={approval} />
 
@@ -159,7 +233,13 @@ export function ApprovalCard({
               placeholder="Why — recorded in the audit log. Required when rejecting."
               aria-label="Decision note"
             />
-            <div className="flex flex-wrap justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {/* Named, not implied. A disabled Approve with no reason beside it
+                  is a screen that has stopped explaining itself, and the server
+                  refuses the same split with the same delta anyway. */}
+              {budgetState?.blocked ? (
+                <p className="mr-auto text-xs text-status-gate">{budgetState.blocked}</p>
+              ) : null}
               <Button
                 variant="secondary"
                 onClick={() => decide.mutate("reject")}
@@ -175,14 +255,19 @@ export function ApprovalCard({
               </Button>
               <Button
                 onClick={() => decide.mutate("approve")}
-                disabled={decide.isPending || (editing && edited.error !== null)}
+                disabled={
+                  decide.isPending ||
+                  (editing && edited.error !== null) ||
+                  budgetState?.blocked !== null && budgetState !== null
+                }
+                title={budgetState?.blocked ?? undefined}
               >
                 {decide.isPending && decide.variables === "approve" ? (
                   <Spinner label="Approving" />
                 ) : (
                   <Check aria-hidden />
                 )}
-                {editing ? "Approve with changes" : "Approve"}
+                {(budgetState?.dirty ?? editing) ? "Approve with changes" : "Approve"}
               </Button>
             </div>
           </div>
