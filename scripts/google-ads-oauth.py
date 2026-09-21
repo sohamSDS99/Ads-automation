@@ -20,13 +20,28 @@ What this does, in order:
 
 The OAuth client must be of type **Desktop app** — Google only accepts a
 loopback redirect for that type, and a Web client would need this exact port
-registered. Values can also come from the environment or `.env`:
+registered.
+
+The redirect URI is `http://localhost:8765` — the bare host and port, with **no
+path**. It is where your *browser* lands after you click Allow, not where the
+application lives: the refresh token this produces is bound to the OAuth
+client, not to this machine, and works unchanged in production. There is no
+`/oauth/callback` route to point at; the in-app consent flow was removed in
+#29, so a redirect URI naming the deployed host would have nothing serving it. Values can also come from the environment or `.env`:
 GOOGLE_ADS_CLIENT_ID, GOOGLE_ADS_CLIENT_SECRET, GOOGLE_ADS_DEVELOPER_TOKEN.
 
-Nothing is stored anywhere by default: the refresh token is printed for you to
-paste into Settings -> Sources, which seals it in the vault (PRD Law 4). Pass
-`--write-env` to also append it to `.env`, which is what `verify-google-ads.sh`
-reads.
+Nothing is stored anywhere by default: the values are printed for you to put
+into the deployment's environment. There is no form to paste them into — since
+#29 every secret is read from the environment and from nowhere else, and
+Settings -> Connections is a switch rather than a set of password boxes.
+
+Pass `--write-env` to also write them to `.env`, which is what
+`verify-google-ads.sh` reads and what `push-google-ads-env.sh` sends to
+Railway. The usual sequence is:
+
+    python3 scripts/google-ads-oauth.py --write-env   # mint, discover, save
+    ./scripts/push-google-ads-env.sh                  # api + worker on Railway
+    ./scripts/verify-google-ads.sh                    # prove a real call
 """
 
 from __future__ import annotations
@@ -361,14 +376,21 @@ def main() -> int:
     leaves = [row for row in accounts if not row[2]]
     managers = [row for row in accounts if row[2]]
     suggested = leaves[0][0] if leaves else (accounts[0][0] if accounts else "")
-    print("\n--- paste into Settings -> Sources -> Google Ads ---")
-    print(f"  Developer token     {args.developer_token}")
-    print(f"  OAuth client ID     {args.client_id}")
-    print(f"  OAuth client secret {args.client_secret}")
-    print(f"  Refresh token       {refresh_token}")
-    print(f"  Customer ID         {suggested}")
+    # Named as environment variables, because that is the only place they go.
+    # This used to say "paste into Settings -> Sources"; that screen stopped
+    # accepting values in #29 and the instruction outlived it by two releases.
+    print("\n--- set these on the Railway `api` AND `worker` services ---")
+    print(f"  GOOGLE_ADS_DEVELOPER_TOKEN   {args.developer_token}")
+    print(f"  GOOGLE_ADS_CLIENT_ID         {args.client_id}")
+    print(f"  GOOGLE_ADS_CLIENT_SECRET     {args.client_secret}")
+    print(f"  GOOGLE_ADS_REFRESH_TOKEN     {refresh_token}")
+    print(f"  GOOGLE_ADS_CUSTOMER_ID       {suggested}")
     if managers:
-        print(f"  Manager (MCC) ID    {managers[0][0]}   (only if the account sits under it)")
+        print(
+            f"  GOOGLE_ADS_LOGIN_CUSTOMER_ID {managers[0][0]}"
+            "   (only if the account sits under it)"
+        )
+    print("\n  ./scripts/push-google-ads-env.sh  does this for you from .env")
 
     if args.write_env:
         save_env(args, refresh_token, suggested)
