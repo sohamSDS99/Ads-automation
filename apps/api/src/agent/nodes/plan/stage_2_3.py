@@ -47,6 +47,16 @@ from agent.nodes import prompts
 from agent.nodes.base import LLMNode, NodeSpec, RunContext
 from agent.planning import structure
 
+
+class SlateUnusable(ValueError):
+    """The slate covers none of the budget a human approved at gate G3.
+
+    Raised in place of the `CalcError` `allocation.share_v1` would otherwise
+    throw three frames down. Both fail the node; only one of them tells the
+    person reading the run what went wrong.
+    """
+
+
 SHARE = "allocation.share_v1"
 OVERLAP = "structure.overlap_v1"
 
@@ -221,11 +231,17 @@ class ChannelSlateNode(LLMNode):
         )
 
         kept, dropped = _kept_entries(draft.slate, agreed)
+        if not kept:
+            raise SlateUnusable(
+                "the channel slate named none of the campaigns agreed at gate G1 "
+                f"({', '.join(sorted(agreed)) or 'none were agreed'}); "
+                + ("; ".join(dropped) if dropped else "the slate was empty")
+            )
         placement = _placement(kept)
         frame = structure.share_frame(
             allocation,
-            label=lambda line: placement.get(
-                (str(line.get("campaign_ref") or ""), str(line.get("market") or "")), ""
+            label=lambda line: placement.label(
+                str(line.get("campaign_ref") or ""), str(line.get("market") or "")
             ),
         )
         shares = await plan.calc.run(SHARE, frame, envelope_usd=envelope)
@@ -594,23 +610,46 @@ def _kept_entries(
     return kept, dropped
 
 
-def _placement(slate: Sequence[SlateEntryDraft]) -> dict[tuple[str, str], str]:
-    """`(campaign_ref, market) -> the slate entry that carries it`."""
-    return {
-        (ref, entry.market): _key(entry.campaign_type, entry.market)
-        for entry in slate
-        for ref in entry.campaign_refs
-    }
+def _placement(slate: Sequence[SlateEntryDraft]) -> _Placement:
+    """`(campaign_ref, market) -> the slate entry that carries it`.
+
+    Exact pairs first. A campaign funded in a market no entry enumerated falls
+    back to the entry that names it, but **only** when exactly one entry does:
+    the slate assigns channels to campaigns, so a campaign appearing once has
+    only one channel it could run as, and a campaign appearing twice is a
+    genuine question about which market's line this is. Ambiguity is left
+    unplaced and reported rather than resolved by position.
+    """
+    pairs: dict[tuple[str, str], str] = {}
+    by_ref: dict[str, set[str]] = {}
+    for entry in slate:
+        label = _key(entry.campaign_type, entry.market)
+        for ref in entry.campaign_refs:
+            pairs[(ref, entry.market)] = label
+            by_ref.setdefault(ref, set()).add(label)
+    return _Placement(
+        pairs, {ref: next(iter(labels)) for ref, labels in by_ref.items() if len(labels) == 1}
+    )
 
 
-def _unplaced(
-    allocation: Sequence[Mapping[str, Any]], placement: Mapping[tuple[str, str], str]
-) -> list[str]:
+class _Placement(dict):  # type: ignore[type-arg]
+    """`dict` of exact `(ref, market)` pairs, with a single-entry fallback by ref."""
+
+    def __init__(self, pairs: dict[tuple[str, str], str], by_ref: dict[str, str]) -> None:
+        super().__init__(pairs)
+        self.by_ref = by_ref
+
+    def label(self, ref: str, market: str) -> str:
+        found = self.get((ref, market))
+        return found if found is not None else self.by_ref.get(ref, "")
+
+
+def _unplaced(allocation: Sequence[Mapping[str, Any]], placement: _Placement) -> list[str]:
     seen: list[str] = []
     for line in allocation:
         ref, market = str(line.get("campaign_ref") or ""), str(line.get("market") or "")
         label = f"{ref} ({market})"
-        if (ref, market) not in placement and label not in seen:
+        if not placement.label(ref, market) and label not in seen:
             seen.append(label)
     return seen
 

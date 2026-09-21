@@ -565,3 +565,52 @@ def _brand_output() -> dict[str, Any]:
         "reporting_rule": "never blended",
         "competitor_bidding_policy": "no",
     }
+
+
+# ---------------------------------------------------------------------------
+# placing money the slate did not enumerate market-by-market
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_funded_market_the_slate_did_not_name_still_gets_its_channel() -> None:
+    """The slate assigns channels to campaigns, not to markets.
+
+    A campaign funded in a market no entry enumerated still needs a channel,
+    and when that campaign appears in exactly one entry there is only one
+    channel it could be. Leaving it unplaced would report a slate that covers
+    less of the budget than it really does.
+    """
+    draft = {
+        **SLATE_DRAFT,
+        "slate": [
+            {**SLATE_DRAFT["slate"][0], "campaign_refs": ["brand", "nonbrand", "remarketing"]},
+        ],
+    }
+    harnessed = harness("2.3.1", {"SlateDraft": draft})
+    out = await run(stage_2_3.ChannelSlateNode(), harnessed)
+    assert out.unplaced_campaigns == []
+    assert out.slate[0].est_share_of_budget_pct == 100.0
+
+
+@pytest.mark.asyncio
+async def test_a_campaign_in_two_entries_is_placed_by_market_not_by_guesswork() -> None:
+    """`nonbrand` runs as Search in both US and DE, so the market decides."""
+    harnessed = harness("2.3.1", {"SlateDraft": SLATE_DRAFT})
+    out = await run(stage_2_3.ChannelSlateNode(), harnessed)
+    by_key = {(row.campaign_type, row.market): row.est_share_of_budget_pct for row in out.slate}
+    assert by_key[("search", "US")] == 65.0
+    assert by_key[("search", "DE")] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_a_slate_that_places_none_of_the_approved_budget_fails_by_name() -> None:
+    """Not a `CalcError` from three frames down: the reason a person can act on."""
+    draft = {
+        **SLATE_DRAFT,
+        "slate": [{**SLATE_DRAFT["slate"][0], "campaign_refs": ["invented"]}],
+        "rejected": [],
+    }
+    harnessed = harness("2.3.1", {"SlateDraft": draft})
+    with pytest.raises(stage_2_3.SlateUnusable, match="none of the campaigns agreed at gate G1"):
+        await run(stage_2_3.ChannelSlateNode(), harnessed)

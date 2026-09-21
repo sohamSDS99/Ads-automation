@@ -47,6 +47,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from agent.calc.registry import CalcError
 from agent.db.models import Evidence, RunStage
 from agent.llm.router import TaskClass
 from agent.nodes import gather, prompts
@@ -140,7 +141,12 @@ class NamingConventionNode(LLMNode):
         name="naming_convention",
         stage="2.4",
         run_stage=RunStage.PLAN,
-        depends_on=("2.3.1",),
+        # §11's edge list is `2.4.1<-{2.3.1, account_snapshot}`. 2.2.4 is added
+        # because the names this node proposes — and therefore checks for
+        # collisions — are the campaigns the approved split funds, and deriving
+        # them from the slate's declared markets instead would check names that
+        # 2.4.2 never builds. No wave changes: 2.3.1 already depends on 2.2.4.
+        depends_on=("2.3.1", "2.2.4"),
         task_class=TaskClass.EXTRACT,
         input_model=BaseModel,
         output_model=NamingConventionOutput,
@@ -538,28 +544,66 @@ def _live_campaign_names(evidence: Sequence[Evidence]) -> set[str]:
 
 
 def _campaign_rows(ctx: RunContext, brand_ref: str = "") -> list[dict[str, Any]]:
-    """One row per campaign the slate puts in the account, in slate order.
+    """One row per campaign the account will hold, in the order the budget lists them.
 
     A campaign is a `campaign_ref` in a `market`: Google Ads holds location
     targeting, the budget and the bid strategy at campaign level, so one
     campaign cannot serve two markets and `nonbrand` running in US and DE is
     two campaigns, not one.
+
+    **The funded markets come from the approved split, not from the slate.**
+    Gate G3 decided what exists and gate G4 decided what channel each one runs
+    as, so a slate entry that names a campaign without enumerating every market
+    it is funded in is normal rather than an error — 2.3.1 assigns channels.
+    Building against the slate's declared market instead would give a campaign
+    a budget in one market and keywords from another, and 2.3.1's own placement
+    rule is mirrored here so the two nodes cannot disagree about which channel
+    a line belongs to.
     """
+    channels = _channels(ctx)
     rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for line in ctx.output_of("2.2.4").get("allocation") or []:
+        ref, market = str(line.get("campaign_ref") or ""), str(line.get("market") or "")
+        if not ref or (ref, market) in seen:
+            continue
+        campaign_type = channels.get((ref, market)) or channels.get(ref)
+        if campaign_type is None:
+            # Funded but given no channel by the slate. 2.3.1 already reports it
+            # as `unplaced_campaigns`; building it here would invent one.
+            continue
+        seen.add((ref, market))
+        rows.append(
+            {
+                "campaign_ref": ref,
+                "market": market,
+                "campaign_type": campaign_type,
+                "brand_split": "Brand" if ref == brand_ref else "NonBrand",
+                "channel": _channel(campaign_type),
+            }
+        )
+    return rows
+
+
+def _channels(ctx: RunContext) -> dict[Any, str]:
+    """`(ref, market)` and, where unambiguous, `ref` alone -> the channel it runs as.
+
+    The same rule node 2.3.1 places money by, so the two nodes cannot disagree:
+    an exact pair wins, and a campaign named in exactly one slate entry falls
+    back to that entry whatever market the line is in.
+    """
+    pairs: dict[Any, str] = {}
+    by_ref: dict[str, set[str]] = {}
     for entry in ctx.output_of("2.3.1").get("slate") or []:
         campaign_type = str(entry.get("campaign_type") or "")
         market = str(entry.get("market") or "")
         for ref in entry.get("campaign_refs") or []:
-            rows.append(
-                {
-                    "campaign_ref": str(ref),
-                    "market": market,
-                    "campaign_type": campaign_type,
-                    "brand_split": "Brand" if str(ref) == brand_ref else "NonBrand",
-                    "channel": _channel(campaign_type),
-                }
-            )
-    return rows
+            pairs[(str(ref), market)] = campaign_type
+            by_ref.setdefault(str(ref), set()).add(campaign_type)
+    for ref, types in by_ref.items():
+        if len(types) == 1:
+            pairs[ref] = next(iter(types))
+    return pairs
 
 
 def _channel(campaign_type: str) -> str:
@@ -623,7 +667,22 @@ async def _group_per_campaign(
             gaps.append(f"{_ref_key(row)}: no keyword in {row['market']} belongs to this campaign")
             continue
 
-        result = await plan.calc.run(GROUPING, mine)
+        try:
+            result = await plan.calc.run(GROUPING, mine)
+        except CalcError as exc:
+            # `grouping_v1` refuses to form an ad group out of terms with no
+            # landing page, and that refusal is right. It is a fact about one
+            # campaign, though, not a reason to lose the other three — so the
+            # campaign is built unfunded of ad groups, the reason is named, and
+            # every term it could not place becomes an orphan by name. Node
+            # 2.4.3 then sees a campaign below the ad-group floor and says what
+            # to do about it.
+            gaps.append(f"{_ref_key(row)}: {exc}")
+            orphans.extend(
+                f"{term} ({row['market']}): no ad group could be formed for this campaign"
+                for term in mine["term"]
+            )
+            continue
         calc_ids.append(result.id)
         grouped[_ref_key(row)] = [
             {**group, "market": row["market"]} for group in result.value.get("ad_groups", [])

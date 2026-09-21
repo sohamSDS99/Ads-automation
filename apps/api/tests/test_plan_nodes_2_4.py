@@ -591,3 +591,91 @@ async def test_the_counts_are_of_the_tree_that_was_built() -> None:
     row = next(r for r in out.campaigns if r.ref == "nonbrand")
     assert (row.ad_group_count, row.keyword_count) == (3, 24)
     assert out.calc_evidence_ids
+
+
+@pytest.mark.asyncio
+async def test_a_market_whose_keywords_have_no_landing_page_does_not_fail_the_run() -> None:
+    """One unmapped market must not take the whole plan down.
+
+    `structure.grouping_v1` refuses to form an ad group from terms with no
+    landing page, and that refusal is right — but it is a fact about one
+    campaign, not a reason to lose the other three. The campaign is built with
+    no ad groups, the reason is named, and every term it could not place is an
+    orphan by name. Node 2.4.3 then sees a campaign below the ad-group floor
+    and says what to do about it.
+    """
+    keywords = [item for item in KEYWORDS if item.market != "DE"] + [
+        PricedKeyword(
+            term="gefahrstoffmanagement",
+            market="DE",
+            intent="commercial_investigation",
+            volume=600,
+            cpc_low=3.0,
+            cpc_high=5.0,
+        )
+    ]
+    harnessed = support.harness(
+        "2.4.2",
+        answers={"StructureDraft": STRUCTURE_DRAFT},
+        gathered=gather.Gathered(),
+        source=support.plan_input(_report(keywords)),
+        permitted=(stage_2_4.GROUPING, stage_2_4.SHARE),
+        outputs={
+            "2.2.2": OUT_2_2_2,
+            "2.2.4": OUT_2_2_4,
+            "2.3.1": OUT_2_3_1,
+            "2.3.3": OUT_2_3_3,
+            "2.4.1": OUT_2_4_1,
+        },
+    )
+    out = await run(stage_2_4.AccountStructureNode(), harnessed)
+
+    de = next(c for c in out.campaigns if c.market == "DE")
+    assert de.ad_groups == []
+    assert de.monthly_budget_usd == 4_000.0, "it is still funded, and still in the plan"
+    assert any("nonbrand|DE" in gap for gap in out.open_gaps)
+    assert any("gefahrstoffmanagement" in term for term in out.orphan_terms)
+    # The markets that could be built still were.
+    assert [c.campaign_ref for c in out.campaigns if c.ad_groups] == ["brand", "nonbrand"]
+
+
+@pytest.mark.asyncio
+async def test_a_campaign_is_built_for_the_market_it_is_funded_in() -> None:
+    """The approved split is the truth about what exists; the slate says what
+    channel each campaign runs as.
+
+    A slate entry that names a campaign without enumerating every market it is
+    funded in is normal — 2.3.1 assigns channels, not markets — and building
+    against the slate's declared market instead would produce a campaign with a
+    budget in one market and keywords from another, or no keywords at all.
+    """
+    slate = {
+        "slate": [
+            {
+                "campaign_type": "search",
+                "market": "US",
+                "campaign_refs": ["brand", "nonbrand", "remarketing"],
+                "launch_wave": 1,
+                "rationale": "r",
+                "entry_criteria": [],
+                "exit_criteria": [],
+                "prerequisites": [],
+                "est_share_of_budget_pct": 100.0,
+                "est_monthly_usd": 20_000.0,
+            },
+        ],
+        "rejected": [],
+        "brand_campaign_ref": "brand",
+    }
+    harnessed = harness("2.4.2", {"StructureDraft": STRUCTURE_DRAFT}, **{"2.3.1": slate})
+    out = await run(stage_2_4.AccountStructureNode(), harnessed)
+
+    assert [(c.campaign_ref, c.market) for c in out.campaigns] == [
+        ("brand", "US"),
+        ("nonbrand", "US"),
+        ("nonbrand", "DE"),
+        ("remarketing", "US"),
+    ]
+    de = next(c for c in out.campaigns if c.market == "DE")
+    assert [k.term for g in de.ad_groups for k in g.keywords] == ["gefahrstoffmanagement"]
+    assert de.name == "DE | Search | NonBrand"
