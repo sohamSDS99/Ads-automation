@@ -37,6 +37,17 @@ BlockerCode = Literal[
     "missing_credential",
     "source_stale",
     "missing_permission",
+    # Freeze-time blockers (Stage 02 §12.2, §16). Separate codes rather than a
+    # reused "not_eligible": the Plan Viewer's freeze dialog renders the array
+    # verbatim and routes each code to its own fix, and "gate G3 is pending"
+    # and "the critique found a blocking issue" are different screens.
+    "plan_not_found",
+    "gate_not_opened",
+    "gate_not_approved",
+    "blocking_critique",
+    "plan_blocked",
+    "source_superseded",
+    "version_race",
 ]
 
 
@@ -350,3 +361,40 @@ class PlanStructurePage(BaseModel):
     duplicate_terms: list[str] | None = None
     account_negatives: list[str] = Field(default_factory=list)
     orphan_terms: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# freezing (Stage 02 §12.2, §16)
+# ---------------------------------------------------------------------------
+
+
+class FreezePlanRequest(BaseModel):
+    """`POST /plans/{plan_run_id}/freeze`.
+
+    `confirm_version` is not ceremony. §15.3-E makes the dialog ask the person
+    to type the version they are sealing, and the server checks it against the
+    number it would actually mint — so a stale screen produces a 409 the user
+    can understand rather than a v4 they believed was a v3.
+    """
+
+    confirm_version: int = Field(
+        ge=1, description="The version this freeze will mint. From `next_version`."
+    )
+
+
+class FrozenPlan(BaseModel):
+    """What a successful freeze returns."""
+
+    plan_id: uuid.UUID
+    plan_run_id: uuid.UUID
+    project_id: uuid.UUID
+    version: int
+    status: str
+    frozen_at: datetime | None = None
+    frozen_by: uuid.UUID | None = None
+    frozen_approval_ids: list[uuid.UUID] = Field(default_factory=list)
+    #: Plans this freeze displaced. Empty for a project's first frozen plan.
+    superseded: list[uuid.UUID] = Field(default_factory=list)
+    #: True when the plan was already frozen at this version and nothing
+    #: changed. §16 rule 2 makes that a 200, not an error.
+    already_frozen: bool = False

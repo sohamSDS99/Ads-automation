@@ -77,6 +77,7 @@ def every_formula_result() -> list[Any]:
     from agent.calc import (
         allocation,
         economics,
+        experiments,
         forecast,
         measurement,
         power,
@@ -148,6 +149,24 @@ def every_formula_result() -> list[Any]:
         power.sample_size_v1(
             frame([{"id": "T1", "baseline_cvr_pct": 5.0, "clicks_per_day": 300}]),
             constants=CONSTANTS,
+        ),
+        experiments.ice_rank_v1(
+            frame(
+                [
+                    {
+                        "id": "nonbrand:bid_strategy",
+                        "impact_1_5": 5,
+                        "confidence_1_5": 4,
+                        "effort_1_5": 2,
+                        "required_visitors_total": 16_316,
+                        "avg_cpc_usd": 0.75,
+                        "est_days_to_significance": 41,
+                        "launch_wave": 1,
+                    }
+                ]
+            ),
+            constants=CONSTANTS,
+            reserve_pool_usd=20_000,
         ),
         measurement.reconciliation_v1(
             frame(

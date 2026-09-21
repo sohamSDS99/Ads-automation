@@ -293,6 +293,17 @@ STAGE_2_4: dict[str, Any] = {
         "notes": "One campaign per market, each inside the structure floors.",
         "risks": ["The forecast is the research's, not the account's own history."],
     },
+    # 2.5.3. `ratings` is empty on purpose, for the same reason
+    # `StructureDraft.ad_groups` and `CapacityDraft.assignments` are: the ids
+    # are `{campaign_ref}:{variable}` and depend on which tensions this suite's
+    # structure and budget happen to raise. An unrated candidate is carried at
+    # the neutral 3/3/3 and reported in `open_gaps`, so the node still produces
+    # a ranked, sized, funded backlog — which is what a whole-DAG run needs it
+    # to do. A suite asserting on a hypothesis overrides this with its own.
+    "ExperimentDraft": {
+        "ratings": [],
+        "notes": "Rated after the first month of real traffic.",
+    },
 }
 
 

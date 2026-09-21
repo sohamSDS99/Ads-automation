@@ -1032,7 +1032,18 @@ class CampaignPlan(Base):
 
     __tablename__ = "campaign_plan"
     __table_args__ = (
-        sa.UniqueConstraint("project_id", "version", name="uq_campaign_plan_project_version"),
+        # Partial, not a table constraint (migration 0014). `version` is minted
+        # at freeze, so every unfrozen plan carries 0 — and a project holds
+        # more than one of those the first time a gate is rejected and the run
+        # is repeated. Uniqueness is what the freeze needs, and it needs it
+        # only over versions the freeze actually minted.
+        sa.Index(
+            "uq_campaign_plan_project_version_minted",
+            "project_id",
+            "version",
+            unique=True,
+            postgresql_where=sa.text("version > 0"),
+        ),
         sa.Index("ix_campaign_plan_project_version", "project_id", sa.text("version DESC")),
     )
 
@@ -1054,8 +1065,11 @@ class CampaignPlan(Base):
         nullable=False,
     )
     schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
-    #: 1, 2, 3 … per project. Minted at freeze, unique with `project_id`.
-    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    #: 1, 2, 3 … per project, minted at freeze and unique with `project_id`
+    #: from then on. **0 until then**, for every plan in every unfrozen state
+    #: — which is why the uniqueness above is partial. `version > 0` is the
+    #: test for "this plan has been frozen at least once".
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
     status: Mapped[CampaignPlanStatus] = mapped_column(
         _enum(CampaignPlanStatus, "campaign_plan_status"),
         nullable=False,

@@ -718,17 +718,56 @@ def drive_freeze(page: Page, ids: dict[str, str]) -> None:
 
     page.screenshot(path=f"{SHOT}/s2p6c-freeze-dialog.png", full_page=False)
 
-    # Not clicked. `POST /plans/{id}/freeze` is S2-P5b's transaction and does
-    # not exist on this branch; driving it would assert on a 404 rather than on
-    # the dialog. The enabled button is the last thing this phase owns.
-    page.keyboard.press("Escape")
+    # **Actually freeze it.** S2-P5b's transaction is on main now, so §21's
+    # S2-P6 exit criterion — "an approver ... reads the plan, and freezes it,
+    # entirely from the UI" — is testable for the first time. Up to this point
+    # the check stopped at an enabled button, which proves the dialog and
+    # nothing about the two halves meeting.
+    freeze.click()
+    page.wait_for_selector("text=Frozen", timeout=30_000)
 
-    # A frozen plan offers no freeze at all — there is nothing left to do to it.
+    check(
+        "freezing from the UI actually freezes the plan",
+        page.get_by_text("Frozen", exact=False).count() >= 1,
+        "the status chip never reached Frozen after a successful freeze",
+    )
+    check(
+        "and the version it minted is the one the dialog asked for",
+        page.get_by_text("Campaign plan v2", exact=False).count() >= 1,
+        "the header does not show v2 after freezing at confirm_version=2",
+    )
+    check(
+        "and the Freeze button is gone once there is nothing left to freeze",
+        page.get_by_role("button", name="Freeze plan").count() == 0,
+    )
+    # The viewer behind the dialog must still be a plan. An earlier version of
+    # `useFreezePlan` wrote the freeze *receipt* into the plan cache with
+    # `setQueryData`, which would have blanked this screen at the moment the
+    # freeze succeeded.
+    check(
+        "and the plan behind the dialog is still rendered",
+        page.get_by_role("heading", name="Media plan").count() == 1
+        and page.get_by_role("heading", name="Account structure").count() == 1,
+        "the viewer lost its sections after the freeze",
+    )
+    page.screenshot(path=f"{SHOT}/s2p6c-after-freeze.png", full_page=False)
+
+    # The plan that was seeded frozen, not the one just frozen above: this is
+    # about a plan that arrives frozen, and the assertion should not depend on
+    # the freeze that happened a moment ago.
     page.goto(viewer_url(ids, "frozen"), wait_until="networkidle")
     page.wait_for_selector("text=Frozen", timeout=20_000)
+    # Freezing v2 above superseded this one, which is the supersede half of
+    # §12.2 proved end to end rather than asserted.
     check(
-        "a frozen plan offers no Freeze button",
+        "the freeze superseded the older version",
+        page.get_by_text("Superseded", exact=False).count() >= 1,
+        "the previously frozen v1 did not become superseded",
+    )
+    check(
+        "a plan in a terminal state offers no Freeze button",
         page.get_by_role("button", name="Freeze plan").count() == 0,
+        "a superseded plan still offers a Freeze it can never accept",
     )
     check(
         "and names who froze it and when",

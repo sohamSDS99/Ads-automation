@@ -596,3 +596,391 @@ async def test_the_prompt_tells_the_model_the_consent_scope_is_final(
     prompt = harness.llm.user_prompt("OfflinePlanDraft")
     assert "you may not widen this" in prompt
     assert "Plan nothing for a market listed as blocked" in prompt
+
+
+# ---------------------------------------------------------------------------
+# 2.5.3 — experiment_backlog
+# ---------------------------------------------------------------------------
+
+#: Two campaigns with round forecasts, so every figure below is checkable:
+#: brand     960 conv / 12,000 clicks = 8.0% baseline, 400 clicks a day
+#: nonbrand  600 conv / 12,000 clicks = 5.0% baseline, 400 clicks a day
+#:
+#: The volumes are deliberately high. At B2B conversion volumes almost nothing
+#: reaches significance inside two quarters — which is a true and useful thing
+#: for the node to report, and is pinned by its own test below — but a fixture
+#: where every test is refused on the horizon can never exercise the funding
+#: path. 5.0% is `tests/test_calc_power.py`'s anchor case: 8,158 visitors per
+#: arm, so the costs below are checkable against it.
+STRUCTURE_OUTPUT: dict[str, Any] = {
+    "campaigns": [
+        {
+            "campaign_ref": "us-brand",
+            "name": "US | Search | Brand",
+            "market": "US",
+            "monthly_budget_usd": 4_000.0,
+            "bid_strategy": "manual_cpc",
+            "locations": ["United States"],
+            "ad_groups": [{"name": "brand core", "landing_url": "https://example.com/"}],
+        },
+        {
+            "campaign_ref": "us-nonbrand",
+            "name": "US | Search | Non-brand",
+            "market": "US",
+            "monthly_budget_usd": 9_000.0,
+            "bid_strategy": "max_conv",
+            "locations": ["United States", "Canada"],
+            "ad_groups": [{"name": "sds software", "landing_url": "https://example.com/sds"}],
+        },
+    ]
+}
+
+ALLOCATION_OUTPUT: dict[str, Any] = {
+    "experiment_reserve_usd": 20_000.0,
+    "allocation": [
+        {
+            "campaign_ref": "us-brand",
+            "market": "US",
+            "usd": 4_000.0,
+            "est_conv": 960.0,
+            "est_clicks": 12_000.0,
+            "avg_cpc_usd": 0.50,
+        },
+        {
+            "campaign_ref": "us-nonbrand",
+            "market": "US",
+            "usd": 9_000.0,
+            "est_conv": 600.0,
+            "est_clicks": 12_000.0,
+            "avg_cpc_usd": 0.75,
+            "cap_applied": True,
+        },
+    ],
+}
+
+CAPACITY_OUTPUT: dict[str, Any] = {
+    "campaigns": [
+        {"campaign_ref": "us-brand", "verdict": "clears", "forecast_clicks_30d": 12_000.0},
+        {
+            "campaign_ref": "us-nonbrand",
+            "verdict": "marginal",
+            "remedy": "switch_strategy",
+            "bid_strategy_recommended": "tcpa",
+            "forecast_clicks_30d": 12_000.0,
+        },
+    ]
+}
+
+SLATE_OUTPUT: dict[str, Any] = {
+    "slate": [
+        {"campaign_type": "search", "campaign_refs": ["us-brand"], "launch_wave": 1},
+        {"campaign_type": "search", "campaign_refs": ["us-nonbrand"], "launch_wave": 1},
+    ]
+}
+
+BOUNDARIES_OUTPUT: dict[str, Any] = {
+    "broad_match": {"allowed_campaigns": ["us-nonbrand"], "guardrails": []}
+}
+
+#: No figure anywhere. A sample size, a score or a reserve in the output can
+#: only have come from `calc/`, because there was none here to copy.
+BACKLOG_ANSWER: dict[str, Any] = {
+    "ratings": [
+        {
+            "id": "us-nonbrand:bid_strategy",
+            "hypothesis": "If we move to tCPA then CPA falls, because the campaign is marginal.",
+            "impact_1_5": 5,
+            "confidence_1_5": 4,
+            "effort_1_5": 1,
+        },
+        {
+            "id": "us-nonbrand:budget",
+            "hypothesis": "If we lift the cap then volume rises, because demand is unabsorbed.",
+            "impact_1_5": 3,
+            "confidence_1_5": 3,
+            "effort_1_5": 3,
+        },
+        {
+            "id": "us-nonbrand:match_type",
+            "hypothesis": "If we add broad match then reach grows, because exact caps it.",
+            "impact_1_5": 3,
+            "confidence_1_5": 2,
+            "effort_1_5": 2,
+        },
+        {
+            "id": "us-nonbrand:landing_page",
+            "hypothesis": "If we rebuild the page then CVR rises, because it buries the proof.",
+            "impact_1_5": 4,
+            "confidence_1_5": 3,
+            "effort_1_5": 5,
+        },
+        {
+            "id": "us-nonbrand:geo",
+            "hypothesis": "If we split Canada out then CPA falls, because it is cheaper.",
+            "impact_1_5": 2,
+            "confidence_1_5": 3,
+            "effort_1_5": 2,
+        },
+        {
+            "id": "us-brand:landing_page",
+            "hypothesis": "If we shorten the brand page then CVR rises, because intent is high.",
+            "impact_1_5": 2,
+            "confidence_1_5": 4,
+            "effort_1_5": 3,
+        },
+        {
+            "id": "us-brand:ad_schedule",
+            "hypothesis": "If we bid up business hours then CPA falls, because sales answer then.",
+            "impact_1_5": 2,
+            "confidence_1_5": 2,
+            "effort_1_5": 1,
+        },
+    ],
+    "notes": "Assumes the forecast holds through wave 1.",
+}
+
+
+async def run_2_5_3(
+    *,
+    answer: dict[str, Any] | None = None,
+    structure: dict[str, Any] | None = None,
+    allocation: dict[str, Any] | None = None,
+    capacity: dict[str, Any] | None = None,
+    slate: dict[str, Any] | None = None,
+    boundaries: dict[str, Any] | None = None,
+    markets: list[dict[str, Any]] | None = None,
+    **readiness: Any,
+) -> tuple[Any, Any, Any]:
+    harness = support.harness(
+        "2.5.3",
+        answers={"ExperimentDraft": answer or BACKLOG_ANSWER},
+        gathered=gather.Gathered(),
+        source=source(markets=markets, **readiness),
+        permitted=stage_2_5.ExperimentBacklogNode.spec.calc,
+        outputs={
+            "2.4.2": structure if structure is not None else STRUCTURE_OUTPUT,
+            "2.2.4": allocation if allocation is not None else ALLOCATION_OUTPUT,
+            "2.2.2": capacity if capacity is not None else CAPACITY_OUTPUT,
+            "2.3.1": slate if slate is not None else SLATE_OUTPUT,
+            "2.3.2": boundaries if boundaries is not None else BOUNDARIES_OUTPUT,
+        },
+    )
+    node = stage_2_5.experiment_backlog
+    evidence = await node.gather(harness.ctx)
+    output = await node.reason(harness.ctx, evidence)
+    return output, evidence, harness
+
+
+def backlog_item(output: Any, identifier: str) -> Any:
+    """One ranked test by id. Not named `test_` — pytest would collect it."""
+    return next(item for item in output.tests if item.id == identifier)
+
+
+async def test_2_5_3_declares_the_edges_prd_11_gives_it_plus_two_it_argues_for() -> None:
+    spec = stage_2_5.ExperimentBacklogNode.spec
+    # §11: 2.5.3←{2.4.2, 2.2.4, 2.3.1}. 2.2.2 and 2.3.2 are the two the module
+    # docstring argues for; 2.5.2 is deliberately absent so G2 cannot hold it.
+    assert set(spec.depends_on) == {"2.4.2", "2.2.4", "2.3.1", "2.2.2", "2.3.2"}
+    assert "2.5.2" not in spec.depends_on
+    assert spec.gate is False
+    assert spec.connectors == ()
+
+
+async def test_the_backlog_is_ranked_by_ice_not_by_the_order_it_was_given() -> None:
+    output, _, _ = await run_2_5_3()
+    ranks = [item.rank for item in output.tests]
+    assert ranks == sorted(ranks)
+    # 5 x 4 / 1 = 20, the highest score in the answer.
+    assert output.tests[0].id == "us-nonbrand:bid_strategy"
+    assert output.tests[0].ice_score == 20.0
+    assert output.tests[0].rank == 1
+
+
+async def test_every_size_comes_from_the_power_formula_not_the_model() -> None:
+    output, _, harness = await run_2_5_3()
+    sized = computed(harness, "power.sample_size_v1")
+    by_id = {row["id"]: row for row in sized["tests"]}
+    for item in output.tests:
+        assert item.required_conv_per_arm == by_id[item.id]["required_conv_per_arm"]
+        assert item.required_visitors_per_arm == by_id[item.id]["required_visitors_per_arm"]
+        assert item.est_days_to_significance == by_id[item.id]["est_days_to_significance"]
+    assert output.alpha == sized["alpha"]
+    assert output.power == sized["power"]
+
+
+async def test_the_baseline_is_the_campaigns_own_forecast() -> None:
+    output, _, _ = await run_2_5_3()
+    assert backlog_item(output, "us-brand:landing_page").baseline == 8.0
+    assert backlog_item(output, "us-nonbrand:budget").baseline == 5.0
+
+
+async def test_the_reserve_funds_down_the_ranking_and_stops() -> None:
+    output, _, harness = await run_2_5_3()
+    ranked = computed(harness, "experiments.ice_rank_v1")
+    assert output.reserve_pool_usd == 20_000.0
+    assert output.reserve_committed_usd == ranked["reserve_committed_usd"]
+    # The highest-ICE test is funded first; 5 x 4 / 1 = 20 and it costs
+    # 8,158 x 2 arms x $0.75 = $12,237.
+    top = output.tests[0]
+    assert top.id == "us-nonbrand:bid_strategy"
+    assert top.funded is True
+    assert top.reserve_usd == 12_237.00
+    # The reserve is a budget, not a ration: what it funds is exactly what it
+    # could afford at that rank, and the committed total is their sum.
+    funded = [item for item in output.tests if item.funded]
+    assert output.reserve_committed_usd == pytest.approx(sum(item.reserve_usd for item in funded))
+    assert output.reserve_committed_usd <= output.reserve_pool_usd
+    assert 0 < len(funded) < len(output.tests), "this fixture exercises both sides of the line"
+
+
+async def test_an_unfunded_test_reserves_nothing_and_appears_in_not_yet() -> None:
+    output, _, _ = await run_2_5_3()
+    unfunded = [item for item in output.tests if not item.funded]
+    assert unfunded, "this fixture is meant to exhaust the reserve"
+    for item in unfunded:
+        assert item.reserve_usd == 0.0
+    blocked = {row.test for row in output.not_yet}
+    assert blocked, "an unfunded test must say why"
+
+
+async def test_the_sum_of_the_reserves_never_exceeds_the_pool() -> None:
+    output, _, _ = await run_2_5_3()
+    assert sum(item.reserve_usd for item in output.tests) <= output.reserve_pool_usd + 0.01
+
+
+async def test_every_number_resolves_to_a_derived_row_the_node_produced() -> None:
+    output, evidence, harness = await run_2_5_3()
+    cited = collect_calc_evidence_ids(output.model_dump(mode="json"))
+    assert len(cited) == 2, "the sizing row and the ranking row, and nothing else"
+    # The sizing row comes back from `gather()`. The ranking row cannot: what
+    # to rank depends on what the model rated, so it is produced in `reason()`
+    # and folded into the citable set by the executor from
+    # `ctx.plan.calc.evidence`. Both are `derived` rows this node produced.
+    assert derived_ids(evidence) <= cited
+    assert cited == {item.evidence.id for item in harness.ctx.plan.calc.made}
+
+
+async def test_an_unrated_candidate_is_carried_neutral_rather_than_dropped() -> None:
+    thin = {"ratings": BACKLOG_ANSWER["ratings"][:1], "notes": ""}
+    output, _, _ = await run_2_5_3(answer=thin)
+    unrated = backlog_item(output, "us-brand:ad_schedule")
+    assert unrated.impact_1_5 == stage_2_5.NEUTRAL_RATING
+    assert unrated.confidence_1_5 == stage_2_5.NEUTRAL_RATING
+    assert unrated.effort_1_5 == stage_2_5.NEUTRAL_RATING
+    assert unrated.hypothesis.startswith("Untested")
+    assert any("unrated" in gap for gap in output.open_gaps)
+
+
+async def test_a_rating_for_a_candidate_that_does_not_exist_is_ignored_and_named() -> None:
+    invented = {
+        "ratings": [
+            *BACKLOG_ANSWER["ratings"],
+            {
+                "id": "ghost:landing_page",
+                "hypothesis": "If we test a campaign that does not exist, nothing happens.",
+                "impact_1_5": 5,
+                "confidence_1_5": 5,
+                "effort_1_5": 1,
+            },
+        ],
+        "notes": "",
+    }
+    output, _, _ = await run_2_5_3(answer=invented)
+    assert not any(item.id == "ghost:landing_page" for item in output.tests)
+    assert any("never raised" in gap for gap in output.open_gaps)
+
+
+async def test_no_experiment_reserve_ranks_everything_and_funds_none() -> None:
+    poor = dict(ALLOCATION_OUTPUT, experiment_reserve_usd=0.0)
+    output, _, _ = await run_2_5_3(allocation=poor)
+    assert output.tests, "a zero reserve still produces a ranked backlog"
+    assert not any(item.funded for item in output.tests)
+    assert any("no experiment reserve" in gap for gap in output.open_gaps)
+
+
+async def test_a_plan_with_no_forecast_stops_rather_than_emitting_an_uncited_backlog() -> None:
+    blind = {"experiment_reserve_usd": 1_000.0, "allocation": []}
+    with pytest.raises(stage_2_5.InsufficientBacklog, match="could not size a single test"):
+        await run_2_5_3(allocation=blind, capacity={"campaigns": []})
+
+
+async def test_the_model_is_shown_the_candidates_and_never_a_score() -> None:
+    _, _, harness = await run_2_5_3()
+    prompt = harness.llm.user_prompt("ExperimentDraft")
+    assert "us-nonbrand:bid_strategy" in prompt
+    assert "why_this_is_in_question" in prompt
+    for forbidden in ("ice_score", "reserve_usd", "rank"):
+        assert forbidden not in prompt
+
+
+async def test_the_model_never_calls_a_formula_outside_its_allow_list() -> None:
+    harness = support.harness(
+        "2.5.3",
+        answers={"ExperimentDraft": BACKLOG_ANSWER},
+        gathered=gather.Gathered(),
+        source=source(),
+        permitted=("economics.max_cpa_v1",),
+        outputs={
+            "2.4.2": STRUCTURE_OUTPUT,
+            "2.2.4": ALLOCATION_OUTPUT,
+            "2.2.2": CAPACITY_OUTPUT,
+            "2.3.1": SLATE_OUTPUT,
+            "2.3.2": BOUNDARIES_OUTPUT,
+        },
+    )
+    with pytest.raises(CalcNotPermitted, match="power.sample_size_v1"):
+        await stage_2_5.experiment_backlog.gather(harness.ctx)
+
+
+async def test_the_consent_gate_bounds_the_audience_test_not_the_model() -> None:
+    # PC1. DE is refused by gate 1.5.3 in `CONSENT_LISTS`, so even with a
+    # remarketing channel on the slate no audience test may name it.
+    remarketing = {
+        "slate": [
+            *SLATE_OUTPUT["slate"],
+            {
+                "campaign_type": "display_remarketing",
+                "campaign_refs": ["de-rmkt"],
+                "launch_wave": 2,
+            },
+        ]
+    }
+    output, _, _ = await run_2_5_3(slate=remarketing, markets=MARKETS_EU, lists=CONSENT_LISTS)
+    audience = [item for item in output.tests if item.variable == "audience"]
+    assert all(item.market != "DE" for item in audience)
+
+
+async def test_a_low_traffic_campaign_is_told_it_cannot_test_rather_than_flattered() -> None:
+    """The finding that makes this node worth having.
+
+    At ordinary B2B volumes — 120 conversions on 3,000 clicks a month — a 20%
+    relative lift needs 10,316 visitors per arm, which at 100 clicks a day is
+    207 days. Past the 180-day horizon, so nothing is funded and every test
+    says why. A backlog that promised a readout in three weeks here would be
+    worse than no backlog, because somebody would plan the quarter around it.
+    """
+    thin_allocation = {
+        "experiment_reserve_usd": 50_000.0,
+        "allocation": [
+            {
+                "campaign_ref": "us-brand",
+                "market": "US",
+                "usd": 4_000.0,
+                "est_conv": 120.0,
+                "est_clicks": 3_000.0,
+                "avg_cpc_usd": 1.0,
+            }
+        ],
+    }
+    output, _, _ = await run_2_5_3(
+        allocation=thin_allocation,
+        structure={"campaigns": STRUCTURE_OUTPUT["campaigns"][:1]},
+        capacity={"campaigns": CAPACITY_OUTPUT["campaigns"][:1]},
+    )
+    assert output.tests, "the backlog still ranks them — it just cannot fund them"
+    assert not any(item.funded for item in output.tests)
+    assert all(item.reserve_usd == 0.0 for item in output.tests)
+    assert output.reserve_committed_usd == 0.0
+    # And the reason is the horizon, not the money: the reserve is $50,000.
+    assert any("180-day horizon" in row.blocked_by for row in output.not_yet)
+    assert all(item.est_days_to_significance > 180 for item in output.tests)

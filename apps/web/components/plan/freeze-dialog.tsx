@@ -290,7 +290,13 @@ export function FreezeButton({
   const [open, setOpen] = useState(false);
   const ready = plan.status === "ready_to_freeze";
 
-  if (plan.status === "frozen") return null;
+  // Both terminal states, not just `frozen`. A superseded plan is one a newer
+  // version has already replaced — it can never become freezable, so a
+  // disabled Freeze on it makes the same false promise as one on a frozen
+  // plan: that this is an action waiting on a condition. Found by actually
+  // freezing a plan in the browser check, which superseded the older version
+  // and produced this state for the first time.
+  if (plan.status === "frozen" || plan.status === "superseded") return null;
 
   return (
     <>

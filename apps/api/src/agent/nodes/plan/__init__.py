@@ -25,14 +25,20 @@ even when both sides are strings or lists: the guard cannot tell a sentence
 from a sum, and the right answer is to keep both out of a node rather than to
 teach it an exception it would have to get right every time.
 
-S2-P5a adds the half of stage 2.5 that does not wait for the budget and
-structure branches:
+S2-P5a added the half of stage 2.5 that does not wait for the budget and
+structure branches, and S2-P5b closed it:
 
-* `stage_2_5.py` — 2.5.1 `measurement_source_of_truth` and 2.5.2
-  `offline_conversion_plan`. §11's edges put both on 2.1 alone
-  (2.5.1←{2.1.1}, 2.5.2←{2.1.1, 2.1.4}), so they execute in parallel with the
-  critical path and could be built before S2-P3 and S2-P4 exist. 2.5.3
-  `experiment_backlog` reads 2.4.2, 2.2.4 and 2.3.1 and waits for S2-P5b.
+* `stage_2_5.py` — 2.5.1 `measurement_source_of_truth`, 2.5.2
+  `offline_conversion_plan` and 2.5.3 `experiment_backlog`. §11's edges put
+  the first two on 2.1 alone (2.5.1←{2.1.1}, 2.5.2←{2.1.1, 2.1.4}), so they
+  execute in parallel with the critical path and were built before S2-P3 and
+  S2-P4 existed. 2.5.3 reads the structure, the budget and the slate, so it
+  runs in the last wave beside 2.4.3.
+* `stage_2_6.py` — 2.6.1 `plan_synthesis` and 2.6.2 `plan_critique`. Built by
+  S2-P5b. 2.6.1 assembles the `CampaignPlan` of §12 from every node above it,
+  the way `nodes/synthesis.py` assembles the `ResearchReport`; 2.6.2 checks it
+  against §11's ten fixed assertions, which are computed here rather than left
+  to a model, and buys exactly one re-synthesis.
 
 S2-P0's two placeholder nodes, `2.0.1` and `2.0.2`, lived here until this
 phase and are gone: they existed so that `stage='plan'` was something the

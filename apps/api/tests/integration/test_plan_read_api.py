@@ -591,11 +591,7 @@ async def test_the_badge_and_the_tick_come_from_the_nodes_that_decided_them(
 
 
 async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
-    admin: ApiClient,
-    db: AsyncSession,
-    project: Any,
-    second_project_id: uuid.UUID,
-    workspace_id: uuid.UUID,
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
 ) -> None:
     """`null` and `[]` are different answers and must not render the same.
 
@@ -607,12 +603,12 @@ async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
     me = (await admin.get("/auth/me")).json()
     user_id = uuid.UUID(me["id"])
 
-    # Two projects, not two plans in one. `uq_campaign_plan_project_version` as
-    # shipped rejects a second version-0 row per project — the defect S2-P5b
-    # fixes in migration 0014 with a partial unique index `WHERE version > 0`,
-    # which is not on this branch. This test is about whether an unchecked tree
-    # reads as a clean one; entangling it with version numbering would make it
-    # fail for a reason it is not about.
+    # Both plans in ONE project, which is what this test always wanted. It ran
+    # on two for a while because `uq_campaign_plan_project_version` rejected a
+    # second version-0 row — the defect this phase found by writing the test.
+    # Migration 0014 replaced that constraint with a partial unique index
+    # `WHERE version > 0`, so the workaround is gone and the shared acceptance
+    # is back: one project, one current acceptance, two plan runs off it.
     unchecked = await _seed(
         db,
         project_id=project.id,
@@ -628,11 +624,14 @@ async def test_an_unchecked_tree_is_not_reported_as_a_clean_one(
         group["name_valid"] is None for row in page["campaigns"] for group in row["ad_groups"]
     )
 
+    acceptance = await db.get(ResearchAcceptance, unchecked.acceptance_id)
+    assert acceptance is not None
     checked = await _seed(
         db,
-        project_id=second_project_id,
+        project_id=project.id,
         workspace_id=workspace_id,
         user_id=user_id,
+        reuse=acceptance,
         payload_overrides={"campaigns": 2, "duplicate_terms": ("sds software",)},
     )
     page = (await admin.get(f"/plans/{checked.plan_run_id}/structure")).json()

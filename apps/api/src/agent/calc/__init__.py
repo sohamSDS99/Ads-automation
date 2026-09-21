@@ -6,7 +6,7 @@ persisted as a `PlanCalc` row plus a `derived` Evidence row by `derived.py`, and
 is cited by `calc_evidence_ids` on the node output. A number with no calculation
 behind it fails schema validation.
 
-Importing this package registers all eleven formulas, so `FORMULAS` is complete
+Importing this package registers all twelve formulas, so `FORMULAS` is complete
 for anything that walks the registry (the isolation guard and the node tests
 both do).
 
@@ -20,6 +20,7 @@ from __future__ import annotations
 from agent.calc import (
     allocation,
     economics,
+    experiments,
     forecast,
     measurement,
     power,
@@ -48,6 +49,7 @@ __all__ = [
     "allocation",
     "calc_version",
     "economics",
+    "experiments",
     "forecast",
     "formula",
     "inputs_hash",
