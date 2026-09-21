@@ -32,6 +32,17 @@ export type Problem = {
   retry_after_seconds?: number;
   state?: string;
   errors?: ValidationError[];
+  /**
+   * Named preconditions the caller can act on, each with its own fix link.
+   * §16 rule 1: eligibility and freeze failures answer 409 with this array, and
+   * the UI renders it rather than re-deriving the reason.
+   */
+  blockers?: {
+    code: string;
+    detail: string;
+    fix_url: string;
+    severity?: "blocker" | "warning";
+  }[];
 };
 
 /**

@@ -1,0 +1,556 @@
+"""The read side of a campaign plan (Stage 02 PRD §15.3 D, F; §16 "The plan").
+
+`GET /plans/{plan_run_id}`, its structure pages and its version diff. Three
+routes, and what these tests are actually about is the seam between them and
+node 2.6.1 — which ships in S2-P5b. The reader has to work against a payload it
+did not write, may only partly recognise, and must never crash on.
+
+So the shapes asserted here are:
+
+* a **whole** plan renders every field the Plan Viewer and the freeze dialog
+  read in one response, including the four gate decisions, the critique verdict
+  and the tree's totals. The dialog states the campaign and keyword counts
+  before anyone types a version, and a dialog that opened four requests to say
+  so would render in pieces;
+* an **empty** payload answers 200 with zeroes rather than 500. A plan run that
+  halted at a gate has a row and no payload, and the gate decisions somebody
+  came to read are on that response;
+* the **workspace boundary**, which `campaign_plan` carries itself;
+* **pagination by campaign**, including that the totals are the plan's and not
+  the page's, and that a cursor naming a campaign the payload no longer holds
+  says so instead of silently restarting at page one.
+"""
+
+from __future__ import annotations
+
+import sys
+import uuid
+from pathlib import Path
+from typing import Any
+
+import pytest
+import pytest_asyncio
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agent.db.models import (
+    Approval,
+    ApprovalRequiredRole,
+    ApprovalStatus,
+    CampaignPlan,
+    CampaignPlanStatus,
+    NodeRun,
+    NodeRunStatus,
+    Report,
+    ResearchAcceptance,
+    Run,
+    RunStage,
+    RunStatus,
+    RunTrigger,
+)
+from tests.integration.conftest import ApiClient
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+
+from plan_payload import campaign_plan_payload  # noqa: E402
+
+pytestmark = pytest.mark.asyncio
+
+GATES = (("G1", "2.1.3"), ("G2", "2.1.4"), ("G3", "2.2.5"), ("G4", "2.3.3"))
+
+
+async def _seed(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    status: CampaignPlanStatus = CampaignPlanStatus.READY_TO_FREEZE,
+    version: int = 0,
+    payload_overrides: dict[str, Any] | None = None,
+    empty_payload: bool = False,
+    decide_gates: bool = True,
+    critique: dict[str, Any] | None = None,
+    reuse: ResearchAcceptance | None = None,
+) -> CampaignPlan:
+    """A plan row with its run, its acceptance and its four approvals.
+
+    Everything a `CampaignPlan` cannot exist without: `acceptance_id` is
+    `ON DELETE RESTRICT` because a plan that cannot name what it was planned
+    from is not auditable, and `source_run_id` on the run is CHECKed by
+    migration 0013.
+
+    `reuse` exists because two plan versions in one project **must** share an
+    acceptance: `uq_research_acceptance_current` is partial-unique on
+    `project_id WHERE superseded_by IS NULL`, so a project has exactly one
+    current acceptance at a time. That is also the honest model of versioning —
+    two plan runs off the same signed-off research is how a project gets a
+    version 2 after a budget was renegotiated.
+    """
+    if reuse is not None:
+        acceptance = reuse
+        research_id = reuse.run_id
+        report_id = reuse.report_id
+        return await _plan_from(
+            db,
+            project_id=project_id,
+            workspace_id=workspace_id,
+            user_id=user_id,
+            acceptance=acceptance,
+            research_id=research_id,
+            report_id=report_id,
+            status=status,
+            version=version,
+            payload_overrides=payload_overrides,
+            empty_payload=empty_payload,
+            decide_gates=decide_gates,
+            critique=critique,
+        )
+
+    research = Run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        triggered_by=user_id,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.SUCCEEDED,
+        stage=RunStage.RESEARCH,
+    )
+    db.add(research)
+    await db.flush()
+
+    report = Report(
+        run_id=research.id,
+        schema_version="1.0",
+        payload={"launch_readiness": "go", "degraded_sources": []},
+        markdown="# report",
+    )
+    db.add(report)
+    await db.flush()
+
+    acceptance = ResearchAcceptance(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        run_id=research.id,
+        report_id=report.id,
+        accepted_by=user_id,
+        launch_readiness_at_acceptance="go",
+    )
+    db.add(acceptance)
+    await db.flush()
+
+    return await _plan_from(
+        db,
+        project_id=project_id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        acceptance=acceptance,
+        research_id=research.id,
+        report_id=report.id,
+        status=status,
+        version=version,
+        payload_overrides=payload_overrides,
+        empty_payload=empty_payload,
+        decide_gates=decide_gates,
+        critique=critique,
+    )
+
+
+async def _plan_from(
+    db: AsyncSession,
+    *,
+    project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+    user_id: uuid.UUID,
+    acceptance: ResearchAcceptance,
+    research_id: uuid.UUID,
+    report_id: uuid.UUID,
+    status: CampaignPlanStatus,
+    version: int,
+    payload_overrides: dict[str, Any] | None,
+    empty_payload: bool,
+    decide_gates: bool,
+    critique: dict[str, Any] | None,
+) -> CampaignPlan:
+    """One plan run and one plan row against an acceptance that already exists."""
+    plan_run = Run(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        triggered_by=user_id,
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.SUCCEEDED,
+        stage=RunStage.PLAN,
+        source_run_id=research_id,
+    )
+    db.add(plan_run)
+    await db.flush()
+
+    if decide_gates:
+        for gate_key, node_id in GATES:
+            db.add(
+                Approval(
+                    run_id=plan_run.id,
+                    node_id=node_id,
+                    gate_key=gate_key,
+                    status=ApprovalStatus.APPROVED,
+                    required_role=ApprovalRequiredRole.APPROVER,
+                    proposal={"gate": gate_key},
+                    decided_by=user_id,
+                )
+            )
+
+    if critique is not None:
+        db.add(
+            NodeRun(
+                run_id=plan_run.id,
+                node_id="2.6.2",
+                status=NodeRunStatus.SUCCEEDED,
+                output=critique,
+            )
+        )
+
+    payload: dict[str, Any] = {}
+    if not empty_payload:
+        payload = campaign_plan_payload(
+            project_id=project_id,
+            plan_run_id=plan_run.id,
+            research_run_id=research_id,
+            report_id=report_id,
+            acceptance_id=acceptance.id,
+            accepted_by=user_id,
+            decider_id=user_id,
+            **(payload_overrides or {}),
+        )
+
+    plan = CampaignPlan(
+        workspace_id=workspace_id,
+        project_id=project_id,
+        plan_run_id=plan_run.id,
+        acceptance_id=acceptance.id,
+        schema_version="1.0",
+        version=version,
+        status=status,
+        payload=payload,
+        markdown="# plan" if not empty_payload else "",
+    )
+    db.add(plan)
+    await db.commit()
+    return plan
+
+
+@pytest_asyncio.fixture
+async def seeded(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> CampaignPlan:
+    me = (await admin.get("/auth/me")).json()
+    return await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+        critique={"verdict": "pass", "blocking": [], "advisory": ["Wave 2 has no owner."]},
+    )
+
+
+# ---------------------------------------------------------------------------
+# GET /plans/{plan_run_id}
+# ---------------------------------------------------------------------------
+
+
+async def test_a_whole_plan_arrives_in_one_response(admin: ApiClient, seeded: CampaignPlan) -> None:
+    response = await admin.get(f"/plans/{seeded.plan_run_id}")
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["status"] == "ready_to_freeze"
+    assert body["schema_version"] == "1.0"
+    assert body["payload"]["executive_summary"]
+    # The four gate decisions, in gate order, whatever order they were decided.
+    assert [gate["gate_key"] for gate in body["gates"]] == ["G1", "G2", "G3", "G4"]
+    assert all(gate["status"] == "approved" for gate in body["gates"])
+    assert all(gate["decided_by_name"] for gate in body["gates"])
+    # The freeze dialog quotes these before anyone types a version.
+    assert body["totals"] == {"campaigns": 4, "ad_groups": 12, "keywords": 96}
+    assert body["critique"]["verdict"] == "pass"
+    assert body["critique"]["advisory"] == ["Wave 2 has no owner."]
+    # The header renders the source even though the payload carries its own copy.
+    assert body["source"]["launch_readiness"] == "go"
+
+
+async def test_an_unfrozen_plan_reports_the_version_a_freeze_would_mint(
+    admin: ApiClient, seeded: CampaignPlan
+) -> None:
+    """§12.2 mints at freeze, so the number §15.3 E asks for does not exist yet.
+
+    The dialog cannot compute it — that would be the frontend deriving a version
+    the server is about to choose — so the response carries it.
+    """
+    body = (await admin.get(f"/plans/{seeded.plan_run_id}")).json()
+    assert body["version"] == 0
+    assert body["next_version"] == 1
+
+
+async def test_next_version_counts_superseded_plans_too(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """A superseded plan is not `frozen`, and its version must never be reused.
+
+    `version` is what a signed-off plan is called for the rest of its life. A
+    rule that counted only frozen rows would hand version 2 to a second plan
+    after the first was superseded, and two plans in one project would answer to
+    the same name.
+    """
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+    first = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        status=CampaignPlanStatus.SUPERSEDED,
+        version=1,
+    )
+    acceptance = await db.get(ResearchAcceptance, first.acceptance_id)
+    assert acceptance is not None
+    current = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        reuse=acceptance,
+    )
+
+    body = (await admin.get(f"/plans/{current.plan_run_id}")).json()
+    assert body["next_version"] == 2
+
+
+async def test_an_empty_payload_is_answered_not_refused(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """A plan run that halted before 2.6.1 has a row and no payload.
+
+    The gate decisions on that response are the reason somebody opened the
+    page. Refusing the whole plan because one section is missing would take
+    them away.
+    """
+    me = (await admin.get("/auth/me")).json()
+    plan = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+        status=CampaignPlanStatus.DRAFT,
+        empty_payload=True,
+        decide_gates=False,
+    )
+
+    body = (await admin.get(f"/plans/{plan.plan_run_id}")).json()
+    assert body["payload"] == {}
+    assert body["totals"] == {"campaigns": 0, "ad_groups": 0, "keywords": 0}
+    assert body["critique"] is None
+    # Every gate is still a named row: "G4 — the run never reached this gate" is
+    # the answer to why the freeze button is refusing.
+    assert [gate["status"] for gate in body["gates"]] == ["not_reached"] * 4
+
+
+async def test_a_run_with_no_plan_is_a_404_that_says_why(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    me = (await admin.get("/auth/me")).json()
+    run = Run(
+        workspace_id=workspace_id,
+        project_id=project.id,
+        triggered_by=uuid.UUID(me["id"]),
+        trigger=RunTrigger.MANUAL,
+        status=RunStatus.RUNNING,
+        stage=RunStage.RESEARCH,
+    )
+    db.add(run)
+    await db.commit()
+
+    response = await admin.get(f"/plans/{run.id}")
+    assert response.status_code == 404
+    assert "synthesised" in response.json()["detail"]
+
+
+async def test_another_workspaces_plan_is_not_readable(
+    admin: ApiClient, second_client: ApiClient, seeded: CampaignPlan, workspace: Any
+) -> None:
+    """`campaign_plan` carries its own `workspace_id`, unlike `plan_calc`."""
+    response = await second_client.get(f"/plans/{seeded.plan_run_id}")
+    assert response.status_code in (401, 404)
+
+
+# ---------------------------------------------------------------------------
+# GET /plans/{plan_run_id}/structure
+# ---------------------------------------------------------------------------
+
+
+async def test_the_structure_paginates_by_campaign_and_totals_the_whole_plan(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    me = (await admin.get("/auth/me")).json()
+    plan = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+        payload_overrides={
+            "campaigns": 7,
+            "ad_groups_per_campaign": 2,
+            "keywords_per_ad_group": 3,
+        },
+    )
+
+    first = (await admin.get(f"/plans/{plan.plan_run_id}/structure?limit=3")).json()
+    assert len(first["campaigns"]) == 3
+    assert first["next_cursor"]
+    # The plan's totals, never the page's: a reader on page one still needs to
+    # know how much tree there is, and the freeze dialog quotes the same numbers.
+    assert first["totals"] == {"campaigns": 7, "ad_groups": 14, "keywords": 42}
+    assert first["validator_regex"]
+    assert first["campaigns"][0]["ad_group_count"] == 2
+    assert first["campaigns"][0]["keyword_count"] == 6
+
+    seen = list(first["campaigns"])
+    cursor = first["next_cursor"]
+    while cursor:
+        page = (
+            await admin.get(f"/plans/{plan.plan_run_id}/structure?limit=3&cursor={cursor}")
+        ).json()
+        seen.extend(page["campaigns"])
+        cursor = page["next_cursor"]
+
+    assert len(seen) == 7
+    # No campaign appears twice and none is skipped, which is the only thing a
+    # cursor has to guarantee.
+    assert len({(row["campaign_ref"], row["market"]) for row in seen}) == 7
+
+
+async def test_a_stale_cursor_says_so_rather_than_restarting(
+    admin: ApiClient, seeded: CampaignPlan
+) -> None:
+    """Silently answering page one would read as "you have reached the end"."""
+    response = await admin.get(f"/plans/{seeded.plan_run_id}/structure?cursor=gone@XX")
+    assert response.status_code == 422
+    assert "rewritten" in response.json()["detail"]
+
+
+async def test_the_badge_and_the_tick_come_from_the_nodes_that_decided_them(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """2.4.3's verdict and 2.4.1's regex, per campaign and per name.
+
+    `name_valid` has three states and the third is the point: `None` means
+    unchecked, which is what an unnamed convention produces, and a green tick on
+    an unchecked name is the screen asserting something nobody verified.
+    """
+    me = (await admin.get("/auth/me")).json()
+    plan = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+        payload_overrides={"campaigns": 2, "invalid_names": ("theme1-de-create-01",)},
+    )
+
+    page = (await admin.get(f"/plans/{plan.plan_run_id}/structure")).json()
+    by_name = {row["name"]: row for row in page["campaigns"]}
+    assert by_name["theme1-de-create-01"]["name_valid"] is False
+    assert by_name["theme1-us-capture-00"]["name_valid"] is True
+    assert page["invalid_names"] == ["theme1-de-create-01"]
+
+    # The badge names the threshold and the shortfall, not just "below".
+    verdicts = {row["campaign_ref"]: row for row in page["campaigns"]}
+    for row in verdicts.values():
+        assert row["verdict"] in ("clears", "below_threshold")
+        assert row["threshold"] == 30.0
+        assert row["forecast_conv_30d"] is not None
+
+
+async def test_a_limit_outside_the_range_is_refused(admin: ApiClient, seeded: CampaignPlan) -> None:
+    for limit in (0, 41):
+        response = await admin.get(f"/plans/{seeded.plan_run_id}/structure?limit={limit}")
+        assert response.status_code == 422, limit
+
+
+# ---------------------------------------------------------------------------
+# GET /plans/{plan_run_id}/diff
+# ---------------------------------------------------------------------------
+
+
+async def test_two_versions_diff_by_section(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+    older = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        status=CampaignPlanStatus.SUPERSEDED,
+        version=1,
+        payload_overrides={"envelope_usd": 48_000.0, "campaigns": 4},
+    )
+    acceptance = await db.get(ResearchAcceptance, older.acceptance_id)
+    assert acceptance is not None
+    newer = await _seed(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=user_id,
+        reuse=acceptance,
+        payload_overrides={"envelope_usd": 60_000.0, "campaigns": 5},
+    )
+
+    body = (await admin.get(f"/plans/{newer.plan_run_id}/diff?against={older.plan_run_id}")).json()
+
+    assert body["version"] == 0
+    assert body["against_version"] == 1
+    assert body["unchanged"] is False
+    scalars = {row["field"]: (row["before"], row["after"]) for row in body["scalars"]}
+    assert scalars["Monthly envelope (USD)"] == (48_000.0, 60_000.0)
+    sections = {row["path"]: row for row in body["sections"]}
+    assert sections["account_structure.campaigns"]["added"] == 1
+    # Unchanged sections are omitted, not sent as zero rows.
+    assert all(row["total"] > 0 for row in body["sections"])
+
+
+async def test_a_plan_cannot_be_diffed_against_another_project(
+    admin: ApiClient,
+    db: AsyncSession,
+    project: Any,
+    second_project_id: uuid.UUID,
+    workspace_id: uuid.UUID,
+) -> None:
+    """Every section would report as changed, which is true and useless."""
+    me = (await admin.get("/auth/me")).json()
+    user_id = uuid.UUID(me["id"])
+    mine = await _seed(db, project_id=project.id, workspace_id=workspace_id, user_id=user_id)
+    theirs = await _seed(
+        db, project_id=second_project_id, workspace_id=workspace_id, user_id=user_id
+    )
+
+    response = await admin.get(f"/plans/{mine.plan_run_id}/diff?against={theirs.plan_run_id}")
+    assert response.status_code == 422
+    assert "different projects" in response.json()["detail"]
+
+
+async def test_a_plan_is_not_diffed_against_itself(admin: ApiClient, seeded: CampaignPlan) -> None:
+    response = await admin.get(f"/plans/{seeded.plan_run_id}/diff?against={seeded.plan_run_id}")
+    assert response.status_code == 422
+
+
+async def test_a_viewer_can_read_every_one_of_these_and_change_nothing(
+    signed_in_as: Any, seeded: CampaignPlan
+) -> None:
+    """§21's S2-P6 exit criterion: a `viewer` reads all of it and changes none.
+
+    The three routes are READ, so a viewer gets them. There is nothing here to
+    assert about mutation because this phase adds no mutating route — the freeze
+    transaction is S2-P5b's, and `test_authz_matrix` covers what a role may not
+    call.
+    """
+    viewer = await signed_in_as("viewer")
+    for path in ("", "/structure"):
+        response = await viewer.get(f"/plans/{seeded.plan_run_id}{path}")
+        assert response.status_code == 200, f"{path} -> {response.text}"

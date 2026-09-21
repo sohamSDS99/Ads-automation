@@ -1,4 +1,4 @@
-"""Wire shape for `GET /runs/{id}/diff` (PRD §14).
+"""Wire shape for `GET /runs/{id}/diff` (PRD §14) and `GET /plans/{id}/diff` (Stage 02 §15.3 F).
 
 A thin projection of `export.diff`. The dataclasses over there are the model —
 they are what the tests assert on and what a future markdown renderer would
@@ -15,6 +15,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 from agent.export import diff as engine
+from agent.planning import diff as plan_engine
 
 
 class FieldChangeModel(BaseModel):
@@ -105,4 +106,50 @@ def _section(section: engine.SectionDiff) -> SectionDiffModel:
             )
             for item in section.items
         ],
+    )
+
+
+class PlanDiffResponse(BaseModel):
+    """`GET /plans/{plan_run_id}/diff?against=` — Stage 02 PRD §15.3 F.
+
+    The same three projections as `RunDiffResponse`, because the plan diff runs
+    on the same engine and the frontend renders both with one component. What
+    differs is the header: plans are compared by **version**, which is the
+    identifier a budget owner argues about, while runs are compared by id.
+    """
+
+    plan_run_id: uuid.UUID
+    against_plan_run_id: uuid.UUID
+    version: int
+    against_version: int
+    generated_at: datetime | None = None
+    against_generated_at: datetime | None = None
+    scalars: list[FieldChangeModel] = Field(default_factory=list)
+    sections: list[SectionDiffModel] = Field(default_factory=list)
+    unchanged: bool = Field(
+        default=False,
+        description="True when nothing the plan contract tracks differs between the two versions.",
+    )
+
+
+def plan_to_response(result: plan_engine.PlanDiff) -> PlanDiffResponse:
+    """Project the plan engine's result, dropping sections with nothing to say.
+
+    Same omission rule as `to_response`: an unchanged section is absent rather
+    than a zero row. A plan has eighteen sections and a re-approval usually
+    turns on two of them.
+    """
+    return PlanDiffResponse(
+        plan_run_id=result.plan_run_id,
+        against_plan_run_id=result.against_plan_run_id,
+        version=result.version,
+        against_version=result.against_version,
+        generated_at=result.generated_at,
+        against_generated_at=result.against_generated_at,
+        scalars=[
+            FieldChangeModel(field=change.field, before=change.before, after=change.after)
+            for change in result.scalars
+        ],
+        sections=[_section(section) for section in result.changed_sections],
+        unchanged=result.is_empty,
     )

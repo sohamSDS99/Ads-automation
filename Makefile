@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-s2p6b browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -111,6 +111,14 @@ browser-autofill: ## Drive "let the agent work it out" on step 1, at 1440 and 39
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
 		-e PROJECT_ID="$(PROJECT_ID)" worker \
 		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-autofill.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s2p6c: ## Drive the Plan Viewer, structure tree, freeze dialog and diff, at 1440 and 390
+	@docker compose cp apps/api/scripts/plan_payload.py worker:/tmp/plan_payload.py
+	@docker compose cp scripts/browser-check-s2p6c.py worker:/tmp/browser-check-s2p6c.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-s2p6c.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390

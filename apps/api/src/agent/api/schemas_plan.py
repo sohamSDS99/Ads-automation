@@ -167,3 +167,179 @@ class PlanCalcList(BaseModel):
     """`GET /plans/{plan_run_id}/calcs` — oldest first, the order they computed in."""
 
     items: list[PlanCalcRow] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# the plan itself — the read side (PRD §15.3 D, E, F)
+# ---------------------------------------------------------------------------
+
+
+class PlanGateDecision(BaseModel):
+    """One of law 16's four gates, as the freeze dialog has to show it.
+
+    §15.3 E requires the dialog to list the four decisions with decider and
+    timestamp before anyone types a version, so they travel with the plan
+    rather than being re-fetched per gate from the approvals inbox. A gate that
+    has not been decided is still a row: "G4 — not yet decided" is the answer
+    to why the freeze button is refusing, and an absent row is not.
+    """
+
+    gate_key: str
+    node_id: str
+    status: str
+    decided_by: uuid.UUID | None = None
+    decided_by_name: str | None = None
+    decided_at: datetime | None = None
+    note: str | None = None
+    #: True when the approver changed the agent's proposal before approving it.
+    edited: bool = False
+
+
+class PlanStructureTotals(BaseModel):
+    """What the tree adds up to, for a reader who will never scroll all of it.
+
+    Counted once, on the server, from the same flattener the diff uses. Counting
+    in the frontend would mean the freeze dialog's "4,000 keywords" came from
+    whichever page of the structure happened to be loaded.
+    """
+
+    campaigns: int = 0
+    ad_groups: int = 0
+    keywords: int = 0
+
+
+class PlanCritique(BaseModel):
+    """Node 2.6.2's verdict, as far as the freeze dialog needs it.
+
+    Read from the 2.6.2 node run rather than from the payload: the payload is
+    written by 2.6.1 and the critique runs after it, so the node output is the
+    earliest and most authoritative place the verdict exists. `blocking` is what
+    §12.2 asserts on, and a plan with no critique recorded yet reports
+    `verdict=None` — the freeze route refuses it on the row's status anyway.
+    """
+
+    verdict: str | None = None
+    blocking: list[str] = Field(default_factory=list)
+    advisory: list[str] = Field(default_factory=list)
+    checked_at: datetime | None = None
+
+
+class PlanDetail(BaseModel):
+    """`GET /plans/{plan_run_id}` — one plan version, whole (PRD §15.3 D).
+
+    **`payload` is deliberately opaque.** It is the §12 `CampaignPlan` object
+    exactly as node 2.6.1 wrote it, passed through without a Pydantic model of
+    its own. Declaring the contract twice — once where it is filled and once
+    where it is served — is how the two copies drift, and the read side gains
+    nothing from validating a payload it renders section by section and must
+    degrade on anyway. The fields around it are the ones the *row* owns, which
+    the payload either does not carry or carries as a copy that can be stale.
+
+    Where the two disagree, the row wins. `payload.plan_status` is written by
+    2.6.2; `status` here is the column the freeze transaction reads and locks
+    on, so a plan frozen a second ago reports `frozen` here while its payload
+    still says `ready_to_freeze`.
+    """
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    plan_run_id: uuid.UUID
+    #: Minted at freeze (§12.2). A draft has not been given one yet.
+    version: int
+    #: The version this plan *would* be minted at, which is the number §15.3 E
+    #: makes the approver type. Derived from the project's frozen plans, so the
+    #: dialog and the freeze transaction agree on it without the dialog doing
+    #: arithmetic.
+    next_version: int
+    status: CampaignPlanStatus
+    schema_version: str
+    source_superseded: bool
+    payload: dict[str, Any] = Field(default_factory=dict)
+    markdown: str = ""
+    frozen_at: datetime | None = None
+    frozen_by: uuid.UUID | None = None
+    frozen_by_name: str | None = None
+    frozen_approval_ids: list[uuid.UUID] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
+    #: The accepted research this plan was planned from (§12 `source`), read
+    #: from the acceptance row so the header renders it even while the payload
+    #: is still empty.
+    source: AcceptedSource | None = None
+    gates: list[PlanGateDecision] = Field(default_factory=list)
+    critique: PlanCritique | None = None
+    totals: PlanStructureTotals = Field(default_factory=PlanStructureTotals)
+
+
+class PlanStructureKeyword(BaseModel):
+    term: str
+    match_type: str | None = None
+    forecast_cpc_usd: float | None = None
+    search_volume: int | None = None
+
+
+class PlanStructureAdGroup(BaseModel):
+    name: str
+    theme: str | None = None
+    landing_url: str | None = None
+    primary_message: str | None = None
+    market: str | None = None
+    coherence: float | None = None
+    negatives: list[str] = Field(default_factory=list)
+    #: §15.3 D asks for a naming-validator tick per node. None means 2.4.1
+    #: emitted no `validator_regex`, which is not the same as a name that
+    #: failed, and the tree says so rather than showing a green tick it cannot
+    #: justify.
+    name_valid: bool | None = None
+    keywords: list[PlanStructureKeyword] = Field(default_factory=list)
+    keyword_count: int = 0
+
+
+class PlanStructureCampaign(BaseModel):
+    campaign_ref: str
+    name: str
+    type: str | None = None
+    market: str | None = None
+    language: str | None = None
+    monthly_budget_usd: float | None = None
+    daily_budget_usd: float | None = None
+    bid_strategy: str | None = None
+    target: float | None = None
+    locations: list[str] = Field(default_factory=list)
+    negatives: list[str] = Field(default_factory=list)
+    name_valid: bool | None = None
+    #: 2.4.3's per-campaign verdict — the learning-threshold badge of §15.3 D.
+    verdict: str | None = None
+    threshold: float | None = None
+    forecast_conv_30d: float | None = None
+    action: str | None = None
+    remedy: str | None = None
+    reason: str | None = None
+    ad_groups: list[PlanStructureAdGroup] = Field(default_factory=list)
+    ad_group_count: int = 0
+    keyword_count: int = 0
+
+
+class PlanStructurePage(BaseModel):
+    """`GET /plans/{plan_run_id}/structure` — one page of campaigns.
+
+    §16 rule 4: cursor-paginated by campaign, because a 4,000-keyword plan is
+    never returned in one payload. `totals` counts the whole plan rather than
+    the page, so a reader on page one still knows how much tree there is.
+    """
+
+    plan_run_id: uuid.UUID
+    version: int
+    status: CampaignPlanStatus
+    totals: PlanStructureTotals = Field(default_factory=PlanStructureTotals)
+    campaigns: list[PlanStructureCampaign] = Field(default_factory=list)
+    #: Opaque. Pass back as `cursor`; absent means this was the last page.
+    next_cursor: str | None = None
+    #: 2.4.1's regex, for a reader who wants to know what the tick was checking.
+    validator_regex: str | None = None
+    #: Names 2.4.2 could not produce from the convention, named rather than
+    #: counted, exactly as the node reports them.
+    invalid_names: list[str] = Field(default_factory=list)
+    account_negatives: list[str] = Field(default_factory=list)
+    orphan_terms: list[str] = Field(default_factory=list)
+    duplicate_terms: list[str] = Field(default_factory=list)

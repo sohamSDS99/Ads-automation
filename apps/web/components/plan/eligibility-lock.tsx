@@ -3,7 +3,6 @@
 import { CircleAlert, TriangleAlert } from "lucide-react";
 import Link from "next/link";
 
-import type { Blocker } from "@/lib/api/plan";
 import { cn } from "@/lib/utils";
 
 /**
@@ -19,7 +18,24 @@ import { cn } from "@/lib/utils";
  * whether the Start button is disabled; hiding a warning somewhere else would
  * make "the plan can start, and here is what is old about it" two screens.
  */
-export function EligibilityLock({ blockers }: { blockers: Blocker[] }) {
+/**
+ * Anything shaped like a named precondition with a fix link.
+ *
+ * §16 rule 1 gives eligibility failures and freeze refusals the same
+ * `blockers[]` shape, and a freeze carries codes eligibility never will —
+ * `version_race`, a gate that is not approved. So the renderer takes the shape
+ * rather than the closed union, and `FIX_LABEL` falls back to "Open" for a code
+ * it has no wording for. A closed union here would have to be widened every
+ * time the server learns a new refusal.
+ */
+export type BlockerLike = {
+  code: string;
+  detail: string;
+  fix_url: string;
+  severity?: "blocker" | "warning";
+};
+
+export function EligibilityLock({ blockers }: { blockers: BlockerLike[] }) {
   if (blockers.length === 0) return null;
 
   return (
@@ -62,7 +78,7 @@ export function EligibilityLock({ blockers }: { blockers: Blocker[] }) {
  * report, a settings screen, a running plan and a team page, and one label
  * for four places is the kind of vagueness this component exists to avoid.
  */
-const FIX_LABEL: Partial<Record<Blocker["code"], string>> = {
+const FIX_LABEL: Partial<Record<string, string>> = {
   no_accepted_research: "Read the report",
   research_schema_unsupported: "Open the research run",
   research_says_no_go: "Read the verdict",

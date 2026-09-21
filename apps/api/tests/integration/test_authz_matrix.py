@@ -397,6 +397,24 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    ("GET", "/plans/{plan_run_id}", "/plans/{run}", Permission.READ, None),
+    (
+        "GET",
+        "/plans/{plan_run_id}/structure",
+        "/plans/{run}/structure",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/plans/{plan_run_id}/diff",
+        # `against` is required, so the row carries one. Without it the route
+        # answers 422 before the permission is ever checked, and the matrix
+        # would be asserting on FastAPI's validator rather than on the guard.
+        "/plans/{run}/diff?against=00000000-0000-4000-8000-0000000d1ff0",
+        Permission.READ,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")

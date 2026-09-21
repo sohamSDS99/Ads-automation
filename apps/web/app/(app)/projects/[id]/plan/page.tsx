@@ -1,13 +1,15 @@
 "use client";
 
-import { ArrowLeft, FileStack, Lock } from "lucide-react";
+import { ArrowLeft, ArrowLeftRight, FileStack, Lock } from "lucide-react";
 import Link from "next/link";
-import { use } from "react";
+import { useRouter } from "next/navigation";
+import { use, useState } from "react";
 
 import { EligibilityLock } from "@/components/plan/eligibility-lock";
 import { StartPlanDialog } from "@/components/plan/start-plan-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -214,9 +216,46 @@ function HistoryBlock({
   versions: PlanVersion[];
   pending: boolean;
 }) {
+  const router = useRouter();
+  // Newest first in the list, so `selected[0]` is the newer of the pair and the
+  // compare link can put it on the right without asking which is which.
+  const [selected, setSelected] = useState<string[]>([]);
+
+  function onSelect(planRunId: string) {
+    setSelected((current) =>
+      current.includes(planRunId)
+        ? current.filter((item) => item !== planRunId)
+        : [...current, planRunId].slice(-2),
+    );
+  }
+
   return (
     <Card>
-      <CardHeader title="Plan versions" description="Newest first. A frozen plan is immutable." />
+      <CardHeader
+        title="Plan versions"
+        description="Newest first. A frozen plan is immutable."
+        actions={
+          versions.length >= 2 ? (
+            <Button
+              variant="secondary"
+              disabled={selected.length !== 2}
+              title={
+                selected.length === 2
+                  ? undefined
+                  : "Tick two versions to compare them."
+              }
+              onClick={() =>
+                router.push(
+                  `/projects/${projectId}/plan/compare?a=${selected[1]}&b=${selected[0]}`,
+                )
+              }
+            >
+              <ArrowLeftRight aria-hidden className="size-3.5" />
+              Compare
+            </Button>
+          ) : undefined
+        }
+      />
       <CardBody className={versions.length ? "p-0" : undefined}>
         {pending ? (
           <Skeleton className="h-20 w-full" />
@@ -240,12 +279,29 @@ function HistoryBlock({
               {versions.map((plan) => (
                 <Tr key={plan.id}>
                   <Td>
-                    <Link
-                      href={`/projects/${projectId}/plan/runs/${plan.plan_run_id}`}
-                      className="text-accent hover:underline"
-                    >
-                      v{plan.version}
-                    </Link>
+                    <span className="flex items-center gap-2">
+                      {/* One checkbox per row, at most two checked, and the
+                          Compare button carries the pair. A pair of radio
+                          groups would be the other way to say "these two", and
+                          it reads as an ordering decision the reader has not
+                          been asked to make. */}
+                      <input
+                        type="checkbox"
+                        aria-label={`Compare ${versionName(plan)}`}
+                        checked={selected.includes(plan.plan_run_id)}
+                        disabled={
+                          !selected.includes(plan.plan_run_id) && selected.length >= 2
+                        }
+                        onChange={() => onSelect(plan.plan_run_id)}
+                        className="size-3.5 shrink-0 accent-[var(--accent)] disabled:opacity-40"
+                      />
+                      <Link
+                        href={`/projects/${projectId}/plan/runs/${plan.plan_run_id}/plan`}
+                        className="text-accent hover:underline"
+                      >
+                        {versionName(plan)}
+                      </Link>
+                    </span>
                     {plan.source_superseded ? (
                       <span className="ml-2 text-xs text-fg-subtle">
                         newer research accepted since
@@ -316,6 +372,17 @@ const READINESS_LABEL: Record<AcceptedSource["launch_readiness"], string> = {
   go_with_fixes: "Go, with fixes",
   no_go: "No go",
 };
+
+/**
+ * What to call a version that has not been minted yet.
+ *
+ * Every unfrozen plan sits at version 0, so "v0" would name three different
+ * drafts identically. The day it was created is the only thing that tells them
+ * apart until one of them is frozen.
+ */
+function versionName(plan: PlanVersion): string {
+  return plan.version > 0 ? `v${plan.version}` : `draft ${shortDate(plan.created_at)}`;
+}
 
 const PLAN_STATUS_LABEL: Record<PlanVersion["status"], string> = {
   draft: "Draft",

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
-from typing import Annotated
+from typing import Annotated, Any
 
 import sqlalchemy as sa
 import structlog
@@ -30,14 +30,23 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.middleware import client_ip
+from agent.api.schemas_diff import PlanDiffResponse, plan_to_response
 from agent.api.schemas_plan import (
     AcceptedSource,
     AcceptResearchRequest,
     Blocker,
     PlanCalcList,
     PlanCalcRow,
+    PlanCritique,
+    PlanDetail,
     PlanEligibility,
+    PlanGateDecision,
     PlanRunAccepted,
+    PlanStructureAdGroup,
+    PlanStructureCampaign,
+    PlanStructureKeyword,
+    PlanStructurePage,
+    PlanStructureTotals,
     PlanVersion,
     PlanVersionList,
     ResearchAcceptanceResponse,
@@ -55,6 +64,7 @@ from agent.db.models import (
     CampaignPlan,
     CampaignPlanStatus,
     CredentialKind,
+    NodeRun,
     PlanCalc,
     Report,
     ResearchAcceptance,
@@ -69,6 +79,7 @@ from agent.db.session import get_session
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.plan_input import PlanInputError, build_plan_input
 from agent.orchestrator.state import RunLock
+from agent.planning.diff import diff_plans, flatten_structure
 from agent.redis_client import get_redis
 
 log = structlog.get_logger(__name__)
@@ -352,7 +363,7 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
                     CampaignPlan.project_id == project_id,
                     CampaignPlan.workspace_id == me.workspace_id,
                 )
-                .order_by(CampaignPlan.version.desc())
+                .order_by(CampaignPlan.version.desc(), CampaignPlan.created_at.desc())
             )
         )
         .scalars()
@@ -448,6 +459,473 @@ async def list_plan_calcs(
 
 
 # ---------------------------------------------------------------------------
+# the plan — the read side (PRD §15.3 D, F; §16 "The plan")
+# ---------------------------------------------------------------------------
+
+#: Law 16's four, in the order the plan decides them. Used for the freeze
+#: dialog's checklist, so a gate that never fired is still a named row.
+PLAN_GATES: tuple[str, ...] = ("G1", "G2", "G3", "G4")
+
+#: The node whose output is the critique verdict §12.2 asserts on.
+CRITIQUE_NODE = "2.6.2"
+
+#: Campaigns per page of `GET /plans/{id}/structure`. §16 rule 4 forbids
+#: returning a 4,000-keyword plan in one payload; a campaign carries its whole
+#: subtree, so the page size is in campaigns and this is the cap that keeps a
+#: page to roughly a hundred keywords.
+STRUCTURE_PAGE = 10
+MAX_STRUCTURE_PAGE = 40
+
+
+@router.get(
+    "/plans/{plan_run_id}",
+    response_model=PlanDetail,
+    summary="One plan version, whole",
+)
+async def get_plan(plan_run_id: uuid.UUID, me: AnyMember, db: Db) -> PlanDetail:
+    """`GET /plans/{plan_run_id}` — PRD §16, the Plan Viewer's one fetch.
+
+    Everything §15.3 D and E need arrives in this response: the payload, the
+    source acceptance, the four gate decisions, the critique verdict and the
+    tree's totals. That is deliberate. The freeze dialog has to state the
+    campaign and keyword counts and name who decided each gate *before* anyone
+    types a version, and a dialog that opened four requests to say so would
+    render in pieces — or worse, render a count taken from whichever page of
+    the structure happened to be in cache.
+    """
+    plan = await _plan_or_404(db, me, plan_run_id)
+    return await _plan_detail(db, me, plan)
+
+
+@router.get(
+    "/plans/{plan_run_id}/structure",
+    response_model=PlanStructurePage,
+    summary="The account structure, paginated by campaign",
+)
+async def get_plan_structure(
+    plan_run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    cursor: str | None = None,
+    limit: int = STRUCTURE_PAGE,
+) -> PlanStructurePage:
+    """`GET /plans/{plan_run_id}/structure?cursor=&limit=` — PRD §16 rule 4.
+
+    Cursor-paginated by campaign. The cursor is the identity of the next
+    campaign — `ref@market`, because 2.4.2 emits one campaign per ref per
+    market and a ref alone names two of them in a two-market plan. An identity
+    that is no longer in the payload answers `400` rather than silently
+    restarting at the top: a reader paging through 40 campaigns should be told
+    the plan was rewritten underneath them, not shown page one again as if it
+    were page five.
+
+    `totals` counts the whole plan, never the page. A reader on page one still
+    needs to know how much tree there is, and the freeze dialog quotes the same
+    numbers from `GET /plans/{id}`.
+    """
+    if limit < 1 or limit > MAX_STRUCTURE_PAGE:
+        raise problems.unprocessable(
+            f"`limit` must be between 1 and {MAX_STRUCTURE_PAGE}; got {limit}.",
+        )
+
+    plan = await _plan_or_404(db, me, plan_run_id)
+    structure = plan.payload.get("account_structure") if isinstance(plan.payload, dict) else None
+    structure = structure if isinstance(structure, dict) else {}
+
+    campaigns = [row for row in structure.get("campaigns", []) if isinstance(row, dict)]
+    identities = [_campaign_identity(row) for row in campaigns]
+
+    start = 0
+    if cursor is not None:
+        if cursor not in identities:
+            raise problems.unprocessable(
+                f"No campaign {cursor!r} in this plan. The structure has been rewritten since "
+                "that page was read; start again from the first page.",
+            )
+        start = identities.index(cursor)
+
+    page = campaigns[start : start + limit]
+    checks = _volume_checks(plan.payload)
+    invalid = {str(name) for name in structure.get("invalid_names", []) if name}
+    regex = _validator_regex(plan.payload)
+    flat = flatten_structure(structure)
+
+    return PlanStructurePage(
+        plan_run_id=plan.plan_run_id,
+        version=plan.version,
+        status=plan.status,
+        totals=PlanStructureTotals(
+            campaigns=len(flat["campaigns"]),
+            ad_groups=len(flat["ad_groups"]),
+            keywords=len(flat["keywords"]),
+        ),
+        campaigns=[_structure_campaign(row, checks, invalid) for row in page],
+        next_cursor=(identities[start + limit] if start + limit < len(identities) else None),
+        validator_regex=regex,
+        invalid_names=sorted(invalid),
+        account_negatives=[str(term) for term in structure.get("account_negatives", [])],
+        orphan_terms=[str(term) for term in structure.get("orphan_terms", [])],
+        duplicate_terms=[str(term) for term in structure.get("duplicate_terms", [])],
+    )
+
+
+@router.get(
+    "/plans/{plan_run_id}/diff",
+    response_model=PlanDiffResponse,
+    summary="What changed between two plan versions",
+)
+async def diff_plan(
+    plan_run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    against: uuid.UUID,
+) -> PlanDiffResponse:
+    """`GET /plans/{plan_run_id}/diff?against={plan_run_id}` — PRD §15.3 F.
+
+    `against` is the *other* plan's `plan_run_id`, not its row id — one
+    identifier for the whole Stage 02 frontend, matching the `/calcs` route
+    S2-P6a shipped.
+
+    Both plans must belong to the same project. Comparing two projects' plans
+    would produce a diff in which every section changed, which is true and
+    useless; refusing says the caller mixed up two versions, which is the
+    actual mistake.
+    """
+    plan = await _plan_or_404(db, me, plan_run_id)
+    other = await _plan_or_404(db, me, against)
+
+    if plan.project_id != other.project_id:
+        raise problems.unprocessable(
+            "Those two plans belong to different projects. A plan can only be compared with "
+            "another version of itself.",
+        )
+    if plan.id == other.id:
+        raise problems.unprocessable("A plan is identical to itself; pick two versions.")
+
+    result = diff_plans(
+        plan.payload if isinstance(plan.payload, dict) else {},
+        other.payload if isinstance(other.payload, dict) else {},
+        plan_run_id=plan.plan_run_id,
+        against_plan_run_id=other.plan_run_id,
+        version=plan.version,
+        against_version=other.version,
+    )
+    return plan_to_response(result)
+
+
+async def _plan_or_404(db: AsyncSession, me: Principal, plan_run_id: uuid.UUID) -> CampaignPlan:
+    """The plan a run produced, scoped to the caller's workspace.
+
+    Scoped on `campaign_plan.workspace_id` directly — unlike `plan_calc`, this
+    table carries one. A plan run that has not reached 2.6.1 yet has no plan
+    row at all and answers 404, which is the same answer as a plan in another
+    workspace and deliberately so.
+    """
+    plan = (
+        await db.execute(
+            sa.select(CampaignPlan).where(
+                CampaignPlan.plan_run_id == plan_run_id,
+                CampaignPlan.workspace_id == me.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if plan is None:
+        raise problems.not_found(
+            f"No campaign plan for run {plan_run_id}. A plan exists once the run has "
+            "synthesised one."
+        )
+    return plan
+
+
+async def _plan_detail(db: AsyncSession, me: Principal, plan: CampaignPlan) -> PlanDetail:
+    payload = plan.payload if isinstance(plan.payload, dict) else {}
+    flat = flatten_structure(payload.get("account_structure"))
+
+    acceptance = await db.get(ResearchAcceptance, plan.acceptance_id)
+    source = None
+    if acceptance is not None:
+        report = await db.get(Report, acceptance.report_id)
+        source = await _accepted_source(db, me.workspace_id, acceptance, report)
+
+    names = await UserRepo(db, me.workspace_id).names(
+        [plan.frozen_by] if plan.frozen_by is not None else []
+    )
+
+    return PlanDetail(
+        id=plan.id,
+        project_id=plan.project_id,
+        plan_run_id=plan.plan_run_id,
+        version=plan.version,
+        next_version=await _next_version(db, me.workspace_id, plan.project_id),
+        status=plan.status,
+        schema_version=plan.schema_version,
+        source_superseded=plan.source_superseded,
+        payload=payload,
+        markdown=plan.markdown,
+        frozen_at=plan.frozen_at,
+        frozen_by=plan.frozen_by,
+        frozen_by_name=names.get(plan.frozen_by) if plan.frozen_by else None,
+        frozen_approval_ids=list(plan.frozen_approval_ids or []),
+        created_at=plan.created_at,
+        updated_at=plan.updated_at,
+        source=source,
+        gates=await _gate_decisions(db, me.workspace_id, plan.plan_run_id),
+        critique=await _critique(db, plan.plan_run_id),
+        totals=PlanStructureTotals(
+            campaigns=len(flat["campaigns"]),
+            ad_groups=len(flat["ad_groups"]),
+            keywords=len(flat["keywords"]),
+        ),
+    )
+
+
+async def _next_version(db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID) -> int:
+    """`max(version) + 1` over every plan in the project — §12.2 verbatim.
+
+    No status predicate, and that is the point. A superseded plan is no longer
+    `frozen`, so counting only frozen rows would reissue the version a
+    superseded plan already holds — and `version` is what a signed-off plan is
+    referred to by for the rest of its life. Agreed with S2-P5b, whose freeze
+    transaction mints the same number from the same rule, so what the dialog
+    asks the approver to type is what the server is about to mint.
+
+    Unfrozen plans all sit at version 0 (migration 0014), so the first freeze in
+    a project mints 1.
+    """
+    highest = (
+        await db.execute(
+            sa.select(sa.func.max(CampaignPlan.version)).where(
+                CampaignPlan.project_id == project_id,
+                CampaignPlan.workspace_id == workspace_id,
+            )
+        )
+    ).scalar()
+    return int(highest or 0) + 1
+
+
+async def _gate_decisions(
+    db: AsyncSession, workspace_id: uuid.UUID, plan_run_id: uuid.UUID
+) -> list[PlanGateDecision]:
+    """The four gates, in gate order, decided or not.
+
+    Ordered by `PLAN_GATES` rather than by `decided_at`: §15.3 E is a checklist
+    of four known things, and a checklist that re-orders itself as decisions
+    land is one a reader has to re-read every time.
+    """
+    rows = list(
+        (
+            await db.execute(
+                sa.select(Approval).where(
+                    Approval.run_id == plan_run_id,
+                    Approval.gate_key.in_(PLAN_GATES),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    # Deciders come off the rows already loaded rather than from a second
+    # query, and `names()` answers for ids outside the workspace too — a gate
+    # decided by someone whose membership was later revoked still has to render
+    # who decided it.
+    names = await UserRepo(db, workspace_id).names(
+        [row.decided_by for row in rows if row.decided_by is not None]
+    )
+
+    by_gate = {row.gate_key: row for row in rows}
+    decisions: list[PlanGateDecision] = []
+    for gate in PLAN_GATES:
+        row = by_gate.get(gate)
+        if row is None:
+            decisions.append(PlanGateDecision(gate_key=gate, node_id="", status="not_reached"))
+            continue
+        decisions.append(
+            PlanGateDecision(
+                gate_key=gate,
+                node_id=row.node_id,
+                status=row.status.value,
+                decided_by=row.decided_by,
+                decided_by_name=names.get(row.decided_by) if row.decided_by else None,
+                decided_at=row.decided_at,
+                note=row.decision_note,
+                edited=row.edited_proposal is not None,
+            )
+        )
+    return decisions
+
+
+async def _critique(db: AsyncSession, plan_run_id: uuid.UUID) -> PlanCritique | None:
+    """Node 2.6.2's verdict, read from the node run rather than from the payload.
+
+    The payload is 2.6.1's; the critique runs after it. Reading the node output
+    means the freeze dialog shows a real verdict the moment 2.6.2 finishes,
+    whatever S2-P5b decides to copy into the payload afterwards. A run that has
+    not reached 2.6.2 has no verdict, and the dialog says so rather than
+    implying the plan passed.
+    """
+    row = (
+        await db.execute(
+            sa.select(NodeRun)
+            .where(NodeRun.run_id == plan_run_id, NodeRun.node_id == CRITIQUE_NODE)
+            .order_by(NodeRun.attempt.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None or not isinstance(row.output, dict):
+        return None
+    return PlanCritique(
+        verdict=_text(row.output.get("verdict")),
+        blocking=_issues(row.output, "blocking"),
+        advisory=_issues(row.output, "advisory"),
+        checked_at=row.finished_at,
+    )
+
+
+def _issues(output: dict[str, Any], severity: str) -> list[str]:
+    """Issues at one severity, however 2.6.2 chose to shape them.
+
+    Two shapes are plausible and both are read: a flat `blocking: [...]` list,
+    and an `issues: [{severity, statement}]` list. Guessing one and ignoring the
+    other would show an empty critique on a plan that has blocking issues,
+    which is the single most dangerous thing this screen could get wrong.
+    """
+    found = [str(item) for item in output.get(severity, []) if item]
+    for issue in output.get("issues", []):
+        if not isinstance(issue, dict) or issue.get("severity") != severity:
+            continue
+        text = issue.get("statement") or issue.get("detail") or issue.get("issue")
+        if text:
+            found.append(str(text))
+    return found
+
+
+def _text(value: Any) -> str | None:
+    return str(value) if isinstance(value, str) and value else None
+
+
+def _campaign_identity(row: dict[str, Any]) -> str:
+    ref = str(row.get("campaign_ref") or row.get("name") or "")
+    market = str(row.get("market") or "")
+    return f"{ref}@{market}" if market else ref
+
+
+def _validator_regex(payload: dict[str, Any]) -> str | None:
+    naming = payload.get("account_structure")
+    if isinstance(naming, dict) and (regex := naming.get("validator_regex")):
+        return str(regex)
+    naming = payload.get("naming_convention")
+    if isinstance(naming, dict) and (regex := naming.get("validator_regex")):
+        return str(regex)
+    return None
+
+
+def _volume_checks(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """2.4.3's per-campaign verdicts, by campaign ref.
+
+    Keyed on `ref` alone because `CampaignCheck` carries no market — it is one
+    row per campaign as 2.4.3 emitted them. Where a ref names two campaigns in
+    two markets they share a badge, which is what the node actually said.
+    """
+    structure = payload.get("account_structure")
+    rows = structure.get("volume_check") if isinstance(structure, dict) else None
+    if not isinstance(rows, list):
+        rows = payload.get("volume_check")
+    if isinstance(rows, dict):
+        rows = rows.get("campaigns")
+    if not isinstance(rows, list):
+        return {}
+    return {str(row.get("ref")): row for row in rows if isinstance(row, dict) and row.get("ref")}
+
+
+def _structure_campaign(
+    row: dict[str, Any], checks: dict[str, dict[str, Any]], invalid: set[str]
+) -> PlanStructureCampaign:
+    ref = str(row.get("campaign_ref") or "")
+    name = str(row.get("name") or ref)
+    check = checks.get(ref, {})
+    groups = [
+        _structure_ad_group(group, invalid)
+        for group in row.get("ad_groups", [])
+        if isinstance(group, dict)
+    ]
+    return PlanStructureCampaign(
+        campaign_ref=ref,
+        name=name,
+        type=_text(row.get("type")),
+        market=_text(row.get("market")),
+        language=_text(row.get("language")),
+        monthly_budget_usd=_number(row.get("monthly_budget_usd")),
+        daily_budget_usd=_number(row.get("daily_budget_usd")),
+        bid_strategy=_text(row.get("bid_strategy")),
+        target=_number(row.get("target")),
+        locations=[str(place) for place in row.get("locations", [])],
+        negatives=[str(term) for term in row.get("negatives", [])],
+        name_valid=_name_valid(name, invalid),
+        verdict=_text(check.get("verdict")),
+        threshold=_number(check.get("threshold")),
+        forecast_conv_30d=_number(check.get("forecast_conv_30d")),
+        action=_text(check.get("action")),
+        remedy=_text(check.get("remedy")),
+        reason=_text(check.get("reason")),
+        ad_groups=groups,
+        ad_group_count=len(groups),
+        keyword_count=sum(group.keyword_count for group in groups),
+    )
+
+
+def _structure_ad_group(row: dict[str, Any], invalid: set[str]) -> PlanStructureAdGroup:
+    name = str(row.get("name") or row.get("theme") or "")
+    keywords = [
+        PlanStructureKeyword(
+            term=str(keyword.get("term") or ""),
+            match_type=_text(keyword.get("match_type")),
+            forecast_cpc_usd=_number(keyword.get("forecast_cpc_usd")),
+            search_volume=(
+                int(volume) if isinstance(volume := keyword.get("search_volume"), int) else None
+            ),
+        )
+        for keyword in row.get("keywords", [])
+        if isinstance(keyword, dict)
+    ]
+    return PlanStructureAdGroup(
+        name=name,
+        theme=_text(row.get("theme")),
+        landing_url=_text(row.get("landing_url")),
+        primary_message=_text(row.get("primary_message")),
+        market=_text(row.get("market")),
+        coherence=_number(row.get("coherence")),
+        negatives=[str(term) for term in row.get("negatives", [])],
+        name_valid=_name_valid(name, invalid),
+        keywords=keywords,
+        keyword_count=len(keywords),
+    )
+
+
+def _name_valid(name: str, invalid: set[str]) -> bool | None:
+    """A tick, a cross, or nothing.
+
+    `None` is not a cosmetic third state. 2.4.2 reports `invalid_names` only
+    when 2.4.1 produced a `validator_regex` to hold names to; with no regex,
+    every name is unchecked, and a green tick on an unchecked name is the
+    screen asserting something nobody verified.
+    """
+    if not name:
+        return None
+    return name not in invalid
+
+
+def _number(value: Any) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    try:
+        return float(str(value))
+    except (TypeError, ValueError):
+        return None
+
+
+# ---------------------------------------------------------------------------
 # the checks themselves
 # ---------------------------------------------------------------------------
 
@@ -484,23 +962,10 @@ async def _eligibility(db: AsyncSession, me: Principal, project_id: uuid.UUID) -
         )
     else:
         report = await db.get(Report, acceptance.report_id)
-        payload = report.payload if report else {}
-        age_days = max(0, (_utcnow() - acceptance.accepted_at).days)
-        names = await UserRepo(db, me.workspace_id).names([acceptance.accepted_by])
-        source = AcceptedSource(
-            acceptance_id=acceptance.id,
-            research_run_id=acceptance.run_id,
-            research_report_id=acceptance.report_id,
-            research_schema_version=report.schema_version if report else "",
-            accepted_by=acceptance.accepted_by,
-            accepted_by_name=names.get(acceptance.accepted_by, "Unknown"),
-            accepted_at=acceptance.accepted_at,
-            note=acceptance.note,
-            override_reason=acceptance.override_reason,
-            launch_readiness=_readiness(acceptance, payload),
-            degraded_sources=[str(item) for item in payload.get("degraded_sources", [])],
-            age_days=age_days,
-        )
+        source = await _accepted_source(db, me.workspace_id, acceptance, report)
+        # Read off the source rather than recomputed: E7's threshold and the
+        # age the landing page prints have to be the same number.
+        age_days = source.age_days
 
         # E2 — a schema version this stage can read.
         if report is not None and report.schema_version not in (
@@ -567,7 +1032,7 @@ async def _eligibility(db: AsyncSession, me: Principal, project_id: uuid.UUID) -
                     CampaignPlan.acceptance_id == acceptance.id,
                     CampaignPlan.status == CampaignPlanStatus.FROZEN,
                 )
-                .order_by(CampaignPlan.version.desc())
+                .order_by(CampaignPlan.version.desc(), CampaignPlan.created_at.desc())
                 .limit(1)
             )
         ).scalar_one_or_none()
@@ -632,6 +1097,37 @@ async def _eligibility(db: AsyncSession, me: Principal, project_id: uuid.UUID) -
         eligible=not any(item.severity == "blocker" for item in blockers),
         blockers=blockers,
         source=source,
+    )
+
+
+async def _accepted_source(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    acceptance: ResearchAcceptance,
+    report: Report | None,
+) -> AcceptedSource:
+    """The accepted research, as both the eligibility panel and the plan header show it.
+
+    Extracted when the Plan Viewer needed the same five fields in its header
+    (§15.3 D). Two copies of this would have drifted on the first field added
+    to `AcceptedSource`, and the drift would read as the landing page and the
+    plan disagreeing about which research a plan came from.
+    """
+    payload = report.payload if report else {}
+    names = await UserRepo(db, workspace_id).names([acceptance.accepted_by])
+    return AcceptedSource(
+        acceptance_id=acceptance.id,
+        research_run_id=acceptance.run_id,
+        research_report_id=acceptance.report_id,
+        research_schema_version=report.schema_version if report else "",
+        accepted_by=acceptance.accepted_by,
+        accepted_by_name=names.get(acceptance.accepted_by, "Unknown"),
+        accepted_at=acceptance.accepted_at,
+        note=acceptance.note,
+        override_reason=acceptance.override_reason,
+        launch_readiness=_readiness(acceptance, payload),
+        degraded_sources=[str(item) for item in payload.get("degraded_sources", [])],
+        age_days=max(0, (_utcnow() - acceptance.accepted_at).days),
     )
 
 

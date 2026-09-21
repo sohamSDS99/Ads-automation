@@ -13,11 +13,20 @@ import { cn } from "@/lib/utils";
  */
 export type TocEntry = { id: string; label: string };
 
-export function Toc({ entries, className }: { entries: TocEntry[]; className?: string }) {
+export function Toc({
+  entries,
+  className,
+  label = "Report contents",
+}: {
+  entries: TocEntry[];
+  className?: string;
+  /** What this is a table of contents *for*. Stage 02 passes "Plan contents". */
+  label?: string;
+}) {
   const active = useActiveSection(entries.map((entry) => entry.id));
 
   return (
-    <nav aria-label="Report contents" className={cn("text-sm", className)}>
+    <nav aria-label={label} className={cn("text-sm", className)}>
       <ul className="space-y-0.5 border-l">
         {entries.map((entry) => (
           <li key={entry.id}>
