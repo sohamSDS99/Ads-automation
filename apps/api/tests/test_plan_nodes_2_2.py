@@ -330,6 +330,38 @@ async def test_2_2_1_forecasts_from_the_accounts_own_rates(stub_collect: Any) ->
 
 
 @pytest.mark.asyncio
+async def test_2_2_1_keeps_the_label_of_every_month_it_forecasts(stub_collect: Any) -> None:
+    """The monthly totals name their month.
+
+    `forecast.demand_v1` groups by month and returns the label on every monthly
+    row, but the node validated those rows as a bare `ForecastTotals`, which
+    declares no `month` — and pydantic drops a key a model does not declare. The
+    figures survived and the axis they belong on did not. Nothing downstream had
+    noticed, because until the forecast was drawn nothing downstream read
+    `monthly_totals` at all.
+    """
+    stub_collect(found(), forecast_found())
+    out, _ = await run(
+        stage_2_2.demand_forecast,
+        harness("2.2.1", answers={"ForecastNotes": NOTES}, outputs={"2.1.1": TAXONOMY}),
+    )
+
+    assert out.monthly_totals, "the forecast produced no monthly breakdown to label"
+    months = [row.month for row in out.monthly_totals]
+    assert all(months), "a monthly total came back with an empty month label"
+    # Insertion order, and one row per distinct month in the forecast.
+    assert months == list(dict.fromkeys(row.month for row in out.forecast))
+    # The label is opaque: it is whatever the plan called that month.
+    assert all(isinstance(month, str) for month in months)
+
+    # Every month's spend adds up to the forecast's own total, so the line and
+    # the headline figure cannot disagree.
+    assert sum(row.cost_usd for row in out.monthly_totals) == pytest.approx(
+        out.totals.cost_usd, abs=0.01
+    )
+
+
+@pytest.mark.asyncio
 async def test_2_2_1_asks_the_model_for_prose_and_nothing_else(stub_collect: Any) -> None:
     stub_collect(found(), forecast_found())
     harnessed = harness("2.2.1", answers={"ForecastNotes": NOTES}, outputs={"2.1.1": TAXONOMY})

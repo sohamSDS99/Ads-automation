@@ -151,3 +151,174 @@ export function listPlanCalcs(
   const query = nodeId ? `?node_id=${encodeURIComponent(nodeId)}` : "";
   return apiFetch<{ items: PlanCalcRow[] }>(`/plans/${planRunId}/calcs${query}`);
 }
+
+// ---------------------------------------------------------------------------
+// Stage 2.2 — the budget gate, and the two node outputs its card reads
+// ---------------------------------------------------------------------------
+
+/**
+ * These mirror `agent.nodes.plan.stage_2_2`. They are hand-written, like every
+ * other contract in `lib/api/` — PRD §15.4 rule 5 asks for `zod` schemas
+ * generated from the API's JSON Schema, and no generator exists in this repo
+ * yet, so inventing a private one for three models here would leave the other
+ * twenty contracts hand-written and the rule half-kept. Worth doing once, for
+ * all of them, when `CampaignPlan` lands.
+ *
+ * Node output arrives as `Record<string, unknown>`, so each of the three has a
+ * reader below that checks the fields the screen actually renders and returns
+ * null otherwise. A cast would put a crash in a budget owner's card at the
+ * moment they are trying to decide a gate.
+ */
+
+export type ScenarioName = "cautious" | "expected" | "aggressive";
+
+/** One campaign x market x funnel stage, and what it is given. */
+export type AllocationLine = {
+  campaign_ref: string;
+  market: string;
+  funnel_stage: string;
+  usd: number;
+  pct: number;
+  forecast_cpa_usd: number;
+  target_cpa_usd: number;
+  efficiency: number;
+  est_conv: number;
+  est_clicks: number | null;
+  avg_cpc_usd: number | null;
+  /** What this unit can absorb. Null means no measured ceiling, not "no limit". */
+  max_spend_usd: number | null;
+  floor_applied: boolean;
+  cap_applied: boolean;
+  below_floor: boolean;
+};
+
+export type BudgetScenario = {
+  name: ScenarioName;
+  monthly_total_usd: number;
+  quarterly_total_usd: number;
+  allocated_usd: number;
+  unallocated_usd: number;
+  working_budget_usd: number;
+  experiment_reserve_usd: number;
+  experiment_reserve_pct: number;
+  est_clicks: number;
+  est_conv: number;
+  est_cpa: number | null;
+  est_pipeline_usd: number | null;
+  allocation: AllocationLine[];
+  floor_applied: boolean;
+  headroom_capped: boolean;
+  case_for: string;
+  case_against: string;
+};
+
+/** 2.2.3 — three envelopes, each already split across the plan. */
+export type BudgetScenariosOutput = {
+  scenarios: BudgetScenario[];
+  recommended: ScenarioName;
+  recommendation_reason: string;
+  minimum_viable_envelope_usd: number;
+  forecast_monthly_usd: number;
+  forecast_cpa_usd: number | null;
+  infeasible_reason: string | null;
+  notes: string;
+};
+
+export type Envelope = {
+  monthly_cap_usd: number;
+  quarterly_cap_usd: number;
+  currency: string;
+  scenario_total_usd: number;
+  unallocated_usd: number;
+  unallocated_reason: string | null;
+};
+
+/** A campaign this envelope cannot get out of the learning period. */
+export type LearningWarning = {
+  campaign_ref: string;
+  forecast_conv_30d: number;
+  threshold: number;
+  verdict: string;
+  remedy: string | null;
+};
+
+export type ConfidenceBand = {
+  /** `point_estimate` means there was no CPC range to widen the forecast with. */
+  basis: "cpc_range" | "point_estimate";
+  low_pct: number;
+  high_pct: number;
+};
+
+/** 2.2.4 ⛳ G3 — the envelope and the split a human is asked to approve. */
+export type BudgetAllocationProposal = {
+  chosen_scenario: ScenarioName;
+  rationale: string;
+  what_would_change_it: string;
+  envelope: Envelope;
+  allocation: AllocationLine[];
+  experiment_reserve_pct: number;
+  experiment_reserve_usd: number;
+  learning_warnings: LearningWarning[];
+  confidence_band: ConfidenceBand;
+  degraded_sources: string[];
+};
+
+/**
+ * One month of the forecast.
+ *
+ * `month` is a label the plan chose — `2027-01`, `Jan` and `wave 2` are all
+ * legal. Render it verbatim; parsing it as a date is how `wave 2` becomes
+ * "Invalid Date" on somebody's axis.
+ */
+export type MonthlyTotals = {
+  month: string;
+  impressions: number;
+  clicks: number;
+  conversions: number;
+  cost_usd: number;
+  ctr_pct: number;
+  avg_cpc_usd: number;
+  cvr_pct: number;
+  cpa_usd: number | null;
+};
+
+/** 2.2.1 — impressions to cost, per cluster per market per month. */
+export type DemandForecastOutput = {
+  monthly_totals: MonthlyTotals[];
+  totals: Omit<MonthlyTotals, "month">;
+  method: string;
+  confidence_band: ConfidenceBand;
+  impression_share_headroom_pct: number | null;
+  method_notes: string;
+  caveats: string[];
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** The G3 proposal, or null when this gate is carrying something else. */
+export function asBudgetProposal(value: unknown): BudgetAllocationProposal | null {
+  if (!isRecord(value)) return null;
+  if (!Array.isArray(value.allocation) || !isRecord(value.envelope)) return null;
+  if (typeof value.envelope.monthly_cap_usd !== "number") return null;
+  return value as unknown as BudgetAllocationProposal;
+}
+
+export function asScenariosOutput(value: unknown): BudgetScenariosOutput | null {
+  if (!isRecord(value) || !Array.isArray(value.scenarios) || value.scenarios.length === 0) {
+    return null;
+  }
+  return value as unknown as BudgetScenariosOutput;
+}
+
+export function asDemandForecast(value: unknown): DemandForecastOutput | null {
+  if (!isRecord(value) || !isRecord(value.confidence_band)) return null;
+  const months = value.monthly_totals;
+  // A forecast with no monthly breakdown has no line to draw. The node can
+  // legitimately produce one — a single-month plan — and the caller shows the
+  // totals instead of an axis with one tick on it.
+  if (!Array.isArray(months) || months.length < 2) return null;
+  if (!months.every((row) => isRecord(row) && typeof row.month === "string")) return null;
+  return value as unknown as DemandForecastOutput;
+}

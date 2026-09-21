@@ -714,6 +714,7 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
                 assignee_email=emails.get(row.assignee_id) if row.assignee_id else None,
                 proposal=row.proposal,
                 edited_proposal=row.edited_proposal,
+                recalc_state=row.recalc_state,
                 decision_note=row.decision_note,
                 decided_by=row.decided_by,
                 decided_at=row.decided_at,

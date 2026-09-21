@@ -603,6 +603,31 @@ async def test_recalc_stores_its_working_so_a_second_approver_sees_it(
     assert row.recalc_state["delta_usd"] == pytest.approx(250.0, abs=0.05)
     assert row.status is ApprovalStatus.PENDING
 
+    # And it reaches the second approver, which is the whole point of storing
+    # it. The column was written from the first release of `/recalc` and served
+    # by nothing, so the card could only ever show the draft — a budget visibly
+    # edited with no account of what the edit buys.
+    reopened = await gate_g3(admin, plan_run_id)
+    assert reopened["recalc_state"] is not None
+    assert reopened["recalc_state"]["delta_usd"] == pytest.approx(250.0, abs=0.05)
+    assert reopened["recalc_state"]["allocation"][0]["requested_usd"] == pytest.approx(
+        first["usd"] + 250, abs=0.05
+    )
+    assert reopened["recalc_state"]["calc_evidence_id"]
+
+
+async def test_a_gate_with_no_what_if_carries_no_recalc_state(
+    admin: ApiClient, accepted: dict[str, Any], fake_openrouter: FakeOpenRouter
+) -> None:
+    """Null, not an empty object: the card tells them apart.
+
+    Restoring `{}` into the editor would read as "somebody recalculated and it
+    came back empty", which is a different thing from "nobody has asked yet".
+    """
+    plan_run_id, _ = await run_to_g3(admin, accepted, fake_openrouter)
+    gate = await gate_g3(admin, plan_run_id)
+    assert gate["recalc_state"] is None
+
 
 async def test_recalc_of_forty_campaigns_across_four_markets_is_under_two_seconds(
     admin: ApiClient, accepted: dict[str, Any], fake_openrouter: FakeOpenRouter, db: AsyncSession
@@ -810,6 +835,119 @@ async def test_a_balanced_edit_is_accepted_and_resumes_the_branch(
     await db.refresh(row)
     assert row.edited_proposal is not None
     assert row.edited_proposal["allocation"][1]["usd"] == round(lines[1]["usd"] + moved, 2)
+
+
+async def test_the_editor_s_round_trip_is_accepted_and_cites_its_what_if(
+    admin: ApiClient, accepted: dict[str, Any], fake_openrouter: FakeOpenRouter, db: AsyncSession
+) -> None:
+    """Recalculate, then approve what it returned — the allocation editor's path.
+
+    The editor refuses to approve an edited split until a what-if answers the
+    figures on screen, and then sends the proposal built out of that response:
+    the server's own re-forecast rows, `edits_applied` naming what moved, and
+    the what-if's `PlanCalc` row first in `calc_evidence_ids`. That last part is
+    what `/recalc` asks callers to do and what PT1 rests on — an approved edit
+    that kept only the draft's ids would cite a calculation of a split that was
+    replaced.
+
+    Pinned here rather than in the browser check because it is a contract, and a
+    contract that is only exercised by a screenshot is a contract that breaks on
+    a refactor nobody screenshots.
+    """
+    plan_run_id, _ = await run_to_g3(admin, accepted, fake_openrouter)
+    gate = await gate_g3(admin, plan_run_id)
+    proposal = gate["proposal"]
+    lines = proposal["allocation"]
+    if len(lines) < 2:
+        pytest.skip("this fixture's demand map produced a single allocation line")
+
+    moved = round(min(lines[0]["usd"], lines[1]["usd"]) / 2, 2)
+    edited = [
+        {**_unit(lines[0]), "usd": round(lines[0]["usd"] - moved, 2)},
+        {**_unit(lines[1]), "usd": round(lines[1]["usd"] + moved, 2)},
+    ]
+
+    whatif = (
+        await admin.post(
+            f"/approvals/{gate['id']}/recalc",
+            json={"allocation": edited, "envelope_usd": proposal["envelope"]["monthly_cap_usd"]},
+        )
+    ).json()
+    assert whatif["envelope_breach"] is False, whatif
+    assert whatif["calc_evidence_id"]
+
+    # Exactly what `buildEditedProposal` assembles in the web app.
+    by_unit = {
+        (row["campaign_ref"], row["market"], row["funnel_stage"]): row
+        for row in whatif["allocation"]
+    }
+    allocation = []
+    for line in lines:
+        row = by_unit.get((line["campaign_ref"], line["market"], line["funnel_stage"]))
+        allocation.append(
+            line
+            if row is None
+            else {
+                **line,
+                "usd": row["requested_usd"],
+                "pct": row["pct"],
+                "est_conv": row["est_conv"],
+                "est_clicks": row["est_clicks"],
+                "below_floor": row["below_floor"],
+                "cap_applied": row["cap_applied"],
+            }
+        )
+    body = {
+        **proposal,
+        "allocation": allocation,
+        "edits_applied": [
+            {**_unit(lines[0]), "from_usd": lines[0]["usd"], "to_usd": allocation[0]["usd"]},
+            {**_unit(lines[1]), "from_usd": lines[1]["usd"], "to_usd": allocation[1]["usd"]},
+        ],
+        "calc_evidence_ids": [whatif["calc_evidence_id"], *proposal["calc_evidence_ids"]],
+    }
+
+    response = await admin.post(
+        f"/approvals/{gate['id']}",
+        json={"decision": "approve", "edited_proposal": body, "note": "Moved it to Germany."},
+    )
+    assert response.status_code == 200, response.text
+
+    row = await db.get(Approval, uuid.UUID(gate["id"]))
+    assert row is not None
+    await db.refresh(row)
+    assert row.edited_proposal is not None
+    # The figures that were approved are the ones the what-if produced...
+    assert row.edited_proposal["allocation"][1]["usd"] == pytest.approx(
+        lines[1]["usd"] + moved, abs=0.01
+    )
+    # ...and they cite the calculation that produced them.
+    assert row.edited_proposal["calc_evidence_ids"][0] == whatif["calc_evidence_id"]
+    assert len(row.edited_proposal["edits_applied"]) == 2
+
+    # The citation resolves to a row belonging to this plan run, which is the
+    # half of PT1 an id alone does not prove.
+    cited = (
+        (
+            await db.execute(
+                sa.select(PlanCalc).where(
+                    PlanCalc.plan_run_id == plan_run_id,
+                    PlanCalc.formula_id == "allocation.whatif_v1",
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert cited, "the what-if wrote no PlanCalc row for the edited split to cite"
+
+
+def _unit(line: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "campaign_ref": line["campaign_ref"],
+        "market": line["market"],
+        "funnel_stage": line["funnel_stage"],
+    }
 
 
 async def test_an_approved_budget_lets_2_2_5_write_its_rules(

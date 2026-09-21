@@ -2,12 +2,12 @@
 
 import { ClaimLine, CiteGroup } from "@/components/report/claim";
 import {
-  ChartMissing,
   KeywordChart,
   MessageChart,
   SeasonalityChart,
   SpendChart,
 } from "@/components/report/charts";
+import { ChartMissing } from "@/components/ui/chart";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import type { Citations } from "@/lib/citations";
 import {

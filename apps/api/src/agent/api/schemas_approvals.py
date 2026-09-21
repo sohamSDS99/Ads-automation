@@ -31,6 +31,13 @@ class ApprovalItem(BaseModel):
     assignee_email: str | None = None
     proposal: dict[str, Any]
     edited_proposal: dict[str, Any] | None = None
+    #: The last what-if run against this gate, as `POST /approvals/{id}/recalc`
+    #: returned it. Carried on the item so a second approver opening the card
+    #: sees the working somebody else already reasoned about, instead of a
+    #: budget that has visibly been edited and no account of what it buys. The
+    #: route persists this for exactly that reason; without it here the column
+    #: is written and never read.
+    recalc_state: dict[str, Any] | None = None
     decision_note: str | None = None
     decided_by: uuid.UUID | None = None
     decided_at: datetime | None = None
