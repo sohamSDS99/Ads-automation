@@ -1,23 +1,30 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ShieldCheck } from "lucide-react";
+import { ShieldCheck, UserPlus } from "lucide-react";
 import { useState } from "react";
 
 import { NoAccess } from "@/components/auth/no-access";
+import { InviteResult } from "@/components/settings/invite-result";
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogBody, DialogContent, DialogFooter } from "@/components/ui/dialog";
+import { Field } from "@/components/ui/field";
+import { Select } from "@/components/ui/select";
+import { Spinner } from "@/components/ui/spinner";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import { toast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ApiError } from "@/lib/api";
-import { updateAccount, type AccountSummary } from "@/lib/api/platform";
+import { createAccount, updateAccount, type AccountSummary } from "@/lib/api/platform";
+import type { InviteCreated } from "@/lib/api/users";
+import type { WorkspaceSummary } from "@/lib/api/workspace";
 import { relativeTime } from "@/lib/format";
-import { ROLE_LABEL } from "@/lib/permissions";
-import { errorMessage, keys, useAccounts } from "@/lib/queries";
+import { ROLE_DESCRIPTION, ROLE_LABEL, type Role } from "@/lib/permissions";
+import { errorMessage, keys, useAccounts, useWorkspaces } from "@/lib/queries";
 import { useSession } from "@/lib/session";
 
 /**
@@ -32,8 +39,10 @@ import { useSession } from "@/lib/session";
  */
 export default function AccountsPage() {
   const { user, has } = useSession();
+  const [adding, setAdding] = useState(false);
   const allowed = has("platform_admin");
   const accounts = useAccounts(allowed);
+  const workspaces = useWorkspaces(false, allowed);
   const error = errorMessage(accounts);
 
   if (!allowed) {
@@ -55,6 +64,16 @@ export default function AccountsPage() {
         <CardHeader
           title="Accounts"
           description="One account per person, whatever workspaces they work in. Disabling an account locks it out of all of them at once."
+          actions={
+            <Button
+              size="sm"
+              onClick={() => setAdding(true)}
+              disabled={(workspaces.data?.workspaces.length ?? 0) === 0}
+            >
+              <UserPlus aria-hidden />
+              Add account
+            </Button>
+          }
         />
         {accounts.isPending ? (
           <CardBody>
@@ -84,6 +103,12 @@ export default function AccountsPage() {
           </Table>
         )}
       </Card>
+
+      <AddAccountDialog
+        open={adding}
+        onOpenChange={setAdding}
+        workspaces={workspaces.data?.workspaces ?? []}
+      />
     </div>
   );
 }
@@ -121,22 +146,31 @@ function AccountRow({
 
   return (
     <Tr>
+      {/* Capped and truncating, for the reason the `Table` docstring gives:
+          `min-w-max` sizes the table to its widest cell, so an unbounded
+          email column lets one long address push the actions off the right
+          edge of the card. It was measured at 1024 in a 1022 container — two
+          pixels, entirely at the mercy of whoever signs up next. */}
       <Td>
+        <div className="max-w-xs">
         <p className="flex items-center gap-2 font-medium text-fg">
-          {account.name}
-          {isSelf ? <span className="text-xs text-fg-subtle">you</span> : null}
+          <span className="truncate">{account.name}</span>
+          {isSelf ? <span className="shrink-0 text-xs text-fg-subtle">you</span> : null}
           {account.is_superadmin ? (
-            <span className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium text-fg-muted">
+            <span className="inline-flex shrink-0 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium text-fg-muted">
               <ShieldCheck className="size-3" aria-hidden />
               System admin
             </span>
           ) : null}
         </p>
-        <p className="text-xs text-fg-subtle">
+        {/* `title` because the address is the identifier — truncating it
+            must not make it unreadable, only stop it setting the layout. */}
+        <p className="truncate text-xs text-fg-subtle" title={account.email}>
           {account.email}
           {account.status === "invited" ? " · invite not accepted" : ""}
           {account.status === "disabled" ? " · disabled" : ""}
         </p>
+        </div>
       </Td>
       {/* Capped on the inner element, not the cell: `max-width` on a `td` is
           ignored under `table-layout: auto`, and `Table` is `min-w-max`, so an
@@ -220,5 +254,189 @@ function AccountRow({
         />
       </Td>
     </Tr>
+  );
+}
+
+const ROLES: Role[] = ["admin", "operator", "approver", "viewer"];
+
+/**
+ * Add somebody to any workspace, without going and standing in it first.
+ *
+ * The Team screen already invites into the workspace you are in. What was
+ * missing — and what made this whole screen read-only — was a way to populate
+ * one of the *other* workspaces, which used to mean switching, inviting, and
+ * switching back to express a single intention.
+ *
+ * Deliberately the same two-state dialog as Team's, down to the shared
+ * `InviteResult` panel: the two screens are one system, and an administrator
+ * who has used one should recognise the other immediately. The only extra
+ * field is the one that was implicit before — which workspace.
+ */
+function AddAccountDialog({
+  open,
+  onOpenChange,
+  workspaces,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  workspaces: WorkspaceSummary[];
+}) {
+  const queryClient = useQueryClient();
+  const { user } = useSession();
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [workspaceId, setWorkspaceId] = useState("");
+  const [role, setRole] = useState<Role>("viewer");
+  const [created, setCreated] = useState<InviteCreated | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // One workspace on the installation means there is nothing to choose.
+  const only = workspaces.length === 1 ? workspaces[0] : undefined;
+  // Defaulted to the workspace this session is in, and not left empty. An
+  // unset `<select>` still *renders* its first option, so an empty value
+  // showed a workspace while disabling the submit button — a control that
+  // looks ready and refuses, for a reason the screen never gave.
+  const chosen = workspaceId || only?.id || user.workspace_id || workspaces[0]?.id || "";
+
+  const add = useMutation({
+    mutationFn: () =>
+      createAccount({
+        email: email.trim(),
+        // Omitted rather than sent empty: the API fills in a readable
+        // placeholder from the address, and the person replaces it on accept.
+        ...(name.trim() ? { name: name.trim() } : {}),
+        workspace_id: chosen,
+        role,
+      }),
+    onSuccess: async (result) => {
+      setCreated(result);
+      setError(null);
+      await queryClient.invalidateQueries({ queryKey: keys.accounts });
+      await queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+      await queryClient.invalidateQueries({ queryKey: keys.users });
+    },
+    onError: (err) =>
+      setError(err instanceof ApiError ? err.detail : "The account could not be created."),
+  });
+
+  function close() {
+    onOpenChange(false);
+    setCreated(null);
+    setEmail("");
+    setName("");
+    setWorkspaceId("");
+    setRole("viewer");
+    setError(null);
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (next ? onOpenChange(true) : close())}>
+      <DialogContent
+        title={created ? "Account created" : "Add an account"}
+        description={
+          created
+            ? undefined
+            : "An email address is all you need. They choose their own name and password from the link — there is no public signup, and nobody but them ever sets their password."
+        }
+      >
+        {created ? (
+          <>
+            <DialogBody>
+              <InviteResult invite={created} showWorkspace />
+            </DialogBody>
+            <DialogFooter>
+              <Button onClick={close}>Done</Button>
+            </DialogFooter>
+          </>
+        ) : (
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              setError(null);
+              add.mutate();
+            }}
+          >
+            <DialogBody>
+              <Field
+                label="Email"
+                type="email"
+                value={email}
+                autoFocus
+                required
+                onChange={(event) => setEmail(event.target.value)}
+                placeholder="name@company.com"
+                error={error ?? undefined}
+              />
+              <Field
+                label="Name (optional)"
+                value={name}
+                maxLength={120}
+                onChange={(event) => setName(event.target.value)}
+                hint="Leave it blank and they fill it in themselves."
+              />
+
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="add-workspace" className="text-sm font-medium text-fg">
+                  Workspace
+                </label>
+                <Select
+                  id="add-workspace"
+                  value={chosen}
+                  onChange={(event) => setWorkspaceId(event.target.value)}
+                  disabled={Boolean(only)}
+                >
+                  {workspaces.map((workspace) => (
+                    <option key={workspace.id} value={workspace.id}>
+                      {workspace.name}
+                    </option>
+                  ))}
+                </Select>
+                <p className="min-h-4 text-xs text-fg-muted">
+                  {only
+                    ? "The only workspace on this installation."
+                    : "Which workspace they get access to. It does not have to be the one you are in."}
+                </p>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="add-role" className="text-sm font-medium text-fg">
+                  Role in that workspace
+                </label>
+                <Select
+                  id="add-role"
+                  value={role}
+                  onChange={(event) => setRole(event.target.value as Role)}
+                >
+                  {ROLES.map((item) => (
+                    <option key={item} value={item}>
+                      {ROLE_LABEL[item]}
+                    </option>
+                  ))}
+                </Select>
+                <p className="min-h-4 text-xs text-fg-muted">{ROLE_DESCRIPTION[role]}</p>
+              </div>
+
+              {/* Said here because the control is elsewhere, and somebody
+                  looking for it on this form should be told where it went
+                  rather than conclude it does not exist. */}
+              <p className="text-xs text-fg-subtle">
+                To make someone a system administrator, add them first and use{" "}
+                <strong>Make system admin</strong> on their row. It reaches every workspace, so
+                it is its own decision rather than a checkbox here.
+              </p>
+            </DialogBody>
+            <DialogFooter>
+              <Button type="button" variant="secondary" onClick={close}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={add.isPending || !email.trim() || !chosen}>
+                {add.isPending ? <Spinner label="Adding" /> : null}
+                Add account
+              </Button>
+            </DialogFooter>
+          </form>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }

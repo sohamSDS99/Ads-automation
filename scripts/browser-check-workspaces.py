@@ -127,17 +127,22 @@ def overflows(page: Page) -> bool:
     )
 
 
-def table_overflows(page: Page) -> bool:
-    """Whether a table is wider than the card holding it.
+def overflowing_scrollers(page: Page) -> list[str]:
+    """Which scroll containers are actually scrolling, and by how much.
 
     `Table` sizes itself with `min-w-max`, so one unbounded cell drags the
     rightmost column out of view behind a scrollbar nobody notices. At 1440
-    these tables have room and must not need it.
+    these have room and must not need it.
+
+    Returns descriptions rather than a bool: a bare False tells you something
+    is wrong and not which element, and the answer turned out to be a
+    different element than the one being blamed.
     """
-    return bool(
+    return list(
         page.evaluate(
             "() => Array.from(document.querySelectorAll('.overflow-x-auto'))"
-            ".some(el => el.scrollWidth > el.clientWidth + 1)"
+            ".filter(el => el.scrollWidth > el.clientWidth + 1)"
+            ".map(el => `${el.tagName}.${el.className.split(' ')[0]} ${el.scrollWidth}>${el.clientWidth}`)"
         )
     )
 
@@ -245,7 +250,8 @@ def main() -> int:
             "…under a heading that is true of it, not \u201cWorkspace settings\u201d",
             page.get_by_role("heading", name="Installation settings").is_visible(),
         )
-        check("…and the table fits its card", not table_overflows(page))
+        scrollers = overflowing_scrollers(page)
+        check("…and the table fits its card", not scrollers, "; ".join(scrollers))
         shoot(page, "ws-admin-workspaces")
 
         page.goto(f"{WEB}/settings/accounts", wait_until="networkidle")
@@ -258,8 +264,62 @@ def main() -> int:
             "…and marks the system administrator as one",
             page.get_by_text("System admin").first.is_visible(),
         )
-        check("…and every action on it is reachable without a sideways scroll", not table_overflows(page))
+        scrollers = overflowing_scrollers(page)
+        check(
+            "…and every action on it is reachable without a sideways scroll",
+            not scrollers,
+            "; ".join(scrollers),
+        )
         shoot(page, "ws-admin-accounts")
+
+        # --- adding a person to a workspace you are not standing in ---------
+        page.get_by_role("button", name="Add account").click()
+        page.wait_for_timeout(500)
+        check(
+            "the administrator can add an account from their own screen",
+            page.get_by_role("heading", name="Add an account").is_visible(),
+        )
+        added = f"added-{random.randint(1, 10**6)}@example.com"
+        page.get_by_label("Email").fill(added)
+        # Before touching the workspace select: a form that shows a workspace
+        # must be submittable with it, or the control is lying about being set.
+        check(
+            "…submittable on the default workspace, without opening the select",
+            page.get_by_role("button", name="Add account").last.is_enabled(),
+        )
+        check(
+            "…which defaults to the workspace this session is in",
+            page.locator("#add-workspace").input_value() != "",
+        )
+        # The workspace this session is NOT in, chosen from the list.
+        # By id, not by label: "Workspace" also matches the settings tab and
+        # the switcher's accessible name, and Playwright is strict about that.
+        page.select_option("#add-workspace", label=fixtures["home_name"])
+        page.select_option("#add-role", "operator")
+        shoot(page, "ws-add-account-form")
+        submit = page.get_by_role("button", name="Add account").last
+        check("…with an email address and nothing else", submit.is_enabled())
+        submit.click()
+        page.wait_for_timeout(2000)
+        check(
+            "…and the single-use link is shown once",
+            page.get_by_role("button", name="Copy link").is_visible(),
+        )
+        check(
+            "…naming the workspace they were added to",
+            page.get_by_text(fixtures["home_name"]).first.is_visible(),
+        )
+        shoot(page, "ws-add-account-created")
+        page.get_by_role("button", name="Done").click()
+        page.wait_for_timeout(1500)
+        check(
+            "…and they appear on the list as not yet accepted",
+            page.get_by_text(added).first.is_visible()
+            and page.get_by_text("invite not accepted").first.is_visible(),
+        )
+        scrollers = overflowing_scrollers(page)
+        check("…without the table outgrowing its card", not scrollers, "; ".join(scrollers))
+        shoot(page, "ws-accounts-after-add")
 
         # --- inviting with nothing but an address ---------------------------
         page.goto(f"{WEB}/settings/team", wait_until="networkidle")

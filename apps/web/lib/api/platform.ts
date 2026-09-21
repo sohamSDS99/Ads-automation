@@ -8,6 +8,8 @@
  */
 import { apiFetch } from "@/lib/api";
 import type { WorkspaceMembership } from "@/lib/api";
+import type { InviteCreated } from "@/lib/api/users";
+import type { Role } from "@/lib/permissions";
 
 export type AccountSummary = {
   id: string;
@@ -29,4 +31,23 @@ export function updateAccount(
   body: { is_superadmin?: boolean; status?: "active" | "disabled" },
 ): Promise<AccountSummary> {
   return apiFetch(`/platform/accounts/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+}
+
+
+/**
+ * Add somebody to any workspace, from the administrator's own screen.
+ *
+ * The same machinery as `inviteUser` — one single-use link, a password the
+ * person chooses — except the workspace travels in the body instead of coming
+ * from the session, so populating a workspace no longer means switching into
+ * it first. Nothing here grants `platform_admin`: promoting is the toggle on
+ * the account's row, a deliberate act on somebody who already exists.
+ */
+export function createAccount(body: {
+  email: string;
+  name?: string;
+  workspace_id: string;
+  role: Role;
+}): Promise<InviteCreated> {
+  return apiFetch("/platform/accounts", { method: "POST", body: JSON.stringify(body) });
 }
