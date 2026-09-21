@@ -68,13 +68,22 @@ DEMAND: list[dict[str, Any]] = [
 
 
 def every_formula_result() -> list[Any]:
-    """One `CalcResult` from each of the nine registered formulas.
+    """One `CalcResult` from every registered formula.
 
     Used by the integration suite to round-trip every result shape through
     JSONB. A formula whose output cannot be stored is a formula whose node will
     fail on its first real run, and that is much cheaper to find here.
     """
-    from agent.calc import allocation, economics, forecast, power, scenarios, structure
+    from agent.calc import (
+        allocation,
+        economics,
+        forecast,
+        measurement,
+        power,
+        scenarios,
+        structure,
+    )
+    from agent.planning.tracking import upload_options_frame
 
     ceiling = economics.max_cpa_v1(frame(SEGMENTS), constants=CONSTANTS)
     payback_input = [
@@ -139,5 +148,22 @@ def every_formula_result() -> list[Any]:
         power.sample_size_v1(
             frame([{"id": "T1", "baseline_cvr_pct": 5.0, "clicks_per_day": 300}]),
             constants=CONSTANTS,
+        ),
+        measurement.reconciliation_v1(
+            frame(
+                [
+                    {
+                        "metric": "conversions",
+                        "systems": "google_ads vs crm",
+                        "recorded_conversions": 200,
+                        "unreconciled_conversions": 50,
+                        "modelled": True,
+                    }
+                ]
+            ),
+            constants=CONSTANTS,
+        ),
+        measurement.upload_window_v1(
+            upload_options_frame(CONSTANTS), observed_history_days=45, constants=CONSTANTS
         ),
     ]

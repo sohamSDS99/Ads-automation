@@ -20,7 +20,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.calc import economics
 from agent.calc.derived import DerivedWriter
-from agent.calc.registry import CalcResult, inputs_hash
+from agent.calc.registry import FORMULAS, CalcResult, inputs_hash
 from agent.db.models import (
     Evidence,
     EvidenceSource,
@@ -337,13 +337,16 @@ async def test_every_registered_formula_can_be_persisted_and_read_back(
 
     subject = writer(db, project, plan_run)
     results: list[CalcResult] = every_formula_result()
-    assert len(results) == 9
+    # Derived, not a literal: a formula added without a sample here would
+    # otherwise never have its result shape round-tripped through JSONB, and
+    # the first time anyone found out would be a failed plan run.
+    assert len(results) == len(FORMULAS)
 
     for result in results:
         await subject.record(result, node_id="2.6.1")
     await db.commit()
 
-    assert await count(db, PlanCalc) == 9
+    assert await count(db, PlanCalc) == len(FORMULAS)
     rows = (await db.execute(sa.select(PlanCalc))).scalars().all()
     by_formula = {row.formula_id: row for row in rows}
     for result in results:
