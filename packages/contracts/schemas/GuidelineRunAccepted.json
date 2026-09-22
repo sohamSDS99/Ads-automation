@@ -1,0 +1,149 @@
+{
+  "$defs": {
+    "GuidelineBindings": {
+      "additionalProperties": false,
+      "description": "Which Stage 01 and Stage 02 artifacts this run was pointed at.\n\nResolved once at run start and hashed into `Run.input_hash`. A binding that\ndoes not resolve is *dropped* rather than fatal \u2014 Stage 03 does not need\nit, and a stage that starts cold must not acquire a hard dependency by way\nof an optional one (\u00a74.5 rule 4).",
+      "properties": {
+        "research_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Run Id"
+        },
+        "acceptance_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acceptance Id"
+        },
+        "research_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Schema Version"
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Id"
+        },
+        "plan_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Version"
+        },
+        "plan_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Schema Version"
+        }
+      },
+      "title": "GuidelineBindings",
+      "type": "object"
+    },
+    "GuidelineMode": {
+      "description": "Which optional bindings resolved at run start (PRD \u00a74.2).\n\nDerived from what actually resolved, never taken from the client. The four\nvalues are not a quality ranking \u2014 `standalone` is a first-class, tested\npath (law 21) \u2014 they are a record of what the rulebook was built from.",
+      "enum": [
+        "standalone",
+        "research_linked",
+        "plan_linked",
+        "fully_linked"
+      ],
+      "title": "GuidelineMode",
+      "type": "string"
+    },
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "awaiting_human_task",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "description": "202. `mode` and `bindings` are what *resolved*, not what was asked for.",
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "mode": {
+      "$ref": "#/$defs/GuidelineMode"
+    },
+    "bindings": {
+      "$ref": "#/$defs/GuidelineBindings"
+    },
+    "unbound_inputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unbound Inputs",
+      "type": "array"
+    },
+    "input_hash": {
+      "title": "Input Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "mode",
+    "bindings",
+    "input_hash"
+  ],
+  "title": "GuidelineRunAccepted",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

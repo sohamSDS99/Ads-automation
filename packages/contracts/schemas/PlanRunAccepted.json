@@ -5,6 +5,7 @@
         "queued",
         "running",
         "awaiting_approval",
+        "awaiting_human_task",
         "succeeded",
         "failed",
         "cancelled"

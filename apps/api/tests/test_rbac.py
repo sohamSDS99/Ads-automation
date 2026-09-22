@@ -27,6 +27,19 @@ MATRIX: list[tuple[str, Permission, bool, bool, bool, bool]] = [
     # off and does not run it.
     ("Start / cancel / retry a plan run", Permission.PLAN_EXECUTE, True, True, False, False),
     ("Freeze a plan", Permission.PLAN_FREEZE, True, False, True, False),
+    # Stage 03 PRD §5.3. The first two rows are ordinary; the last two are the
+    # point of the stage — see the non-delegable tests below.
+    (
+        "Start / cancel / retry a guideline run",
+        Permission.GUIDELINE_EXECUTE,
+        True,
+        True,
+        False,
+        False,
+    ),
+    ("Publish a guideline version", Permission.GUIDELINE_PUBLISH, True, False, True, False),
+    ("Sign a claim set (H1)", Permission.CLAIM_SIGN, False, False, True, False),
+    ("Submit a verification attestation (H2)", Permission.ATTEST_SUBMIT, False, False, True, False),
     # Not a PRD §4.1 row: no role grants it. It is the whole-system
     # administrator (`user.is_superadmin`), and the four Falses are the point —
     # a workspace admin must not reach another workspace.
@@ -59,9 +72,18 @@ def test_every_role_has_an_entry() -> None:
     assert set(ROLE_PERMISSIONS) == set(UserRole)
 
 
-def test_admin_holds_every_permission_except_the_platform() -> None:
-    """A workspace admin runs their workspace completely, and stops there."""
-    assert permissions_for(UserRole.ADMIN) == frozenset(Permission) - {Permission.PLATFORM_ADMIN}
+def test_admin_holds_every_permission_except_the_platform_and_the_signatures() -> None:
+    """A workspace admin runs their workspace completely, and stops at two places.
+
+    Stage 03 law 23. Until this stage every capability degraded to admin; the
+    two signature permissions are the first that do not, because a permission
+    an administrator can self-grant is not a signature, it is a checkbox.
+    """
+    assert permissions_for(UserRole.ADMIN) == frozenset(Permission) - {
+        Permission.PLATFORM_ADMIN,
+        Permission.CLAIM_SIGN,
+        Permission.ATTEST_SUBMIT,
+    }
 
 
 def test_superadmin_holds_everything_with_or_without_a_role() -> None:
@@ -70,8 +92,9 @@ def test_superadmin_holds_everything_with_or_without_a_role() -> None:
     `role=None` is that case exactly — no membership row — and it must come
     back with the full set rather than with nothing.
     """
-    assert permissions_for(UserRole.VIEWER, superadmin=True) == frozenset(Permission)
-    assert permissions_for(None, superadmin=True) == frozenset(Permission)
+    expected = frozenset(Permission) - NON_DELEGABLE
+    assert permissions_for(UserRole.VIEWER, superadmin=True) == expected
+    assert permissions_for(None, superadmin=True) == expected
     assert Permission.PLATFORM_ADMIN in permissions_for(None, superadmin=True)
 
 
@@ -92,3 +115,41 @@ def test_operator_cannot_decide_approvals_and_approver_cannot_run() -> None:
 
 def test_unknown_role_gets_nothing() -> None:
     assert permissions_for("superuser") == frozenset()  # type: ignore[arg-type]
+
+
+# ---------------------------------------------------------------------------
+# Stage 03 law 23 — the non-delegable signatures
+# ---------------------------------------------------------------------------
+
+NON_DELEGABLE = frozenset({Permission.CLAIM_SIGN, Permission.ATTEST_SUBMIT})
+
+
+@pytest.mark.parametrize("permission", sorted(NON_DELEGABLE))
+def test_admin_is_absent_from_the_non_delegable_rows(permission: Permission) -> None:
+    """Stage 03 law 23, asserted on the table itself and not only on the answer.
+
+    Do not "fix" this by adding admin back. `CLAIM_SIGN` and `ATTEST_SUBMIT`
+    are held by `approver` and narrowed again at the route to one named
+    identity. An admin may reassign the legal owner — a governance act that
+    voids every signature the outgoing owner made — and may never sign.
+    """
+    assert permission not in ROLE_PERMISSIONS[UserRole.ADMIN]
+    assert not has_permission(UserRole.ADMIN, permission)
+
+
+@pytest.mark.parametrize("permission", sorted(NON_DELEGABLE))
+def test_superadmin_cannot_sign_either(permission: Permission) -> None:
+    """The `superadmin` short-circuit is the other way admin could sign.
+
+    `permissions_for(superadmin=True)` returns every permission by
+    construction, so a signature permission added without touching that branch
+    would be reachable by the one account law 23 most needs to exclude.
+    """
+    assert not has_permission(None, permission, superadmin=True)
+    assert not has_permission(UserRole.ADMIN, permission, superadmin=True)
+
+
+@pytest.mark.parametrize("permission", sorted(NON_DELEGABLE))
+def test_only_approver_holds_a_non_delegable_permission(permission: Permission) -> None:
+    holders = {role for role, granted in ROLE_PERMISSIONS.items() if permission in granted}
+    assert holders == {UserRole.APPROVER}

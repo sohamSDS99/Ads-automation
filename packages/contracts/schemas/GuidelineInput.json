@@ -1,0 +1,1133 @@
+{
+  "$defs": {
+    "AccountStructure": {
+      "additionalProperties": true,
+      "description": "\u00a712's `account_structure` \u2014 stage 2.4 in one section.",
+      "properties": {
+        "naming_convention": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NamingConvention"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "campaigns": {
+          "items": {
+            "$ref": "#/$defs/PlannedCampaign"
+          },
+          "title": "Campaigns",
+          "type": "array"
+        },
+        "account_negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Account Negatives",
+          "type": "array"
+        },
+        "orphan_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Orphan Terms",
+          "type": "array"
+        },
+        "volume_check": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Volume Check",
+          "type": "array"
+        },
+        "structure_verdict": {
+          "default": "",
+          "title": "Structure Verdict",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "duplicate_terms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Terms"
+        },
+        "invalid_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalid Names"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "AccountStructure",
+      "type": "object"
+    },
+    "AutomationBoundaries": {
+      "additionalProperties": true,
+      "description": "2.3.2. What Google's automation is allowed to decide for itself.",
+      "properties": {
+        "pmax": {
+          "additionalProperties": true,
+          "title": "Pmax",
+          "type": "object"
+        },
+        "broad_match": {
+          "additionalProperties": true,
+          "title": "Broad Match",
+          "type": "object"
+        },
+        "overlap": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Overlap",
+          "type": "array"
+        }
+      },
+      "title": "AutomationBoundaries",
+      "type": "object"
+    },
+    "BrandIsolation": {
+      "additionalProperties": true,
+      "description": "2.3.3. Which terms are ours, and where they may not be bid on.",
+      "properties": {
+        "brand_terms": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Brand Terms",
+          "type": "array"
+        },
+        "brand_campaign_ref": {
+          "default": "",
+          "title": "Brand Campaign Ref",
+          "type": "string"
+        },
+        "match_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Match Types",
+          "type": "array"
+        },
+        "budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Pct"
+        },
+        "negatives_for_nonbrand": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives For Nonbrand",
+          "type": "array"
+        },
+        "reporting_rule": {
+          "default": "",
+          "title": "Reporting Rule",
+          "type": "string"
+        },
+        "competitor_bidding_policy": {
+          "default": "",
+          "title": "Competitor Bidding Policy",
+          "type": "string"
+        }
+      },
+      "title": "BrandIsolation",
+      "type": "object"
+    },
+    "ChannelSlate": {
+      "additionalProperties": true,
+      "description": "\u00a712's `channel_slate` \u2014 stage 2.3 in one section.",
+      "properties": {
+        "slate": {
+          "items": {
+            "$ref": "#/$defs/SlateEntry"
+          },
+          "title": "Slate",
+          "type": "array"
+        },
+        "rejected": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rejected",
+          "type": "array"
+        },
+        "brand_isolation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BrandIsolation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "automation_boundaries": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutomationBoundaries"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "ChannelSlate",
+      "type": "object"
+    },
+    "CompetitorAd": {
+      "additionalProperties": true,
+      "description": "1.3.2 `creative_corpus` \u2014 one observed ad.\n\n`screenshot_path` is a **storage key**, never a filesystem path (PRD \u00a75.2);\nthe PDF renderer resolves it through `storage.backend`.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "advertiser": {
+          "title": "Advertiser",
+          "type": "string"
+        },
+        "headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Headline"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        },
+        "offer": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Offer"
+        },
+        "angle": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Angle"
+        },
+        "proof_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proof Type"
+        },
+        "cta": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cta"
+        },
+        "landing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Landing Url"
+        },
+        "first_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "First Seen"
+        },
+        "last_seen": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Last Seen"
+        },
+        "screenshot_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Screenshot Path"
+        },
+        "format": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Format"
+        },
+        "theme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme"
+        }
+      },
+      "required": [
+        "advertiser"
+      ],
+      "title": "CompetitorAd",
+      "type": "object"
+    },
+    "ComplianceGuardrails": {
+      "additionalProperties": true,
+      "description": "1.1.5 \u26f3 `compliance_guardrails` \u2014 gated on an `approver` (legal).",
+      "properties": {
+        "prohibited_claims": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prohibited Claims",
+          "type": "array"
+        },
+        "required_disclaimers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Disclaimers",
+          "type": "array"
+        },
+        "regulated_terms": {
+          "items": {
+            "$ref": "#/$defs/RegulatedTerm"
+          },
+          "title": "Regulated Terms",
+          "type": "array"
+        },
+        "confidence": {
+          "anyOf": [
+            {
+              "enum": [
+                "high",
+                "medium",
+                "low"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Confidence"
+        }
+      },
+      "title": "ComplianceGuardrails",
+      "type": "object"
+    },
+    "GuidelineBindings": {
+      "additionalProperties": false,
+      "description": "Which Stage 01 and Stage 02 artifacts this run was pointed at.\n\nResolved once at run start and hashed into `Run.input_hash`. A binding that\ndoes not resolve is *dropped* rather than fatal \u2014 Stage 03 does not need\nit, and a stage that starts cold must not acquire a hard dependency by way\nof an optional one (\u00a74.5 rule 4).",
+      "properties": {
+        "research_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Run Id"
+        },
+        "acceptance_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acceptance Id"
+        },
+        "research_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Schema Version"
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Id"
+        },
+        "plan_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Version"
+        },
+        "plan_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Schema Version"
+        }
+      },
+      "title": "GuidelineBindings",
+      "type": "object"
+    },
+    "GuidelineMode": {
+      "description": "Which optional bindings resolved at run start (PRD \u00a74.2).\n\nDerived from what actually resolved, never taken from the client. The four\nvalues are not a quality ranking \u2014 `standalone` is a first-class, tested\npath (law 21) \u2014 they are a record of what the rulebook was built from.",
+      "enum": [
+        "standalone",
+        "research_linked",
+        "plan_linked",
+        "fully_linked"
+      ],
+      "title": "GuidelineMode",
+      "type": "string"
+    },
+    "Market": {
+      "description": "One country the campaign will run in. PRD \u00a76: `[{country, language, currency}]`.",
+      "properties": {
+        "country": {
+          "description": "ISO 3166-1 alpha-2, e.g. NO",
+          "maxLength": 2,
+          "minLength": 2,
+          "title": "Country",
+          "type": "string"
+        },
+        "language": {
+          "description": "ISO 639-1, e.g. nb",
+          "maxLength": 5,
+          "minLength": 2,
+          "title": "Language",
+          "type": "string"
+        },
+        "currency": {
+          "description": "ISO 4217, e.g. NOK",
+          "maxLength": 3,
+          "minLength": 3,
+          "title": "Currency",
+          "type": "string"
+        }
+      },
+      "required": [
+        "country",
+        "language",
+        "currency"
+      ],
+      "title": "Market",
+      "type": "object"
+    },
+    "NamingConvention": {
+      "additionalProperties": true,
+      "description": "2.4.1. The patterns every generated name is checked against.",
+      "properties": {
+        "patterns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "object"
+        },
+        "tokens": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Tokens",
+          "type": "array"
+        },
+        "validator_regex": {
+          "default": "",
+          "title": "Validator Regex",
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "collisions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Collisions",
+          "type": "array"
+        },
+        "collision_check": {
+          "default": "",
+          "title": "Collision Check",
+          "type": "string"
+        }
+      },
+      "title": "NamingConvention",
+      "type": "object"
+    },
+    "PlannedAdGroup": {
+      "additionalProperties": true,
+      "description": "\u00a712.3 item 1: the container Stage 03 writes every ad into.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "theme": {
+          "default": "",
+          "title": "Theme",
+          "type": "string"
+        },
+        "landing_url": {
+          "default": "",
+          "title": "Landing Url",
+          "type": "string"
+        },
+        "primary_message": {
+          "default": "",
+          "title": "Primary Message",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "keywords": {
+          "items": {
+            "$ref": "#/$defs/PlannedKeyword"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "coherence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coherence"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedAdGroup",
+      "type": "object"
+    },
+    "PlannedCampaign": {
+      "additionalProperties": true,
+      "description": "One campaign, complete enough to build.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "campaign_ref": {
+          "default": "",
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "title": "Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "monthly_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Monthly Budget Usd"
+        },
+        "daily_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Budget Usd"
+        },
+        "bid_strategy": {
+          "default": "",
+          "title": "Bid Strategy",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "locations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locations",
+          "type": "array"
+        },
+        "ad_groups": {
+          "items": {
+            "$ref": "#/$defs/PlannedAdGroup"
+          },
+          "title": "Ad Groups",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedCampaign",
+      "type": "object"
+    },
+    "PlannedKeyword": {
+      "additionalProperties": true,
+      "description": "One keyword, as it will be imported. The EDITOR_CSV row.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "default": "phrase",
+          "title": "Match Type",
+          "type": "string"
+        },
+        "forecast_cpc_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Cpc Usd"
+        },
+        "search_volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Volume"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PlannedKeyword",
+      "type": "object"
+    },
+    "RegulatedTerm": {
+      "additionalProperties": true,
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "rule": {
+          "title": "Rule",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term",
+        "rule"
+      ],
+      "title": "RegulatedTerm",
+      "type": "object"
+    },
+    "SlateEntry": {
+      "additionalProperties": true,
+      "description": "2.3.1. One campaign type in one market, and when it launches.",
+      "properties": {
+        "campaign_type": {
+          "title": "Campaign Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "launch_wave": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Wave"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "entry_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entry Criteria",
+          "type": "array"
+        },
+        "exit_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exit Criteria",
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prerequisites",
+          "type": "array"
+        },
+        "est_share_of_budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Share Of Budget Pct"
+        }
+      },
+      "required": [
+        "campaign_type"
+      ],
+      "title": "SlateEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything a guideline run is allowed to know, assembled once.",
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "guideline_run_id": {
+      "format": "uuid",
+      "title": "Guideline Run Id",
+      "type": "string"
+    },
+    "bindings": {
+      "$ref": "#/$defs/GuidelineBindings"
+    },
+    "mode": {
+      "$ref": "#/$defs/GuidelineMode",
+      "default": "standalone"
+    },
+    "product_context": {
+      "additionalProperties": true,
+      "title": "Product Context",
+      "type": "object"
+    },
+    "markets": {
+      "items": {
+        "$ref": "#/$defs/Market"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "brand_assets": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Brand Assets",
+      "type": "array"
+    },
+    "site_pages": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Site Pages",
+      "type": "array"
+    },
+    "creative_history": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Creative History",
+      "type": "array"
+    },
+    "offer_records": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Offer Records",
+      "type": "array"
+    },
+    "disapproval_history": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Disapproval History",
+      "type": "array"
+    },
+    "signoff_matrix": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signoff Matrix"
+    },
+    "prior_guideline_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Prior Guideline Id"
+    },
+    "compliance_guardrails": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ComplianceGuardrails"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "differentiation_claim": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Differentiation Claim"
+    },
+    "competitor_creative": {
+      "anyOf": [
+        {
+          "items": {
+            "$ref": "#/$defs/CompetitorAd"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Competitor Creative"
+    },
+    "channel_slate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ChannelSlate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "account_structure": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AccountStructure"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "measurement_consent": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Measurement Consent"
+    },
+    "unbound_inputs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unbound Inputs",
+      "type": "array"
+    },
+    "constants_version": {
+      "title": "Constants Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "guideline_run_id",
+    "bindings",
+    "constants_version"
+  ],
+  "title": "GuidelineInput",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

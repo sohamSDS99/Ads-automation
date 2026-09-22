@@ -1,0 +1,44 @@
+{
+  "description": "A frozen campaign plan, offered as an optional binding.",
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "plan_schema_version": {
+      "title": "Plan Schema Version",
+      "type": "string"
+    },
+    "frozen_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frozen At"
+    },
+    "adds": {
+      "title": "Adds",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "plan_version",
+    "plan_schema_version",
+    "adds"
+  ],
+  "title": "PlanBinding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -89,6 +89,14 @@ class RunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     AWAITING_APPROVAL = "awaiting_approval"
+    #: A named human must perform an act the agent cannot perform for them
+    #: (Stage 03 PRD §8.4). Deliberately not `awaiting_approval`: an approval
+    #: is "the agent proposed and a human confirmed" and any holder of the
+    #: role may confirm it. A person-task has exactly one assignee, no admin
+    #: fallback, and for H1 a step-up-authenticated signature. Collapsing the
+    #: two would leave the run table unable to tell them apart, and the
+    #: approvals inbox offering the wrong control to the wrong person.
+    AWAITING_HUMAN_TASK = "awaiting_human_task"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     CANCELLED = "cancelled"
@@ -110,6 +118,13 @@ class RunStage(StrEnum):
 
     RESEARCH = "research"
     PLAN = "plan"
+    #: Stage 03. Unlike `plan`, a guideline run has **no** upstream gate: it
+    #: starts on a project that has never run research and has no frozen plan
+    #: (Stage 03 law 21). `ck_run_plan_has_source` was rewritten in migration
+    #: 0016 for exactly this reason — its original form also asserted that only
+    #: a plan run may carry a source, which a guideline run that resolved a
+    #: research binding contradicts.
+    GUIDELINE = "guideline"
 
 
 class NodeRunStatus(StrEnum):
@@ -178,6 +193,10 @@ class ExportFormat(StrEnum):
     EDITOR_CSV = "editor_csv"
     XLSX = "xlsx"
 
+    #: The Stage 04 handoff (Stage 03 PRD §14). A compiled `RuleSet`, pinned by
+    #: `ruleset_version`, hashed. The only export another stage reads.
+    RULESET_JSON = "ruleset_json"
+
 
 class ExportArtifactType(StrEnum):
     """What an `Export` row points at (Stage 02 PRD §7.1).
@@ -190,6 +209,7 @@ class ExportArtifactType(StrEnum):
 
     RESEARCH_REPORT = "research_report"
     CAMPAIGN_PLAN = "campaign_plan"
+    CONTENT_GUIDELINE = "content_guideline"
 
 
 class CampaignPlanStatus(StrEnum):
@@ -645,9 +665,35 @@ class Run(Base):
         ),
         # A plan run is defined by the research it consumes, so the two facts
         # are one constraint rather than two columns that can disagree.
+        #
+        # Stage 03 widened that equality rather than halving it. As an
+        # equality it said two things at once: a plan run must name its source,
+        # and *only* a plan run may have one. The first is still true. The
+        # second was only ever a proxy for what was meant — a research run must
+        # not claim a source, because nothing about a research run consumes
+        # one — and as written it also excluded guideline runs, which do.
+        #
+        # Both halves are kept, under the original name, because the second one
+        # is load-bearing and has its own test: dropping it would let a
+        # research run carry a pointer nothing reads and every later stage
+        # would have to decide what it meant.
         sa.CheckConstraint(
-            "(stage = 'plan') = (source_run_id IS NOT NULL)",
+            "(stage <> 'plan' OR source_run_id IS NOT NULL) "
+            "AND (stage <> 'research' OR source_run_id IS NULL)",
             name="ck_run_plan_has_source",
+        ),
+        # '{}' is a valid value: a guideline run that bound nothing is the
+        # standalone mode, which is the point of the stage. NULL is not — it
+        # cannot be told apart from "nobody has asked yet".
+        #
+        # `jsonb_typeof(...) = 'object'` is the half that is easy to leave out
+        # and expensive to leave out. Without it, the JSON scalar `null` — what
+        # a plain `JSONB` column stores for Python `None` — satisfies
+        # `IS NOT NULL` and the constraint asserts nothing. Both halves are
+        # needed: `jsonb_typeof(NULL)` is NULL, and a CHECK passes on NULL.
+        sa.CheckConstraint(
+            "stage <> 'guideline' OR (bindings IS NOT NULL AND jsonb_typeof(bindings) = 'object')",
+            name="ck_run_guideline_has_bindings",
         ),
         # The reaper's sweep has no project to narrow by, so the composite index
         # above cannot serve it (PRD §16, "Worker killed").
@@ -687,6 +733,19 @@ class Run(Base):
     stage: Mapped[RunStage] = mapped_column(
         _enum(RunStage, "run_stage"), nullable=False, server_default=RunStage.RESEARCH.value
     )
+    #: `GuidelineBindings` for `stage='guideline'`, NULL for every other stage
+    #: (`ck_run_guideline_has_bindings`). A resolved research binding is *also*
+    #: written to `source_run_id`, so one column answers "what research does
+    #: this run consume" for both stages; the plan binding has no such column
+    #: and lives only here.
+    #: `none_as_null` is load-bearing, not tidiness. Plain `JSONB` serialises
+    #: Python `None` to the JSON value `null`, which is a jsonb scalar and not
+    #: SQL NULL — so `bindings IS NOT NULL` is true of it and
+    #: `ck_run_guideline_has_bindings` waves it through. That would leave three
+    #: states where the column is meant to have two, and the third one means
+    #: nothing. The CHECK additionally requires a JSON *object*, so the
+    #: guarantee holds for any client, not only for this mapper.
+    bindings: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     #: The research run this plan run consumes. NULL for research runs, and
     #: never NULL for plan runs — see `ck_run_plan_has_source`. Distinct from
     #: `parent_run_id`, which keeps its Stage 01 meaning: the previous run of
@@ -1148,6 +1207,716 @@ class PlanCalc(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Stage 03 — Content Guidelines (PRD §7.2)
+#
+# Ten tables. Three of them are enforced immutable or append-only by database
+# trigger rather than by application code (migration 0016), because the thing
+# being protected is a legal record: a published rulebook, the compiled program
+# Stage 04 lints against, and a named person's signature. A guarantee that
+# lives in a service layer is a guarantee that ends the first time somebody
+# writes a second service layer.
+# ---------------------------------------------------------------------------
+
+
+class GuidelineStatus(StrEnum):
+    """PRD §12.4. `succeeded` on the run never means `published`."""
+
+    DRAFT = "draft"
+    #: A gate was rejected, H1 was rejected wholesale, or the critique returned
+    #: a blocking issue. The run still finished; the artifact is not publishable.
+    BLOCKED = "blocked"
+    READY_TO_PUBLISH = "ready_to_publish"
+    PUBLISHED = "published"
+    SUPERSEDED = "superseded"
+
+
+class GuidelineMode(StrEnum):
+    """Which optional bindings resolved at run start (PRD §4.2).
+
+    Derived from what actually resolved, never taken from the client. The four
+    values are not a quality ranking — `standalone` is a first-class, tested
+    path (law 21) — they are a record of what the rulebook was built from.
+    """
+
+    STANDALONE = "standalone"
+    RESEARCH_LINKED = "research_linked"
+    PLAN_LINKED = "plan_linked"
+    FULLY_LINKED = "fully_linked"
+
+
+class ClaimType(StrEnum):
+    """The shape of an assertion, which is what the detector pass can see.
+
+    Not "is it true" — that is the signature's job, and it is a human's.
+    """
+
+    SUPERLATIVE = "superlative"
+    COMPARATIVE = "comparative"
+    QUANTIFIED = "quantified"
+    CERTIFICATION = "certification"
+    GUARANTEE = "guarantee"
+    ENDORSEMENT = "endorsement"
+    PRICING = "pricing"
+    SAFETY_REGULATORY = "safety_regulatory"
+
+
+class ClaimRiskTier(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ClaimStatus(StrEnum):
+    """PRD §9.3. Four of these six behave identically at lint time: blocking.
+
+    `unsupported`, `rejected`, `expired` and `revoked` all mean "not licensed",
+    and the linter must not treat them differently. They are kept apart because
+    *why* a claim is unlicensed is what the writer needs to read, and because
+    the routes back to `approved` differ.
+    """
+
+    UNSUPPORTED = "unsupported"
+    PENDING_SIGNOFF = "pending_signoff"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class SignatureMethod(StrEnum):
+    """How the signer proved it was them. One value today, and it is recorded
+    rather than assumed so that adding WebAuthn later does not silently
+    re-describe every signature already taken."""
+
+    STEP_UP_PASSWORD = "step_up_password"  # noqa: S105 — a method name, not a secret
+
+
+class HumanTaskStatus(StrEnum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    #: 3.3.1 found nothing requiring verification. Not a skip and not a
+    #: failure: the finding is that the obligation does not apply, which is the
+    #: auditable part.
+    NOT_REQUIRED = "not_required"
+    BLOCKED = "blocked"
+    EXPIRED = "expired"
+
+
+class HumanTaskBlocking(StrEnum):
+    """Which board this task stops (PRD §5.4).
+
+    H1 blocks publish: a claims register with no terminal decisions licenses
+    nothing and the ruleset would ship inert. H2 blocks launch: a company can
+    hold a complete, correct rulebook before it is verified to advertise.
+    """
+
+    PUBLISH = "publish"
+    LAUNCH = "launch"
+
+
+class AmendmentOrigin(StrEnum):
+    POLICY_WATCH = "policy_watch"
+    CLAIM_EXPIRY = "claim_expiry"
+    DISAPPROVAL = "disapproval"
+    MANUAL = "manual"
+
+
+class AmendmentChangeKind(StrEnum):
+    """PRD §8.6, law 29. The consequence of each class is deterministic code;
+    only the classification itself is a model call."""
+
+    #: A value inside an existing rule changed. Auto-applies, mints a MINOR.
+    MECHANICAL = "mechanical"
+    #: A rule appeared or disappeared. Never auto-applies.
+    SUBSTANTIVE = "substantive"
+    #: Touches a rule whose authority is a legal signature. Voids it.
+    SIGNATURE_AFFECTING = "signature_affecting"
+    #: Classifier confidence below the floor. Treated as `substantive` —
+    #: ambiguity resolves toward the human, always.
+    UNCLASSIFIED = "unclassified"
+
+
+class AmendmentStatus(StrEnum):
+    OPEN = "open"
+    NEEDS_REVIEW = "needs_review"
+    APPLIED = "applied"
+    DISMISSED = "dismissed"
+    AUTO_APPLIED = "auto_applied"
+
+
+class DisapprovalStatus(StrEnum):
+    NEW = "new"
+    RULE_PROPOSED = "rule_proposed"
+    RULE_APPLIED = "rule_applied"
+    IGNORED = "ignored"
+
+
+class ContentGuideline(Base):
+    """One version of the rulebook (PRD §7.2, §12.1).
+
+    A published row is append-only in the strict sense: migration 0016 installs
+    a BEFORE UPDATE trigger that rejects any change to `payload`, `markdown`,
+    `ruleset_id`, `version_major` or `version_minor` once `status='published'`.
+    Only `status`, `signature_stale` and `binding_superseded` may move
+    afterwards, which is what lets a published version be marked stale without
+    being rewritten.
+    """
+
+    __tablename__ = "content_guideline"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "project_id",
+            "version_major",
+            "version_minor",
+            name="uq_content_guideline_project_version",
+        ),
+        sa.Index("ix_content_guideline_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    guideline_run_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    version_major: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    version_minor: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    status: Mapped[GuidelineStatus] = mapped_column(
+        _enum(GuidelineStatus, "guideline_status"),
+        nullable=False,
+        server_default=GuidelineStatus.DRAFT.value,
+    )
+    mode: Mapped[GuidelineMode] = mapped_column(
+        _enum(GuidelineMode, "guideline_mode"), nullable=False
+    )
+    bindings: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    #: Which optional inputs were absent. Rendered on the rulebook header and
+    #: in every export: a rulebook built without legal guardrails must not look
+    #: as authoritative as one built with them (PRD §4.3).
+    unbound_inputs: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    markdown: Mapped[str | None] = mapped_column(sa.Text)
+    #: Nullable, and that nullability is what breaks the cycle with `rule_set`.
+    #: `use_alter` defers the constraint so the two tables can be created in
+    #: either order; PRD §7.4 note 5 explains why publish must set this and
+    #: `status` in one statement.
+    ruleset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("rule_set.id", ondelete="SET NULL", use_alter=True),
+    )
+    published_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    published_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    published_approval_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
+        ARRAY(UUID(as_uuid=True))
+    )
+    #: The legal owner was reassigned, or an amendment voided a signature this
+    #: version's ruleset depended on. The version stays published and serving —
+    #: the linter un-licenses the affected claims from that moment instead.
+    signature_stale: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    binding_superseded: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+class ClaimRecord(Base):
+    """One thing we assert, and whether we are licensed to assert it.
+
+    Claims outlive guideline versions: they are a property of the project, not
+    of the run that first harvested them. `first_seen_guideline_id` records
+    where one came from without tying its life to that version.
+    """
+
+    __tablename__ = "claim_record"
+    __table_args__ = (
+        sa.Index(
+            "uq_claim_record_current",
+            "project_id",
+            "normalized_text",
+            unique=True,
+            postgresql_where=sa.text("superseded_by IS NULL"),
+        ),
+        #: The expiry sweep's query, and the "expiring within 30 days" badge.
+        sa.Index("ix_claim_record_project_status_expiry", "project_id", "status", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    first_seen_guideline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("content_guideline.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    claim_text: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    normalized_text: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: The phrasings that assert this claim. What the licence pass matches a
+    #: candidate span against.
+    surface_forms: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    claim_type: Mapped[ClaimType] = mapped_column(_enum(ClaimType, "claim_type"), nullable=False)
+    market_scope: Mapped[list[str]] = mapped_column(
+        ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    languages: Mapped[list[str]] = mapped_column(
+        ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    #: Where we already say it: urls, ad ids. Harvested, not proposed.
+    observed_on: Mapped[list[Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'[]'::jsonb")
+    )
+    #: `{evidence_ids[], document_refs[], method, as_of}`. A claim with no
+    #: evidence is marked `unsupported` and stays that way — the model never
+    #: manufactures substantiation.
+    substantiation: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    evidence_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=sa.text("'{}'::uuid[]")
+    )
+    risk_tier: Mapped[ClaimRiskTier] = mapped_column(
+        _enum(ClaimRiskTier, "claim_risk_tier"),
+        nullable=False,
+        server_default=ClaimRiskTier.MEDIUM.value,
+    )
+    status: Mapped[ClaimStatus] = mapped_column(
+        _enum(ClaimStatus, "claim_status"),
+        nullable=False,
+        server_default=ClaimStatus.UNSUPPORTED.value,
+    )
+    #: A claims register without expiry is a register of things that used to be
+    #: true. NULL until a signature sets one.
+    expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    current_signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("claim_signature.id", ondelete="SET NULL", use_alter=True),
+    )
+    superseded_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("claim_record.id", ondelete="SET NULL")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+class ClaimSignature(Base):
+    """A named person said these exact claims are safe to run (PRD §7.2, §13).
+
+    Append-only, enforced by trigger: every column except the three void
+    columns rejects an UPDATE. A correction is a new signature, never an edit —
+    that is what makes "liability sits with a named person" a fact about the
+    database rather than a sentence in a diagram.
+
+    `set_hash` is the anti-race guarantee. It is computed over the sorted
+    (claim_id, normalized_text, decision) triples, so a register that changed
+    between the signer reading it and pressing submit produces a different hash
+    and a 409. The signer never signs a set they did not see.
+    """
+
+    __tablename__ = "claim_signature"
+    __table_args__ = (
+        sa.Index("ix_claim_signature_project_signed", "project_id", sa.text("signed_at DESC")),
+        sa.Index("ix_claim_signature_signer", "signer_id"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    #: The named legal owner *at signing time*. RESTRICT, not SET NULL: a
+    #: signature whose signer cannot be named is not a signature.
+    signer_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    claim_ids: Mapped[list[uuid.UUID]] = mapped_column(ARRAY(UUID(as_uuid=True)), nullable=False)
+    set_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: `[{claim_id, decision: approved|rejected, note, expires_at}]`. A
+    #: partially-approved set is legal and common.
+    decisions: Mapped[list[Any]] = mapped_column(JSONB, nullable=False)
+    #: The attestation text the signer confirmed, stored verbatim. If the
+    #: wording changes later, what this person agreed to does not.
+    statement: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    method: Mapped[SignatureMethod] = mapped_column(
+        _enum(SignatureMethod, "signature_method"), nullable=False
+    )
+    reauth_token_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    ip: Mapped[str | None] = mapped_column(INET)
+    user_agent: Mapped[str | None] = mapped_column(sa.Text)
+    signed_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    voided_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    voided_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    void_reason: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class HumanTask(Base):
+    """An act the agent cannot perform, assigned to one named person.
+
+    `assignee_id NOT NULL` is the non-delegable rule expressed in DDL. Do not
+    make it nullable "for flexibility" later: a task with no assignee is a task
+    that falls back to a role, and a signature that falls back to a role is a
+    checkbox (PRD §7.4 note 4).
+    """
+
+    __tablename__ = "human_task"
+    __table_args__ = (
+        sa.Index("ix_human_task_assignee_status", "assignee_id", "status"),
+        sa.Index("ix_human_task_project_key_status", "project_id", "task_key", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    guideline_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("run.id", ondelete="SET NULL")
+    )
+    node_id: Mapped[str | None] = mapped_column(sa.Text)
+    #: 'H1' | 'H2'. Text rather than an enum for the same reason
+    #: `Approval.gate_key` is: later stages add person-tasks, and a migration
+    #: per key is a toll on a value nothing branches on exhaustively.
+    task_key: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    title: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    instructions: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    assignee_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    required_artifacts: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, server_default=sa.text("'{}'::jsonb")
+    )
+    submitted_payload: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    attachment_paths: Mapped[list[str] | None] = mapped_column(ARRAY(sa.Text))
+    status: Mapped[HumanTaskStatus] = mapped_column(
+        _enum(HumanTaskStatus, "human_task_status"),
+        nullable=False,
+        server_default=HumanTaskStatus.PENDING.value,
+    )
+    blocking_for: Mapped[HumanTaskBlocking] = mapped_column(
+        _enum(HumanTaskBlocking, "human_task_blocking"), nullable=False
+    )
+    completed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    due_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+class HumanTaskHandover(Base):
+    """Moving a person-task to somebody else. Append-only, and expensive by design.
+
+    A handover requires a written reason, is performed by an admin, and records
+    every signature it voided. Reassignment being costly is the correct
+    incentive: the cheap version of this is an admin quietly signing.
+    """
+
+    __tablename__ = "human_task_handover"
+    __table_args__ = (sa.Index("ix_human_task_handover_task", "task_id"),)
+
+    id: Mapped[uuid.UUID] = _pk()
+    task_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("human_task.id", ondelete="CASCADE"), nullable=False
+    )
+    from_user: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    to_user: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    performed_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    voided_signature_ids: Mapped[list[uuid.UUID]] = mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=sa.text("'{}'::uuid[]")
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class SignOffMatrix(Base):
+    """Who owns brand, legal and performance sign-off on this project (G6).
+
+    A DAG root, despite sitting at the bottom of the stage diagram: you cannot
+    route a non-delegable signature without a named owner. Exactly one matrix
+    is current per project, enforced by a partial unique index rather than by
+    application code — two admins setting it at once must not both win.
+    """
+
+    __tablename__ = "signoff_matrix"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "version", name="uq_signoff_matrix_project_version"),
+        sa.Index(
+            "uq_signoff_matrix_current",
+            "project_id",
+            unique=True,
+            postgresql_where=sa.text("superseded_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    brand_owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    #: The only identity `CLAIM_SIGN` is narrowed to. Changing it voids every
+    #: signature the outgoing owner made (PRD §5.2).
+    legal_owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    performance_owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
+    previous_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("signoff_matrix.id", ondelete="SET NULL")
+    )
+    set_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    set_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class RuleSet(Base):
+    """The compiled program Stage 04 lints against (PRD §12.2).
+
+    Fully immutable: migration 0016 installs a BEFORE UPDATE trigger that
+    rejects every UPDATE, with no exceptions at all. A change compiles a new
+    row. That is what lets an asset produced six months ago be re-audited
+    against exactly the rules that applied when it was made, which is the whole
+    reason `ruleset_version` is pinned rather than resolved.
+    """
+
+    __tablename__ = "rule_set"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "ruleset_version", name="uq_rule_set_project_version"),
+        sa.UniqueConstraint("hash", name="uq_rule_set_hash"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    guideline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("content_guideline.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    #: "{major}.{minor}+{hash8}". The pin Stage 04 records on every creative run.
+    ruleset_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    compiled: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    #: Bumped when the compiler or a pinned matcher library changes. Part of
+    #: what `hash` is over, so a library bump produces a new ruleset rather
+    #: than silently changing what an old pin means.
+    compiler_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    constants_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    rule_count: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
+    hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class PolicySource(Base):
+    """A watched policy page. URLs are configuration, never prompt text (law 25)."""
+
+    __tablename__ = "policy_source"
+    __table_args__ = (
+        sa.UniqueConstraint("workspace_id", "url", name="uq_policy_source_workspace_url"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    label: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    jurisdiction: Mapped[str | None] = mapped_column(sa.Text)
+    area: Mapped[str | None] = mapped_column(sa.Text)
+    #: Narrows the hashed region of the page. A selector that stops matching
+    #: marks the source stale — it must never quietly report "no change".
+    selector: Mapped[str | None] = mapped_column(sa.Text)
+    last_hash: Mapped[str | None] = mapped_column(sa.Text)
+    last_checked_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    last_changed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    enabled: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("true")
+    )
+    poll_cron: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+class PolicyAmendment(Base):
+    """A reason the published rulebook should change (PRD §8.6)."""
+
+    __tablename__ = "policy_amendment"
+    __table_args__ = (
+        sa.Index(
+            "ix_policy_amendment_project_status",
+            "project_id",
+            "status",
+            sa.text("detected_at DESC"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    source_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("policy_source.id", ondelete="SET NULL")
+    )
+    origin: Mapped[AmendmentOrigin] = mapped_column(
+        _enum(AmendmentOrigin, "amendment_origin"), nullable=False
+    )
+    detected_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    change_kind: Mapped[AmendmentChangeKind] = mapped_column(
+        _enum(AmendmentChangeKind, "amendment_change_kind"),
+        nullable=False,
+        server_default=AmendmentChangeKind.UNCLASSIFIED.value,
+    )
+    diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    proposed_rule_changes: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    rationale: Mapped[str | None] = mapped_column(sa.Text)
+    status: Mapped[AmendmentStatus] = mapped_column(
+        _enum(AmendmentStatus, "amendment_status"),
+        nullable=False,
+        server_default=AmendmentStatus.OPEN.value,
+    )
+    applied_ruleset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("rule_set.id", ondelete="SET NULL")
+    )
+    voided_signature_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    reviewed_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    review_note: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class DisapprovalEvent(Base):
+    """Google told us exactly what was wrong, once. This is where it stops
+    being thrown away (PRD §2, §8.5).
+
+    Every row becomes a learned rule or an explicit reason it cannot. A repeat
+    of a `policy_topic` that already carries a learned rule raises
+    `rule_ineffective` rather than proposing a duplicate.
+    """
+
+    __tablename__ = "disapproval_event"
+    __table_args__ = (
+        sa.UniqueConstraint(
+            "workspace_id",
+            "ad_resource_name",
+            "policy_topic",
+            "observed_at",
+            name="uq_disapproval_event_observation",
+        ),
+        sa.Index("ix_disapproval_event_project_status", "project_id", "status"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+    project_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+    ad_resource_name: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    campaign_ref: Mapped[str | None] = mapped_column(sa.Text)
+    asset_ref: Mapped[str | None] = mapped_column(sa.Text)
+    policy_topic: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    policy_detail: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    observed_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    first_seen_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+    learned_rule_id: Mapped[str | None] = mapped_column(sa.Text)
+    amendment_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("policy_amendment.id", ondelete="SET NULL")
+    )
+    status: Mapped[DisapprovalStatus] = mapped_column(
+        _enum(DisapprovalStatus, "disapproval_status"),
+        nullable=False,
+        server_default=DisapprovalStatus.NEW.value,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
 #: Every table the migration must create, in dependency order.
 ALL_TABLES: tuple[str, ...] = (
     "workspace",
@@ -1169,4 +1938,17 @@ ALL_TABLES: tuple[str, ...] = (
     "research_acceptance",
     "campaign_plan",
     "plan_calc",
+    # Stage 03 (migration 0016). `rule_set` before `content_guideline` is not
+    # possible — they reference each other — so the cycle is broken by
+    # `content_guideline.ruleset_id` being nullable and added with use_alter.
+    "content_guideline",
+    "rule_set",
+    "claim_signature",
+    "claim_record",
+    "signoff_matrix",
+    "human_task",
+    "human_task_handover",
+    "policy_source",
+    "policy_amendment",
+    "disapproval_event",
 )
