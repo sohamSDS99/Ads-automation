@@ -51,6 +51,7 @@ from agent.db.models import (
     SignOffMatrix,
 )
 from agent.db.session import get_session
+from agent.guardrails.normalize import normalize
 from agent.guidelines.constants import load_content_constants
 from agent.guidelines.signature import ClaimDecision, ReauthError, ReauthTokens, set_hash
 
@@ -127,7 +128,14 @@ async def edit_claim(
 
     if body.claim_text is not None:
         claim.claim_text = body.claim_text
-        claim.normalized_text = body.claim_text.casefold().strip()
+        # The same `normalize` node 3.2.1 uses and the same one the linter's
+        # licence pass applies. A second folding here would give the register
+        # two dialects: an edited claim would hash differently from a harvested
+        # one carrying the same words, and whether a signer got a 409 would
+        # depend on which route last touched the row.
+        claim.normalized_text = normalize(
+            body.claim_text, locale=(claim.languages or ["en"])[0]
+        ).text
     for field in ("surface_forms", "market_scope", "languages"):
         value = getattr(body, field)
         if value is not None:

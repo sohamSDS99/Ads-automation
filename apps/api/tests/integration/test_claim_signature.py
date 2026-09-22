@@ -259,3 +259,29 @@ async def test_a_signature_is_audited(
         .all()
     )
     assert any("sign" in action for action in actions), actions
+
+
+async def test_editing_a_claim_normalizes_it_the_way_the_linter_will(
+    admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
+) -> None:
+    """One normalization, not two.
+
+    `normalized_text` is the column the licence pass matches on and the column
+    `set_hash` is computed over. If the PATCH route folds text its own way, an
+    edited claim hashes differently from a harvested one carrying the same
+    words, and the register develops two dialects — the signer's 409 then
+    depends on which route last touched the row.
+    """
+    from agent.guardrails.normalize import normalize
+
+    await cast(admin)
+    guideline_id, claims = await seed_register(admin, db, project_id)
+
+    # Fullwidth digits and a zero-width joiner: exactly what `normalize` exists
+    # to fold and what `casefold().strip()` leaves alone.
+    awkward = "Ｔｈｅ best‍ SDS software"
+    response = await admin.patch(
+        f"/guidelines/{guideline_id}/claims/{claims[0].id}", json={"claim_text": awkward}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["normalized_text"] == normalize(awkward, locale="en").text

@@ -420,6 +420,47 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # -- S3-P3: the claims register and the non-delegable signature ---------
+    #
+    # `/auth/reauth` is READ-guarded because every signed-in account may prove
+    # its own presence; what it mints is useless without CLAIM_SIGN *and* being
+    # the named legal owner, both asserted on the signing route.
+    ("POST", "/auth/reauth", "/auth/reauth", Permission.READ, {"password": "x"}),
+    (
+        "GET",
+        "/guidelines/{guideline_id}/claims",
+        "/guidelines/00000000-0000-0000-0000-000000000000/claims",
+        Permission.READ,
+        None,
+    ),
+    (
+        "PATCH",
+        "/guidelines/{guideline_id}/claims/{claim_id}",
+        "/guidelines/00000000-0000-0000-0000-000000000000/claims/00000000-0000-0000-0000-000000000000",
+        Permission.GUIDELINE_EXECUTE,
+        {},
+    ),
+    (
+        "POST",
+        "/guidelines/{guideline_id}/claims/sign",
+        "/guidelines/00000000-0000-0000-0000-000000000000/claims/sign",
+        Permission.CLAIM_SIGN,
+        {"decisions": [], "statement": "x", "set_hash": "x", "reauth_token": "x"},
+    ),
+    (
+        "POST",
+        "/claims/{claim_id}/revoke",
+        "/claims/00000000-0000-0000-0000-000000000000/revoke",
+        Permission.CLAIM_SIGN,
+        {"reason": "x"},
+    ),
+    (
+        "GET",
+        "/claims/{claim_id}/signature",
+        "/claims/00000000-0000-0000-0000-000000000000/signature",
+        Permission.READ,
+        None,
+    ),
     ("GET", "/projects/{project_id}/plans", "/projects/{project}/plans", Permission.READ, None),
     (
         "GET",

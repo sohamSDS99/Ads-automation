@@ -74,7 +74,14 @@ async def test_a_partial_run_halts_on_g6_then_on_g5(
 
     assert await advance(admin, approver, run_id, db, fake_openrouter) == "G5"
     final = (await admin.get(f"/runs/{run_id}")).json()
-    assert final["status"] == RunStatus.SUCCEEDED.value, final.get("error") or final["status"]
+    # Was SUCCEEDED when 3.1 and 3.5 were the whole graph. S3-P3 added stage
+    # 3.2, and 3.2.3 hangs off 3.5.1 — so once G6 names a legal owner the run
+    # carries on past the gates and stops again on H1, for that one person.
+    # Still "both gates decided, in that order", which is what this test is
+    # about; the run simply has further to go now.
+    assert final["status"] == RunStatus.AWAITING_HUMAN_TASK.value, (
+        final.get("error") or final["status"]
+    )
 
 
 async def _pending_keys(db: AsyncSession, run_id: uuid.UUID) -> list[str]:
