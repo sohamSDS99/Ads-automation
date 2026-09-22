@@ -173,9 +173,10 @@ def test_an_override_changes_the_value_the_source_and_the_version() -> None:
     assert merged.version.startswith(f"{constants.version}+ovr.")
     # `reviewed_at` is when somebody last checked the underlying figure, and an
     # override does not check anything.
-    assert merged.get("claims.match_threshold").reviewed_at == constants.get(
-        "claims.match_threshold"
-    ).reviewed_at
+    assert (
+        merged.get("claims.match_threshold").reviewed_at
+        == constants.get("claims.match_threshold").reviewed_at
+    )
     # The original is untouched — `merged` returns a new object.
     assert constants.value("claims.match_threshold") == pytest.approx(0.88)
 
