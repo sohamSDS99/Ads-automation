@@ -28,7 +28,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.db.models import ApprovalRequiredRole, Evidence, RunStage
-from agent.evidence.redact import redact_pii
+from agent.evidence.redact import redact_payload, redact_pii
 from agent.guardrails.registry import kind_for
 from agent.llm.router import TaskClass
 from agent.nodes import gather, prompts
@@ -308,10 +308,12 @@ class LexiconRulesNode:
             ),
             user=prompts.compose(
                 prompts.project_block(ctx.project),
-                prompts.computed_block("the voice profile this lexicon serves", voice),
+                prompts.computed_block(
+                    "the voice profile this lexicon serves", redact_payload(voice)
+                ),
                 prompts.computed_block(
                     "regulated terms legal has already ruled on (may be empty)",
-                    (ctx.outputs.get("1.1.5") or {}).get("regulated_terms") or [],
+                    redact_payload((ctx.outputs.get("1.1.5") or {}).get("regulated_terms") or []),
                 ),
             ),
         )
@@ -537,7 +539,8 @@ class VisualIdentityNode:
                 ),
                 prompts.computed_block("colours sampled from the brand's own assets", observed),
                 prompts.computed_block(
-                    "the voice profile these visuals sit beside", ctx.outputs.get("3.1.1") or {}
+                    "the voice profile these visuals sit beside",
+                    redact_payload(ctx.outputs.get("3.1.1") or {}),
                 ),
             ),
         )

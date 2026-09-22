@@ -44,7 +44,12 @@ def proposal(**overrides) -> dict:
 class TestBuild:
     def test_it_builds_version_one_when_nothing_preceded_it(self) -> None:
         row = matrix_from_proposal(
-            proposal(), workspace_id=WORKSPACE, project_id=PROJECT, set_by=ACTOR, previous=None
+            proposal(),
+            workspace_id=WORKSPACE,
+            project_id=PROJECT,
+            set_by=ACTOR,
+            previous=None,
+            on_file=False,
         )
 
         assert row.version == 1
@@ -64,7 +69,12 @@ class TestBuild:
         )
 
         row = matrix_from_proposal(
-            proposal(), workspace_id=WORKSPACE, project_id=PROJECT, set_by=ACTOR, previous=previous
+            proposal(),
+            workspace_id=WORKSPACE,
+            project_id=PROJECT,
+            set_by=ACTOR,
+            previous=previous,
+            on_file=False,
         )
 
         assert row.version == 5
@@ -86,21 +96,23 @@ class TestBuild:
             project_id=PROJECT,
             set_by=ACTOR,
             previous=None,
+            on_file=False,
         )
 
         assert row.legal_owner_id == chosen
 
 
 class TestRefusal:
-    def test_a_reused_matrix_writes_no_second_row(self) -> None:
+    def test_a_matrix_already_on_file_writes_no_second_row(self) -> None:
         """The row already exists. Writing another would break the partial index."""
         assert (
             matrix_from_proposal(
-                proposal(reused=True, status="reused"),
+                proposal(),
                 workspace_id=WORKSPACE,
                 project_id=PROJECT,
                 set_by=ACTOR,
                 previous=None,
+                on_file=True,
             )
             is None
         )
@@ -113,6 +125,7 @@ class TestRefusal:
                 project_id=PROJECT,
                 set_by=ACTOR,
                 previous=None,
+                on_file=False,
             )
 
     def test_an_owner_that_is_not_a_uuid_is_refused(self) -> None:
@@ -130,4 +143,115 @@ class TestRefusal:
                 project_id=PROJECT,
                 set_by=ACTOR,
                 previous=None,
+                on_file=False,
             )
+
+
+class TestEligibility:
+    """The security review's finding 1, as tests.
+
+    `matrix_from_proposal` validated that the three owners *parse as UUIDs* and
+    nothing else, while the node that proposes them checks membership, account
+    status and law 23's approver-only rule. An approver edits the proposal in a
+    form before approving, so the decision path is the one that actually has to
+    hold — and it was the weaker of the two.
+    """
+
+    def test_an_owner_who_is_not_a_member_is_refused(self) -> None:
+        from agent.db.models import UserRole
+        from agent.guidelines.signoff import assert_eligible
+        from tests.guideline_support import person
+
+        roster = [person("mia", UserRole.APPROVER), person("dana", UserRole.APPROVER)]
+        outsider = uuid.uuid4()
+
+        with pytest.raises(SignOffError, match="not a member"):
+            assert_eligible(
+                {
+                    "brand_owner_id": outsider,
+                    "legal_owner_id": roster[1][0].id,
+                    "performance_owner_id": roster[0][0].id,
+                },
+                roster=roster,
+            )
+
+    def test_an_admin_legal_owner_is_refused(self) -> None:
+        """Law 23. `admin` cannot hold CLAIM_SIGN, so no signature could route."""
+        from agent.db.models import UserRole
+        from agent.guidelines.signoff import assert_eligible
+        from tests.guideline_support import person
+
+        boss = person("alex", UserRole.ADMIN)
+        mia = person("mia", UserRole.APPROVER)
+        roster = [boss, mia]
+
+        with pytest.raises(SignOffError, match="approver"):
+            assert_eligible(
+                {
+                    "brand_owner_id": mia[0].id,
+                    "legal_owner_id": boss[0].id,
+                    "performance_owner_id": mia[0].id,
+                },
+                roster=roster,
+            )
+
+    def test_an_eligible_set_passes(self) -> None:
+        from agent.db.models import UserRole
+        from agent.guidelines.signoff import assert_eligible
+        from tests.guideline_support import person
+
+        mia = person("mia", UserRole.APPROVER)
+        sam = person("sam", UserRole.OPERATOR)
+        roster = [mia, sam]
+
+        assert_eligible(
+            {
+                "brand_owner_id": mia[0].id,
+                "legal_owner_id": mia[0].id,
+                "performance_owner_id": sam[0].id,
+            },
+            roster=roster,
+        )
+
+    def test_the_node_and_the_decision_share_one_rule(self) -> None:
+        """Two copies of this check are two things that can drift apart."""
+        import inspect
+
+        from agent.nodes.content import stage_3_5
+
+        assert "assert_eligible" in inspect.getsource(stage_3_5)
+
+
+class TestReuseIsNotTakenFromTheEdit:
+    def test_reused_in_an_edited_proposal_does_not_suppress_the_row(self) -> None:
+        """Finding 1's second half: `"reused": true` wrote no matrix at all.
+
+        An approver could approve G6 and leave the project with no sign-off
+        matrix, which §11 makes a precondition of everything after it — and the
+        gate would read as answered.
+        """
+        row = matrix_from_proposal(
+            proposal(reused=True, status="reused"),
+            workspace_id=WORKSPACE,
+            project_id=PROJECT,
+            set_by=ACTOR,
+            previous=None,
+            on_file=False,
+        )
+
+        assert row is not None
+        assert row.legal_owner_id == LEGAL
+
+    def test_a_matrix_really_on_file_still_writes_nothing(self) -> None:
+        """The genuine reuse path is decided by the database, not by the payload."""
+        assert (
+            matrix_from_proposal(
+                proposal(reused=True, status="reused"),
+                workspace_id=WORKSPACE,
+                project_id=PROJECT,
+                set_by=ACTOR,
+                previous=None,
+                on_file=True,
+            )
+            is None
+        )

@@ -36,9 +36,9 @@ from agent.db.models import (
     RunStage,
     SignOffMatrix,
     User,
-    UserRole,
     UserStatus,
 )
+from agent.guidelines import signoff
 from agent.llm.router import TaskClass
 from agent.nodes import prompts
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
@@ -47,9 +47,11 @@ from agent.nodes.base import NodeContractError, NodeSpec, RunContext
 #: an approved proposal into the `signoff_matrix` row.
 SIGNOFF_GATE = "G6"
 
-#: Roles that may hold the legal signature (law 23). `admin` is deliberately
-#: absent and this is the only place that says so for this node.
-SIGNING_ROLES = frozenset({UserRole.APPROVER})
+#: Law 23's signing roles, re-exported from `guidelines/signoff.py`. The rule
+#: lives there because the G6 *decision* has to apply it too — an approver can
+#: rewrite this node's proposal in a form before approving it, so a check that
+#: existed only here would guard the path nobody attacks.
+SIGNING_ROLES = signoff.SIGNING_ROLES
 
 
 class SignOffProposal(BaseModel):
@@ -216,21 +218,21 @@ class SignOffMatrixNode:
         roster: list[tuple[User, Membership]],
         signers: list[tuple[User, Membership]],
     ) -> None:
-        known = {user.id for user, _membership in roster}
-        may_sign = {user.id for user, _membership in signers}
-        for field_name in ("brand_owner_id", "legal_owner_id", "performance_owner_id"):
-            chosen = getattr(proposal, field_name)
-            if chosen not in known:
-                raise NodeContractError(
-                    f"3.5.1 named {chosen} as {field_name.removesuffix('_id')}, and that is "
-                    "not a member of this workspace."
-                )
-        if proposal.legal_owner_id not in may_sign:
-            raise NodeContractError(
-                f"3.5.1 named {proposal.legal_owner_id} as legal owner, and that person is "
-                "not an approver. Law 23 narrows CLAIM_SIGN to `approver` and excludes "
-                "`admin`, so no signature could ever be routed to them."
+        """One rule, borrowed rather than restated (`guidelines/signoff.py`)."""
+        try:
+            signoff.assert_eligible(
+                {
+                    "brand_owner_id": proposal.brand_owner_id,
+                    "legal_owner_id": proposal.legal_owner_id,
+                    "performance_owner_id": proposal.performance_owner_id,
+                },
+                roster=roster,
             )
+        except signoff.SignOffError as exc:
+            # Re-raised as a node failure so the executor treats it as one: a
+            # model that names somebody who does not work here has broken the
+            # node's contract, not a person's input validation.
+            raise NodeContractError(f"3.5.1 {exc}") from exc
 
 
 #: Module-level instance. The registry discovers instances, not classes.

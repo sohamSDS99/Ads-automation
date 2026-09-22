@@ -289,6 +289,22 @@ class BrandBookConnector(ReadOnlyConnector):
     async def fetch(self, params: dict[str, Any]) -> list[EvidenceDraft]:
         """Every uploaded brand-book file, as spans, assets and colours.
 
+        **Nothing calls this with files yet, and that is a known open gap.**
+        §10.2 says brand books arrive "via the existing upload route, stored
+        through `storage/backend.py` on the worker Volume" — and that storage
+        step does not exist: `POST /projects/{id}/documents` reads the file,
+        extracts its text and stores passages, keeping no raw bytes for a
+        connector to come back to. So `params["files"]` is never populated, a
+        `brand_book` pull returns an empty list, and every guideline run behaves
+        as though no brand book had been uploaded: `extraction_confidence: low`,
+        rules inferred from live creative, and the G5 card saying so.
+
+        That is the correct *degraded* behaviour, which is why this is a gap
+        rather than a break. Closing it needs the upload route to persist the
+        original bytes and pass them here — §21 assigns the brand-book upload
+        UI to S3-P7, so it is listed as an open question rather than built here
+        (§22 scope discipline). The parser and its tests are ready for it.
+
         Partial success is the normal case — a brand pack is a PDF, a deck and
         a folder of logos, and one of them being a scan is not a reason to
         throw away the other two. So a file that cannot be read adds its name

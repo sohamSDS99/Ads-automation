@@ -285,3 +285,127 @@ async def test_personal_data_in_the_corpus_reaches_no_prompt(
     assert sent
     assert "0800 123 4567" not in sent
     assert "dana.ops@sdsmanager.com" not in sent
+
+
+# ---------------------------------------------------------------------------
+# What the security review found: an approver-edited G6 is untrusted input
+# ---------------------------------------------------------------------------
+
+
+async def test_an_edited_g6_cannot_install_a_non_member_as_legal_owner(
+    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, fake_openrouter: FakeOpenRouter
+) -> None:
+    """`legal_owner_id` is the one identity CLAIM_SIGN is narrowed to.
+
+    The node checks membership and law 23; the *decision* checked only that the
+    value parsed as a UUID — and the decision is the path a person can actually
+    edit. A stranger's id here is a project whose claims can never be signed,
+    recorded as though sign-off were arranged.
+    """
+    run_id, people = await run_to_the_gates(admin, db, project_id, fake_openrouter)
+    approver = await as_client(people["approver"])
+    gate = await _gate(db, run_id, "G6")
+    owners = await owner_ids(admin, db)
+
+    refused = await approver.post(
+        f"/approvals/{gate.id}",
+        json={
+            "decision": "approve",
+            "edited_proposal": {
+                "owners": {
+                    "brand_owner_id": owners["brand"],
+                    "legal_owner_id": str(uuid.uuid4()),
+                    "performance_owner_id": owners["performance"],
+                },
+                "rationale": "someone who does not work here",
+                "reused": False,
+                "status": "proposed",
+            },
+        },
+    )
+
+    assert refused.status_code == 422, refused.text
+    rows = (
+        (await db.execute(sa.select(SignOffMatrix).where(SignOffMatrix.project_id == project_id)))
+        .scalars()
+        .all()
+    )
+    assert rows == [], "a refused edit wrote a sign-off matrix anyway"
+
+
+async def test_an_edited_g6_cannot_make_an_admin_the_legal_owner(
+    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, fake_openrouter: FakeOpenRouter
+) -> None:
+    """Law 23: CLAIM_SIGN is held by `approver` and not by `admin`."""
+    run_id, people = await run_to_the_gates(admin, db, project_id, fake_openrouter)
+    approver = await as_client(people["approver"])
+    gate = await _gate(db, run_id, "G6")
+    owners = await owner_ids(admin, db)
+
+    refused = await approver.post(
+        f"/approvals/{gate.id}",
+        json={
+            "decision": "approve",
+            "edited_proposal": {
+                "owners": {
+                    "brand_owner_id": owners["brand"],
+                    # `owners["brand"]` is the bootstrapped admin.
+                    "legal_owner_id": owners["brand"],
+                    "performance_owner_id": owners["performance"],
+                },
+                "rationale": "the boss signs everything",
+                "reused": False,
+                "status": "proposed",
+            },
+        },
+    )
+
+    assert refused.status_code == 422, refused.text
+    assert "approver" in refused.text
+
+
+async def test_an_edited_g6_claiming_reuse_still_writes_the_matrix(
+    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession, fake_openrouter: FakeOpenRouter
+) -> None:
+    """`reused` is decided by the database, not by the approver's JSON.
+
+    Trusting the payload let an approver answer G6 with `"reused": true` on a
+    project that had no matrix at all: the gate read as settled and no row was
+    written, leaving every later stage narrowing CLAIM_SIGN to nothing.
+    """
+    run_id, people = await run_to_the_gates(admin, db, project_id, fake_openrouter)
+    approver = await as_client(people["approver"])
+    gate = await _gate(db, run_id, "G6")
+    owners = await owner_ids(admin, db)
+
+    decided = await approver.post(
+        f"/approvals/{gate.id}",
+        json={
+            "decision": "approve",
+            "edited_proposal": {
+                "owners": {
+                    "brand_owner_id": owners["brand"],
+                    "legal_owner_id": owners["legal"],
+                    "performance_owner_id": owners["performance"],
+                },
+                "rationale": "x",
+                "reused": True,
+                "status": "reused",
+            },
+        },
+    )
+
+    assert decided.status_code == 200, decided.text
+    matrix = (
+        (
+            await db.execute(
+                sa.select(SignOffMatrix).where(
+                    SignOffMatrix.project_id == project_id,
+                    SignOffMatrix.superseded_at.is_(None),
+                )
+            )
+        )
+        .scalars()
+        .one()
+    )
+    assert str(matrix.legal_owner_id) == owners["legal"]

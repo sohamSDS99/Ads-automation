@@ -378,10 +378,16 @@ async def test_a_cold_guideline_run_is_executed_by_a_real_worker(
     from agent.orchestrator.dag import get_dag
     from agent.worker import WorkerSettings
     from tests.integration.conftest import REAL_REDIS_URL
-    from tests.integration.guideline_gates import cold_script, owner_ids, patch_gateway
+    from tests.integration.guideline_gates import (
+        block_network_pulls,
+        cold_script,
+        owner_ids,
+        patch_gateway,
+    )
 
     await _approver(admin)
     patch_gateway(monkeypatch, fake_openrouter)
+    block_network_pulls(monkeypatch)
     by_output_model(fake_openrouter, cold_script(await owner_ids(admin, db)))
 
     started = await admin.post(f"/projects/{project_id}/guidelines/runs", json={})

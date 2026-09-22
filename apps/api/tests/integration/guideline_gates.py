@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.connectors.brand_book import COLOUR, SPAN
 from agent.db.models import Evidence, EvidenceSource
+from agent.nodes.stage_1_1 import PAGE
 from tests.integration.conftest import ApiClient, build_client, make_member
 from tests.integration.runs_support import by_output_model, execute
 from tests.openrouter_fake import FakeOpenRouter
@@ -81,7 +82,13 @@ async def seed_corpus(db: AsyncSession, project_id: uuid.UUID) -> None:
         Evidence(
             project_id=project_id,
             source=EvidenceSource.WEB,
-            kind="site_pages",
+            # `page`, not `site_pages`. The kind has to be the one the node
+            # actually asks for, or the need misses — and `web_crawler` needs
+            # no credential, so a missed need does not quietly return nothing:
+            # it goes and crawls the real website from inside the test
+            # container. That is what hung the suite at 79% for fifteen
+            # minutes, with three sessions idle-in-transaction on ClientRead.
+            kind=PAGE,
             payload={"url": "https://sdsmanager.com/"},
             content_text=SITE_COPY,
             hash=uuid.uuid4().hex,
@@ -267,3 +274,25 @@ def cold_script(owners: dict[str, str]) -> dict[str, Any]:
     cold = script(owners)
     cold["VoiceDraft"] = {**cold["VoiceDraft"], "do_examples": [], "dont_examples": []}
     return cold
+
+
+def block_network_pulls(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stop a guideline run reaching the internet from inside the test container.
+
+    3.1.1 names `web_crawler` for its `page` need, and **`web_crawler` requires
+    no credential** — so unlike every other source, a missed need here does not
+    quietly skip. It goes and crawls the project's real domain, which the
+    `project` fixture sets to `sdsmanager.com`.
+
+    Tests that seed a `page` row never reach this path. The cold-start test
+    cannot seed one — a bare project is the whole point of it — so the pull is
+    blocked instead. Diagnosed the hard way: the suite sat at 79% for fifteen
+    minutes with three sessions idle-in-transaction on `ClientRead`, which is
+    what a blocked `await` on a socket looks like from the database's side.
+    """
+    from agent.nodes import gather as gather_module
+
+    async def skipped(ctx: Any, need: Any) -> gather_module.PullResult:
+        return gather_module.PullResult(wrote=False, skipped=True)
+
+    monkeypatch.setattr(gather_module, "_pull", skipped)

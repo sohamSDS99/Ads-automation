@@ -95,3 +95,34 @@ class TestPayload:
         once = redact_pii("Call 0800 123 4567 or email a@b.com")
 
         assert redact_pii(once) == once
+
+
+class TestPromptPayloads:
+    """`redact_payload` has to be *used*, or law 30 only covers half the input.
+
+    A node's output becomes the next node's prompt: 3.1.2 and 3.1.3 both read
+    3.1.1's payload. Redacting the evidence corpus but handing on a payload
+    unredacted would leave a gap exactly one hop wide.
+    """
+
+    async def test_an_upstream_payload_is_redacted_before_it_becomes_a_prompt(self) -> None:
+        from agent.nodes.content.stage_3_1 import lexicon_rules
+        from tests.guideline_support import harness
+
+        h = harness(
+            "3.1.2",
+            outputs={
+                "3.1.1": {
+                    "do_examples": [
+                        {"text": "Call 0800 123 4567 or email ops@sdsmanager.com", "why": "x"}
+                    ]
+                }
+            },
+            answers={"LexiconDraft": {"always": [], "never": [], "case_and_spelling": []}},
+        )
+
+        await lexicon_rules.reason(h.ctx, [])
+        prompt = h.llm.every_prompt()
+
+        assert "0800 123 4567" not in prompt
+        assert "ops@sdsmanager.com" not in prompt

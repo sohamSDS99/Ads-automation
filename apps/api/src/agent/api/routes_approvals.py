@@ -196,6 +196,12 @@ async def decide_approval(
     # keyed off `approval.gate_key`, in the decision's own transaction.
     matrix = None
     if approval.gate_key == SIGNOFF_GATE:
+        # Read off the instance *before* the rollback below. A rollback expires
+        # every loaded attribute, so touching `approval.node_id` afterwards is a
+        # lazy refresh — and a lazy load inside async SQLAlchemy is a
+        # `MissingGreenlet`, not a value. The 422 would become a 500 naming the
+        # ORM instead of the problem.
+        node_id = approval.node_id
         try:
             matrix = await signoff.apply_decision(
                 db, approval=approval, run=run, decided_by=me.user.id
@@ -203,7 +209,7 @@ async def decide_approval(
         except signoff.SignOffError as exc:
             await db.rollback()
             raise problems.unprocessable(
-                str(exc), title="Sign-off matrix cannot be recorded", node_id=approval.node_id
+                str(exc), title="Sign-off matrix cannot be recorded", node_id=node_id
             ) from exc
 
     write_audit(
