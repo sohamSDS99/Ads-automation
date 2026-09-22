@@ -24,8 +24,26 @@
         }
       ],
       "default": null,
-      "description": "Hard ceiling per run. Null falls back to the deployment default.",
+      "description": "Hard ceiling per research run. Null falls back to the deployment default.",
       "title": "Max Run Cost Usd"
+    },
+    "max_plan_cost_usd": {
+      "anyOf": [
+        {
+          "exclusiveMinimum": 0.0,
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Hard ceiling per campaign-plan run (Stage 02 \u00a717 PF4). Its own key on purpose: a plan is a different shape of job from a research run, and a workspace raising the research ceiling must not silently raise this one. Null falls back to the deployment default.",
+      "title": "Max Plan Cost Usd"
     }
   },
   "title": "WorkspaceSettings",

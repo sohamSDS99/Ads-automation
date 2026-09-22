@@ -92,9 +92,17 @@ else bad "a golden fixture produced a plan the critique refuses"
 fi
 
 step "3. The eval harness can fail (the negative controls)"
+# Two separate claims, and the first version of this step checked only the
+# second: it counted the controls into a variable it never read, so deleting
+# every one of them would still have printed PASS. It also ran the suite twice.
 if (cd "$API" && uv run pytest tests/eval -q >/tmp/s2p7-eval.txt 2>&1); then
-  controls=$(grep -c 'test_a_broken_plan_fails' /tmp/s2p7-eval.txt || true)
-  ok "$( (cd "$API" && uv run pytest tests/eval -q 2>&1 | tail -1) )"
+  controls=$( (cd "$API" && uv run pytest tests/eval -q --collect-only \
+      2>/dev/null | grep -c 'test_a_broken_plan_fails_the_assertion_aimed_at_it') || true)
+  if [ "${controls:-0}" -ge 10 ]; then
+    ok "$(tail -1 /tmp/s2p7-eval.txt), including $controls negative controls"
+  else
+    bad "only ${controls:-0} negative controls are collected; §11 has ten assertions"
+  fi
 else
   bad "the eval suite is red — see /tmp/s2p7-eval.txt"
 fi

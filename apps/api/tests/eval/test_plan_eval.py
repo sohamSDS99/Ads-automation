@@ -368,6 +368,29 @@ def _break_naming(outputs: dict[str, Any]) -> None:
     _first_campaign(outputs)["name"] = "whatever the model felt like"
 
 
+def _break_consent_basis(outputs: dict[str, Any]) -> None:
+    """An audience channel planned with no lawful basis recorded (§13)."""
+    outputs["2.5.2"]["consent"]["basis"] = []
+
+
+def _strip_audience(outputs: dict[str, Any]) -> None:
+    """Every audience surface removed, and the basis with it.
+
+    Not a negative control — a *positive* one. The first version of the §13
+    upload guard fired on `measurement_plan.upload.method`, which 2.5.2 always
+    fills in, so every search-only project's plan became permanently blocked.
+    All five fixtures happened to carry a usable audience list, so the eval
+    suite could not see it. This is the case that would have.
+    """
+    outputs["2.3.1"]["slate"] = [
+        entry for entry in outputs["2.3.1"]["slate"] if entry["campaign_type"] == "search"
+    ]
+    outputs["2.5.2"]["consent"]["basis"] = []
+    outputs["2.5.2"]["consent"]["markets_allowed"] = []
+    for test in outputs["2.5.3"]["tests"]:
+        assert test["variable"] != "audience"
+
+
 def _break_consent(outputs: dict[str, Any]) -> None:
     """An audience channel in a market gate 1.5.3 refused."""
     outputs["2.3.1"]["slate"].append(
@@ -400,6 +423,7 @@ CONTROLS: tuple[tuple[str, str, Mutation | None, dict[str, Any]], ...] = (
     # returned, and `assemble` takes the claims as an argument.
     ("7_traceability", "baseline_single_market", None, {"cite": False}),
     ("8_consent", "multi_market_consent_blocked", _break_consent, {}),
+    ("8_consent", "baseline_single_market", _break_consent_basis, {}),
     ("9_naming", "baseline_single_market", _break_naming, {}),
 )
 
@@ -432,6 +456,20 @@ def test_dropping_a_blocker_from_the_plan_fails_assertion_ten() -> None:
     plan = plan_dag.build(case.source).plan
     issues = critique.run_checks(plan, launch_blockers=other.source.launch_blockers)
     assert "10_launch_blockers" in blocking_checks(issues)
+
+
+def test_a_search_only_plan_needs_no_audience_basis() -> None:
+    """The positive control for §13's audience-basis guard.
+
+    A plan that plans no audience surface has no audience dependency, so it
+    needs no audience basis — and must come back clean. Without this, the guard
+    can be tightened until it blocks every search-only project and the suite
+    stays green.
+    """
+    case = BY_NAME["baseline_single_market"]
+    built = plan_dag.build(case.source, mutate=_strip_audience)
+    assert not built.plan.measurement_plan.consent_basis
+    assert checks(built.plan, case.source) == []
 
 
 def test_every_assertion_has_a_negative_control() -> None:

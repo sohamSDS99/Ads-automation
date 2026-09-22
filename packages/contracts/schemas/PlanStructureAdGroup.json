@@ -1,0 +1,156 @@
+{
+  "$defs": {
+    "PlanStructureKeyword": {
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Type"
+        },
+        "forecast_cpc_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Cpc Usd"
+        },
+        "search_volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Volume"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PlanStructureKeyword",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "theme": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Theme"
+    },
+    "landing_url": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Landing Url"
+    },
+    "primary_message": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Primary Message"
+    },
+    "market": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Market"
+    },
+    "coherence": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Coherence"
+    },
+    "negatives": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Negatives",
+      "type": "array"
+    },
+    "name_valid": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name Valid"
+    },
+    "keywords": {
+      "items": {
+        "$ref": "#/$defs/PlanStructureKeyword"
+      },
+      "title": "Keywords",
+      "type": "array"
+    },
+    "keyword_count": {
+      "default": 0,
+      "title": "Keyword Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "title": "PlanStructureAdGroup",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

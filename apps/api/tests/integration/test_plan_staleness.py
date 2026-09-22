@@ -289,6 +289,115 @@ async def test_plans_in_another_project_are_not_touched(
     assert await _flag(db, other_plan) is False
 
 
+async def test_a_plan_written_after_the_transition_still_lands_stale(
+    admin: ApiClient, db: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    """The gap a project-wide refresh cannot close on its own.
+
+    A plan row is written at the **end** of its run (2.6.1), and a run takes
+    minutes. Research accepted while one is in flight refreshes a project whose
+    plan row does not exist yet — so the row lands afterwards at the column's
+    `false` default and nothing recomputes it. The freeze reads the stored
+    value, so that plan could be sealed against superseded research, which is
+    exactly what §4.4 exists to prevent.
+
+    `CampaignPlanRepo.upsert` therefore derives the flag when the row appears.
+    """
+    from agent.db.repos import CampaignPlanRepo
+
+    first = await _accept(admin, seeded["run_id"])
+    newer_id = await _newer_research(db, seeded)
+    await _accept(admin, newer_id)  # the run is "in flight"; no plan row yet
+
+    plan_run = Run(
+        workspace_id=seeded["workspace_id"],
+        project_id=seeded["project_id"],
+        trigger=RunTrigger.MANUAL,
+        stage=RunStage.PLAN,
+        source_run_id=seeded["run_id"],
+        triggered_by=seeded["user_id"],
+    )
+    db.add(plan_run)
+    await db.flush()
+    plan_run_id = plan_run.id
+
+    written = await CampaignPlanRepo(db, seeded["workspace_id"]).upsert(
+        plan_run_id=plan_run_id,
+        project_id=seeded["project_id"],
+        acceptance_id=first,
+        schema_version="1.0",
+        payload={"envelope": 10_000},
+        markdown="# late",
+        status=CampaignPlanStatus.READY_TO_FREEZE,
+    )
+    plan_id = written.id
+    await db.commit()
+
+    assert await _flag(db, plan_id) is True, (
+        "a plan written after the transition claimed a current source"
+    )
+
+
+async def test_the_freeze_recomputes_the_flag_before_reading_it(
+    admin: ApiClient, db: AsyncSession, seeded: dict[str, Any]
+) -> None:
+    """The gate decides on a value it computed, not on one it hopes is current.
+
+    Belt to `upsert`'s braces: the row here is written *before* the transition
+    and its flag is then falsified by hand, which is the state any future path
+    that forgets to refresh would leave behind. The freeze must still refuse.
+    """
+    first = await _accept(admin, seeded["run_id"])
+    plan_run = Run(
+        workspace_id=seeded["workspace_id"],
+        project_id=seeded["project_id"],
+        trigger=RunTrigger.MANUAL,
+        stage=RunStage.PLAN,
+        source_run_id=seeded["run_id"],
+        triggered_by=seeded["user_id"],
+    )
+    db.add(plan_run)
+    await db.flush()
+    plan_run_id = plan_run.id
+    db.add(
+        CampaignPlan(
+            workspace_id=seeded["workspace_id"],
+            project_id=seeded["project_id"],
+            plan_run_id=plan_run_id,
+            acceptance_id=first,
+            schema_version="1.0",
+            version=0,
+            status=CampaignPlanStatus.READY_TO_FREEZE,
+            payload={"envelope": 10_000},
+            markdown="# draft",
+        )
+    )
+    await db.commit()
+
+    newer_id = await _newer_research(db, seeded)
+    await _accept(admin, newer_id)
+
+    # Falsify the stored flag, as a missed refresh would.
+    await db.execute(
+        sa.update(CampaignPlan)
+        .where(CampaignPlan.plan_run_id == plan_run_id)
+        .values(source_superseded=False)
+    )
+    await db.commit()
+
+    response = await admin.post(f"/plans/{plan_run_id}/freeze", json={"confirm_version": 1})
+    assert response.status_code == 409, response.text
+    codes = {item["code"] for item in response.json().get("blockers", [])}
+    assert "source_superseded" in codes
+
+    # ...and the correction was committed, not rolled back with the refusal.
+    db.expire_all()
+    row = (
+        await db.execute(sa.select(CampaignPlan).where(CampaignPlan.plan_run_id == plan_run_id))
+    ).scalar_one()
+    assert row.source_superseded is True
+
+
 # ---------------------------------------------------------------------------
 # the invariant
 # ---------------------------------------------------------------------------

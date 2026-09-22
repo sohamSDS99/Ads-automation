@@ -109,6 +109,19 @@
       "default": null,
       "title": "Edited Proposal"
     },
+    "recalc_state": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recalc State"
+    },
     "decision_note": {
       "anyOf": [
         {

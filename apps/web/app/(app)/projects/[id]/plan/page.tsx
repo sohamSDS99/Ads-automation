@@ -304,7 +304,9 @@ function HistoryBlock({
                     </span>
                     {plan.source_superseded ? (
                       <span className="ml-2 text-xs text-fg-subtle">
-                        newer research accepted since
+                        {plan.source_superseded_reason === "withdrawn"
+                          ? "its research was withdrawn"
+                          : "newer research accepted since"}
                       </span>
                     ) : null}
                   </Td>

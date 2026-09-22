@@ -34,7 +34,7 @@ import random
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -78,6 +78,7 @@ from agent.nodes.base import (
 )
 from agent.notify.email import send_approval_request
 from agent.orchestrator import approvals
+from agent.orchestrator.budget import resolve_cost_cap
 from agent.orchestrator.dag import Dag, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.heartbeat import RunHeartbeat
@@ -952,46 +953,21 @@ class RunExecutor:
             raise RunCancelled
 
     async def _budget_cap(self, project: Project, *, stage: RunStage) -> Decimal:
-        """Narrowest scope wins: project, then workspace, then the environment.
+        """The ceiling for this run. See `orchestrator.budget` for the rule.
 
-        The workspace layer is what `/settings` writes. Without it an admin can
-        set a workspace-wide ceiling and watch every project ignore it.
-
-        **And the ceiling is per stage.** §17 PF4 gives a plan run its own cap
-        — `max_plan_cost_usd`, default $8 against research's $15 — because a
-        plan is a different shape of job and "≤ $6 at default routing" is a
-        number somebody agreed to. Until S2-P7 that setting existed in
-        `config.py` and was read by nothing, so every plan run was billed
-        against the research ceiling and the cap §18 says stops a run
-        (`budget_cap_reached`) was almost twice what the PRD states.
-
-        A workspace-wide `max_run_cost_usd` deliberately does **not** bind a
-        plan run: the two keys are separate ceilings for separate jobs, and
-        silently raising a plan's cap to a research budget is the failure this
-        change exists to fix. Set `max_plan_cost_usd` to move the plan one.
+        The rule lives there and not here because the run console draws a meter
+        against the same number, and two implementations of "what may this run
+        spend" is how a plan run came to be killed at $8 behind a progress bar
+        that read half of $15.
         """
-        plan = stage is RunStage.PLAN
-        key = "max_plan_cost_usd" if plan else "max_run_cost_usd"
         workspace = await self.db.get(Workspace, project.workspace_id)
-        for scope, settings in (
-            ("project", project.settings),
-            ("workspace", workspace.settings if workspace else None),
-        ):
-            raw = (settings or {}).get(key)
-            if raw is None:
-                continue
-            try:
-                return Decimal(str(raw))
-            except (InvalidOperation, ValueError):
-                log.warning(
-                    "run.bad_budget_setting",
-                    scope=scope,
-                    key=key,
-                    project_id=str(project.id),
-                    value=raw,
-                )
-        default = self.settings.max_plan_cost_usd if plan else self.settings.max_run_cost_usd
-        return Decimal(default)
+        return resolve_cost_cap(
+            stage=stage,
+            project_settings=project.settings,
+            workspace_settings=workspace.settings if workspace else None,
+            defaults=self.settings,
+            project_id=str(project.id),
+        )
 
     async def _build_gateway(
         self, run: Run, project: Project

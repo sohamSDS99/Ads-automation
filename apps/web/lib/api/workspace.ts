@@ -14,6 +14,7 @@ export type WorkspaceSettings = {
   models: Record<string, string>;
   /** Null means the deployment default below applies. */
   max_run_cost_usd: string | null;
+  max_plan_cost_usd: string | null;
 };
 
 export type Workspace = {
@@ -24,6 +25,7 @@ export type Workspace = {
   /** SMTP is environment configuration, so this is reported, not edited. */
   smtp_configured: boolean;
   default_max_run_cost_usd: string;
+  default_max_plan_cost_usd: string;
 };
 
 export function getWorkspace(): Promise<Workspace> {
@@ -40,6 +42,7 @@ export function updateWorkspace(body: {
   name: string;
   models?: Record<string, string>;
   max_run_cost_usd?: string;
+  max_plan_cost_usd?: string;
 }): Promise<Workspace> {
   return apiFetch("/workspace", { method: "PATCH", body: JSON.stringify(body) });
 }

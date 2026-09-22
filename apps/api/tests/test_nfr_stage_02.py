@@ -39,6 +39,7 @@ from agent.config import Settings
 from agent.db.models import RunStage
 from agent.export.contract import Claim
 from agent.export.plan_contract import Number
+from agent.orchestrator.budget import resolve_cost_cap
 from agent.orchestrator.dag import get_dag
 
 # ---------------------------------------------------------------------------
@@ -251,24 +252,114 @@ def test_pf2_a_decided_gate_enqueues_the_run_in_the_same_request() -> None:
 
 
 def test_pf4_a_plan_run_is_capped_by_its_own_ceiling() -> None:
-    """The setting §17 names, and the code that reads it.
+    """The setting §17 names, and the code that reads it — **behaviourally**.
 
-    Both halves, because the first half passed for the whole of S2-P0 to S2-P6
-    while the second did not exist: `max_plan_cost_usd` was declared in
-    `config.py` and consulted nowhere, so a plan run was billed against
-    research's $15.
+    The first version of this test grepped `_budget_cap`'s source for the
+    strings `max_plan_cost_usd` and `RunStage.PLAN`. Inverting the branch — so
+    plan runs were billed at $15 and research runs at $8 — leaves every one of
+    those assertions passing, which makes it a test that cannot fail for the
+    regression it is named after. The rule now lives in a pure function, so it
+    can simply be called.
     """
-    import inspect
-
-    from agent.orchestrator import executor
-
     settings = Settings()
     assert settings.max_plan_cost_usd == Decimal("8.00")
     assert settings.max_plan_cost_usd < settings.max_run_cost_usd
 
-    source = inspect.getsource(executor.RunExecutor._budget_cap)
-    assert "max_plan_cost_usd" in source, "the plan ceiling is configured and never read"
-    assert "RunStage.PLAN" in source, "the ceiling does not depend on the stage"
+    plan = resolve_cost_cap(
+        stage=RunStage.PLAN,
+        project_settings=None,
+        workspace_settings=None,
+        defaults=settings,
+    )
+    research = resolve_cost_cap(
+        stage=RunStage.RESEARCH,
+        project_settings=None,
+        workspace_settings=None,
+        defaults=settings,
+    )
+    assert plan == settings.max_plan_cost_usd
+    assert research == settings.max_run_cost_usd
+    assert plan != research, "the two stages resolve to the same ceiling"
+
+
+def test_pf4_a_research_ceiling_does_not_raise_the_plan_one() -> None:
+    """The half that makes PF4 a *hard* cap.
+
+    A workspace that sets `max_run_cost_usd` to $50 must not thereby give every
+    plan run $50. The keys are separate, and this is the assertion that says so.
+    """
+    settings = Settings()
+    generous = {"max_run_cost_usd": "50.00"}
+    assert (
+        resolve_cost_cap(
+            stage=RunStage.PLAN,
+            project_settings=None,
+            workspace_settings=generous,
+            defaults=settings,
+        )
+        == settings.max_plan_cost_usd
+    )
+    assert resolve_cost_cap(
+        stage=RunStage.RESEARCH,
+        project_settings=None,
+        workspace_settings=generous,
+        defaults=settings,
+    ) == Decimal("50.00")
+
+
+def test_pf4_the_plan_ceiling_can_be_moved_and_the_narrowest_scope_wins() -> None:
+    """A cap nobody can change is a cap nobody can be held to.
+
+    `/workspace` writes `max_plan_cost_usd`, and a project may override it —
+    the same shape as the research ceiling, so an operator has one rule to
+    learn rather than two.
+    """
+    settings = Settings()
+    assert resolve_cost_cap(
+        stage=RunStage.PLAN,
+        project_settings=None,
+        workspace_settings={"max_plan_cost_usd": "12.00"},
+        defaults=settings,
+    ) == Decimal("12.00")
+    assert resolve_cost_cap(
+        stage=RunStage.PLAN,
+        project_settings={"max_plan_cost_usd": "3.00"},
+        workspace_settings={"max_plan_cost_usd": "12.00"},
+        defaults=settings,
+    ) == Decimal("3.00")
+
+
+def test_pf4_a_nonsense_setting_falls_back_rather_than_raising() -> None:
+    """A typed ceiling is a run that will not start. Fall back and warn."""
+    settings = Settings()
+    assert (
+        resolve_cost_cap(
+            stage=RunStage.PLAN,
+            project_settings={"max_plan_cost_usd": "eight dollars"},
+            workspace_settings=None,
+            defaults=settings,
+        )
+        == settings.max_plan_cost_usd
+    )
+
+
+def test_pf4_the_console_is_shown_the_ceiling_the_executor_will_enforce() -> None:
+    """One resolver, two readers.
+
+    The executor kills the run; the console draws a meter. While the frontend
+    derived its own number from `max_run_cost_usd`, a plan run died at $8
+    behind a bar reading half of $15. `RunResponse.cost_cap_usd` is what closed
+    that, and this asserts both halves still go through the same function.
+    """
+    import inspect
+
+    from agent.api import routes_runs
+    from agent.api.schemas_runs import RunResponse
+    from agent.orchestrator import executor
+
+    assert "cost_cap_usd" in RunResponse.model_fields
+    assert "resolve_cost_cap" in inspect.getsource(routes_runs._run_response)
+    assert "resolve_cost_cap" in inspect.getsource(executor.RunExecutor._budget_cap)
     assert "stage=run.stage" in inspect.getsource(executor.RunExecutor)
 
 

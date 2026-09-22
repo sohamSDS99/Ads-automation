@@ -1,0 +1,47 @@
+{
+  "description": "Node 2.6.2's verdict, as far as the freeze dialog needs it.\n\nRead from the 2.6.2 node run rather than from the payload: the payload is\nwritten by 2.6.1 and the critique runs after it, so the node output is the\nearliest and most authoritative place the verdict exists. `blocking` is what\n\u00a712.2 asserts on, and a plan with no critique recorded yet reports\n`verdict=None` \u2014 the freeze route refuses it on the row's status anyway.",
+  "properties": {
+    "verdict": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Verdict"
+    },
+    "blocking": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blocking",
+      "type": "array"
+    },
+    "advisory": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Advisory",
+      "type": "array"
+    },
+    "checked_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Checked At"
+    }
+  },
+  "title": "PlanCritique",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

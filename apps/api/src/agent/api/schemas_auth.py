@@ -377,7 +377,17 @@ class WorkspaceSettings(BaseModel):
     max_run_cost_usd: Decimal | None = Field(
         default=None,
         gt=0,
-        description="Hard ceiling per run. Null falls back to the deployment default.",
+        description="Hard ceiling per research run. Null falls back to the deployment default.",
+    )
+    max_plan_cost_usd: Decimal | None = Field(
+        default=None,
+        gt=0,
+        description=(
+            "Hard ceiling per campaign-plan run (Stage 02 §17 PF4). Its own key on "
+            "purpose: a plan is a different shape of job from a research run, and a "
+            "workspace raising the research ceiling must not silently raise this one. "
+            "Null falls back to the deployment default."
+        ),
     )
 
 
@@ -394,6 +404,8 @@ class WorkspaceResponse(BaseModel):
     smtp_configured: bool = False
     #: The ceiling used when neither the project nor the workspace sets one.
     default_max_run_cost_usd: Decimal
+    #: The same, for a campaign-plan run.
+    default_max_plan_cost_usd: Decimal
 
 
 class UpdateWorkspaceRequest(BaseModel):
@@ -403,6 +415,7 @@ class UpdateWorkspaceRequest(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     models: dict[str, str] | None = None
     max_run_cost_usd: Decimal | None = Field(default=None, gt=0)
+    max_plan_cost_usd: Decimal | None = Field(default=None, gt=0)
 
 
 # --- audit ------------------------------------------------------------------

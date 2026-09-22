@@ -43,6 +43,7 @@ DESKTOP = {"width": 1440, "height": 900}
 MOBILE = {"width": 390, "height": 844}
 
 BANNER = "The research behind this plan has been re-accepted"
+WITHDRAWN = "The research behind this plan has been withdrawn"
 OFFER = "Plan against the current research"
 
 failures: list[str] = []
@@ -431,8 +432,32 @@ def main() -> int:
         shoot(page, "s2p7-viewer")
         context.close()
 
-        # --- 7. the flag comes back down -------------------------------------
+        # --- 6b. withdrawn is not the same as replaced -----------------------
+        # Withdrawing leaves no current research at all, so "plan against the
+        # current research" is an offer nothing can honour. The first version
+        # of this banner made it anyway, on a project that had none.
         api.call(f"/runs/{ids['research_1']}/accept", method="DELETE")
+        api.call(f"/runs/{ids['research_0']}/accept", method="DELETE")
+        context = browser.new_context(viewport=DESKTOP)
+        page = context.new_page()
+        watch(page, errors)
+        sign_in(page, *ADMIN)
+        open_viewer(page, ids)
+        page.wait_for_selector(f"text={WITHDRAWN}", timeout=25_000)
+        check("a withdrawn acceptance says withdrawn", page.get_by_text(WITHDRAWN).is_visible())
+        check(
+            "...and does not claim newer research was accepted",
+            page.get_by_text(BANNER).count() == 0,
+        )
+        check(
+            "...and offers to accept research rather than to plan against none",
+            page.get_by_role("link", name="Accept research for this project").count() == 1
+            and page.get_by_role("link", name=OFFER).count() == 0,
+        )
+        shoot(page, "s2p7-withdrawn")
+        context.close()
+
+        # --- 7. the flag comes back down -------------------------------------
         restored = api.call(f"/runs/{ids['research_0']}/accept", {})
         check(
             "the original research re-accepts",

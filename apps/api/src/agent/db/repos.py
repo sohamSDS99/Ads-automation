@@ -35,6 +35,7 @@ from agent.db.models import (
     Membership,
     Project,
     Report,
+    ResearchAcceptance,
     Run,
     RunStage,
     RunStatus,
@@ -512,7 +513,16 @@ class CampaignPlanRepo(WorkspaceScopedRepo[CampaignPlan]):
         A **frozen** row is never rewritten. The database trigger would reject
         it anyway (law 17), and raising here names the reason rather than
         surfacing `restrict_violation` from three layers down.
+
+        `source_superseded` is computed here rather than defaulted (§4.4). A
+        plan run can take twenty minutes, and research can be re-accepted while
+        it runs — `planning.staleness` refreshes on that transition and finds
+        no row for a run that has not written one yet, so a plan landing after
+        it would otherwise claim a current source it does not have. The freeze
+        recomputes it too; this is what makes the *list* and the banner right
+        in the meantime.
         """
+        stale = await self._source_superseded(acceptance_id)
         existing = await self.for_run(plan_run_id)
         if existing is not None:
             if existing.status is CampaignPlanStatus.FROZEN:
@@ -524,6 +534,7 @@ class CampaignPlanRepo(WorkspaceScopedRepo[CampaignPlan]):
             existing.payload = payload
             existing.markdown = markdown
             existing.status = status
+            existing.source_superseded = stale
             await self.session.flush()
             return existing
 
@@ -537,10 +548,27 @@ class CampaignPlanRepo(WorkspaceScopedRepo[CampaignPlan]):
             status=status,
             payload=payload,
             markdown=markdown,
+            source_superseded=stale,
         )
         self.session.add(plan)
         await self.session.flush()
         return plan
+
+    async def _source_superseded(self, acceptance_id: uuid.UUID) -> bool:
+        """Whether the acceptance this plan is built from is still the current one.
+
+        One column off one row by primary key. `planning.staleness` owns the
+        rule; this is the same derivation applied at the only other moment it
+        matters, which is when the row first appears.
+        """
+        superseded_by = (
+            await self.session.execute(
+                sa.select(ResearchAcceptance.superseded_by).where(
+                    ResearchAcceptance.id == acceptance_id
+                )
+            )
+        ).scalar_one_or_none()
+        return superseded_by is not None
 
     async def next_version(self, project_id: uuid.UUID) -> int:
         """§12.2: `max(version) + 1` for the project.

@@ -107,7 +107,14 @@
             "plan_already_frozen",
             "missing_credential",
             "source_stale",
-            "missing_permission"
+            "missing_permission",
+            "plan_not_found",
+            "gate_not_opened",
+            "gate_not_approved",
+            "blocking_critique",
+            "plan_blocked",
+            "source_superseded",
+            "version_race"
           ],
           "title": "Code",
           "type": "string"

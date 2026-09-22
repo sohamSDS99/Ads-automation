@@ -532,22 +532,47 @@ def check_consent(plan: CampaignPlan) -> list[Issue]:
 
     # §13, "Customer Match / audience upload": planned only where the consent
     # gate records a lawful basis, and the plan states the basis **inline**.
-    # An upload with no basis anywhere on the plan is the reachable version of
-    # what the dead branch was reaching for.
-    method = str(plan.measurement_plan.upload.get("method") or "").strip()
-    if method and not [item for item in plan.measurement_plan.consent_basis if item.strip()]:
+    #
+    # **Gated on an audience surface, not on the upload.** The first version of
+    # this fired on `measurement_plan.upload.method`, which is 2.5.2's
+    # *offline conversion* upload — a GCLID-keyed conversion import, not
+    # Customer Match — and which is never empty because 2.5.2 falls back to
+    # `manual_csv`. Meanwhile `consent_basis` comes only from the audience
+    # lists at gate 1.5.3. A search-only project that declares no audience list
+    # therefore got a blocking issue on every plan, with a fix instruction no
+    # node could action: 2.6.1 re-synthesises once and the plan lands `blocked`
+    # for good. The five golden fixtures all happen to carry a usable list, so
+    # the eval suite could not see it.
+    #
+    # What §13's row is actually about is an audience *dependency*. So the
+    # check fires where one exists — an audience channel in the slate, or an
+    # audience test in the backlog — and nowhere else.
+    audience = sorted(
+        {
+            f"{entry.campaign_type} in {entry.market}"
+            for entry in plan.channel_slate.slate
+            if _is_audience_channel(entry.campaign_type)
+        }
+        | {
+            f"an audience test in {test.market} ({test.id})"
+            for test in plan.experiment_backlog
+            if test.variable == "audience"
+        }
+    )
+    stated = [item for item in plan.measurement_plan.consent_basis if item.strip()]
+    if audience and not stated:
         found.append(
             Issue(
                 severity="blocking",
                 section="measurement_plan.consent_basis",
                 finding=(
-                    f"The plan uploads customer data to the ad platform by {method} and "
-                    "records no lawful basis for doing so. §13 requires the basis on the "
-                    "plan itself, not by reference to a policy somewhere else."
+                    f"{len(audience)} part(s) of the plan depend on an audience list and no "
+                    f"lawful basis for one is recorded: {_names(audience)}. §13 requires the "
+                    "basis on the plan itself, not by reference to a policy somewhere else."
                 ),
                 fix=(
                     "Record the basis on the audience list at gate 1.5.3 and re-run 2.5.2, "
-                    "or drop the offline-conversion upload from the plan."
+                    "or drop the audience channels and tests from the plan."
                 ),
                 check="8_consent",
             )

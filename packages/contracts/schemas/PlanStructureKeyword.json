@@ -1,0 +1,50 @@
+{
+  "properties": {
+    "term": {
+      "title": "Term",
+      "type": "string"
+    },
+    "match_type": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Match Type"
+    },
+    "forecast_cpc_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Forecast Cpc Usd"
+    },
+    "search_volume": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Search Volume"
+    }
+  },
+  "required": [
+    "term"
+  ],
+  "title": "PlanStructureKeyword",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

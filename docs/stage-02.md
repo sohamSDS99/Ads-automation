@@ -75,9 +75,14 @@ holds it. `PlanInput` is assembled once at start, hashed into `Run.input_hash`,
 and passed read-only to every node: no plan node re-reads the `Report` row and
 none re-runs a research node.
 
-Cost is capped per run at **`max_plan_cost_usd`, default $8** — separate from
-research's `max_run_cost_usd`. Hitting it cancels the remaining nodes, persists
-the completed ones and marks the plan `blocked` with `budget_cap_reached`.
+Cost is capped per run at **`max_plan_cost_usd`, default $8** — a separate
+ceiling from research's `max_run_cost_usd`, and deliberately so: raising the
+research cap must not quietly raise what a plan may spend. Set it per workspace
+under **Settings → Workspace → Budget cap per campaign plan**, or per project in
+`Project.settings`; narrowest scope wins. The console's spend meter draws
+against `GET /runs/{id}`'s `cost_cap_usd`, which is the number the executor will
+actually enforce. Hitting it cancels the remaining nodes, persists the completed
+ones and marks the plan `blocked` with `budget_cap_reached`.
 
 ---
 
@@ -192,6 +197,20 @@ directions (`plan.source_superseded`, `plan.source_restored`).
 
 Withdrawing the only acceptance also marks its plans — there is no current
 acceptance, so the plan's source is not it.
+
+Three places recompute it, and all three are needed:
+
+| When | Why |
+|---|---|
+| An acceptance is made or withdrawn | The transition itself (`planning/staleness.refresh_for_project`) |
+| A plan row is written | A run takes minutes; research can be re-accepted while it runs, and the refresh above finds no row for a run that has not written one yet |
+| A freeze is attempted | The gate decides on a value it computed, never on a stored one nobody has checked |
+
+`source_superseded_reason` says what the project has **now**, not what happened:
+`replaced` means some other acceptance is current and there is research to plan
+against; `withdrawn` means nothing is current and there is not. The banner keys
+its offer off that, because "plan against the current research" is an offer only
+one of them can honour.
 
 ---
 

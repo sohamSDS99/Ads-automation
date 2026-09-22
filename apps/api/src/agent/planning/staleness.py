@@ -34,7 +34,9 @@ because "the flag was already right" is not an event.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import Any
 
 import sqlalchemy as sa
 import structlog
@@ -65,6 +67,7 @@ async def refresh_for_project(
     project_id: uuid.UUID,
     actor_id: uuid.UUID | None,
     ip: str | None = None,
+    meta: Mapping[str, Any] | None = None,
 ) -> list[StalenessChange]:
     """Recompute `source_superseded` for every plan in one project.
 
@@ -110,7 +113,11 @@ async def refresh_for_project(
             ),
             target_type=AuditTarget.CAMPAIGN_PLAN,
             target_id=change.plan_id,
+            # `me.audit_meta(...)` from the caller, so a superadmin acting
+            # inside another workspace is marked here too. A row that records
+            # *what* changed but not *whose* privilege did it is half a trail.
             meta={
+                **(meta or {}),
                 "project_id": str(project_id),
                 "plan_run_id": str(change.plan_run_id),
                 "version": change.version,
@@ -127,6 +134,68 @@ async def refresh_for_project(
             cleared=[str(row.plan_id) for row in changed if not row.source_superseded],
         )
     return changed
+
+
+async def refresh_for_plan(
+    session: AsyncSession,
+    *,
+    workspace_id: uuid.UUID,
+    plan: CampaignPlan,
+    actor_id: uuid.UUID | None,
+    ip: str | None = None,
+    meta: Mapping[str, Any] | None = None,
+) -> bool:
+    """Recompute one plan's flag, and return what it is now.
+
+    The project-wide refresh above only ever sees rows that **already exist**,
+    and a plan row is written at the *end* of a plan run (2.6.1). So a run that
+    was in flight when newer research was accepted inserts its plan afterwards,
+    with the flag at its `false` default, and nothing recomputes it until the
+    next acceptance transition — which may never come. The freeze reads the
+    stored column, so that plan could be sealed against research that had
+    already been superseded, which is the one thing §4.4 exists to prevent.
+
+    Hence this: the freeze calls it inside its own transaction, so the gate
+    decides on a value it computed rather than on one it hopes is current.
+    """
+    superseded_by = (
+        await session.execute(
+            sa.select(ResearchAcceptance.superseded_by).where(
+                ResearchAcceptance.id == plan.acceptance_id
+            )
+        )
+    ).scalar_one_or_none()
+    stale = superseded_by is not None
+    if plan.source_superseded == stale:
+        return stale
+
+    plan.source_superseded = stale
+    plan_id, plan_run_id, version = plan.id, plan.plan_run_id, plan.version
+    write_audit(
+        session,
+        workspace_id=workspace_id,
+        actor_id=actor_id,
+        action=(AuditAction.PLAN_SOURCE_SUPERSEDED if stale else AuditAction.PLAN_SOURCE_RESTORED),
+        target_type=AuditTarget.CAMPAIGN_PLAN,
+        target_id=plan_id,
+        meta={
+            **(meta or {}),
+            "project_id": str(plan.project_id),
+            "plan_run_id": str(plan_run_id),
+            "version": version,
+            "found_at": "freeze",
+        },
+        ip=ip,
+    )
+    await session.flush()
+    log.info(
+        "plan.staleness_refreshed",
+        project_id=str(plan.project_id),
+        plan_id=str(plan_id),
+        source_superseded=stale,
+        at="freeze",
+    )
+    return stale
 
 
 async def derived_flags(
