@@ -131,21 +131,36 @@ def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
         "2.1.4",
         "2.2.4",
         "2.3.1",
+        # Stage 03 law 28: "two gates and two person-tasks, no more" —
+        # G5 visual identity and G6 sign-off matrix. The two person-tasks
+        # (H1, H2) are not gates and arrive in S3-P3 and S3-P4.
+        "3.1.3",
+        "3.5.1",
     ]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
 
-def test_only_plan_gates_carry_a_gate_key() -> None:
-    """`Approval.gate_key` labels the four plan gates and nothing else.
+def test_only_labelled_gates_carry_a_gate_key() -> None:
+    """`Approval.gate_key` labels the four plan gates and Stage 03's two.
 
     Migration 0013 chose `R0` for everything written before it rather than
-    inventing R1..R3 for the research gates, and this is the assertion that
-    keeps the choice — a research gate that quietly acquired a key would
-    start writing a label nothing agreed on.
+    inventing R1..R3 for the *research* gates, and this is the assertion that
+    keeps the choice — a research gate that quietly acquired a key would start
+    writing a label nothing agreed on. That is still true; what changed is that
+    Stage 03 names its gates in the PRD (law 28), so G5 and G6 are labelled for
+    the same reason G1..G4 are: the settings screen and the approvals inbox talk
+    about "who confirms the brand look", not "who decides 3.1.3".
     """
     specs = discover().specs()
     keyed = {item.id: item.gate_key for item in specs if item.gate_key}
-    assert keyed == {"2.1.3": "G1", "2.1.4": "G2", "2.2.4": "G3", "2.3.1": "G4"}
+    assert keyed == {
+        "2.1.3": "G1",
+        "2.1.4": "G2",
+        "2.2.4": "G3",
+        "2.3.1": "G4",
+        "3.1.3": "G5",
+        "3.5.1": "G6",
+    }
     assert all(item.gate_key is None for item in specs if not item.gate)
 
 

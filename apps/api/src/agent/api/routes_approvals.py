@@ -54,6 +54,8 @@ from agent.db.models import (
 from agent.db.repos import ApprovalRepo, GateDecider, UserRepo
 from agent.db.session import get_session
 from agent.evidence.store import EvidenceStore
+from agent.guidelines import signoff
+from agent.nodes.content.stage_3_5 import SIGNOFF_GATE
 from agent.orchestrator import approvals as gates
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.registry import RegistryError, get_registry
@@ -186,6 +188,24 @@ async def decide_approval(
             status=exc.approval.status.value,
         ) from exc
 
+    # G6 is the one gate whose approval is itself a write. A gate node does not
+    # re-execute on approval, so the owners an approver just confirmed would
+    # exist only as a `NodeRun` output — and H1 in S3-P3 narrows CLAIM_SIGN to
+    # `signoff_matrix.legal_owner_id`, which would never be set. Same shape and
+    # same reason as `_assert_envelope_balanced` above: gate-key-specific,
+    # keyed off `approval.gate_key`, in the decision's own transaction.
+    matrix = None
+    if approval.gate_key == SIGNOFF_GATE:
+        try:
+            matrix = await signoff.apply_decision(
+                db, approval=approval, run=run, decided_by=me.user.id
+            )
+        except signoff.SignOffError as exc:
+            await db.rollback()
+            raise problems.unprocessable(
+                str(exc), title="Sign-off matrix cannot be recorded", node_id=approval.node_id
+            ) from exc
+
     write_audit(
         db,
         workspace_id=me.workspace_id,
@@ -197,6 +217,7 @@ async def decide_approval(
             "run_id": str(run.id),
             "node_id": approval.node_id,
             "decision": approval.status.value,
+            "signoff_matrix_id": str(matrix.id) if matrix is not None else None,
             "edited": body.edited_proposal is not None,
             "note": body.note,
         },

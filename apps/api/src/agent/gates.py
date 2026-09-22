@@ -62,6 +62,20 @@ _COPY: dict[str, tuple[str, str, str]] = {
         "Data officer",
         "Which audience lists may be used in which markets, and on what consent basis.",
     ),
+    "3.5.1": (
+        "Sign-off matrix",
+        "Brand, legal and performance leads",
+        "Who owns brand, legal and performance sign-off for this rulebook. The legal "
+        "owner is the only person who can sign a claim, and naming them is what lets "
+        "the rest of the stage route at all.",
+    ),
+    "3.1.3": (
+        "Visual identity",
+        "Brand owner",
+        "How the logo may be used, which colours are the brand's own, and what its "
+        "imagery may show. Read the confidence note first: when the brand book could "
+        "not be parsed these rules were inferred from live creative.",
+    ),
 }
 
 
