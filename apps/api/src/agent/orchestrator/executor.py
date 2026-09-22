@@ -52,6 +52,7 @@ from agent.db.models import (
     Base,
     CredentialKind,
     Evidence,
+    HumanTaskBlocking,
     NodeRun,
     NodeRunStatus,
     Project,
@@ -62,6 +63,7 @@ from agent.db.models import (
 )
 from agent.db.session import get_sessionmaker
 from agent.evidence.store import EvidenceStore
+from agent.guidelines import tasks as human_tasks
 from agent.llm.gateway import LLMAuthError, LLMGateway, build_gateway
 from agent.llm.ledger import BudgetExceeded, RunLedger
 from agent.llm.router import ModelRouter
@@ -351,6 +353,13 @@ class RunExecutor:
                     if await approvals.park(self.db, run):
                         status = RunStatus.AWAITING_APPROVAL
                         break
+                    if await human_tasks.park(self.db, run):
+                        # Checked after gates and kept separate: a run can hold
+                        # both, and parking as `awaiting_approval` when what is
+                        # actually outstanding is a named person's signature
+                        # would send the wrong people the wrong reminder.
+                        status = RunStatus.AWAITING_HUMAN_TASK
+                        break
                     # Every gate that halted this pass was decided while the
                     # other branches were still running. Go round again and
                     # execute what those decisions unblocked.
@@ -377,7 +386,7 @@ class RunExecutor:
             if client is not None and self._http_client is None:
                 await client.aclose()
 
-        if status is RunStatus.AWAITING_APPROVAL:
+        if status in (RunStatus.AWAITING_APPROVAL, RunStatus.AWAITING_HUMAN_TASK):
             # Nothing is skipped and nothing is finished: the run is paused.
             # `park()` already committed the status inside the row lock that
             # orders it against a concurrent decision.
@@ -782,6 +791,17 @@ class RunExecutor:
                 )
 
         telemetry = ctx.telemetry
+        if spec.human_task_key:
+            await self._open_human_task(
+                node_run=node_run,
+                spec=spec,
+                scope=scope,
+                payload=payload,
+                gathered=sorted(gathered),
+                input_hash=input_hash,
+                telemetry=telemetry,
+                events=events,
+            )
         if gate_wanted(node, ctx, result):
             await self._open_gate(
                 node_run=node_run,
@@ -830,6 +850,91 @@ class RunExecutor:
             repairs=telemetry.repairs,
         )
         return payload
+
+    async def _open_human_task(
+        self,
+        *,
+        node_run: NodeRun,
+        spec: NodeSpec,
+        scope: NodeScope,
+        payload: dict[str, Any],
+        gathered: list[uuid.UUID],
+        input_hash: str,
+        telemetry: NodeTelemetry,
+        events: RunEventStream,
+    ) -> None:
+        """Checkpoint a person-task's brief, create the task, and stop this branch.
+
+        The twin of `_open_gate`, and separate for the reason PRD §8.4 gives: an
+        approval routes to a role and a person-task routes to one identity. The
+        `NodeRun` and the `HumanTask` commit together, so there is no window in
+        which a brief exists with nobody asked, or a task exists with no brief
+        behind it.
+
+        Only this branch stops. Everything in 3.1, 3.3 and 3.4 keeps running, so
+        a slow signer never blocks spec-sheet production.
+        """
+        assignee = payload.get("assignee_id")
+        if not assignee:
+            raise NodeContractError(
+                f"person-task node {spec.id} produced no assignee_id. A task with no "
+                "named person is a task that falls back to a role, which is exactly "
+                "what a non-delegable act must never do."
+            )
+
+        node_run.status = NodeRunStatus.AWAITING_HUMAN_TASK
+        node_run.output = payload
+        node_run.evidence_ids = gathered
+        node_run.model = telemetry.model
+        node_run.prompt = telemetry.prompt
+        node_run.input_hash = input_hash
+        node_run.token_in = telemetry.token_in
+        node_run.token_out = telemetry.token_out
+        node_run.cost_usd = telemetry.cost_usd
+        node_run.finished_at = utcnow()
+
+        task = await human_tasks.open_task(
+            scope.db,
+            run=scope.run,
+            project_id=scope.project.id,
+            node_id=spec.id,
+            task_key=spec.human_task_key or "",
+            assignee_id=uuid.UUID(str(assignee)),
+            title=str(payload.get("title") or spec.name),
+            instructions=str(payload.get("instructions") or ""),
+            required_artifacts=dict(payload.get("required_artifacts") or {}),
+            blocking_for=HumanTaskBlocking(
+                str(payload.get("blocking_for") or HumanTaskBlocking.PUBLISH.value)
+            ),
+        )
+        write_audit(
+            scope.db,
+            workspace_id=scope.run.workspace_id,
+            action=AuditAction.HUMAN_TASK_OPENED,
+            target_type=AuditTarget.HUMAN_TASK,
+            target_id=task.id,
+            meta={
+                "run_id": str(scope.run.id),
+                "node_id": spec.id,
+                "task_key": task.task_key,
+                "assignee_id": str(task.assignee_id),
+                "blocking_for": task.blocking_for.value,
+            },
+        )
+        await scope.db.commit()
+
+        await events.publish(
+            EventType.HUMAN_TASK_REQUIRED,
+            node_id=spec.id,
+            task_id=str(task.id),
+            task_key=task.task_key,
+            assignee_id=str(task.assignee_id),
+            blocking_for=task.blocking_for.value,
+            name=spec.name,
+            stage=spec.stage,
+        )
+        self._executed += 1
+        raise NodeHalted(spec.id, task.id)
 
     async def _open_gate(
         self,

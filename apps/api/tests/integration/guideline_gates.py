@@ -160,6 +160,45 @@ def script(owners: dict[str, str]) -> dict[str, Any]:
             ],
             "case_and_spelling": [{"canonical": "SDS Manager", "variants": ["sds manager"]}],
         },
+        "ClaimHarvestDraft": {
+            "candidates": [
+                {
+                    "claim_text": "Find any safety data sheet in seconds",
+                    "surface_forms": ["find any safety data sheet in seconds"],
+                    "claim_type": "quantified",
+                    "observed_on": [{"surface": "rsa_headline", "url_or_ad_id": "1"}],
+                    "market_scope": ["DE"],
+                    "languages": ["en"],
+                }
+            ],
+            "detector_recall_note": "two ads and one page read",
+        },
+        # No evidence ids: a static script cannot know the ids the fixture rows
+        # were given, and a citation that does not resolve fails the node by
+        # design. The claim therefore lands `unsupported`, which is the honest
+        # outcome and still opens H1.
+        "ClaimSubstantiationDraft": {
+            "claims": [
+                {
+                    "claim_index": 0,
+                    "status": "unsupported",
+                    "risk_tier": "high",
+                    "expiry_basis": "quantified",
+                    "substantiation": {"method": "none on file"},
+                    "evidence_ids": [],
+                    "gaps": ["no benchmark document"],
+                }
+            ]
+        },
+        "OfferRulesDraft": {
+            "rules": [
+                {
+                    "construction": "from_price",
+                    "requirement": "A 'from' price must equal the lowest live price.",
+                    "severity": "blocking",
+                }
+            ]
+        },
         "VisualDraft": {
             "logo": {
                 "clear_space_ratio": 1.0,
@@ -273,6 +312,15 @@ def cold_script(owners: dict[str, str]) -> dict[str, Any]:
     """
     cold = script(owners)
     cold["VoiceDraft"] = {**cold["VoiceDraft"], "do_examples": [], "dont_examples": []}
+    # Same honesty, one stage along: 3.2.1 harvests claims out of published
+    # copy, and a bare project has published none. A candidate here would name
+    # an ad that does not exist, and the node rejects exactly that — so the
+    # cold answer is an empty harvest, which is the true one.
+    cold["ClaimHarvestDraft"] = {
+        "candidates": [],
+        "detector_recall_note": "no published copy to read",
+    }
+    cold["ClaimSubstantiationDraft"] = {"claims": []}
     return cold
 
 

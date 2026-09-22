@@ -102,6 +102,15 @@ class NodeSpec(BaseModel):
     #: what routes the card to `Project.settings.plan_approvers[gate_key]` and
     #: what the four-gate freeze in S2-P5 counts.
     gate_key: str | None = None
+    #: 'H1' | 'H2'. A node that halts for exactly one named person rather than
+    #: for any holder of a role (Stage 03 PRD §8.1 item 2, §8.4). Mutually
+    #: exclusive with `gate_key`: an approval and a person-task are different
+    #: primitives, and the difference is the whole of law 23.
+    human_task_key: str | None = None
+    #: The `GuidelineInput` fields this node reads *when they are bound*. Every
+    #: one of them can be None on a standalone run, and the unbound golden
+    #: fixture exercises exactly that (PRD §4.3, §8.1 item 2).
+    optional_inputs: tuple[str, ...] = ()
     version: int = Field(
         default=1,
         description=(
@@ -152,6 +161,30 @@ class NodeSpec(BaseModel):
         if self.gate_key and not self.gate:
             raise ValueError(
                 f"node {self.id} declares gate_key {self.gate_key!r} but is not a gate"
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _not_both_gate_and_person_task(self) -> NodeSpec:
+        """A node is an approval or a person-task, never both (PRD §8.1 item 2).
+
+        The two resume differently and on purpose. An approval may be confirmed
+        by any holder of `required_role`, and an admin holds every role. A
+        person-task is assigned to one named identity with no role fallback and
+        no admin override — that is law 23, and for H1 it is what makes the
+        signature a signature.
+
+        A node declaring both would carry two resumption paths, and the
+        role-based one is precisely the one an admin could walk through. The
+        contradiction is refused at import rather than discovered the first time
+        somebody signs something they should not have been able to.
+        """
+        if self.human_task_key and (self.gate or self.gate_key):
+            raise ValueError(
+                f"node {self.id} declares both a gate and a person-task "
+                f"(gate_key={self.gate_key!r}, human_task_key={self.human_task_key!r}). "
+                "An approval routes to a role; a person-task routes to one named "
+                "person with no admin fallback. A node cannot be both."
             )
         return self
 
