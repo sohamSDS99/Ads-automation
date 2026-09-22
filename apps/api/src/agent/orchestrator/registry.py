@@ -46,6 +46,7 @@ class NodeRegistry:
         for node in nodes:
             spec = node.spec
             _validate(spec, owner=type(node).__module__)
+            _validate_conditional_gate(node)
             if spec.id in collected:
                 raise RegistryError(
                     f"node id {spec.id!r} is declared twice: "
@@ -90,6 +91,31 @@ class NodeRegistry:
                 for node_id, node in self._nodes.items()
                 if node.spec.run_stage is run_stage
             }
+        )
+
+
+def _validate_conditional_gate(node: Node) -> None:
+    """Both halves of a conditional gate, or neither (PRD §11, 3.5.1).
+
+    Each half is silent on its own, and silent in opposite directions. A spec
+    that declares `gate_conditional` without a `gate_required()` opens its gate
+    every single time, so the flag reads as implemented and does nothing. A node
+    that implements `gate_required()` without declaring the flag has written a
+    method the executor never calls — the same "I wrote it and it did not run"
+    failure this registry exists to break.
+    """
+    spec = node.spec
+    owner = f"{type(node).__module__}.{type(node).__name__}"
+    decides = callable(getattr(node, "gate_required", None))
+    if spec.gate_conditional and not decides:
+        raise RegistryError(
+            f"{owner}: node {spec.id!r} declares gate_conditional but has no gate_required(), "
+            "so its gate would open on every run and the flag would be a lie."
+        )
+    if decides and not spec.gate_conditional:
+        raise RegistryError(
+            f"{owner}: node {spec.id!r} implements gate_required() but does not declare "
+            "gate_conditional, so the executor would never consult it."
         )
 
 

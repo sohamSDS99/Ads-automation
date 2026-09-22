@@ -101,6 +101,7 @@ __all__ = [
     "NodeHalted",
     "RunCancelled",
     "RunExecutor",
+    "gate_wanted",
 ]
 
 #: Independent nodes inside one wave (PRD §7.2 item 2).
@@ -120,6 +121,35 @@ MAX_GATE_PASSES = 20
 
 class RunCancelled(RuntimeError):
     """The cancel flag was set (PRD §7.2 item 6)."""
+
+
+def gate_wanted(node: Node, ctx: RunContext, output: BaseModel) -> bool:
+    """Does this node have a question for a human on *this* run?
+
+    Every gate before Stage 03 answered "yes, always", and the executor asked
+    `spec.gate` directly. 3.5.1 is the first that can legitimately have nothing
+    to ask: when a current `SignOffMatrix` already names the three owners, the
+    answer is on file and halting would mean asking somebody to re-approve
+    their own unchanged decision (PRD §11).
+
+    A free function, and it takes the node rather than living on it, so the
+    decision can be tested without a database, a Redis, a worker and a model —
+    the integration suite proves it is wired in, and the unit suite proves it
+    decides correctly.
+
+    The node is handed its validated **output model**, not the JSON payload:
+    it answers from what it just produced, with its own types, rather than
+    re-reading the world and possibly disagreeing with the row it is about to
+    checkpoint.
+    """
+    spec = node.spec
+    if not spec.gate:
+        return False
+    if not spec.gate_conditional:
+        return True
+    # `gate_conditional` without `gate_required()` is refused by the registry at
+    # import time, so this attribute is present by the time a run reaches here.
+    return bool(node.gate_required(ctx, output))  # type: ignore[attr-defined]
 
 
 class NodeHalted(RuntimeError):
@@ -752,7 +782,7 @@ class RunExecutor:
                 )
 
         telemetry = ctx.telemetry
-        if spec.gate:
+        if gate_wanted(node, ctx, result):
             await self._open_gate(
                 node_run=node_run,
                 spec=spec,
