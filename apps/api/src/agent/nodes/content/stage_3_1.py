@@ -31,7 +31,7 @@ from agent.db.models import ApprovalRequiredRole, Evidence, RunStage
 from agent.evidence.redact import redact_pii
 from agent.guardrails.registry import kind_for
 from agent.llm.router import TaskClass
-from agent.nodes import prompts
+from agent.nodes import gather, prompts
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
 from agent.schemas.guardrails import Matcher, TermSetMatcher
 
@@ -122,9 +122,28 @@ class VoiceProfileNode:
         connectors=("google_ads", "web_crawler", "brand_book"),
     )
 
+    def needs(self, domain: str | None = None) -> tuple[gather.Need, ...]:
+        """Every source optional, and that is the design (law 21, §10.3).
+
+        A project with no connected ad account and no parseable brand book is
+        the *first-class* path for this stage, not a degraded one. Marking any
+        of these required would put a `creative_history: unavailable` coverage
+        note on a rulebook that is perfectly well evidenced from site copy.
+        """
+        return (
+            gather.Need("creative_history", connector="google_ads", optional=True),
+            gather.Need(
+                "site_pages",
+                connector="web_crawler",
+                params={"domain": domain},
+                optional=True,
+            ),
+            gather.Need("brand_book_span", connector="brand_book", optional=True),
+        )
+
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        """Evidence is pulled by the executor's connectors; nothing extra here."""
-        return []
+        found = await gather.collect(ctx, *self.needs(ctx.project.domain))
+        return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         corpus = [row for row in ev if row.kind in VOICE_KINDS]
@@ -257,8 +276,15 @@ class LexiconRulesNode:
         connectors=("brand_book", "google_ads"),
     )
 
+    def needs(self) -> tuple[gather.Need, ...]:
+        return (
+            gather.Need("brand_book_span", connector="brand_book", optional=True),
+            gather.Need("creative_history", connector="google_ads", optional=True),
+        )
+
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        return []
+        found = await gather.collect(ctx, *self.needs())
+        return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         voice = ctx.outputs.get("3.1.1") or {}
@@ -448,8 +474,38 @@ class VisualIdentityNode:
         connectors=("brand_book",),
     )
 
+    def needs(self) -> tuple[gather.Need, ...]:
+        """Three kinds from one connector, so three separate pull keys.
+
+        `brand_book` writes spans, assets and colours from one parse. Without
+        distinct `pull_key`s the once-per-run guard would let the first need
+        pull and silently skip the other two — the same trap `keyword_metrics`
+        documents in `gather.Need`.
+        """
+        return (
+            gather.Need(
+                "brand_book_span",
+                connector="brand_book",
+                optional=True,
+                pull_key="brand_book:parse",
+            ),
+            gather.Need(
+                "brand_book_asset",
+                connector="brand_book",
+                optional=True,
+                pull_key="brand_book:parse",
+            ),
+            gather.Need(
+                "brand_book_colour",
+                connector="brand_book",
+                optional=True,
+                pull_key="brand_book:parse",
+            ),
+        )
+
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        return []
+        found = await gather.collect(ctx, *self.needs())
+        return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         spans = [row for row in ev if row.kind == "brand_book_span"]

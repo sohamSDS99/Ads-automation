@@ -23,6 +23,7 @@ from agent.db.models import (
     ContentGuideline,
     GuidelineMode,
     GuidelineStatus,
+    NodeRunStatus,
     PolicyAmendment,
     Run,
     RunStage,
@@ -30,6 +31,7 @@ from agent.db.models import (
     RunTrigger,
 )
 from tests.integration.conftest import ApiClient, make_member
+from tests.integration.runs_support import by_output_model
 
 pytestmark = pytest.mark.asyncio
 
@@ -345,8 +347,12 @@ async def test_a_project_from_another_workspace_is_not_found(admin: ApiClient) -
 # ---------------------------------------------------------------------------
 
 
-async def test_a_cold_guideline_run_is_executed_to_completion_by_a_real_worker(
-    admin: ApiClient, project_id: uuid.UUID, db: AsyncSession
+async def test_a_cold_guideline_run_is_executed_by_a_real_worker(
+    admin: ApiClient,
+    project_id: uuid.UUID,
+    db: AsyncSession,
+    fake_openrouter: Any,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The acceptance §23 actually asks for: not accepted, *executed*.
 
@@ -355,19 +361,29 @@ async def test_a_cold_guideline_run_is_executed_to_completion_by_a_real_worker(
     executed against the research DAG, or against no DAG at all because
     `RunStage.GUIDELINE` has no registered node.
 
-    Unlike the plan equivalent this run **succeeds**, and that is the point of
-    the two placeholder nodes reaching no model: a cold-start smoke test that
-    needed a live OpenRouter key would not be a cold-start test.
+    **What S3-P2 changed.** This used to assert the run *succeeded*, because the
+    two placeholder nodes reached no model and a cold-start smoke test that
+    needed a live OpenRouter key would not be a cold-start test. The real DAG
+    does reach a model, and it halts on G6 — which is S3-P2's own exit criterion
+    and the correct behaviour on a project whose sign-off matrix nobody has set
+    yet. So the provider is scripted (`guideline_gates.patch_gateway`) and the
+    terminal state asserted here is the halt, not completion.
+
+    What the test is *for* has not moved: the queue hop, and the guideline DAG
+    rather than one of the other two.
     """
     from arq.connections import RedisSettings
     from arq.worker import Worker
 
-    from agent.db.models import NodeRunStatus
     from agent.orchestrator.dag import get_dag
     from agent.worker import WorkerSettings
     from tests.integration.conftest import REAL_REDIS_URL
+    from tests.integration.guideline_gates import cold_script, owner_ids, patch_gateway
 
     await _approver(admin)
+    patch_gateway(monkeypatch, fake_openrouter)
+    by_output_model(fake_openrouter, cold_script(await owner_ids(admin, db)))
+
     started = await admin.post(f"/projects/{project_id}/guidelines/runs", json={})
     assert started.status_code == 202, started.text
     run_id = started.json()["run_id"]
@@ -396,15 +412,25 @@ async def test_a_cold_guideline_run_is_executed_to_completion_by_a_real_worker(
     assert sorted(shown) == sorted(get_dag(RunStage.GUIDELINE).node_ids)
     assert not set(shown) & set(get_dag(RunStage.RESEARCH).node_ids)
     assert not set(shown) & set(get_dag(RunStage.PLAN).node_ids)
-    assert state["status"] == RunStatus.SUCCEEDED.value, state
+    # Halted, not failed and not finished: G6 is a DAG root and no sign-off
+    # matrix exists on a cold project, so the first thing a bare run does is
+    # ask who signs (law 28).
+    assert state["status"] == RunStatus.AWAITING_APPROVAL.value, state
 
-    terminal = (await admin.get(f"/runs/{run_id}/nodes/3.0.2")).json()
-    assert terminal["status"] == NodeRunStatus.SUCCEEDED
-    assert terminal["model"] is None, "a cold smoke run must reach no model and spend nothing"
-    assert terminal["output"]["mode"] == "standalone"
-    assert sorted(terminal["output"]["unbound_inputs"]) == ["plan", "research"]
+    root = (await admin.get(f"/runs/{run_id}/nodes/3.5.1")).json()
+    assert root["status"] == NodeRunStatus.AWAITING_APPROVAL
+    assert root["output"]["status"] == "proposed"
+    assert root["output"]["reused"] is False
 
-    # And the lock came back, so the project can be run again.
+    # And the lock came back, so the project is eligible again.
+    #
+    # Measured rather than assumed, and worth stating plainly: C-E2 is driven
+    # by the Redis `RunLock`, and the executor *releases* it when a run parks on
+    # a gate — "a run can sit on a gate for days". So a run awaiting approval
+    # does not count as in flight, and a second guideline run can be started
+    # beside it. That is Stage 02's behaviour too and predates this phase; it is
+    # recorded here because the obvious reading of "one guideline run per
+    # project" is that it would block, and it does not.
     again = (await admin.get(f"/projects/{project_id}/guidelines/eligibility")).json()
     assert again["eligible"] is True
     assert "guideline_in_flight" not in _codes(again["blockers"])

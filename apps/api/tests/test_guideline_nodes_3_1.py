@@ -396,3 +396,63 @@ class TestVisualIdentity:
         from agent.nodes.content.stage_3_1 import visual_identity_rules
 
         assert set(visual_identity_rules.spec.depends_on) == {"3.5.1", "3.1.1"}
+
+
+class TestGathering:
+    """What each node asks the evidence store for, and what it tolerates missing.
+
+    Every Stage 03 source is optional by construction (law 21, §10.2 Q2, §10.3):
+    a project with no Google Ads account and no parseable brand book is a
+    first-class path, not a degraded one, so none of these needs may report a
+    gap that would put "insufficient evidence" on a rulebook that has plenty.
+    """
+
+    async def test_gathering_nothing_at_all_is_not_an_error(self) -> None:
+        """Law 21's cold start, at the gather layer.
+
+        A bare project has no stored evidence and no connected source, so every
+        need misses and every pull declines for want of a credential. That has
+        to come back as an empty corpus rather than an exception — 3.1.1 still
+        has to run and say what it could not see.
+        """
+        h = harness("3.1.1", queries=[[], [], [], [], [], [], [], []])
+
+        rows = await voice_profile.gather(h.ctx)
+
+        assert rows == []
+
+    async def test_every_source_the_voice_profile_reads_is_optional(self) -> None:
+        """§10.3: no connected account means site copy alone, and the run continues."""
+        needs = voice_profile.needs()
+
+        assert [need.kind for need in needs] == [
+            "creative_history",
+            "site_pages",
+            "brand_book_span",
+        ]
+        assert all(need.optional for need in needs)
+
+    async def test_the_lexicon_reads_the_brand_book_and_the_ads(self) -> None:
+        needs = lexicon_rules.needs()
+
+        assert [need.kind for need in needs] == ["brand_book_span", "creative_history"]
+        assert all(need.optional for need in needs)
+
+    async def test_visual_identity_reads_spans_assets_and_colours(self) -> None:
+        from agent.nodes.content.stage_3_1 import visual_identity_rules
+
+        needs = visual_identity_rules.needs()
+
+        assert [need.kind for need in needs] == [
+            "brand_book_span",
+            "brand_book_asset",
+            "brand_book_colour",
+        ]
+        assert all(need.optional for need in needs)
+
+    async def test_the_brand_book_is_pulled_through_its_own_connector(self) -> None:
+        from agent.nodes.content.stage_3_1 import visual_identity_rules
+
+        needs = visual_identity_rules.needs()
+
+        assert {need.connector for need in needs} == {"brand_book"}
