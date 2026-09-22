@@ -54,11 +54,12 @@ CONNECTOR_NAMES: tuple[str, ...] = (
     "dataforseo",
     "web_crawler",
     "csv_ingest",
+    "brand_book",
 )
 
 #: Which connectors need a stored secret, and under which `CredentialKind`.
-#: `transparency` and `web_crawler` read public pages; `csv_ingest` reads an
-#: upload. Those three are deliberately absent.
+#: `transparency` and `web_crawler` read public pages; `csv_ingest` and
+#: `brand_book` read an upload. Those four are deliberately absent.
 _CREDENTIAL_KIND: dict[str, str] = {
     "google_ads": "google_ads",
     "dataforseo": "dataforseo",
@@ -70,6 +71,8 @@ _SOURCES: dict[str, EvidenceSource] = {
     "dataforseo": EvidenceSource.DATAFORSEO,
     "web_crawler": EvidenceSource.WEB,
     "csv_ingest": EvidenceSource.CSV,
+    # PRD §10.2 names `source='web'` for a brand-book span explicitly.
+    "brand_book": EvidenceSource.WEB,
 }
 
 
@@ -107,6 +110,10 @@ def connector_class(name: str) -> type[BaseConnector]:
         from agent.connectors.csv_ingest import CsvIngestConnector
 
         return CsvIngestConnector
+    if name == "brand_book":
+        from agent.connectors.brand_book import BrandBookConnector
+
+        return BrandBookConnector
     raise ConnectorError(f"unknown connector: {name!r}")
 
 
