@@ -1,0 +1,23 @@
+{
+  "description": "What the tree adds up to, for a reader who will never scroll all of it.\n\nCounted once, on the server, from the same flattener the diff uses. Counting\nin the frontend would mean the freeze dialog's \"4,000 keywords\" came from\nwhichever page of the structure happened to be loaded.",
+  "properties": {
+    "campaigns": {
+      "default": 0,
+      "title": "Campaigns",
+      "type": "integer"
+    },
+    "ad_groups": {
+      "default": 0,
+      "title": "Ad Groups",
+      "type": "integer"
+    },
+    "keywords": {
+      "default": 0,
+      "title": "Keywords",
+      "type": "integer"
+    }
+  },
+  "title": "PlanStructureTotals",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

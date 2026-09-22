@@ -1,0 +1,156 @@
+{
+  "name": "multi_market_consent_blocked",
+  "why": "Gate 1.5.3 refused Germany, so PC1 says no audience channel, no audience test and no offline upload may name DE \u2014 while DE still gets a search campaign, because consent governs audience lists and not keywords. The distinction a hand-written fixture blurs.",
+  "plan_input": {
+    "schema_version": "1.0",
+    "project_id": "0eaa9000-0000-4000-8000-000000000001",
+    "research_run_id": "0eaa9000-0000-4000-8000-000000000020",
+    "research_report_id": "0eaa9001-0000-4000-8000-000000000020",
+    "research_schema_version": "1.0",
+    "accepted_by": "0eaa9000-0000-4000-8000-000000000002",
+    "accepted_at": "2026-09-01T09:00:00Z",
+    "acceptance_note": null,
+    "override_reason": null,
+    "launch_readiness": "go",
+    "launch_blockers": [],
+    "business_context": {
+      "products": [],
+      "ltv_estimate": null,
+      "target_cac": null,
+      "payback_months": null,
+      "segments": [],
+      "exclusions": [],
+      "markets": [],
+      "compliance": null
+    },
+    "account_learnings": {
+      "winners": [],
+      "losers": [],
+      "structural_findings": [],
+      "profitable_terms": [],
+      "wasteful_terms": [],
+      "tried_and_failed": []
+    },
+    "competitive_landscape": {
+      "competitors": [],
+      "ads": [],
+      "message_clusters": [],
+      "spend_estimates": [],
+      "whitespace": [],
+      "recommended_claim": null,
+      "substantiation_required": []
+    },
+    "demand_map": {
+      "total_keywords": 0,
+      "negatives": [],
+      "mapping": [],
+      "content_gaps": []
+    },
+    "readiness": {
+      "pages": [],
+      "conversion_actions": [],
+      "synthetic_check": null,
+      "alerts": [],
+      "lists": [
+        {
+          "evidence_ids": [
+            "0eaa4444-4444-4444-8444-444444444444"
+          ],
+          "name": "US and FR customers",
+          "size": 4200,
+          "consent_basis": "Contract, with a marketing opt-in on file.",
+          "markets_allowed": [
+            "US",
+            "FR"
+          ],
+          "usable": true,
+          "blocker": null
+        },
+        {
+          "evidence_ids": [
+            "0eaa4444-4444-4444-8444-444444444444"
+          ],
+          "name": "DE customers",
+          "size": 4200,
+          "consent_basis": null,
+          "markets_allowed": [
+            "DE"
+          ],
+          "usable": false,
+          "blocker": "No lawful basis recorded for ad-platform audience upload in Germany."
+        }
+      ],
+      "scenarios": []
+    },
+    "priced_keyword_list": [
+      {
+        "term": "safety data sheet software",
+        "market": "US",
+        "intent": "transactional",
+        "funnel_stage": null,
+        "volume": 900,
+        "cpc_low": 3.2,
+        "cpc_high": 4.2,
+        "competition": null,
+        "seasonality_index": [],
+        "trend_yoy": null,
+        "best_url": null,
+        "verdict": "good_fit",
+        "match_type": "phrase"
+      },
+      {
+        "term": "sicherheitsdatenblatt software",
+        "market": "DE",
+        "intent": "transactional",
+        "funnel_stage": null,
+        "volume": 900,
+        "cpc_low": 2.1,
+        "cpc_high": 3.1,
+        "competition": null,
+        "seasonality_index": [],
+        "trend_yoy": null,
+        "best_url": null,
+        "verdict": "good_fit",
+        "match_type": "phrase"
+      },
+      {
+        "term": "logiciel fds",
+        "market": "FR",
+        "intent": "transactional",
+        "funnel_stage": null,
+        "volume": 900,
+        "cpc_low": 1.7999999999999998,
+        "cpc_high": 2.8,
+        "competition": null,
+        "seasonality_index": [],
+        "trend_yoy": null,
+        "best_url": null,
+        "verdict": "good_fit",
+        "match_type": "phrase"
+      }
+    ],
+    "degraded_sources": [],
+    "markets": [
+      {
+        "country": "US",
+        "language": "en",
+        "currency": "USD"
+      },
+      {
+        "country": "DE",
+        "language": "de",
+        "currency": "EUR"
+      },
+      {
+        "country": "FR",
+        "language": "fr",
+        "currency": "EUR"
+      }
+    ],
+    "product_context": {
+      "brand_terms": [
+        "sds manager"
+      ]
+    }
+  }
+}

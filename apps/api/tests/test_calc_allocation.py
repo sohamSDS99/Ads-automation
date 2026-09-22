@@ -15,6 +15,8 @@ _envelope_exactly`: §12 invariant 4 allows +/-0.5%, and this is exact.
 
 from __future__ import annotations
 
+import time
+
 import pytest
 
 from agent.calc import allocation
@@ -391,8 +393,17 @@ def test_a_non_positive_envelope_is_refused_for_a_what_if_too() -> None:
         whatif(envelope=0)
 
 
+#: §17 PF3: "Budget what-if recalculation round trip ≤ 2 s for 40 campaigns ×
+#: 4 markets". A ceiling, not a benchmark — the calculation is a single pandas
+#: pass and takes milliseconds, so the only thing a bound this generous can
+#: catch is somebody making it quadratic, which is exactly the regression PF3
+#: is about. Wall clock is a bad assertion in general; it is the right one
+#: here because the threshold *is* wall clock.
+PF3_BUDGET_S = 2.0
+
+
 def test_a_what_if_over_forty_campaigns_by_four_markets_is_still_one_pass() -> None:
-    """PF3 allows 2 s for this shape; the point here is that it is O(n), not that it is fast."""
+    """PF3, including its number. The shape is O(n) and it stays under 2 s."""
     rows = [
         {
             "campaign_ref": f"c{index}",
@@ -406,10 +417,17 @@ def test_a_what_if_over_forty_campaigns_by_four_markets_is_still_one_pass() -> N
         for index in range(40)
         for market in ("US", "DE", "UK", "FR")
     ]
+    started = time.perf_counter()
     result = whatif(rows, envelope=20_000)
+    elapsed = time.perf_counter() - started
+
     assert result["unit_count"] == 160
     assert result["requested_usd"] == 20_000
     assert result["envelope_breach"] is False
+    assert elapsed < PF3_BUDGET_S, (
+        f"the recalculation took {elapsed:.2f}s against PF3's {PF3_BUDGET_S}s for "
+        "40 campaigns x 4 markets"
+    )
 
 
 def test_the_summary_says_breach_when_it_is_one() -> None:

@@ -307,6 +307,51 @@ STAGE_2_4: dict[str, Any] = {
 }
 
 
+#: Stage 2.6 (S2-P5b). Missing until S2-P7, which is why no suite had ever
+#: driven a plan run past gate G3: 2.6.1 died with "no scripted answer for
+#: output model 'PlanNarrative'" the moment anything tried, and the failure was
+#: invisible because nothing tried. `tests/integration/test_plan_whole_dag.py`
+#: is what tries now.
+#:
+#: `evidence_ids` is deliberately **empty**. 2.6.1 filters a written claim
+#: against the evidence the run actually gathered and drops what it cannot
+#: resolve — so an invented id here would be silently discarded and the plan
+#: would carry no assumptions at all, which is a `7_traceability` failure with
+#: an innocent-looking cause. The node re-cites from `_citable(known)`.
+STAGE_2_6: dict[str, Any] = {
+    "PlanNarrative": {
+        "executive_summary": (
+            "The plan funds search in every declared market at the approved envelope, "
+            "aiming at the cost per qualified lead the unit economics can carry, and "
+            "holds a reserve for the first test. The first thing that has to happen is "
+            "the conversion action going live on the pricing page."
+        ),
+        "assumptions": [
+            {
+                "statement": "The close rate holds at the level the CRM recorded.",
+                "evidence_ids": [],
+                "confidence": "medium",
+            }
+        ],
+        "risks": [
+            {
+                "statement": "A competitor entering the auction would raise the CPC.",
+                "evidence_ids": [],
+                "confidence": "low",
+            }
+        ],
+    },
+    # 2.6.2 reads the plan and reports. Nothing blocking: the ten assertions
+    # are computed by `planning.critique`, not by the model, and a scripted
+    # `blocking` issue here would test the fixture rather than the plan.
+    "PlanReading": {
+        "issues": [],
+        "summary_consistent": True,
+        "contradictions": [],
+    },
+}
+
+
 def every_plan_answer() -> dict[str, Any]:
     """Every stage's table, merged. What a whole-DAG plan run needs."""
-    return {**STAGE_2_1, **STAGE_2_2, **STAGE_2_3, **STAGE_2_4, **STAGE_2_5}
+    return {**STAGE_2_1, **STAGE_2_2, **STAGE_2_3, **STAGE_2_4, **STAGE_2_5, **STAGE_2_6}

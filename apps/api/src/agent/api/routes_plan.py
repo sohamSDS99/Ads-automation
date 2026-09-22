@@ -52,6 +52,7 @@ from agent.api.schemas_plan import (
     PlanVersion,
     PlanVersionList,
     ResearchAcceptanceResponse,
+    SupersededReason,
 )
 from agent.api.schemas_report import ExportAccepted, ExportJob
 from agent.api.throttle import throttle
@@ -95,6 +96,7 @@ from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailab
 from agent.orchestrator.plan_input import PlanInputError, build_plan_input
 from agent.orchestrator.state import RunLock
 from agent.planning import freeze as freezing
+from agent.planning import staleness
 from agent.planning.diff import diff_plans, flatten_structure
 from agent.queue import enqueue_export
 from agent.redis_client import get_redis
@@ -198,6 +200,18 @@ async def accept_research(
         readiness=readiness,
         ip=client_ip(request),
     )
+    # §4.4. A newer acceptance does not invalidate the plans built from the
+    # older one — it marks them, so a frozen plan stays valid and downloadable
+    # while saying out loud that the research under it has moved on. Same
+    # transaction as the acceptance (PS4).
+    await staleness.refresh_for_project(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=run.project_id,
+        actor_id=me.user.id,
+        ip=client_ip(request),
+        meta=me.audit_meta(),
+    )
     await db.commit()
     return await _acceptance_response(db, me, acceptance)
 
@@ -248,6 +262,18 @@ async def withdraw_acceptance(
             reason="withdrawn",
         ),
         ip=client_ip(request),
+    )
+    # The assignment above is pending until something flushes it, and the
+    # refresh reads `superseded_by` back out of the database. Explicit rather
+    # than relying on autoflush: this one is load-bearing.
+    await db.flush()
+    await staleness.refresh_for_project(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=acceptance.project_id,
+        actor_id=me.user.id,
+        ip=client_ip(request),
+        meta=me.audit_meta(),
     )
     await db.commit()
     return await _acceptance_response(db, me, acceptance)
@@ -399,6 +425,20 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
     names = await UserRepo(db, me.workspace_id).names(
         [row.frozen_by for row in rows if row.frozen_by is not None]
     )
+    # One query for the whole page rather than a join on the plan select: the
+    # list is ordered by `created_at` for a reason spelled out above, and a
+    # join would invite somebody to reorder it.
+    chain = {
+        acceptance_id: superseded_by
+        for acceptance_id, superseded_by in (
+            await db.execute(
+                sa.select(ResearchAcceptance.id, ResearchAcceptance.superseded_by).where(
+                    ResearchAcceptance.id.in_({row.acceptance_id for row in rows} or {None})
+                )
+            )
+        ).all()
+    }
+    has_current = await _current_acceptance(db, me.workspace_id, project_id) is not None
     return PlanVersionList(
         items=[
             PlanVersion(
@@ -408,6 +448,10 @@ async def list_plans(project_id: uuid.UUID, me: AnyMember, db: Db) -> PlanVersio
                 status=row.status,
                 schema_version=row.schema_version,
                 source_superseded=row.source_superseded,
+                source_superseded_reason=_superseded_reason(
+                    superseded_by=chain.get(row.acceptance_id),
+                    project_has_current=has_current,
+                ),
                 frozen_at=row.frozen_at,
                 frozen_by=row.frozen_by,
                 frozen_by_name=names.get(row.frozen_by) if row.frozen_by else None,
@@ -682,6 +726,26 @@ async def _plan_or_404(db: AsyncSession, me: Principal, plan_run_id: uuid.UUID) 
     return plan
 
 
+def _superseded_reason(
+    *, superseded_by: uuid.UUID | None, project_has_current: bool
+) -> SupersededReason | None:
+    """§4.4, as the banner needs it: is there anything to re-plan against?
+
+    The boolean alone made the Plan Viewer state something untrue — "a newer
+    research report was accepted after this plan was built", with an offer to
+    plan against the current research, on a project whose only acceptance had
+    been withdrawn.
+
+    Reading the *cause* off `superseded_by == acceptance.id` looks like the
+    fix and is not: accept B over A and then withdraw B, and A still points at
+    B — replaced, by an acceptance that is itself gone. So the discriminator is
+    the project's state now, which is the thing the offer depends on.
+    """
+    if superseded_by is None:
+        return None
+    return "replaced" if project_has_current else "withdrawn"
+
+
 async def _plan_detail(db: AsyncSession, me: Principal, plan: CampaignPlan) -> PlanDetail:
     payload = plan.payload if isinstance(plan.payload, dict) else {}
     flat = flatten_structure(payload.get("account_structure"))
@@ -705,6 +769,15 @@ async def _plan_detail(db: AsyncSession, me: Principal, plan: CampaignPlan) -> P
         status=plan.status,
         schema_version=plan.schema_version,
         source_superseded=plan.source_superseded,
+        source_superseded_reason=(
+            _superseded_reason(
+                superseded_by=acceptance.superseded_by,
+                project_has_current=await _current_acceptance(db, me.workspace_id, plan.project_id)
+                is not None,
+            )
+            if acceptance is not None
+            else None
+        ),
         payload=payload,
         markdown=plan.markdown,
         frozen_at=plan.frozen_at,

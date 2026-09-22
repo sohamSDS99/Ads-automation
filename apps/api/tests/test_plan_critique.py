@@ -8,7 +8,10 @@ fail it with a named `check` — a check that can only pass is not a check.
 
 from __future__ import annotations
 
+from typing import Any
+
 from agent.export.plan_contract import AllocationLine, Dependency, PlannedKeyword
+from agent.nodes.plan.stage_2_5 import StageMapping
 from agent.planning import critique as checks
 from tests import plan_fixture as fixture
 
@@ -274,10 +277,82 @@ def test_an_audience_test_in_a_blocked_market_blocks() -> None:
     assert blocking_codes(checks.check_consent(plan)) == {"8_consent"}
 
 
-def test_an_offline_upload_planned_for_a_blocked_market_blocks() -> None:
+def test_the_stage_map_cannot_carry_a_market_so_nothing_may_read_one() -> None:
+    """Why `check_consent` no longer probes `stage_map` (S2-P7).
+
+    It used to, and the test that covered it hand-wrote `{"crm_stage": "won",
+    "market": "FR"}` into the contract's untyped `list[dict]` — a shape 2.5.2
+    cannot emit. `StageMapping` is `{crm_stage, ads_conversion_action,
+    value_field}`; pydantic drops anything else on the way out, so against a
+    real node output the probe read `None` every time and refused nothing.
+
+    This test is what stops it coming back. If a future phase adds a market to
+    the stage map — a reasonable thing to want — this fails, and whoever is
+    holding it can restore the guard knowing it will now fire.
+    """
+    row = StageMapping.model_validate(
+        {
+            "crm_stage": "won",
+            "ads_conversion_action": "Qualified lead",
+            "value_field": "acv_usd",
+            "market": "FR",
+        }
+    ).model_dump(mode="json")
+    assert "market" not in row
+
+
+def _with_audience_channel(plan: Any) -> Any:
+    """The plan, with a demand-gen entry in an allowed market."""
+    entry = plan.channel_slate.slate[0].model_copy(deep=True)
+    entry.campaign_type = "demand_gen"
+    entry.market = "US"
+    plan.channel_slate.slate.append(entry)
+    return plan
+
+
+def test_an_audience_channel_with_no_recorded_basis_blocks() -> None:
+    """§13: planned only where a lawful basis is recorded, stated inline."""
+    plan = _with_audience_channel(fixture.plan())
+    plan.measurement_plan.consent_basis = []
+    issues = checks.check_consent(plan)
+    assert blocking_codes(issues) == {"8_consent"}
+    assert "lawful basis" in issues[0].finding
+
+
+def test_an_audience_test_with_no_recorded_basis_blocks() -> None:
+    """The backlog is an audience dependency too."""
     plan = fixture.plan()
-    plan.measurement_plan.stage_map = [{"crm_stage": "won", "market": "FR"}]
+    plan.experiment_backlog[0].variable = "audience"
+    plan.experiment_backlog[0].market = "US"
+    plan.measurement_plan.consent_basis = []
     assert blocking_codes(checks.check_consent(plan)) == {"8_consent"}
+
+
+def test_an_audience_channel_with_a_basis_is_fine() -> None:
+    plan = _with_audience_channel(fixture.plan())
+    assert plan.measurement_plan.consent_basis
+    assert checks.check_consent(plan) == []
+
+
+def test_a_search_only_plan_needs_no_audience_basis() -> None:
+    """The regression this check shipped with, and the reason it is gated.
+
+    2.5.2's `upload` is an *offline conversion* import and is never empty — it
+    falls back to `manual_csv` — while `consent_basis` comes only from the
+    audience lists at gate 1.5.3. Gating on the upload therefore made every
+    search-only project's plan permanently `blocked`, with a fix no node could
+    apply. A plan with no audience dependency needs no audience basis.
+    """
+    plan = fixture.plan()
+    plan.measurement_plan.consent_basis = []
+    plan.measurement_plan.consent_markets_blocked = []
+    for test in plan.experiment_backlog:
+        assert test.variable != "audience"
+    assert not any(
+        checks._is_audience_channel(entry.campaign_type) for entry in plan.channel_slate.slate
+    )
+    assert plan.measurement_plan.upload.get("method"), "the fixture must still plan an upload"
+    assert checks.check_consent(plan) == []
 
 
 def test_a_market_listed_as_both_allowed_and_blocked_blocks() -> None:

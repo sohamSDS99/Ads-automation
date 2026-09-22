@@ -127,6 +127,19 @@ class PlanRunAccepted(BaseModel):
     input_hash: str
 
 
+#: What the project has now, for a plan whose own acceptance has lapsed (§4.4).
+#: `replaced` — some other acceptance is current, so there is research to plan
+#: against. `withdrawn` — nothing is current, so there is not.
+#:
+#: Phrased around *what exists now* rather than around what happened, because
+#: that is the question the banner has to answer: "plan against the current
+#: research" is an offer only one of these can honour. Telling the two apart by
+#: cause alone gets it wrong in a real sequence — accept B over A, then
+#: withdraw B, and A is still "replaced" while the project has no current
+#: research at all.
+SupersededReason = Literal["replaced", "withdrawn"]
+
+
 class PlanVersion(BaseModel):
     """One row of the plan history table (PRD §15.3 A, *History*)."""
 
@@ -136,6 +149,7 @@ class PlanVersion(BaseModel):
     status: CampaignPlanStatus
     schema_version: str
     source_superseded: bool
+    source_superseded_reason: SupersededReason | None = None
     frozen_at: datetime | None = None
     frozen_by: uuid.UUID | None = None
     frozen_by_name: str | None = None
@@ -265,6 +279,7 @@ class PlanDetail(BaseModel):
     status: CampaignPlanStatus
     schema_version: str
     source_superseded: bool
+    source_superseded_reason: SupersededReason | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
     markdown: str = ""
     frozen_at: datetime | None = None

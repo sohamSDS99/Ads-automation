@@ -81,6 +81,8 @@ export type PlanVersion = {
   status: PlanStatus;
   schema_version: string;
   source_superseded: boolean;
+  /** §4.4: `replaced` = newer research accepted; `withdrawn` = taken back. */
+  source_superseded_reason: "replaced" | "withdrawn" | null;
   frozen_at: string | null;
   frozen_by: string | null;
   frozen_by_name: string | null;
@@ -413,6 +415,8 @@ export type PlanDetail = {
   status: PlanStatus;
   schema_version: string;
   source_superseded: boolean;
+  /** §4.4: `replaced` = newer research accepted; `withdrawn` = taken back. */
+  source_superseded_reason: "replaced" | "withdrawn" | null;
   payload: Record<string, unknown>;
   markdown: string;
   frozen_at: string | null;

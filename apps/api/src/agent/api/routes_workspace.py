@@ -90,7 +90,11 @@ async def update_workspace(
         changed["name"] = {"from": workspace.name, "to": body.name}
         workspace.name = body.name
 
-    if body.models is not None or body.max_run_cost_usd is not None:
+    if (
+        body.models is not None
+        or body.max_run_cost_usd is not None
+        or body.max_plan_cost_usd is not None
+    ):
         # Reassigned rather than mutated: SQLAlchemy does not track in-place
         # edits of a JSONB dict, so a mutated `settings` would never be written.
         settings = dict(workspace.settings)
@@ -104,6 +108,13 @@ async def update_workspace(
         if body.max_run_cost_usd is not None:
             settings["max_run_cost_usd"] = str(body.max_run_cost_usd)
             changed["max_run_cost_usd"] = str(body.max_run_cost_usd)
+        # Stage 02 §17 PF4's ceiling. Its own key rather than a second meaning
+        # for the research one: `orchestrator.budget` picks by stage, and a
+        # workspace that raises research to $30 must not take the plan cap with
+        # it.
+        if body.max_plan_cost_usd is not None:
+            settings["max_plan_cost_usd"] = str(body.max_plan_cost_usd)
+            changed["max_plan_cost_usd"] = str(body.max_plan_cost_usd)
         workspace.settings = settings
 
     if changed:
@@ -475,6 +486,7 @@ def _response(workspace: Workspace) -> WorkspaceResponse:
         ),
         smtp_configured=settings.smtp_configured,
         default_max_run_cost_usd=settings.max_run_cost_usd,
+        default_max_plan_cost_usd=settings.max_plan_cost_usd,
     )
 
 

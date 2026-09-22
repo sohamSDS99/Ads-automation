@@ -353,6 +353,11 @@ async def synthesise(
         launch_blockers=plan_context.input.launch_blockers,
         plan_status=plan_status or status_for(decisions, blocking_issues=0),
         critique_issues=critique or (),
+        # What this node actually gathered. The plan may cite nothing else —
+        # the executor refuses a node that does — and a Stage 01 evidence row
+        # that retention has since pruned must cost the plan a citation, not
+        # the run.
+        citable=known,
         drop=dropped_rows.append,
     )
     return (
@@ -554,8 +559,21 @@ async def _cited_evidence(ctx: RunContext) -> list[Evidence]:
             wanted.setdefault(value, None)
         if len(wanted) >= MAX_EVIDENCE:
             break
-    for value in await _plan_calc_evidence_ids(ctx):
-        wanted.setdefault(value, None)
+    # **And what the input cites.** §12's `open_dependencies` carries each
+    # Stage 01 launch blocker forward *with its citations*, which is the whole
+    # point of carrying it — a reader has to be able to trace a blocker back to
+    # the research that found it. Those ids come from `PlanInput`, not from an
+    # upstream plan node, so without this line they are cited and not gathered
+    # and the executor refuses the node.
+    #
+    # It refused every time. `Claim.evidence_ids` has `min_length=1`, so every
+    # launch blocker carries citations, so **every plan run for a project whose
+    # research left any blocker failed at 2.6.1** — three retries and a dead
+    # run — from S2-P5b until S2-P7, invisible because nothing drove the DAG
+    # past gate G3.
+    for blocker in ctx.plan.input.launch_blockers if ctx.plan else ():
+        for value in blocker.evidence_ids:
+            wanted.setdefault(value, None)
     if not wanted:
         return []
     rows = await ctx.db.execute(

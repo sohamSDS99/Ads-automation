@@ -325,6 +325,58 @@ async def test_a_blocking_critique_returns_a_409(
 async def test_superseded_research_returns_a_409(
     admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
 ) -> None:
+    """§4.4, set up by its real cause rather than by setting the flag.
+
+    This used to seed `source_superseded=True` by hand on a plan whose
+    acceptance was still current — a state the product cannot produce. S2-P7
+    made the freeze **recompute** the flag from the acceptance chain before
+    reading it, precisely so a stale or hand-written value cannot decide a
+    seal, and the hand-set version of this test therefore started passing the
+    freeze. Superseding the acceptance is what it was always trying to say.
+    """
+    me = (await admin.get("/auth/me")).json()
+    seeded = await _seed_plan(
+        db,
+        project_id=project.id,
+        workspace_id=workspace_id,
+        user_id=uuid.UUID(me["id"]),
+    )
+    # The acceptance stops being current. `superseded_by = self` is this
+    # column's "withdrawn"; a replacement would point at the newer row.
+    await db.execute(
+        sa.update(ResearchAcceptance)
+        .where(ResearchAcceptance.id == seeded["acceptance_id"])
+        .values(superseded_by=seeded["acceptance_id"])
+    )
+    await db.commit()
+
+    response = await admin.post(
+        f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": 1}
+    )
+    assert response.status_code == 409
+    assert response.json()["blockers"][0]["code"] == "source_superseded"
+
+    # ...and the freeze wrote the correction it computed, rather than deciding
+    # on it and throwing it away.
+    db.expire_all()
+    plan = (
+        await db.execute(
+            sa.select(CampaignPlan).where(CampaignPlan.plan_run_id == seeded["plan_run_id"])
+        )
+    ).scalar_one()
+    assert plan.source_superseded is True
+
+
+async def test_a_stale_flag_does_not_decide_the_freeze(
+    admin: ApiClient, db: AsyncSession, project: Any, workspace_id: uuid.UUID
+) -> None:
+    """The other direction: a `True` nobody can justify must not refuse a seal.
+
+    The flag is derived (§4.4), so the freeze recomputes it. A row carrying
+    `True` against a current acceptance is a bug somewhere upstream, and the
+    right response is to correct it and proceed — not to refuse a plan whose
+    research is in fact current.
+    """
     me = (await admin.get("/auth/me")).json()
     seeded = await _seed_plan(
         db,
@@ -336,8 +388,15 @@ async def test_superseded_research_returns_a_409(
     response = await admin.post(
         f"/plans/{seeded['plan_run_id']}/freeze", json={"confirm_version": 1}
     )
-    assert response.status_code == 409
-    assert response.json()["blockers"][0]["code"] == "source_superseded"
+    assert response.status_code == 200, response.text
+
+    db.expire_all()
+    plan = (
+        await db.execute(
+            sa.select(CampaignPlan).where(CampaignPlan.plan_run_id == seeded["plan_run_id"])
+        )
+    ).scalar_one()
+    assert plan.source_superseded is False
 
 
 async def test_a_plan_that_does_not_exist_is_a_404(admin: ApiClient) -> None:

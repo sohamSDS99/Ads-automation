@@ -379,6 +379,20 @@
       ],
       "title": "Cost Usd"
     },
+    "cost_cap_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "default": "0",
+      "description": "The ceiling this run will actually be held to, resolved server-side (project, then workspace, then the deployment default, keyed by stage). The console draws its spend meter against this. Derived here rather than on the client because \u00a717 PF4 gives a plan run its own cap, and a frontend reading `max_run_cost_usd` showed a plan run at half of $15 while the executor killed it at $8.",
+      "title": "Cost Cap Usd"
+    },
     "token_in": {
       "title": "Token In",
       "type": "integer"

@@ -1,0 +1,17 @@
+{
+  "description": "`POST /plans/{plan_run_id}/freeze`.\n\n`confirm_version` is not ceremony. \u00a715.3-E makes the dialog ask the person\nto type the version they are sealing, and the server checks it against the\nnumber it would actually mint \u2014 so a stale screen produces a 409 the user\ncan understand rather than a v4 they believed was a v3.",
+  "properties": {
+    "confirm_version": {
+      "description": "The version this freeze will mint. From `next_version`.",
+      "minimum": 1,
+      "title": "Confirm Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "confirm_version"
+  ],
+  "title": "FreezePlanRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

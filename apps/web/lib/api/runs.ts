@@ -83,6 +83,13 @@ export type RunDetail = {
   parent_run_id: string | null;
   selected_node_ids: string[];
   cost_usd: string;
+  /**
+   * The ceiling this run is actually held to, resolved server-side and keyed
+   * by stage. Read this rather than the workspace setting: §17 PF4 gives a
+   * plan run its own cap, and deriving one here from `max_run_cost_usd` drew
+   * the meter against $15 while the executor killed the run at $8.
+   */
+  cost_cap_usd: string;
   token_in: number;
   token_out: number;
   started_at: string | null;

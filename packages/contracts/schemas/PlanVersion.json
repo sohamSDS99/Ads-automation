@@ -40,6 +40,22 @@
       "title": "Source Superseded",
       "type": "boolean"
     },
+    "source_superseded_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "replaced",
+            "withdrawn"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Superseded Reason"
+    },
     "frozen_at": {
       "anyOf": [
         {

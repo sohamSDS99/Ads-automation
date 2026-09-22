@@ -123,6 +123,17 @@ class RunResponse(BaseModel):
     )
     selected_node_ids: list[str]
     cost_usd: Decimal
+    cost_cap_usd: Decimal = Field(
+        default=Decimal(0),
+        description=(
+            "The ceiling this run will actually be held to, resolved server-side "
+            "(project, then workspace, then the deployment default, keyed by stage). "
+            "The console draws its spend meter against this. Derived here rather than "
+            "on the client because §17 PF4 gives a plan run its own cap, and a frontend "
+            "reading `max_run_cost_usd` showed a plan run at half of $15 while the "
+            "executor killed it at $8."
+        ),
+    )
     token_in: int
     token_out: int
     started_at: datetime | None

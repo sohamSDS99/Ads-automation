@@ -477,44 +477,107 @@ def check_traceability(plan: CampaignPlan) -> list[Issue]:
 
 
 def check_consent(plan: CampaignPlan) -> list[Issue]:
-    """PC1, and the one check that is about a law rather than about money."""
+    """PC1, and the one check that is about a law rather than about money.
+
+    Two halves, and they have different preconditions — which is why the early
+    return that used to sit at the top of this function is now inside the first
+    half only. "No market was refused" says nothing about whether the upload
+    that *is* planned has a lawful basis behind it.
+
+    **A branch was removed here in S2-P7 because it could not fire.** It read
+    `row.get("market")` off `measurement_plan.stage_map` and refused an upload
+    planned for a blocked market. `StageMapping` — the model 2.5.2 emits and
+    the executor persists — is `{crm_stage, ads_conversion_action,
+    value_field}`: there has never been a market on it, so the lookup was
+    always `None` and the guard was decoration. It was also redundant: the same
+    node computes `consent.markets_allowed` from the real consent scope, and
+    that list *is* checked, above and below. A guard that cannot fail is worse
+    than no guard, because the next reader stops looking.
+    """
     blocked = {item.strip().upper() for item in plan.measurement_plan.consent_markets_blocked}
-    if not blocked:
-        return []
     allowed = {item.strip().upper() for item in plan.measurement_plan.consent_markets_allowed}
+    found: list[Issue] = []
 
     offences: list[str] = []
-    for market in sorted(blocked & allowed):
-        offences.append(f"{market} is listed as both allowed and blocked")
-    for entry in plan.channel_slate.slate:
-        if _is_audience_channel(entry.campaign_type) and entry.market.strip().upper() in blocked:
-            offences.append(f"{entry.campaign_type} planned in {entry.market}")
-    for test in plan.experiment_backlog:
-        if test.variable == "audience" and test.market.strip().upper() in blocked:
-            offences.append(f"an audience test planned in {test.market} ({test.id})")
-    for row in plan.measurement_plan.stage_map:
-        market = str(row.get("market") or "").strip().upper()
-        if market and market in blocked:
-            offences.append(f"an offline conversion upload planned for {market}")
+    if blocked:
+        for market in sorted(blocked & allowed):
+            offences.append(f"{market} is listed as both allowed and blocked")
+        for entry in plan.channel_slate.slate:
+            if (
+                _is_audience_channel(entry.campaign_type)
+                and entry.market.strip().upper() in blocked
+            ):
+                offences.append(f"{entry.campaign_type} planned in {entry.market}")
+        for test in plan.experiment_backlog:
+            if test.variable == "audience" and test.market.strip().upper() in blocked:
+                offences.append(f"an audience test planned in {test.market} ({test.id})")
 
-    if not offences:
-        return []
-    return [
-        Issue(
-            severity="blocking",
-            section="measurement_plan.consent",
-            finding=(
-                f"The plan depends on an audience list in a market gate 1.5.3 refused: "
-                f"{_names(offences)}. Gate 1.5.3 is authoritative over which markets may "
-                "be targeted this way (§13)."
-            ),
-            fix=(
-                "Record a lawful basis for that market at gate 1.5.3, or drop the channel, "
-                "the test and the upload for it."
-            ),
-            check="8_consent",
+    if offences:
+        found.append(
+            Issue(
+                severity="blocking",
+                section="measurement_plan.consent",
+                finding=(
+                    f"The plan depends on an audience list in a market gate 1.5.3 refused: "
+                    f"{_names(offences)}. Gate 1.5.3 is authoritative over which markets may "
+                    "be targeted this way (§13)."
+                ),
+                fix=(
+                    "Record a lawful basis for that market at gate 1.5.3, or drop the channel, "
+                    "the test and the upload for it."
+                ),
+                check="8_consent",
+            )
         )
-    ]
+
+    # §13, "Customer Match / audience upload": planned only where the consent
+    # gate records a lawful basis, and the plan states the basis **inline**.
+    #
+    # **Gated on an audience surface, not on the upload.** The first version of
+    # this fired on `measurement_plan.upload.method`, which is 2.5.2's
+    # *offline conversion* upload — a GCLID-keyed conversion import, not
+    # Customer Match — and which is never empty because 2.5.2 falls back to
+    # `manual_csv`. Meanwhile `consent_basis` comes only from the audience
+    # lists at gate 1.5.3. A search-only project that declares no audience list
+    # therefore got a blocking issue on every plan, with a fix instruction no
+    # node could action: 2.6.1 re-synthesises once and the plan lands `blocked`
+    # for good. The five golden fixtures all happen to carry a usable list, so
+    # the eval suite could not see it.
+    #
+    # What §13's row is actually about is an audience *dependency*. So the
+    # check fires where one exists — an audience channel in the slate, or an
+    # audience test in the backlog — and nowhere else.
+    audience = sorted(
+        {
+            f"{entry.campaign_type} in {entry.market}"
+            for entry in plan.channel_slate.slate
+            if _is_audience_channel(entry.campaign_type)
+        }
+        | {
+            f"an audience test in {test.market} ({test.id})"
+            for test in plan.experiment_backlog
+            if test.variable == "audience"
+        }
+    )
+    stated = [item for item in plan.measurement_plan.consent_basis if item.strip()]
+    if audience and not stated:
+        found.append(
+            Issue(
+                severity="blocking",
+                section="measurement_plan.consent_basis",
+                finding=(
+                    f"{len(audience)} part(s) of the plan depend on an audience list and no "
+                    f"lawful basis for one is recorded: {_names(audience)}. §13 requires the "
+                    "basis on the plan itself, not by reference to a policy somewhere else."
+                ),
+                fix=(
+                    "Record the basis on the audience list at gate 1.5.3 and re-run 2.5.2, "
+                    "or drop the audience channels and tests from the plan."
+                ),
+                check="8_consent",
+            )
+        )
+    return found
 
 
 def _is_audience_channel(campaign_type: str) -> bool:

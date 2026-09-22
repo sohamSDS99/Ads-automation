@@ -36,13 +36,24 @@ from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
-from agent.db.models import NodeRun, Run, RunMode, RunStage, RunStatus, RunTrigger
+from agent.config import get_settings
+from agent.db.models import (
+    NodeRun,
+    Project,
+    Run,
+    RunMode,
+    RunStage,
+    RunStatus,
+    RunTrigger,
+    Workspace,
+)
 from agent.db.repos import ProjectRepo, ReportRepo, RunRepo, UserRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
 from agent.export.diff import diff_reports
 from agent.nodes.gather import parse_note
 from agent.orchestrator.approvals import expire_pending
+from agent.orchestrator.budget import resolve_cost_cap
 from agent.orchestrator.dag import Dag, DagError, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
@@ -432,6 +443,15 @@ async def _run_response(
     db: AsyncSession, run: Run, *, dag: Dag, registry: NodeRegistry
 ) -> RunResponse:
     latest = await RunStore(db).latest_by_node(run.id)
+    project = await db.get(Project, run.project_id)
+    workspace = await db.get(Workspace, run.workspace_id)
+    cost_cap = resolve_cost_cap(
+        stage=run.stage,
+        project_settings=project.settings if project else None,
+        workspace_settings=workspace.settings if workspace else None,
+        defaults=get_settings(),
+        project_id=str(run.project_id),
+    )
     selected = set(_selected_ids(run, dag))
     # The console header reads "Triggered by {name}", and a uuid is not a name.
     # Resolved here rather than joined onto the run so a deleted user degrades
@@ -456,6 +476,7 @@ async def _run_response(
         parent_run_id=run.parent_run_id,
         selected_node_ids=sorted(selected),
         cost_usd=run.cost_usd,
+        cost_cap_usd=cost_cap,
         token_in=run.token_in,
         token_out=run.token_out,
         started_at=run.started_at,

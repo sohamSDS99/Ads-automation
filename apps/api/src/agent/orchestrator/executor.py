@@ -34,7 +34,7 @@ import random
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from typing import Any
 
 import httpx
@@ -78,6 +78,7 @@ from agent.nodes.base import (
 )
 from agent.notify.email import send_approval_request
 from agent.orchestrator import approvals
+from agent.orchestrator.budget import resolve_cost_cap
 from agent.orchestrator.dag import Dag, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.orchestrator.heartbeat import RunHeartbeat
@@ -253,7 +254,10 @@ class RunExecutor:
             return ExecutionResult(run_id, run.status, run.cost_usd, 0)
 
         events = RunEventStream(self.redis, run_id)
-        ledger = RunLedger(cap_usd=await self._budget_cap(project), spent_usd=Decimal(run.cost_usd))
+        ledger = RunLedger(
+            cap_usd=await self._budget_cap(project, stage=run.stage),
+            spent_usd=Decimal(run.cost_usd),
+        )
 
         client: httpx.AsyncClient | None = None
         try:
@@ -948,30 +952,22 @@ class RunExecutor:
         if await self.cancel.is_set(run_id):
             raise RunCancelled
 
-    async def _budget_cap(self, project: Project) -> Decimal:
-        """Narrowest scope wins: project, then workspace, then the environment.
+    async def _budget_cap(self, project: Project, *, stage: RunStage) -> Decimal:
+        """The ceiling for this run. See `orchestrator.budget` for the rule.
 
-        The workspace layer is what `/settings` writes. Without it an admin can
-        set a workspace-wide ceiling and watch every project ignore it.
+        The rule lives there and not here because the run console draws a meter
+        against the same number, and two implementations of "what may this run
+        spend" is how a plan run came to be killed at $8 behind a progress bar
+        that read half of $15.
         """
         workspace = await self.db.get(Workspace, project.workspace_id)
-        for scope, settings in (
-            ("project", project.settings),
-            ("workspace", workspace.settings if workspace else None),
-        ):
-            raw = (settings or {}).get("max_run_cost_usd")
-            if raw is None:
-                continue
-            try:
-                return Decimal(str(raw))
-            except (InvalidOperation, ValueError):
-                log.warning(
-                    "run.bad_budget_setting",
-                    scope=scope,
-                    project_id=str(project.id),
-                    value=raw,
-                )
-        return Decimal(self.settings.max_run_cost_usd)
+        return resolve_cost_cap(
+            stage=stage,
+            project_settings=project.settings,
+            workspace_settings=workspace.settings if workspace else None,
+            defaults=self.settings,
+            project_id=str(project.id),
+        )
 
     async def _build_gateway(
         self, run: Run, project: Project

@@ -68,15 +68,23 @@ function WorkspaceForm({ workspace, canWrite }: { workspace: Workspace; canWrite
   const queryClient = useQueryClient();
   const [name, setName] = useState(workspace.name);
   const [cap, setCap] = useState(workspace.settings.max_run_cost_usd ?? "");
+  // Stage 02 §17 PF4 gives a plan run its own ceiling, and it is its own field
+  // for the same reason it is its own settings key: raising the research cap
+  // must not quietly raise what a plan may spend.
+  const [planCap, setPlanCap] = useState(workspace.settings.max_plan_cost_usd ?? "");
   // Same settled/dirty behaviour as every other tab. Two tabs that disagree
   // about what a Save button means is the small kind of mess that adds up.
-  const dirty = name !== workspace.name || cap !== (workspace.settings.max_run_cost_usd ?? "");
+  const dirty =
+    name !== workspace.name ||
+    cap !== (workspace.settings.max_run_cost_usd ?? "") ||
+    planCap !== (workspace.settings.max_plan_cost_usd ?? "");
 
   const save = useMutation({
     mutationFn: () =>
       updateWorkspace({
         name: name.trim(),
         ...(cap.trim() ? { max_run_cost_usd: cap.trim() } : {}),
+        ...(planCap.trim() ? { max_plan_cost_usd: planCap.trim() } : {}),
       }),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: keys.workspace });
@@ -124,9 +132,35 @@ function WorkspaceForm({ workspace, canWrite }: { workspace: Workspace; canWrite
             />
           </div>
           <p className="min-h-4 text-xs text-fg-muted">
-            A run that reaches this stops, keeps everything it has finished, and reports as partial.
-            Empty falls back to the deployment default of{" "}
+            A research run that reaches this stops, keeps everything it has finished, and reports
+            as partial. Empty falls back to the deployment default of{" "}
             {usd(workspace.default_max_run_cost_usd)}.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="plan-cap" className="text-sm font-medium text-fg">
+            Budget cap per campaign plan
+          </label>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-fg-muted">$</span>
+            <Input
+              id="plan-cap"
+              type="number"
+              min="0.01"
+              step="0.01"
+              inputMode="decimal"
+              value={planCap}
+              disabled={!canWrite}
+              placeholder={workspace.default_max_plan_cost_usd}
+              onChange={(event) => setPlanCap(event.target.value)}
+              className="w-32"
+            />
+          </div>
+          <p className="min-h-4 text-xs text-fg-muted">
+            Campaign planning is a separate job with its own ceiling, so the cap above does not
+            apply to it. Empty falls back to the deployment default of{" "}
+            {usd(workspace.default_max_plan_cost_usd)}.
           </p>
         </div>
       </CardBody>
@@ -139,6 +173,7 @@ function WorkspaceForm({ workspace, canWrite }: { workspace: Workspace; canWrite
                 onClick={() => {
                   setName(workspace.name);
                   setCap(workspace.settings.max_run_cost_usd ?? "");
+                  setPlanCap(workspace.settings.max_plan_cost_usd ?? "");
                 }}
               >
                 Discard

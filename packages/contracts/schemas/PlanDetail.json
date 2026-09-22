@@ -1,0 +1,424 @@
+{
+  "$defs": {
+    "AcceptedSource": {
+      "description": "The accepted research run, as the Stage 02 landing page needs it.",
+      "properties": {
+        "acceptance_id": {
+          "format": "uuid",
+          "title": "Acceptance Id",
+          "type": "string"
+        },
+        "research_run_id": {
+          "format": "uuid",
+          "title": "Research Run Id",
+          "type": "string"
+        },
+        "research_report_id": {
+          "format": "uuid",
+          "title": "Research Report Id",
+          "type": "string"
+        },
+        "research_schema_version": {
+          "title": "Research Schema Version",
+          "type": "string"
+        },
+        "accepted_by": {
+          "format": "uuid",
+          "title": "Accepted By",
+          "type": "string"
+        },
+        "accepted_by_name": {
+          "title": "Accepted By Name",
+          "type": "string"
+        },
+        "accepted_at": {
+          "format": "date-time",
+          "title": "Accepted At",
+          "type": "string"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "override_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Override Reason"
+        },
+        "launch_readiness": {
+          "enum": [
+            "go",
+            "go_with_fixes",
+            "no_go"
+          ],
+          "title": "Launch Readiness",
+          "type": "string"
+        },
+        "degraded_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Degraded Sources",
+          "type": "array"
+        },
+        "age_days": {
+          "title": "Age Days",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "acceptance_id",
+        "research_run_id",
+        "research_report_id",
+        "research_schema_version",
+        "accepted_by",
+        "accepted_by_name",
+        "accepted_at",
+        "launch_readiness",
+        "age_days"
+      ],
+      "title": "AcceptedSource",
+      "type": "object"
+    },
+    "CampaignPlanStatus": {
+      "description": "The plan lifecycle (Stage 02 PRD \u00a77.2).\n\n`blocked` is a rejected gate, not a failure: the run ended, the plan exists,\nand a human said no to part of it. `superseded` is what an older version\nbecomes when a newer one is frozen.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_freeze",
+        "frozen",
+        "superseded"
+      ],
+      "title": "CampaignPlanStatus",
+      "type": "string"
+    },
+    "PlanCritique": {
+      "description": "Node 2.6.2's verdict, as far as the freeze dialog needs it.\n\nRead from the 2.6.2 node run rather than from the payload: the payload is\nwritten by 2.6.1 and the critique runs after it, so the node output is the\nearliest and most authoritative place the verdict exists. `blocking` is what\n\u00a712.2 asserts on, and a plan with no critique recorded yet reports\n`verdict=None` \u2014 the freeze route refuses it on the row's status anyway.",
+      "properties": {
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        },
+        "blocking": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blocking",
+          "type": "array"
+        },
+        "advisory": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advisory",
+          "type": "array"
+        },
+        "checked_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checked At"
+        }
+      },
+      "title": "PlanCritique",
+      "type": "object"
+    },
+    "PlanGateDecision": {
+      "description": "One of law 16's four gates, as the freeze dialog has to show it.\n\n\u00a715.3 E requires the dialog to list the four decisions with decider and\ntimestamp before anyone types a version, so they travel with the plan\nrather than being re-fetched per gate from the approvals inbox. A gate that\nhas not been decided is still a row: \"G4 \u2014 not yet decided\" is the answer\nto why the freeze button is refusing, and an absent row is not.",
+      "properties": {
+        "gate_key": {
+          "title": "Gate Key",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "decided_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By"
+        },
+        "decided_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided By Name"
+        },
+        "decided_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Decided At"
+        },
+        "note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Note"
+        },
+        "edited": {
+          "default": false,
+          "title": "Edited",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "gate_key",
+        "node_id",
+        "status"
+      ],
+      "title": "PlanGateDecision",
+      "type": "object"
+    },
+    "PlanStructureTotals": {
+      "description": "What the tree adds up to, for a reader who will never scroll all of it.\n\nCounted once, on the server, from the same flattener the diff uses. Counting\nin the frontend would mean the freeze dialog's \"4,000 keywords\" came from\nwhichever page of the structure happened to be loaded.",
+      "properties": {
+        "campaigns": {
+          "default": 0,
+          "title": "Campaigns",
+          "type": "integer"
+        },
+        "ad_groups": {
+          "default": 0,
+          "title": "Ad Groups",
+          "type": "integer"
+        },
+        "keywords": {
+          "default": 0,
+          "title": "Keywords",
+          "type": "integer"
+        }
+      },
+      "title": "PlanStructureTotals",
+      "type": "object"
+    }
+  },
+  "description": "`GET /plans/{plan_run_id}` \u2014 one plan version, whole (PRD \u00a715.3 D).\n\n**`payload` is deliberately opaque.** It is the \u00a712 `CampaignPlan` object\nexactly as node 2.6.1 wrote it, passed through without a Pydantic model of\nits own. Declaring the contract twice \u2014 once where it is filled and once\nwhere it is served \u2014 is how the two copies drift, and the read side gains\nnothing from validating a payload it renders section by section and must\ndegrade on anyway. The fields around it are the ones the *row* owns, which\nthe payload either does not carry or carries as a copy that can be stale.\n\nWhere the two disagree, the row wins. `payload.plan_status` is written by\n2.6.2; `status` here is the column the freeze transaction reads and locks\non, so a plan frozen a second ago reports `frozen` here while its payload\nstill says `ready_to_freeze`.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "plan_run_id": {
+      "format": "uuid",
+      "title": "Plan Run Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "next_version": {
+      "title": "Next Version",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/CampaignPlanStatus"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_superseded": {
+      "title": "Source Superseded",
+      "type": "boolean"
+    },
+    "source_superseded_reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "replaced",
+            "withdrawn"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Superseded Reason"
+    },
+    "payload": {
+      "additionalProperties": true,
+      "title": "Payload",
+      "type": "object"
+    },
+    "markdown": {
+      "default": "",
+      "title": "Markdown",
+      "type": "string"
+    },
+    "frozen_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frozen At"
+    },
+    "frozen_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frozen By"
+    },
+    "frozen_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Frozen By Name"
+    },
+    "frozen_approval_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Frozen Approval Ids",
+      "type": "array"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "source": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AcceptedSource"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "gates": {
+      "items": {
+        "$ref": "#/$defs/PlanGateDecision"
+      },
+      "title": "Gates",
+      "type": "array"
+    },
+    "critique": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanCritique"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "totals": {
+      "$ref": "#/$defs/PlanStructureTotals"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "plan_run_id",
+    "version",
+    "next_version",
+    "status",
+    "schema_version",
+    "source_superseded",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "PlanDetail",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -41,9 +41,13 @@ export function RunControls({
     ["succeeded", "skipped", "failed"].includes(node.status ?? ""),
   ).length;
   const failed = run.nodes.filter((node) => node.status === "failed").length;
-  const cap = workspace.data
-    ? (workspace.data.settings.max_run_cost_usd ?? workspace.data.default_max_run_cost_usd)
-    : null;
+  // The run's own ceiling, as the API resolved it. Not the workspace setting:
+  // that one is research's, and a plan run holds a different number.
+  const cap =
+    run.cost_cap_usd ??
+    (workspace.data
+      ? (workspace.data.settings.max_run_cost_usd ?? workspace.data.default_max_run_cost_usd)
+      : null);
   const spent = Number(run.cost_usd);
   const ratio = cap && Number(cap) > 0 ? Math.min(1, spent / Number(cap)) : 0;
 

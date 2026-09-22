@@ -134,11 +134,46 @@ export function PlanViewer({
     <div className="space-y-4">
       <PlanHeader plan={detail} projectId={projectId} envelopeUsd={envelopeUsd} calcs={calcs} />
 
+      {/* §4.4. Two different things put a plan here and they need different
+          sentences: research can be **replaced** by a newer acceptance, or an
+          acceptance can be **withdrawn** with nothing taking its place. The
+          first version said "a newer research report was accepted" in both
+          cases and offered to plan against current research on a project that
+          had none — an offer nothing could honour. */}
       {detail.source_superseded ? (
-        <Alert tone="warning" title="The research behind this plan has been re-accepted">
-          A newer research report was accepted after this plan was built. The plan is still the
-          record of what was decided; a plan built on the newer research needs a new run.
-        </Alert>
+        detail.source_superseded_reason === "withdrawn" ? (
+          <Alert tone="warning" title="The research behind this plan has been withdrawn">
+            <p>
+              The acceptance this plan was built from has been taken back, and nothing has
+              replaced it. The plan is still the record of what was decided and still
+              downloadable; it cannot be frozen until research is accepted again.
+            </p>
+            <p className="mt-1">
+              <Link href={`/projects/${projectId}/plan`} className="text-accent hover:underline">
+                Accept research for this project
+              </Link>
+            </p>
+          </Alert>
+        ) : (
+          <Alert tone="warning" title="The research behind this plan has been re-accepted">
+            <p>
+              A newer research report was accepted after this plan was built. The plan is still
+              the record of what was decided and still downloadable; a plan built on the newer
+              research needs a new run.
+            </p>
+            {/* §4.4 asks the banner to *offer* the re-plan, not merely to
+                state that one is needed. The offer is a link to the console
+                rather than a start button here: starting takes the plan lock
+                and the console is where the eligibility blockers are already
+                rendered, so a button on this page could only fail with less to
+                say. */}
+            <p className="mt-1">
+              <Link href={`/projects/${projectId}/plan`} className="text-accent hover:underline">
+                Plan against the current research
+              </Link>
+            </p>
+          </Alert>
+        )
       ) : null}
 
       {/* KNOWN DEFECT, measured and not yet fixed: at 390px this page scrolls

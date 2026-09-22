@@ -58,6 +58,7 @@ from agent.db.models import (
 from agent.db.repos import CampaignPlanRepo
 from agent.export.plan_contract import CampaignPlan as PlanContract
 from agent.export.plan_markdown import render_plan_markdown
+from agent.planning import staleness
 
 log = structlog.get_logger(__name__)
 
@@ -137,9 +138,30 @@ async def freeze_plan(
     if plan.status is CampaignPlanStatus.FROZEN:
         return _already_frozen(plan, confirm_version)
 
+    # Recompute the staleness flag before reading it. `staleness.refresh_for_
+    # project` runs on acceptance transitions and can only touch rows that
+    # exist at that moment — and a plan row is written at the *end* of its run,
+    # so a run that was in flight when newer research was accepted lands with
+    # the flag at its default. Deciding the freeze on a stored value nobody has
+    # recomputed is deciding it on a guess.
+    corrected = await staleness.refresh_for_plan(
+        session, workspace_id=workspace_id, plan=plan, actor_id=actor_id, ip=ip
+    )
+
     approvals = await _approvals(session, plan_run_id)
     blockers = _blockers(plan, approvals)
     if blockers:
+        # Nothing is sealed, but the refresh above may have corrected a row —
+        # and that correction is often *why* this refusal happened. Commit it,
+        # or the next caller recomputes the same thing and the audit trail
+        # never says when it was noticed.
+        #
+        # Only when it actually wrote. An unconditional commit on a refusal
+        # path would also carry along whatever a future edit left pending in
+        # this session, which is a much larger promise than this function
+        # means to make.
+        if corrected:
+            await session.commit()
         raise FreezeRefused(blockers)
 
     version = await repo.next_version(plan.project_id)

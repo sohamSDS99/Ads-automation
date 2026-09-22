@@ -1,0 +1,521 @@
+{
+  "$defs": {
+    "CampaignPlanStatus": {
+      "description": "The plan lifecycle (Stage 02 PRD \u00a77.2).\n\n`blocked` is a rejected gate, not a failure: the run ended, the plan exists,\nand a human said no to part of it. `superseded` is what an older version\nbecomes when a newer one is frozen.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_freeze",
+        "frozen",
+        "superseded"
+      ],
+      "title": "CampaignPlanStatus",
+      "type": "string"
+    },
+    "PlanStructureAdGroup": {
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "theme": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Theme"
+        },
+        "landing_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Landing Url"
+        },
+        "primary_message": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Primary Message"
+        },
+        "market": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market"
+        },
+        "coherence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coherence"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "name_valid": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name Valid"
+        },
+        "keywords": {
+          "items": {
+            "$ref": "#/$defs/PlanStructureKeyword"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "keyword_count": {
+          "default": 0,
+          "title": "Keyword Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlanStructureAdGroup",
+      "type": "object"
+    },
+    "PlanStructureCampaign": {
+      "properties": {
+        "campaign_ref": {
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Type"
+        },
+        "market": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Market"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "monthly_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Monthly Budget Usd"
+        },
+        "daily_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Budget Usd"
+        },
+        "bid_strategy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bid Strategy"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "locations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locations",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "name_valid": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name Valid"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        },
+        "forecast_conv_30d": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Conv 30D"
+        },
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "remedy": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Remedy"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "ad_groups": {
+          "items": {
+            "$ref": "#/$defs/PlanStructureAdGroup"
+          },
+          "title": "Ad Groups",
+          "type": "array"
+        },
+        "ad_group_count": {
+          "default": 0,
+          "title": "Ad Group Count",
+          "type": "integer"
+        },
+        "keyword_count": {
+          "default": 0,
+          "title": "Keyword Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "name"
+      ],
+      "title": "PlanStructureCampaign",
+      "type": "object"
+    },
+    "PlanStructureKeyword": {
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Match Type"
+        },
+        "forecast_cpc_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Cpc Usd"
+        },
+        "search_volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Volume"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PlanStructureKeyword",
+      "type": "object"
+    },
+    "PlanStructureTotals": {
+      "description": "What the tree adds up to, for a reader who will never scroll all of it.\n\nCounted once, on the server, from the same flattener the diff uses. Counting\nin the frontend would mean the freeze dialog's \"4,000 keywords\" came from\nwhichever page of the structure happened to be loaded.",
+      "properties": {
+        "campaigns": {
+          "default": 0,
+          "title": "Campaigns",
+          "type": "integer"
+        },
+        "ad_groups": {
+          "default": 0,
+          "title": "Ad Groups",
+          "type": "integer"
+        },
+        "keywords": {
+          "default": 0,
+          "title": "Keywords",
+          "type": "integer"
+        }
+      },
+      "title": "PlanStructureTotals",
+      "type": "object"
+    }
+  },
+  "description": "`GET /plans/{plan_run_id}/structure` \u2014 one page of campaigns.\n\n\u00a716 rule 4: cursor-paginated by campaign, because a 4,000-keyword plan is\nnever returned in one payload. `totals` counts the whole plan rather than\nthe page, so a reader on page one still knows how much tree there is.",
+  "properties": {
+    "plan_run_id": {
+      "format": "uuid",
+      "title": "Plan Run Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/CampaignPlanStatus"
+    },
+    "totals": {
+      "$ref": "#/$defs/PlanStructureTotals"
+    },
+    "campaigns": {
+      "items": {
+        "$ref": "#/$defs/PlanStructureCampaign"
+      },
+      "title": "Campaigns",
+      "type": "array"
+    },
+    "next_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Next Cursor"
+    },
+    "validator_regex": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Validator Regex"
+    },
+    "collision_check": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Collision Check"
+    },
+    "invalid_names": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Invalid Names"
+    },
+    "duplicate_terms": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duplicate Terms"
+    },
+    "account_negatives": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Account Negatives",
+      "type": "array"
+    },
+    "orphan_terms": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Orphan Terms",
+      "type": "array"
+    }
+  },
+  "required": [
+    "plan_run_id",
+    "version",
+    "status"
+  ],
+  "title": "PlanStructurePage",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

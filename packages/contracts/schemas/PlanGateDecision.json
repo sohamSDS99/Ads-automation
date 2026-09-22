@@ -1,0 +1,80 @@
+{
+  "description": "One of law 16's four gates, as the freeze dialog has to show it.\n\n\u00a715.3 E requires the dialog to list the four decisions with decider and\ntimestamp before anyone types a version, so they travel with the plan\nrather than being re-fetched per gate from the approvals inbox. A gate that\nhas not been decided is still a row: \"G4 \u2014 not yet decided\" is the answer\nto why the freeze button is refusing, and an absent row is not.",
+  "properties": {
+    "gate_key": {
+      "title": "Gate Key",
+      "type": "string"
+    },
+    "node_id": {
+      "title": "Node Id",
+      "type": "string"
+    },
+    "status": {
+      "title": "Status",
+      "type": "string"
+    },
+    "decided_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided By"
+    },
+    "decided_by_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided By Name"
+    },
+    "decided_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Decided At"
+    },
+    "note": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Note"
+    },
+    "edited": {
+      "default": false,
+      "title": "Edited",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "gate_key",
+    "node_id",
+    "status"
+  ],
+  "title": "PlanGateDecision",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
