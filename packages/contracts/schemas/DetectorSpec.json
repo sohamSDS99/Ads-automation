@@ -1,0 +1,62 @@
+{
+  "additionalProperties": false,
+  "description": "One claim-shaped-language pattern, from `content_constants.yaml`.\n\nDetectors are data, not code, so that adding \"we are the only X\" to the\nsuperlative family is a constants edit and a MINOR version bump rather than\na deploy.",
+  "properties": {
+    "detector_id": {
+      "minLength": 1,
+      "title": "Detector Id",
+      "type": "string"
+    },
+    "family": {
+      "enum": [
+        "superlative",
+        "comparative",
+        "quantified",
+        "guarantee",
+        "certification",
+        "endorsement"
+      ],
+      "title": "Family",
+      "type": "string"
+    },
+    "locale": {
+      "default": "en",
+      "title": "Locale",
+      "type": "string"
+    },
+    "pattern": {
+      "minLength": 1,
+      "title": "Pattern",
+      "type": "string"
+    },
+    "flags": {
+      "default": [
+        "i"
+      ],
+      "items": {
+        "enum": [
+          "i",
+          "m",
+          "s",
+          "x"
+        ],
+        "type": "string"
+      },
+      "title": "Flags",
+      "type": "array"
+    },
+    "description": {
+      "default": "",
+      "title": "Description",
+      "type": "string"
+    }
+  },
+  "required": [
+    "detector_id",
+    "family",
+    "pattern"
+  ],
+  "title": "DetectorSpec",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

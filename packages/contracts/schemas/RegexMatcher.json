@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "description": "A pattern that, when it matches, is the finding.\n\nCompiled once by the compiler and never by the linter. The pattern is\nstored as source text so the ruleset stays serialisable and diffable \u2014 a\ncompiled pattern object has no honest JSON rendering.",
+  "properties": {
+    "kind": {
+      "const": "regex",
+      "default": "regex",
+      "title": "Kind",
+      "type": "string"
+    },
+    "pattern": {
+      "minLength": 1,
+      "title": "Pattern",
+      "type": "string"
+    },
+    "flags": {
+      "default": [],
+      "items": {
+        "enum": [
+          "i",
+          "m",
+          "s",
+          "x"
+        ],
+        "type": "string"
+      },
+      "title": "Flags",
+      "type": "array"
+    },
+    "locale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Locale"
+    }
+  },
+  "required": [
+    "pattern"
+  ],
+  "title": "RegexMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

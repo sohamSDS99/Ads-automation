@@ -1,0 +1,36 @@
+{
+  "additionalProperties": false,
+  "description": "A registered logo, for the S3-P5 image match. Carried, not used, here.",
+  "properties": {
+    "asset_id": {
+      "format": "uuid",
+      "title": "Asset Id",
+      "type": "string"
+    },
+    "label": {
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "phash": {
+      "minLength": 1,
+      "title": "Phash",
+      "type": "string"
+    },
+    "min_score": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Min Score",
+      "type": "number"
+    }
+  },
+  "required": [
+    "asset_id",
+    "label",
+    "phash",
+    "min_score"
+  ],
+  "title": "LogoTemplate",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

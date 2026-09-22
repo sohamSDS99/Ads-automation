@@ -1,0 +1,620 @@
+{
+  "$defs": {
+    "Authority": {
+      "additionalProperties": false,
+      "description": "Who said so, and when anybody last checked.\n\n`reference` is a locator whose meaning follows `source`: a policy URL for\n`google_policy`, a `ClaimSignature` id for `legal_signature`, a\n`content_constants.yaml` key for `internal`, a disapproval id for\n`learned_disapproval`, and an evidence-backed brand-book span for `brand`.\nIt is one field rather than five nullable ones because a finding renders it\nas one line: *\"Google Ads policy, reviewed 2026-09-22\"*.",
+      "properties": {
+        "source": {
+          "enum": [
+            "brand",
+            "google_policy",
+            "legal_signature",
+            "internal",
+            "learned_disapproval"
+          ],
+          "title": "Source",
+          "type": "string"
+        },
+        "reference": {
+          "minLength": 1,
+          "title": "Reference",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "format": "date",
+          "title": "Reviewed At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "source",
+        "reference",
+        "reviewed_at"
+      ],
+      "title": "Authority",
+      "type": "object"
+    },
+    "ClaimLicenceMatcher": {
+      "additionalProperties": false,
+      "description": "Default deny on claim-shaped language (law 24, PRD \u00a79.3).\n\nRuns the named detectors over the target, then asks the ruleset's\n`claims_index` whether each candidate span is licensed. Unlicensed,\nunsigned, rejected and expired all behave identically: blocking. Nothing is\nlicensed because it \"reads true\" \u2014 the licence is a signature or it does\nnot exist.",
+      "properties": {
+        "kind": {
+          "const": "claim_licence",
+          "default": "claim_licence",
+          "title": "Kind",
+          "type": "string"
+        },
+        "detector_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Detector Ids",
+          "type": "array"
+        },
+        "licence_source": {
+          "const": "claims_index",
+          "default": "claims_index",
+          "title": "Licence Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "detector_ids"
+      ],
+      "title": "ClaimLicenceMatcher",
+      "type": "object"
+    },
+    "CountMatcher": {
+      "additionalProperties": false,
+      "description": "A bound on *how many* targets of a kind a set contains.\n\nThe one matcher that is not a function of a single target: \"fewer than\nthree headlines\" is a property of the whole submission, so the linter\nevaluates it once per lint call over the targets in scope rather than once\nper target. A finding from this matcher is attached to the set, not to any\none piece of copy \u2014 see `LintFinding.target_ref`.",
+      "properties": {
+        "kind": {
+          "const": "count",
+          "default": "count",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "entity": {
+          "minLength": 1,
+          "title": "Entity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "entity"
+      ],
+      "title": "CountMatcher",
+      "type": "object"
+    },
+    "DisclosureMatcher": {
+      "additionalProperties": false,
+      "description": "Generated creative must say so, where the policy says to say it.",
+      "properties": {
+        "kind": {
+          "const": "disclosure",
+          "default": "disclosure",
+          "title": "Kind",
+          "type": "string"
+        },
+        "trigger": {
+          "const": "generated_by_ai",
+          "default": "generated_by_ai",
+          "title": "Trigger",
+          "type": "string"
+        },
+        "required_text": {
+          "minLength": 1,
+          "title": "Required Text",
+          "type": "string"
+        },
+        "placement": {
+          "default": "anywhere",
+          "enum": [
+            "prefix",
+            "suffix",
+            "anywhere"
+          ],
+          "title": "Placement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "required_text"
+      ],
+      "title": "DisclosureMatcher",
+      "type": "object"
+    },
+    "EnumAllowMatcher": {
+      "additionalProperties": false,
+      "description": "An allow-list on one scalar field of the target.",
+      "properties": {
+        "kind": {
+          "const": "enum_allow",
+          "default": "enum_allow",
+          "title": "Kind",
+          "type": "string"
+        },
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "allowed": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Allowed",
+          "type": "array"
+        }
+      },
+      "required": [
+        "field",
+        "allowed"
+      ],
+      "title": "EnumAllowMatcher",
+      "type": "object"
+    },
+    "LengthMatcher": {
+      "additionalProperties": false,
+      "description": "A size bound on one target's text. The asset-spec workhorse.",
+      "properties": {
+        "kind": {
+          "const": "length",
+          "default": "length",
+          "title": "Kind",
+          "type": "string"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "unit": {
+          "default": "chars",
+          "enum": [
+            "chars",
+            "words",
+            "graphemes"
+          ],
+          "title": "Unit",
+          "type": "string"
+        }
+      },
+      "title": "LengthMatcher",
+      "type": "object"
+    },
+    "OfferBindingMatcher": {
+      "additionalProperties": false,
+      "description": "A price, discount or deadline checked against real offer data (\u00a79.4).\n\nThe offer rows are passed into `lint()` as an argument. They are never\nfetched here \u2014 a matcher that could fetch is a matcher whose verdict\ndepends on when it ran.",
+      "properties": {
+        "kind": {
+          "const": "offer_binding",
+          "default": "offer_binding",
+          "title": "Kind",
+          "type": "string"
+        },
+        "construction": {
+          "enum": [
+            "from_price",
+            "percent_off",
+            "amount_off",
+            "countdown",
+            "free_trial",
+            "price_match"
+          ],
+          "title": "Construction",
+          "type": "string"
+        },
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "source": {
+          "const": "offer_record",
+          "default": "offer_record",
+          "title": "Source",
+          "type": "string"
+        },
+        "tolerance": {
+          "default": 0.0,
+          "minimum": 0.0,
+          "title": "Tolerance",
+          "type": "number"
+        }
+      },
+      "required": [
+        "construction",
+        "field"
+      ],
+      "title": "OfferBindingMatcher",
+      "type": "object"
+    },
+    "RatioMatcher": {
+      "additionalProperties": false,
+      "description": "A bound on a measured image metric (PRD \u00a79.5).\n\nThe metric arrives as a number somebody else measured \u2014 S3-P5's OCR pass.\nThis phase evaluates the rule; it does not produce the measurement. When\nthe metric is absent the verdict is `indeterminate`, never `pass`\n(law 31).",
+      "properties": {
+        "kind": {
+          "const": "ratio",
+          "default": "ratio",
+          "title": "Kind",
+          "type": "string"
+        },
+        "metric": {
+          "minLength": 1,
+          "title": "Metric",
+          "type": "string"
+        },
+        "max": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max"
+        },
+        "min": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Min"
+        }
+      },
+      "required": [
+        "metric"
+      ],
+      "title": "RatioMatcher",
+      "type": "object"
+    },
+    "RegexMatcher": {
+      "additionalProperties": false,
+      "description": "A pattern that, when it matches, is the finding.\n\nCompiled once by the compiler and never by the linter. The pattern is\nstored as source text so the ruleset stays serialisable and diffable \u2014 a\ncompiled pattern object has no honest JSON rendering.",
+      "properties": {
+        "kind": {
+          "const": "regex",
+          "default": "regex",
+          "title": "Kind",
+          "type": "string"
+        },
+        "pattern": {
+          "minLength": 1,
+          "title": "Pattern",
+          "type": "string"
+        },
+        "flags": {
+          "default": [],
+          "items": {
+            "enum": [
+              "i",
+              "m",
+              "s",
+              "x"
+            ],
+            "type": "string"
+          },
+          "title": "Flags",
+          "type": "array"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
+        }
+      },
+      "required": [
+        "pattern"
+      ],
+      "title": "RegexMatcher",
+      "type": "object"
+    },
+    "RuleScope": {
+      "additionalProperties": false,
+      "description": "Where a rule applies. **An empty list means \"everywhere\"**, not \"nowhere\".\n\nThat default is the whole reason Stage 03 can start cold (law 21): a run\nwith no plan bound does not know the campaign slate, so its rules are\nemitted unscoped and apply to every surface. Binding a plan *narrows* the\nscope; a missing binding widens it. The inverse \u2014 empty meaning \"matches\nnothing\" \u2014 would make an unbound run produce a rulebook that silently\nenforces nothing, which is the failure mode this stage exists to avoid.",
+      "properties": {
+        "markets": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Markets",
+          "type": "array"
+        },
+        "languages": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Languages",
+          "type": "array"
+        },
+        "campaign_types": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Types",
+          "type": "array"
+        },
+        "asset_types": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Asset Types",
+          "type": "array"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "enum": [
+              "rsa_headline",
+              "rsa_description",
+              "rsa_path",
+              "long_headline",
+              "pmax_headline",
+              "pmax_description",
+              "asset_group_description",
+              "display_text",
+              "youtube_script",
+              "sitelink",
+              "callout",
+              "structured_snippet",
+              "business_name",
+              "landing_page_section"
+            ],
+            "type": "string"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        }
+      },
+      "title": "RuleScope",
+      "type": "object"
+    },
+    "TermSetMatcher": {
+      "additionalProperties": false,
+      "description": "A vocabulary rule: these words are banned, or these words are required.\n\n`mode` is the one addition to \u00a712.3's sketch, and it is not optional: the\nrule taxonomy in \u00a79.2 gives *both* \"banned term `cheap`\" and \"required term\n`Safety Data Sheet`\" as lexicon examples, and without a polarity the second\ncannot be expressed at all. `forbid` finds a hit; `require` finds a miss.\n\n`match` trades precision for reach. `exact` compares normalized surface\nforms. `stem` folds inflection with Snowball. `lemma` resolves to a\ndictionary head word, which is what catches `cheapest` for a ban on\n`cheap` \u2014 Snowball leaves `cheapest` alone. Both libraries are offline,\npinned, and stamped into `compiler_version`, so a library bump changes the\nruleset hash rather than silently changing verdicts under a stable one.",
+      "properties": {
+        "kind": {
+          "const": "term_set",
+          "default": "term_set",
+          "title": "Kind",
+          "type": "string"
+        },
+        "terms": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Terms",
+          "type": "array"
+        },
+        "match": {
+          "default": "exact",
+          "enum": [
+            "exact",
+            "lemma",
+            "stem"
+          ],
+          "title": "Match",
+          "type": "string"
+        },
+        "mode": {
+          "default": "forbid",
+          "enum": [
+            "forbid",
+            "require"
+          ],
+          "title": "Mode",
+          "type": "string"
+        },
+        "locale": {
+          "default": "en",
+          "title": "Locale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "terms"
+      ],
+      "title": "TermSetMatcher",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "One enforceable rule. PRD \u00a712.1's `RuleDraft` and \u00a712.2's `Rule` are this.\n\n`message` is written *to a person who is blocked* \u2014 \"Headlines are 30\ncharacters; this is 34\" beats \"length violation\". `fix_hint` is the\noptional second line that says what to do instead.",
+  "properties": {
+    "rule_id": {
+      "minLength": 1,
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "category": {
+      "enum": [
+        "voice",
+        "lexicon",
+        "claim",
+        "offer",
+        "policy",
+        "asset_spec",
+        "image",
+        "disclosure",
+        "governance",
+        "learned"
+      ],
+      "title": "Category",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "blocking",
+        "warning",
+        "advisory"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/RuleScope",
+      "default": {
+        "markets": [],
+        "languages": [],
+        "campaign_types": [],
+        "asset_types": [],
+        "surfaces": []
+      }
+    },
+    "matcher": {
+      "discriminator": {
+        "mapping": {
+          "claim_licence": "#/$defs/ClaimLicenceMatcher",
+          "count": "#/$defs/CountMatcher",
+          "disclosure": "#/$defs/DisclosureMatcher",
+          "enum_allow": "#/$defs/EnumAllowMatcher",
+          "length": "#/$defs/LengthMatcher",
+          "offer_binding": "#/$defs/OfferBindingMatcher",
+          "ratio": "#/$defs/RatioMatcher",
+          "regex": "#/$defs/RegexMatcher",
+          "term_set": "#/$defs/TermSetMatcher"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/RegexMatcher"
+        },
+        {
+          "$ref": "#/$defs/TermSetMatcher"
+        },
+        {
+          "$ref": "#/$defs/LengthMatcher"
+        },
+        {
+          "$ref": "#/$defs/CountMatcher"
+        },
+        {
+          "$ref": "#/$defs/RatioMatcher"
+        },
+        {
+          "$ref": "#/$defs/EnumAllowMatcher"
+        },
+        {
+          "$ref": "#/$defs/ClaimLicenceMatcher"
+        },
+        {
+          "$ref": "#/$defs/OfferBindingMatcher"
+        },
+        {
+          "$ref": "#/$defs/DisclosureMatcher"
+        }
+      ],
+      "title": "Matcher"
+    },
+    "message": {
+      "minLength": 1,
+      "title": "Message",
+      "type": "string"
+    },
+    "fix_hint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fix Hint"
+    },
+    "authority": {
+      "$ref": "#/$defs/Authority"
+    },
+    "evidence_ids": {
+      "default": [],
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "rule_id",
+    "category",
+    "severity",
+    "matcher",
+    "message",
+    "authority"
+  ],
+  "title": "Rule",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

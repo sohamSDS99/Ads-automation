@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "description": "A bound on a measured image metric (PRD \u00a79.5).\n\nThe metric arrives as a number somebody else measured \u2014 S3-P5's OCR pass.\nThis phase evaluates the rule; it does not produce the measurement. When\nthe metric is absent the verdict is `indeterminate`, never `pass`\n(law 31).",
+  "properties": {
+    "kind": {
+      "const": "ratio",
+      "default": "ratio",
+      "title": "Kind",
+      "type": "string"
+    },
+    "metric": {
+      "minLength": 1,
+      "title": "Metric",
+      "type": "string"
+    },
+    "max": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max"
+    },
+    "min": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min"
+    }
+  },
+  "required": [
+    "metric"
+  ],
+  "title": "RatioMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

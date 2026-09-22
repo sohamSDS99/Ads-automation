@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "description": "Generated creative must say so, where the policy says to say it.",
+  "properties": {
+    "kind": {
+      "const": "disclosure",
+      "default": "disclosure",
+      "title": "Kind",
+      "type": "string"
+    },
+    "trigger": {
+      "const": "generated_by_ai",
+      "default": "generated_by_ai",
+      "title": "Trigger",
+      "type": "string"
+    },
+    "required_text": {
+      "minLength": 1,
+      "title": "Required Text",
+      "type": "string"
+    },
+    "placement": {
+      "default": "anywhere",
+      "enum": [
+        "prefix",
+        "suffix",
+        "anywhere"
+      ],
+      "title": "Placement",
+      "type": "string"
+    }
+  },
+  "required": [
+    "required_text"
+  ],
+  "title": "DisclosureMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

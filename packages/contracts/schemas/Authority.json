@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "description": "Who said so, and when anybody last checked.\n\n`reference` is a locator whose meaning follows `source`: a policy URL for\n`google_policy`, a `ClaimSignature` id for `legal_signature`, a\n`content_constants.yaml` key for `internal`, a disapproval id for\n`learned_disapproval`, and an evidence-backed brand-book span for `brand`.\nIt is one field rather than five nullable ones because a finding renders it\nas one line: *\"Google Ads policy, reviewed 2026-09-22\"*.",
+  "properties": {
+    "source": {
+      "enum": [
+        "brand",
+        "google_policy",
+        "legal_signature",
+        "internal",
+        "learned_disapproval"
+      ],
+      "title": "Source",
+      "type": "string"
+    },
+    "reference": {
+      "minLength": 1,
+      "title": "Reference",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "format": "date",
+      "title": "Reviewed At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "reference",
+    "reviewed_at"
+  ],
+  "title": "Authority",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,48 @@
+{
+  "additionalProperties": false,
+  "description": "A price, discount or deadline checked against real offer data (\u00a79.4).\n\nThe offer rows are passed into `lint()` as an argument. They are never\nfetched here \u2014 a matcher that could fetch is a matcher whose verdict\ndepends on when it ran.",
+  "properties": {
+    "kind": {
+      "const": "offer_binding",
+      "default": "offer_binding",
+      "title": "Kind",
+      "type": "string"
+    },
+    "construction": {
+      "enum": [
+        "from_price",
+        "percent_off",
+        "amount_off",
+        "countdown",
+        "free_trial",
+        "price_match"
+      ],
+      "title": "Construction",
+      "type": "string"
+    },
+    "field": {
+      "minLength": 1,
+      "title": "Field",
+      "type": "string"
+    },
+    "source": {
+      "const": "offer_record",
+      "default": "offer_record",
+      "title": "Source",
+      "type": "string"
+    },
+    "tolerance": {
+      "default": 0.0,
+      "minimum": 0.0,
+      "title": "Tolerance",
+      "type": "number"
+    }
+  },
+  "required": [
+    "construction",
+    "field"
+  ],
+  "title": "OfferBindingMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

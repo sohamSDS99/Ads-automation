@@ -1,0 +1,118 @@
+{
+  "additionalProperties": false,
+  "description": "Live offer data, passed into `lint()` for `offers.py` to check against.\n\nPRD \u00a79.4 and Q4: it arrives through `csv_ingest` today and may come from a\npricing feed later. Either way it is an *argument*, because a matcher that\ncould fetch its own prices is a matcher whose verdict depends on when it\nran.",
+  "properties": {
+    "sku": {
+      "minLength": 1,
+      "title": "Sku",
+      "type": "string"
+    },
+    "product_set": {
+      "minLength": 1,
+      "title": "Product Set",
+      "type": "string"
+    },
+    "list_price": {
+      "minimum": 0,
+      "title": "List Price",
+      "type": "number"
+    },
+    "current_price": {
+      "minimum": 0,
+      "title": "Current Price",
+      "type": "number"
+    },
+    "currency": {
+      "minLength": 1,
+      "title": "Currency",
+      "type": "string"
+    },
+    "market": {
+      "minLength": 1,
+      "title": "Market",
+      "type": "string"
+    },
+    "effective_from": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Effective From"
+    },
+    "effective_to": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Effective To"
+    },
+    "reference_price": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reference Price"
+    },
+    "ends_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ends At"
+    },
+    "extensions": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Extensions",
+      "type": "integer"
+    },
+    "observed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Observed At"
+    }
+  },
+  "required": [
+    "sku",
+    "product_set",
+    "list_price",
+    "current_price",
+    "currency",
+    "market"
+  ],
+  "title": "OfferRecord",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,84 @@
+{
+  "additionalProperties": false,
+  "description": "A registered claim and the surface forms its signature licenses.\n\n`expires_at` is compared against the `now` passed into `lint()`. A claim\nthat has lapsed stops licensing its forms on the next lint \u2014 no sweep\nrequired, no stale cache to invalidate.",
+  "properties": {
+    "claim_id": {
+      "format": "uuid",
+      "title": "Claim Id",
+      "type": "string"
+    },
+    "normalized_text": {
+      "minLength": 1,
+      "title": "Normalized Text",
+      "type": "string"
+    },
+    "surface_forms": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Surface Forms",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "draft",
+        "approved",
+        "rejected",
+        "expired"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "market_scope": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Market Scope",
+      "type": "array"
+    },
+    "languages": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Languages",
+      "type": "array"
+    },
+    "expires_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expires At"
+    },
+    "signature_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signature Id"
+    }
+  },
+  "required": [
+    "claim_id",
+    "normalized_text",
+    "status"
+  ],
+  "title": "ClaimRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

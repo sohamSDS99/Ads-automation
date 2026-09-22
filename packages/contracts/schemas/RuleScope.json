@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "description": "Where a rule applies. **An empty list means \"everywhere\"**, not \"nowhere\".\n\nThat default is the whole reason Stage 03 can start cold (law 21): a run\nwith no plan bound does not know the campaign slate, so its rules are\nemitted unscoped and apply to every surface. Binding a plan *narrows* the\nscope; a missing binding widens it. The inverse \u2014 empty meaning \"matches\nnothing\" \u2014 would make an unbound run produce a rulebook that silently\nenforces nothing, which is the failure mode this stage exists to avoid.",
+  "properties": {
+    "markets": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "languages": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Languages",
+      "type": "array"
+    },
+    "campaign_types": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Campaign Types",
+      "type": "array"
+    },
+    "asset_types": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Asset Types",
+      "type": "array"
+    },
+    "surfaces": {
+      "default": [],
+      "items": {
+        "enum": [
+          "rsa_headline",
+          "rsa_description",
+          "rsa_path",
+          "long_headline",
+          "pmax_headline",
+          "pmax_description",
+          "asset_group_description",
+          "display_text",
+          "youtube_script",
+          "sitelink",
+          "callout",
+          "structured_snippet",
+          "business_name",
+          "landing_page_section"
+        ],
+        "type": "string"
+      },
+      "title": "Surfaces",
+      "type": "array"
+    }
+  },
+  "title": "RuleScope",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

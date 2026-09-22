@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "description": "A vocabulary rule: these words are banned, or these words are required.\n\n`mode` is the one addition to \u00a712.3's sketch, and it is not optional: the\nrule taxonomy in \u00a79.2 gives *both* \"banned term `cheap`\" and \"required term\n`Safety Data Sheet`\" as lexicon examples, and without a polarity the second\ncannot be expressed at all. `forbid` finds a hit; `require` finds a miss.\n\n`match` trades precision for reach. `exact` compares normalized surface\nforms. `stem` folds inflection with Snowball. `lemma` resolves to a\ndictionary head word, which is what catches `cheapest` for a ban on\n`cheap` \u2014 Snowball leaves `cheapest` alone. Both libraries are offline,\npinned, and stamped into `compiler_version`, so a library bump changes the\nruleset hash rather than silently changing verdicts under a stable one.",
+  "properties": {
+    "kind": {
+      "const": "term_set",
+      "default": "term_set",
+      "title": "Kind",
+      "type": "string"
+    },
+    "terms": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Terms",
+      "type": "array"
+    },
+    "match": {
+      "default": "exact",
+      "enum": [
+        "exact",
+        "lemma",
+        "stem"
+      ],
+      "title": "Match",
+      "type": "string"
+    },
+    "mode": {
+      "default": "forbid",
+      "enum": [
+        "forbid",
+        "require"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "locale": {
+      "default": "en",
+      "title": "Locale",
+      "type": "string"
+    }
+  },
+  "required": [
+    "terms"
+  ],
+  "title": "TermSetMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
