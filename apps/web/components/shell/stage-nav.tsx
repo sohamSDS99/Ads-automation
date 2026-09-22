@@ -1,11 +1,12 @@
 "use client";
 
-import { Map as MapIcon, Palette, Telescope } from "lucide-react";
+import { BookCheck, Map as MapIcon, Palette, Telescope } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { useProject } from "@/lib/queries";
+import { stageChip } from "@/lib/api/guidelines";
+import { useGuidelines, useProject } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -24,14 +25,22 @@ import { cn } from "@/lib/utils";
  *
  * Stage 02 is not gated here. What it shows when planning cannot start is the
  * named blocker, which is the page's job and not this row's — a grey row with
- * a tooltip saying "unavailable" is the one thing §15.1 rules out. Stage 03 is
- * a placeholder rather than an omission, because the point of the group is
- * that the whole pipeline is legible from day one.
+ * a tooltip saying "unavailable" is the one thing §15.1 rules out.
+ *
+ * **Stage 03 has no lock state at all**, which is a stronger statement than
+ * "is not gated here" (Stage 03 PRD §15.1 rule 1). Stage 02 could in principle
+ * compute a disabled row from `/plan/eligibility` and deliberately does not;
+ * stage 03 has no upstream precondition to compute one from. Any lock on that
+ * row is a bug, so there is no code path here that could produce one.
+ *
+ * §15.1 rule 4 also renumbers the placeholder: the board has seven stages and
+ * the old `03 Creative` was one short of where copy and creative actually sit.
  */
 const STAGES = [
   { id: "research", label: "01 Research", href: "", icon: Telescope },
   { id: "plan", label: "02 Campaign planning", href: "/plan", icon: MapIcon },
-  { id: "creative", label: "03 Creative", href: null, icon: Palette, hint: "Coming later" },
+  { id: "guidelines", label: "03 Content guidelines", href: "/guidelines", icon: BookCheck },
+  { id: "creative", label: "04 Copy & creative", href: null, icon: Palette, hint: "Coming later" },
 ] as const;
 
 /** One geometry for all three rows, so they line up whatever they are made of. */
@@ -55,7 +64,18 @@ export function StageNav({ projectId }: { projectId: string }) {
   const base = `/projects/${projectId}`;
   // Anything under `/plan` is stage 02; everything else under the project —
   // the overview, a run console, a report, evidence — is stage 01.
-  const active = pathname.startsWith(`${base}/plan`) ? "plan" : "research";
+  const guidelines = useGuidelines(projectId);
+  // Longest-prefix first would matter if one route were a prefix of another;
+  // these three are disjoint, so the order is only about reading order.
+  const active = pathname.startsWith(`${base}/guidelines`)
+    ? "guidelines"
+    : pathname.startsWith(`${base}/plan`)
+      ? "plan"
+      : "research";
+  // Rendered only once the list has loaded, and only when there is something
+  // to say — see `stageChip`. A chip shown while the answer is still in flight
+  // is a chip a person would act on before it is true.
+  const chip = guidelines.data ? stageChip(guidelines.data.versions) : null;
 
   return (
     <nav aria-label="Pipeline stage" className="shrink-0 p-2">
@@ -113,6 +133,12 @@ export function StageNav({ projectId }: { projectId: string }) {
               >
                 <Icon className="size-4 shrink-0" aria-hidden />
                 <span className={LABEL}>{stage.label}</span>
+                {/* Stage 03 carries its own status, independent of the other
+                    two rows. Hidden on the narrow rail, where the row is an
+                    icon and there is nowhere to put it. */}
+                {stage.id === "guidelines" && chip ? (
+                  <span className="hidden shrink-0 text-xs text-fg-subtle md:inline">{chip}</span>
+                ) : null}
               </Link>
             </li>
           );

@@ -1,0 +1,38 @@
+{
+  "description": "An accepted research run, offered as an optional binding.",
+  "properties": {
+    "acceptance_id": {
+      "format": "uuid",
+      "title": "Acceptance Id",
+      "type": "string"
+    },
+    "research_run_id": {
+      "format": "uuid",
+      "title": "Research Run Id",
+      "type": "string"
+    },
+    "research_schema_version": {
+      "title": "Research Schema Version",
+      "type": "string"
+    },
+    "accepted_at": {
+      "format": "date-time",
+      "title": "Accepted At",
+      "type": "string"
+    },
+    "adds": {
+      "title": "Adds",
+      "type": "string"
+    }
+  },
+  "required": [
+    "acceptance_id",
+    "research_run_id",
+    "research_schema_version",
+    "accepted_at",
+    "adds"
+  ],
+  "title": "ResearchBinding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -106,12 +106,22 @@ async def test_admin_can_sign_in(client: ApiClient, workspace: Ws) -> None:
         # `test_rbac`'s grid.
         "plan_execute",
         "plan_freeze",
+        # Stage 03 (S3-P0). Two of the four, and the two that are missing are
+        # the point: `claim_sign` and `attest_submit` are held by `approver`
+        # alone and are the first permissions this account — the system
+        # administrator, who holds everything else everywhere — does not get
+        # (Stage 03 law 23). If either ever appears in this set, the
+        # non-delegable signature has stopped being non-delegable.
+        "guideline_execute",
+        "guideline_publish",
         # The bootstrap account is the system administrator. A workspace admin
-        # invited later holds the ten above and not this one — see
+        # invited later holds the twelve above and not this one — see
         # `test_authz_matrix`, which runs its `admin` row through an invited
         # account for exactly that reason.
         "platform_admin",
     }
+    assert "claim_sign" not in body["permissions"]
+    assert "attest_submit" not in body["permissions"]
     assert [w["name"] for w in body["workspaces"]] == [body["workspace_name"]]
 
 

@@ -72,6 +72,7 @@ class AuditAction(StrEnum):
     #: question with its own audience.
     RESEARCH_NO_GO_OVERRIDDEN = "research.no_go_overridden"
     PLAN_STARTED = "plan.started"
+    GUIDELINE_STARTED = "guideline.started"
     #: The seal. PS4 requires the freeze to write an audit row in the same
     #: transaction as the change, which is what makes "who agreed to spend
     #: this, on what basis, on what date" answerable without a thread.

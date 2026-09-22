@@ -258,7 +258,8 @@
       "description": "Which pipeline a run executes (Stage 02 PRD \u00a77.1).\n\nOne `run` table, two DAGs. A plan run consumes exactly one research run and\nsays so in `source_run_id`; the `CHECK` in migration 0013 makes the two\nfacts inseparable, so \"a plan run\" and \"a run with a source\" are the same\nstatement rather than two that can drift apart.",
       "enum": [
         "research",
-        "plan"
+        "plan",
+        "guideline"
       ],
       "title": "RunStage",
       "type": "string"
@@ -268,6 +269,7 @@
         "queued",
         "running",
         "awaiting_approval",
+        "awaiting_human_task",
         "succeeded",
         "failed",
         "cancelled"

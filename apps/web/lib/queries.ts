@@ -21,6 +21,7 @@ import { listSessions } from "@/lib/api/account";
 import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
+import { getGuidelineEligibility, listGuidelines } from "@/lib/api/guidelines";
 import { getModels } from "@/lib/api/models";
 import {
   freezePlan,
@@ -64,6 +65,9 @@ export const keys = {
   documents: (projectId: string) => ["projects", projectId, "documents"] as const,
   runDiff: (runId: string, against?: string) => ["runs", runId, "diff", against ?? "parent"] as const,
   planEligibility: (projectId: string) => ["projects", projectId, "plan", "eligibility"] as const,
+  guidelineEligibility: (projectId: string) =>
+    ["projects", projectId, "guidelines", "eligibility"] as const,
+  guidelines: (projectId: string) => ["projects", projectId, "guidelines"] as const,
   plans: (projectId: string) => ["projects", projectId, "plans"] as const,
   plan: (planRunId: string) => ["plans", planRunId] as const,
   planStructure: (planRunId: string) => ["plans", planRunId, "structure"] as const,
@@ -110,6 +114,33 @@ export function useProjectRuns(id: string) {
  * eligibility only changes when somebody does something, and every one of
  * those somethings invalidates this key.
  */
+/**
+ * Stage 03 eligibility.
+ *
+ * Polls only while a run holds the lock, exactly as the plan version does —
+ * and on `guideline_in_flight`, which is the *blocker* list. The warnings are
+ * never a reason to poll: none of them resolves on its own.
+ */
+export function useGuidelineEligibility(projectId: string) {
+  return useQuery({
+    queryKey: keys.guidelineEligibility(projectId),
+    queryFn: () => getGuidelineEligibility(projectId),
+    enabled: Boolean(projectId),
+    refetchInterval: (query) =>
+      query.state.data?.blockers.some((item) => item.code === "guideline_in_flight")
+        ? PLAN_POLL_MS
+        : false,
+  });
+}
+
+export function useGuidelines(projectId: string) {
+  return useQuery({
+    queryKey: keys.guidelines(projectId),
+    queryFn: () => listGuidelines(projectId),
+    enabled: Boolean(projectId),
+  });
+}
+
 export function usePlanEligibility(projectId: string) {
   return useQuery({
     queryKey: keys.planEligibility(projectId),

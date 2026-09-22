@@ -78,8 +78,12 @@ class LaunchRequest:
     #: The accepted research run a plan consumes. Required for `stage=plan`
     #: and forbidden otherwise — `ck_run_plan_has_source` is the backstop.
     source_run_id: uuid.UUID | None = None
-    #: sha256 of the `PlanInput` this run was built from.
+    #: sha256 of the `PlanInput` or `GuidelineInput` this run was built from.
     input_hash: str | None = None
+    #: The bindings that actually resolved, for `stage=guideline`. Required
+    #: there and forbidden elsewhere — `ck_run_guideline_has_bindings` is the
+    #: backstop, and it insists on a JSON object rather than merely not-NULL.
+    bindings: dict[str, str | int | None] | None = None
     #: Extra fields folded into the audit row — how the scheduler records which
     #: schedule fired.
     audit_meta: dict[str, str | None] = field(default_factory=dict)
@@ -97,6 +101,7 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
         stage=request.stage,
         source_run_id=request.source_run_id,
         input_hash=request.input_hash,
+        bindings=request.bindings,
         triggered_by=request.actor_id,
         trigger=request.trigger,
         status=RunStatus.QUEUED,
@@ -126,9 +131,10 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
         db,
         workspace_id=request.workspace_id,
         actor_id=request.actor_id,
-        action=(
-            AuditAction.PLAN_STARTED if request.stage is RunStage.PLAN else AuditAction.RUN_LAUNCHED
-        ),
+        action={
+            RunStage.PLAN: AuditAction.PLAN_STARTED,
+            RunStage.GUIDELINE: AuditAction.GUIDELINE_STARTED,
+        }.get(request.stage, AuditAction.RUN_LAUNCHED),
         target_type=AuditTarget.RUN,
         target_id=run.id,
         meta={
@@ -136,6 +142,7 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
             "stage": request.stage.value,
             "source_run_id": str(request.source_run_id) if request.source_run_id else None,
             "input_hash": request.input_hash,
+            "bindings": request.bindings,
             "trigger": request.trigger.value,
             "mode": run.mode.value,
             "node_ids": sorted(request.node_ids) if request.node_ids else None,

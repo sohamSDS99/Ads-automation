@@ -1,0 +1,356 @@
+{
+  "$defs": {
+    "NamingConvention": {
+      "additionalProperties": true,
+      "description": "2.4.1. The patterns every generated name is checked against.",
+      "properties": {
+        "patterns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "object"
+        },
+        "tokens": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Tokens",
+          "type": "array"
+        },
+        "validator_regex": {
+          "default": "",
+          "title": "Validator Regex",
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "collisions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Collisions",
+          "type": "array"
+        },
+        "collision_check": {
+          "default": "",
+          "title": "Collision Check",
+          "type": "string"
+        }
+      },
+      "title": "NamingConvention",
+      "type": "object"
+    },
+    "PlannedAdGroup": {
+      "additionalProperties": true,
+      "description": "\u00a712.3 item 1: the container Stage 03 writes every ad into.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "theme": {
+          "default": "",
+          "title": "Theme",
+          "type": "string"
+        },
+        "landing_url": {
+          "default": "",
+          "title": "Landing Url",
+          "type": "string"
+        },
+        "primary_message": {
+          "default": "",
+          "title": "Primary Message",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "keywords": {
+          "items": {
+            "$ref": "#/$defs/PlannedKeyword"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "coherence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coherence"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedAdGroup",
+      "type": "object"
+    },
+    "PlannedCampaign": {
+      "additionalProperties": true,
+      "description": "One campaign, complete enough to build.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "campaign_ref": {
+          "default": "",
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "title": "Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "monthly_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Monthly Budget Usd"
+        },
+        "daily_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Budget Usd"
+        },
+        "bid_strategy": {
+          "default": "",
+          "title": "Bid Strategy",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "locations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locations",
+          "type": "array"
+        },
+        "ad_groups": {
+          "items": {
+            "$ref": "#/$defs/PlannedAdGroup"
+          },
+          "title": "Ad Groups",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedCampaign",
+      "type": "object"
+    },
+    "PlannedKeyword": {
+      "additionalProperties": true,
+      "description": "One keyword, as it will be imported. The EDITOR_CSV row.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "default": "phrase",
+          "title": "Match Type",
+          "type": "string"
+        },
+        "forecast_cpc_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Cpc Usd"
+        },
+        "search_volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Volume"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PlannedKeyword",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "\u00a712's `account_structure` \u2014 stage 2.4 in one section.",
+  "properties": {
+    "naming_convention": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NamingConvention"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "campaigns": {
+      "items": {
+        "$ref": "#/$defs/PlannedCampaign"
+      },
+      "title": "Campaigns",
+      "type": "array"
+    },
+    "account_negatives": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Account Negatives",
+      "type": "array"
+    },
+    "orphan_terms": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Orphan Terms",
+      "type": "array"
+    },
+    "volume_check": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Volume Check",
+      "type": "array"
+    },
+    "structure_verdict": {
+      "default": "",
+      "title": "Structure Verdict",
+      "type": "string"
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "duplicate_terms": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Duplicate Terms"
+    },
+    "invalid_names": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Invalid Names"
+    },
+    "calc_evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Calc Evidence Ids",
+      "type": "array"
+    }
+  },
+  "title": "AccountStructure",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

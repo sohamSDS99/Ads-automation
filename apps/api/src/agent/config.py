@@ -198,6 +198,26 @@ class Settings(BaseSettings):
     #: it separately.
     max_plan_cost_usd: Decimal = Decimal("8.00")
 
+    # --- Stage 03, the content guidelines agent ----------------------------
+    #: Which upstream schema versions a *binding* may carry. Deliberately
+    #: unlike `plan_supported_research_schemas`, which produces a 422: a
+    #: skewed version here drops the binding and the run continues, because
+    #: Stage 03 does not need it (PRD §4.5 rule 4). Turning either of these
+    #: into a blocker rebuilds Stage 02's handshake by accident.
+    guideline_supported_research_schemas: frozenset[str] = frozenset({"1.0"})
+    guideline_supported_plan_schemas: frozenset[str] = frozenset({"1.0"})
+    #: Lower than planning: no crawling at keyword scale and no forecast pass.
+    max_guideline_cost_usd: Decimal = Decimal("6.00")
+    #: How long a step-up re-auth proof stays usable. Single-use as well as
+    #: short-lived — both halves are asserted in S3-P3.
+    signature_reauth_ttl_seconds: int = 300
+    #: Stamped into every `RuleSet` and folded into `Run.input_hash`, so a
+    #: thresholds bump re-runs the deterministic nodes instead of reusing an
+    #: output shaped by the old numbers. S3-P1 replaces this default by reading
+    #: `version:` out of `content_constants.yaml`; it lives here now so the
+    #: hash is honest before that file exists.
+    content_constants_version: str = "2026.09.1"
+
     # --- source keys supplied by the deployment ----------------------------
     # Every secret the product uses, and the only place any of them lives. The
     # interface never accepts a key and has nowhere to put one: what a

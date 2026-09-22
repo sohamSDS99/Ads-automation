@@ -68,6 +68,18 @@ class Permission(StrEnum):
     commit to what those decisions add up to.
     """
 
+    GUIDELINE_EXECUTE = "guideline_execute"
+    """Start, cancel or retry a guideline run; edit a claim draft before signature."""
+
+    GUIDELINE_PUBLISH = "guideline_publish"
+    """Publish a draft guideline into a version; apply or dismiss an amendment."""
+
+    CLAIM_SIGN = "claim_sign"
+    """Sign or revoke a claim-set signature (Stage 03 PRD §5.1, H1)."""
+
+    ATTEST_SUBMIT = "attest_submit"
+    """Submit a verification attestation with supporting documents (H2)."""
+
     PLATFORM_ADMIN = "platform_admin"
     """Create workspaces, reach every one of them, and promote other admins.
 
@@ -77,10 +89,28 @@ class Permission(StrEnum):
     """
 
 
+#: The two acts no administrator may perform (Stage 03 PRD §5.2, law 23).
+#:
+#: Every other permission in this file degrades to `admin`. These do not, and
+#: the reason is the whole mechanism: liability sits with a named person, and a
+#: permission an administrator can self-grant is not a signature, it is a
+#: checkbox. An admin may *reassign* the legal owner — a governance act that
+#: voids every signature the outgoing owner made and is audit-logged with a
+#: mandatory reason — and may never sign in their place.
+#:
+#: This is the role layer only. The route layer narrows each of these again to
+#: one named identity (`SignOffMatrix.legal_owner_id` for `CLAIM_SIGN`,
+#: `HumanTask.assignee_id` for `ATTEST_SUBMIT`) and adds a step-up re-auth
+#: proof. Holding the permission is necessary and nowhere near sufficient.
+NON_DELEGABLE: frozenset[Permission] = frozenset({Permission.CLAIM_SIGN, Permission.ATTEST_SUBMIT})
+
+
 #: Everything a workspace admin holds. `PLATFORM_ADMIN` is excluded by
 #: construction rather than by omission: a permission added later is a
 #: workspace permission unless it is deliberately listed here.
-WORKSPACE_PERMISSIONS: frozenset[Permission] = frozenset(Permission) - {Permission.PLATFORM_ADMIN}
+WORKSPACE_PERMISSIONS: frozenset[Permission] = (
+    frozenset(Permission) - {Permission.PLATFORM_ADMIN} - NON_DELEGABLE
+)
 
 
 ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
@@ -91,6 +121,7 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.PROJECT_WRITE,
             Permission.RUN_EXECUTE,
             Permission.PLAN_EXECUTE,
+            Permission.GUIDELINE_EXECUTE,
         }
     ),
     UserRole.APPROVER: frozenset(
@@ -98,6 +129,12 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.READ,
             Permission.APPROVAL_DECIDE,
             Permission.PLAN_FREEZE,
+            Permission.GUIDELINE_PUBLISH,
+            # The two non-delegable ones. `approver` is the only role that
+            # holds them at all, and holding them is still not enough — see
+            # NON_DELEGABLE.
+            Permission.CLAIM_SIGN,
+            Permission.ATTEST_SUBMIT,
         }
     ),
     UserRole.VIEWER: frozenset({Permission.READ}),
@@ -111,13 +148,19 @@ def permissions_for(role: UserRole | None, *, superadmin: bool = False) -> froze
     different permissions in two workspaces and the answer changes with the
     one it is asked about.
 
-    `superadmin` short-circuits to everything, including `PLATFORM_ADMIN`.
-    `role` is then irrelevant and may be None: the whole point of the
-    system administrator is reaching a workspace they were never added to.
-    Unknown or missing roles get nothing, never everything.
+    `superadmin` short-circuits to everything, including `PLATFORM_ADMIN`,
+    **except the two non-delegable signatures**. `role` is then irrelevant and
+    may be None: the whole point of the system administrator is reaching a
+    workspace they were never added to. Unknown or missing roles get nothing,
+    never everything.
+
+    The `NON_DELEGABLE` subtraction here is not belt-and-braces with the one in
+    `WORKSPACE_PERMISSIONS`: this branch never consults `ROLE_PERMISSIONS` at
+    all, so without it the one account law 23 most needs to exclude would be
+    the one account that could sign.
     """
     if superadmin:
-        return frozenset(Permission)
+        return frozenset(Permission) - NON_DELEGABLE
     if role is None:
         return frozenset()
     return ROLE_PERMISSIONS.get(role, frozenset())

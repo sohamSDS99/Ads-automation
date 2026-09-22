@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "GuidelineBindings": {
+      "additionalProperties": false,
+      "description": "Which Stage 01 and Stage 02 artifacts this run was pointed at.\n\nResolved once at run start and hashed into `Run.input_hash`. A binding that\ndoes not resolve is *dropped* rather than fatal \u2014 Stage 03 does not need\nit, and a stage that starts cold must not acquire a hard dependency by way\nof an optional one (\u00a74.5 rule 4).",
+      "properties": {
+        "research_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Run Id"
+        },
+        "acceptance_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acceptance Id"
+        },
+        "research_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Research Schema Version"
+        },
+        "plan_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Id"
+        },
+        "plan_version": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Version"
+        },
+        "plan_schema_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Plan Schema Version"
+        }
+      },
+      "title": "GuidelineBindings",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`POST /projects/{id}/guidelines/runs`.\n\n`mode` is deliberately absent. It is derived from what resolves server-side\nand a caller has no way to assert it (\u00a74.5 rule 3).",
+  "properties": {
+    "bindings": {
+      "$ref": "#/$defs/GuidelineBindings"
+    },
+    "reuse_cache": {
+      "default": true,
+      "title": "Reuse Cache",
+      "type": "boolean"
+    }
+  },
+  "title": "StartGuidelineRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

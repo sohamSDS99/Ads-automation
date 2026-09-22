@@ -1,0 +1,112 @@
+{
+  "$defs": {
+    "PlanBinding": {
+      "description": "A frozen campaign plan, offered as an optional binding.",
+      "properties": {
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "plan_version": {
+          "title": "Plan Version",
+          "type": "integer"
+        },
+        "plan_schema_version": {
+          "title": "Plan Schema Version",
+          "type": "string"
+        },
+        "frozen_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frozen At"
+        },
+        "adds": {
+          "title": "Adds",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id",
+        "plan_version",
+        "plan_schema_version",
+        "adds"
+      ],
+      "title": "PlanBinding",
+      "type": "object"
+    },
+    "ResearchBinding": {
+      "description": "An accepted research run, offered as an optional binding.",
+      "properties": {
+        "acceptance_id": {
+          "format": "uuid",
+          "title": "Acceptance Id",
+          "type": "string"
+        },
+        "research_run_id": {
+          "format": "uuid",
+          "title": "Research Run Id",
+          "type": "string"
+        },
+        "research_schema_version": {
+          "title": "Research Schema Version",
+          "type": "string"
+        },
+        "accepted_at": {
+          "format": "date-time",
+          "title": "Accepted At",
+          "type": "string"
+        },
+        "adds": {
+          "title": "Adds",
+          "type": "string"
+        }
+      },
+      "required": [
+        "acceptance_id",
+        "research_run_id",
+        "research_schema_version",
+        "accepted_at",
+        "adds"
+      ],
+      "title": "ResearchBinding",
+      "type": "object"
+    }
+  },
+  "description": "What the start dialog may offer. Both sides independently optional.",
+  "properties": {
+    "research": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ResearchBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "plan": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlanBinding"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "title": "AvailableBindings",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
