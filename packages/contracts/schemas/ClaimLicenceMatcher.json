@@ -21,6 +21,13 @@
       "default": "claims_index",
       "title": "Licence Source",
       "type": "string"
+    },
+    "match_threshold": {
+      "default": 0.88,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Match Threshold",
+      "type": "number"
     }
   },
   "required": [

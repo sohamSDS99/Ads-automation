@@ -305,6 +305,14 @@ class OfferBindingMatcher(_Contract):
     field: str = Field(min_length=1)
     source: Literal["offer_record"] = "offer_record"
     tolerance: float = Field(default=0.0, ge=0.0)
+    #: Which offers this rule is about. `None` means every offer in the
+    #: target's market — §9.4 speaks of "the referenced product set", and
+    #: without this the rule has no way to say which set it references.
+    product_set: str | None = None
+    #: Offer data older than this earns a warning alongside the finding (Q4).
+    #: Compiled in for the same reason as `match_threshold`: a ruleset has to
+    #: determine its own verdicts.
+    staleness_days: int = Field(default=30, ge=0)
 
 
 class DisclosureMatcher(_Contract):

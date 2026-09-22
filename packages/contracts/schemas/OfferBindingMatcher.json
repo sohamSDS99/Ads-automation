@@ -36,6 +36,24 @@
       "minimum": 0.0,
       "title": "Tolerance",
       "type": "number"
+    },
+    "product_set": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Product Set"
+    },
+    "staleness_days": {
+      "default": 30,
+      "minimum": 0,
+      "title": "Staleness Days",
+      "type": "integer"
     }
   },
   "required": [
