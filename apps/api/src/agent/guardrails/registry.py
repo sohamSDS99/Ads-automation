@@ -337,17 +337,23 @@ def finding(
     span: tuple[int, int] | None = None,
     claim_id: UUID | None = None,
     indeterminate: bool = False,
+    severity: Severity | None = None,
 ) -> LintFinding:
     """Build a finding that carries its rule's authority. The only constructor.
 
     Every evaluator goes through this, so PRD §9.1 item 5 — *a finding that
     cannot name its authority is a bug* — is true by construction rather than
     by each matcher remembering to copy the field.
+
+    `severity` overrides the rule's own, and exists for exactly one shape: a
+    note attached to a finding rather than a verdict of its own. The offer
+    staleness warning (Q4) rides alongside a blocking price finding and must
+    not itself be a second reason to fail.
     """
     return LintFinding(
         target_ref=target_ref,
         rule_id=rule.rule_id,
-        severity=rule.severity,
+        severity=severity or rule.severity,
         span=span,
         message=message or rule.message,
         fix_hint=rule.fix_hint,

@@ -201,7 +201,9 @@ def test_a_finding_computed_from_stale_offer_data_says_so() -> None:
     old = offer(current_price=49.0, observed_at=datetime(2026, 1, 1, tzinfo=UTC))
     findings = lint(from_price(authority=GOOGLE), "from €39", (old,))
     assert len(findings) == 2
-    assert any("older than 30 days" in item.message for item in findings)
+    assert any(
+        item.message.count("older than 30 days") and item.severity == "warning" for item in findings
+    )
 
 
 def test_fresh_offer_data_adds_no_staleness_warning() -> None:

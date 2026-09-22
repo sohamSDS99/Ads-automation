@@ -191,7 +191,7 @@ def evaluate_offer(
                     f"{prepared.staleness_days} days (Q4)."
                 ),
                 span=span,
-                indeterminate=True,
+                severity="warning",
             )
         )
     return findings
