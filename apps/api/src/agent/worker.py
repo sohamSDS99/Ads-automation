@@ -30,6 +30,7 @@ from agent.redis_client import close_redis, get_redis
 from agent.scheduling.jobs import (
     approval_reminders_job,
     nightly_maintenance_job,
+    policy_watch_job,
     poll_schedules_job,
     reap_stale_runs_job,
 )
@@ -116,6 +117,10 @@ class WorkerSettings:
         # an off-the-hour slot is less likely to land on whatever else the host
         # runs nightly.
         cron(nightly_maintenance_job, hour={3}, minute={17}, run_at_startup=False),
+        # 04:00 UTC, the cadence `policy_sources.yaml` ships (Q10). Deliberately
+        # after the 03:17 maintenance window: the sweep writes amendments, and a
+        # prune running underneath it would be competing for the same rows.
+        cron(policy_watch_job, hour={4}, minute={0}, run_at_startup=False),
     ]
     on_startup = startup
     on_shutdown = shutdown

@@ -47,6 +47,7 @@ class NodeRegistry:
             spec = node.spec
             _validate(spec, owner=type(node).__module__)
             _validate_conditional_gate(node)
+            _validate_conditional_task(node)
             if spec.id in collected:
                 raise RegistryError(
                     f"node id {spec.id!r} is declared twice: "
@@ -116,6 +117,36 @@ def _validate_conditional_gate(node: Node) -> None:
         raise RegistryError(
             f"{owner}: node {spec.id!r} implements gate_required() but does not declare "
             "gate_conditional, so the executor would never consult it."
+        )
+
+
+def _validate_conditional_task(node: Node) -> None:
+    """Both halves of a conditional person-task, or neither (PRD §11, 3.3.2).
+
+    The twin of `_validate_conditional_gate`, and it fails in the same two
+    silent directions. A spec declaring `human_task_conditional` with no
+    `task_required()` opens its task every run, so the flag reads as
+    implemented and does nothing. A node implementing `task_required()` without
+    the flag has written a method the executor never calls.
+
+    The cost of getting this wrong is specific enough to name: 3.3.2 with the
+    flag missing would open an H2 assigned to nobody on every project that
+    needs no verification, and `_open_human_task` would raise on the null
+    assignee — turning "nothing to verify" into a failed run.
+    """
+    spec = node.spec
+    owner = f"{type(node).__module__}.{type(node).__name__}"
+    decides = callable(getattr(node, "task_required", None))
+    if spec.human_task_conditional and not decides:
+        raise RegistryError(
+            f"{owner}: node {spec.id!r} declares human_task_conditional but has no "
+            "task_required(), so its task would open on every run and the flag would "
+            "be a lie."
+        )
+    if decides and not spec.human_task_conditional:
+        raise RegistryError(
+            f"{owner}: node {spec.id!r} implements task_required() but does not declare "
+            "human_task_conditional, so the executor would never consult it."
         )
 
 
