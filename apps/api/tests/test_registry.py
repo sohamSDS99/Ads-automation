@@ -278,3 +278,52 @@ def test_asking_for_an_unregistered_node_names_it() -> None:
     registry = NodeRegistry.of([make_node("1.1")])
     with pytest.raises(RegistryError, match="'2.2'"):
         registry.node("2.2")
+
+
+# -- person-tasks (Stage 03 PRD §8.1 item 2, §8.4) --------------------------
+
+
+def test_a_person_task_node_declares_a_human_task_key() -> None:
+    """H1 and H2 are not gates, and the spec has to be able to say so.
+
+    Without this field the executor cannot tell a node that halts for *any*
+    holder of a role from one that halts for exactly one named person, and the
+    whole non-delegable rule collapses into an approval.
+    """
+    node = make_node("3.2.3", human_task_key="H1")
+    assert node.spec.human_task_key == "H1"
+
+
+def test_a_node_cannot_be_both_a_gate_and_a_person_task() -> None:
+    """Mutually exclusive (PRD §8.1 item 2).
+
+    An approval says "the agent proposed and a human confirmed"; a person-task
+    says "the agent cannot do this at all". A node claiming both would have two
+    resumption paths, and the role-based one is the one an admin could walk
+    through — which is the exact fallback law 23 exists to remove.
+    """
+    with pytest.raises(ValidationError, match="gate and a person-task"):
+        make_node(
+            "3.2.3",
+            gate=True,
+            gate_key="G9",
+            required_role=ApprovalRequiredRole.APPROVER,
+            human_task_key="H1",
+        )
+
+
+def test_a_person_task_node_needs_no_required_role() -> None:
+    """A person-task routes to an assignee, never to a role.
+
+    `required_role` on a person-task would be the seed of a role fallback, so
+    the spec must be valid without one.
+    """
+    node = make_node("3.3.2", human_task_key="H2")
+    assert node.spec.human_task_key == "H2"
+    assert node.spec.required_role is None
+
+
+def test_optional_inputs_records_the_bindings_a_node_reads() -> None:
+    """PRD §8.1 item 2: the executor asserts the node handles each being None."""
+    node = make_node("3.2.1", optional_inputs=("differentiation_claim", "competitor_creative"))
+    assert node.spec.optional_inputs == ("differentiation_claim", "competitor_creative")
