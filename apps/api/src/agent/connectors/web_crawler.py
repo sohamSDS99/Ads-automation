@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urljoin, urlparse, urlunparse
 from xml.etree import ElementTree
@@ -112,8 +113,12 @@ class WebCrawlerConnector(BaseConnector):
         drafts: list[EvidenceDraft] = []
         failures: list[str] = []
 
-        if kinds & {"page", "page_vitals"}:
-            crawled, crawl_failures = await self._crawl(params, vitals="page_vitals" in kinds)
+        if kinds & {"page", "page_vitals", CLAIM_SECTION, OFFER_BLOCK}:
+            crawled, crawl_failures = await self._crawl(
+                params,
+                vitals="page_vitals" in kinds,
+                sections=self.stage_three_wanted(kinds),
+            )
             drafts.extend(crawled)
             failures.extend(crawl_failures)
 
@@ -152,7 +157,7 @@ class WebCrawlerConnector(BaseConnector):
         return [self.draft("conversion_probe", payload, source_url=target)], []
 
     async def _crawl(
-        self, params: dict[str, Any], *, vitals: bool = False
+        self, params: dict[str, Any], *, vitals: bool = False, sections: bool = False
     ) -> tuple[list[EvidenceDraft], list[str]]:
         """Breadth-first from the sitemap, or exactly the URLs the caller named."""
         root = self._root(params)
@@ -200,15 +205,16 @@ class WebCrawlerConnector(BaseConnector):
                     seen.add(url)
 
                 results = await asyncio.gather(
-                    *(self._page(client, url, semaphore) for url, _ in batch),
+                    *(self._page(client, url, semaphore, sections=sections) for url, _ in batch),
                     return_exceptions=True,
                 )
                 for (url, depth), result in zip(batch, results, strict=True):
                     if isinstance(result, BaseException):
                         failures.append(f"{url}: {result}")
                         continue
-                    payload, links = result
+                    payload, links, extra = result
                     drafts.append(self.draft("page", payload, source_url=url))
+                    drafts.extend(extra)
                     if depth < max_depth:
                         for link in links:
                             candidate = normalise(link)
@@ -277,15 +283,29 @@ class WebCrawlerConnector(BaseConnector):
         ]
 
     async def _page(
-        self, client: httpx.AsyncClient, url: str, semaphore: asyncio.Semaphore
-    ) -> tuple[dict[str, Any], list[str]]:
+        self,
+        client: httpx.AsyncClient,
+        url: str,
+        semaphore: asyncio.Semaphore,
+        *,
+        sections: bool = False,
+    ) -> tuple[dict[str, Any], list[str], list[EvidenceDraft]]:
+        """One page fetched once.
+
+        `sections` is threaded down here rather than re-fetching the page in a
+        second pass: Stage 03's claim sections and offer blocks come out of the
+        same HTML as the `page` payload, and crawling a customer's site twice
+        to read it twice is both slower and ruder.
+        """
         async with semaphore:
             await asyncio.sleep(self.settings.crawl_delay_s)
             response = await client.get(url)
             response.raise_for_status()
             if "html" not in response.headers.get("content-type", ""):
                 raise ConnectorError(f"not HTML: {response.headers.get('content-type')}")
-            return self._extract(url, response.text, response.status_code)
+            payload, links = self._extract(url, response.text, response.status_code)
+            extra = self.stage_three_drafts(url, response.text) if sections else []
+            return payload, links, extra
 
     def _extract(self, url: str, html: str, status: int) -> tuple[dict[str, Any], list[str]]:
         tree = HTMLParser(html)
@@ -323,6 +343,54 @@ class WebCrawlerConnector(BaseConnector):
             urljoin(url, href) for href in hrefs if href and not href.startswith(skip_prefixes)
         ]
         return payload, [link for link in links if not link.lower().endswith(SKIP_EXTENSIONS)]
+
+    def stage_three_wanted(self, kinds: set[str]) -> bool:
+        """Whether this crawl was asked for Stage 03's kinds.
+
+        Opt-in, because Stage 01 crawls every project and must not start paying
+        for work only a guideline run reads.
+        """
+        return bool(kinds & {CLAIM_SECTION, OFFER_BLOCK})
+
+    def stage_three_drafts(self, url: str, html: str) -> list[EvidenceDraft]:
+        """Claim-bearing sections and offer blocks from one page."""
+        tree = HTMLParser(html)
+        for node in tree.css("script, style, noscript"):
+            node.decompose()
+
+        drafts: list[EvidenceDraft] = []
+        for block in _blocks(tree)[:MAX_SECTIONS_PER_PAGE]:
+            families = _claim_families(block.text)
+            if families:
+                drafts.append(
+                    self.draft(
+                        CLAIM_SECTION,
+                        {
+                            "url": url,
+                            "heading": block.heading,
+                            "selector": block.selector,
+                            "families": families,
+                        },
+                        source_url=url,
+                        content_text=block.text,
+                    )
+                )
+            constructions = _offer_constructions(block.text)
+            if constructions:
+                drafts.append(
+                    self.draft(
+                        OFFER_BLOCK,
+                        {
+                            "url": url,
+                            "heading": block.heading,
+                            "selector": block.selector,
+                            "constructions": constructions,
+                        },
+                        source_url=url,
+                        content_text=block.text,
+                    )
+                )
+        return drafts
 
     @staticmethod
     def _text(tree: HTMLParser, selector: str) -> str | None:
@@ -389,3 +457,117 @@ class WebCrawlerConnector(BaseConnector):
 
     async def test_connection(self) -> ConnectorStatus:
         return ConnectorStatus(ok=True, detail="no credentials required")
+
+
+# ---------------------------------------------------------------------------
+# Stage 03's extension (PRD §10.1): claim sections and offer blocks
+#
+# 3.2.1 harvests "what we already say, everywhere, including copy nobody
+# remembers writing" and 3.2.4 validates offers "against live offer data". Both
+# land in S3-P3; what this phase owes them is addressable evidence.
+#
+# Addressable is the operative word. A claim quoted without the heading it sat
+# under is a claim a legal owner cannot go and check before putting their name
+# to it, and H1 makes that signature non-delegable. So every section carries its
+# url, its heading and the element that held it.
+#
+# The claim patterns are **not** re-invented here: they are the same
+# `claim_detectors` S3-P1 put in `content_constants.yaml`, read through the
+# constants loader, so adding a family stays a constants edit. This module is a
+# connector and not on the lint path, so reading them is fine — `guardrails/`
+# purity is about verdicts, and nothing here renders one.
+# ---------------------------------------------------------------------------
+
+#: A block of copy that a claim detector fired on.
+CLAIM_SECTION = "claim_section"
+
+#: A block of copy that states a price, a discount or a deadline.
+OFFER_BLOCK = "offer_block"
+
+#: Which §9.4 construction each pattern evidences. Keyed by construction so the
+#: payload speaks 3.2.4's vocabulary rather than this module's.
+OFFER_PATTERNS: dict[str, re.Pattern[str]] = {
+    "from_price": re.compile(r"\b(?:from|starting at|starts at)\s*[£$€]\s?\d", re.IGNORECASE),
+    "percent_off": re.compile(
+        r"\b(?:save|off|discount(?:ed)?)\b[^.]{0,20}\d{1,2}\s?%|\d{1,2}\s?%\s*(?:off|discount|saving)",
+        re.IGNORECASE,
+    ),
+    "amount_off": re.compile(r"\b(?:save|off)\b\s*[£$€]\s?\d", re.IGNORECASE),
+    "countdown": re.compile(
+        r"\b(?:ends|expires|offer ends|until)\s+(?:\d|today|tomorrow|midnight|\w+day)",
+        re.IGNORECASE,
+    ),
+    "free_trial": re.compile(r"\b(?:free trial|try (?:it )?free|\d+[- ]day free)\b", re.IGNORECASE),
+    "price_match": re.compile(r"\bprice match|beat any (?:price|quote)\b", re.IGNORECASE),
+}
+
+#: Blocks shorter than this are navigation, buttons and captions rather than
+#: copy anybody claims anything in.
+MIN_SECTION_CHARS = 25
+
+#: A cap, so one enormous page cannot become a thousand rows. Named rather than
+#: inlined because a silent truncation reads as "there was nothing else".
+MAX_SECTIONS_PER_PAGE = 40
+
+
+@dataclass(frozen=True, slots=True)
+class _Block:
+    text: str
+    heading: str | None
+    selector: str
+
+
+#: Copy-bearing tags, and the headings that scope them.
+HEADING_TAGS = frozenset({"h1", "h2", "h3"})
+COPY_TAGS = frozenset({"p", "li", "blockquote"})
+
+
+def _blocks(tree: HTMLParser) -> list[_Block]:
+    """Paragraph-sized copy, each with the nearest heading *above* it.
+
+    Walked with `traverse()` rather than queried with a multi-tag `css()`.
+    selectolax groups a grouped selector by selector and not by position, so
+    `css("h1, h2, p")` hands back every heading and then every paragraph — and
+    a "nearest heading above" computed from that order gives every paragraph on
+    the page the *last* heading on the page. Silent, and wrong in the way that
+    matters most here: it sends a legal owner to the wrong section of their own
+    site to check a claim they are being asked to sign for.
+    """
+    found: list[_Block] = []
+    heading: str | None = None
+    seen: dict[str, int] = {}
+    body = tree.body
+    if body is None:
+        return found
+    for node in body.traverse(include_text=False):
+        tag = node.tag
+        if tag not in HEADING_TAGS and tag not in COPY_TAGS:
+            continue
+        text = node.text(separator=" ", strip=True)
+        if not text:
+            continue
+        if tag in HEADING_TAGS:
+            heading = text
+            continue
+        seen[tag] = seen.get(tag, 0) + 1
+        if len(text) < MIN_SECTION_CHARS:
+            continue
+        found.append(_Block(text=text, heading=heading, selector=f"{tag}:nth-of-type({seen[tag]})"))
+    return found
+
+
+def _claim_families(text: str) -> list[str]:
+    """Which detector families fired, in a stable order."""
+    from agent.guidelines.constants import get_content_constants
+
+    fired: list[str] = []
+    for detector in get_content_constants().detectors():
+        if detector.family in fired:
+            continue
+        if re.search(detector.pattern, text, re.IGNORECASE):
+            fired.append(detector.family)
+    return sorted(fired)
+
+
+def _offer_constructions(text: str) -> list[str]:
+    return sorted(name for name, pattern in OFFER_PATTERNS.items() if pattern.search(text))

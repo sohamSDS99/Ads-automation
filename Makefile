@@ -100,6 +100,9 @@ verify-s2p1: ## Run S2-P1's exit criteria (no stack needed; uses it for the dedu
 verify-s3p1: ## Run S3-P1's exit criteria (no stack needed; guardrails/ reads nothing)
 	./scripts/verify-s3p1.sh
 
+verify-s3p2: ## Run S3-P2's exit criteria (§21: gates, resume, canary, compiling lexicon)
+	./scripts/verify-s3p2.sh
+
 verify-s2p7: ## Run S2-P7's exit criteria (§21: eval, coverage, the §17 index, staleness)
 	./scripts/verify-s2p7.sh
 

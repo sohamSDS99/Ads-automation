@@ -36,6 +36,10 @@ dependencies = [
     # export tests need in order to assert on a formula rather than a value.
     "pypdf>=5.1.0",       # reads the PDFs a person uploads as business context. `weasyprint`
     # only writes them; nothing in the image could read one before this.
+    "python-pptx>=1.0.2", # brand books arrive as decks at least as often as as PDFs (Stage 03
+    # PRD §10.2). Pure python, no system libraries, and the only format whose
+    # own object model carries a real bounding box per shape — a PDF's has to
+    # be reconstructed from text-matrix visitor callbacks.
     "pandas>=2.2.3",             # PRD §18 law 3: every CPA/ROAS/P&L figure is computed here, never by a model
     "pyyaml>=6.0.2",      # reads planning_constants.yaml at startup (PRD §9.3). Was a dev-only
     # dependency while only tests parsed YAML; law 15 makes it a runtime one.

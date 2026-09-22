@@ -24,12 +24,18 @@ TEST_KEY = "dW5pdC10ZXN0LWtleS0zMi1ieXRlcy1leGFjdGx5ISE="
 
 
 def test_every_prd_connector_is_registered() -> None:
-    """PRD §9's five, and only those.
+    """Stage 01 PRD §9's five plus Stage 03 PRD §10.2's one, and only those.
 
-    A sixth lived here — `serp`, the live Google result page §9.3 asks for and
-    the keyword vendor only half answers. It was removed with its Bright Data
-    account, so §9.3's ad half now has no source and the report says so rather
-    than a node inferring it.
+    A different sixth lived here once — `serp`, the live Google result page
+    §9.3 asks for and the keyword vendor only half answers. It was removed with
+    its Bright Data account, so §9.3's ad half now has no source and the report
+    says so rather than a node inferring it.
+
+    `brand_book` is Stage 03's addition and the only connector that reads a
+    binary. It is listed here rather than derived from the package, because the
+    point of this assertion is that a connector nobody decided to add cannot
+    appear by being written — including one written by a later phase of this
+    same stage.
     """
     assert set(CONNECTOR_NAMES) == {
         "google_ads",
@@ -37,6 +43,7 @@ def test_every_prd_connector_is_registered() -> None:
         "dataforseo",
         "web_crawler",
         "csv_ingest",
+        "brand_book",
     }
 
 

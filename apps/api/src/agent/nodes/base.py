@@ -85,6 +85,19 @@ class NodeSpec(BaseModel):
     #: than documentation, and a node that grows a new calculation has to say
     #: so here before it can make one.
     calc: tuple[str, ...] = ()
+    #: Whether this gate has a question to ask *every* time it is reached.
+    #:
+    #: False for every gate before Stage 03: reaching the node meant halting.
+    #: 3.5.1 is the first that can legitimately have nothing to ask — when a
+    #: current `SignOffMatrix` already names the three owners, the answer is on
+    #: file, and halting would be asking somebody to re-approve their own
+    #: unchanged decision (PRD §11).
+    #:
+    #: Declared here rather than left implicit in the node so that the registry,
+    #: the DAG and `gates.py` still see a gate that exists. The node then
+    #: answers *this* run with `gate_required()`, and the registry refuses the
+    #: declaration unless both halves are present.
+    gate_conditional: bool = False
     #: 'G1'..'G4' for plan gates. Written onto `Approval.gate_key`, which is
     #: what routes the card to `Project.settings.plan_approvers[gate_key]` and
     #: what the four-gate freeze in S2-P5 counts.
@@ -111,6 +124,15 @@ class NodeSpec(BaseModel):
         # both fields is an after-validator on the model.
         if self.gate and self.required_role is None:
             raise ValueError("a gate node must declare required_role — someone has to decide it")
+        return self
+
+    @model_validator(mode="after")
+    def _conditional_needs_a_gate(self) -> NodeSpec:
+        if self.gate_conditional and not self.gate:
+            raise ValueError(
+                "gate_conditional is set on a node that is not a gate. There is no gate to "
+                "skip, so the flag can only mislead a reader of the spec."
+            )
         return self
 
     @model_validator(mode="after")
@@ -304,6 +326,18 @@ class Node(Protocol):
     async def gather(self, ctx: RunContext) -> list[Evidence]: ...
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel: ...
+
+
+@runtime_checkable
+class ConditionalGate(Protocol):
+    """A gate node that decides, per run, whether it has anything to ask.
+
+    Implemented only alongside `NodeSpec.gate_conditional`; the registry refuses
+    either half on its own. `output` is the node's validated output model, so a
+    node answers from what it just produced rather than by re-reading the world.
+    """
+
+    def gate_required(self, ctx: RunContext, output: BaseModel) -> bool: ...
 
 
 class LLMNode:
