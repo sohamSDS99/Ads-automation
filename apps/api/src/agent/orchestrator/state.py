@@ -50,14 +50,22 @@ def utcnow() -> datetime:
 def lock_key(project_id: uuid.UUID, stage: RunStage = RunStage.RESEARCH) -> str:
     """Where one project's lock for one pipeline lives.
 
-    Two keys, not one, and deliberately so: a plan run and a research run are
-    different work on the same project and neither should keep the other
-    waiting (Stage 02 PRD §4.2 E4). The research key keeps its Stage 01
-    spelling because locks held in a live deployment must survive the deploy
-    that introduces this function.
+    Three keys, not one, and deliberately so: research, planning and
+    guidelines are different work on the same project and none should keep
+    another waiting (Stage 02 PRD §4.2 E4, Stage 03 PRD §8.3). The research key
+    keeps its Stage 01 spelling because locks held in a live deployment must
+    survive the deploy that introduces this function.
+
+    Matched explicitly rather than by falling through to the research key. The
+    fall-through spelling reads as a sensible default and is not one: a new
+    `RunStage` would silently share the research lock, and the symptom — two
+    unrelated pipelines blocking each other on one project — looks like a
+    concurrency bug rather than a missing branch.
     """
     if stage is RunStage.PLAN:
         return f"project:{project_id}:plan_lock"
+    if stage is RunStage.GUIDELINE:
+        return f"project:{project_id}:guideline_lock"
     return f"run:lock:project:{project_id}"
 
 

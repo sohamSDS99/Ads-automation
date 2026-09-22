@@ -37,6 +37,23 @@ sys.path.insert(0, str(API_ROOT / "scripts"))
 REAL_DATABASE_URL = os.environ.get("DATABASE_URL", "")
 REAL_REDIS_URL = os.environ.get("REDIS_URL", "")
 
+#: Truncated before every test, children first. Derived from the metadata
+#: rather than hand-listed: the hand-listed version silently stopped covering
+#: every table a stage added, and a suite whose isolation quietly narrows is
+#: worse than one that never had any.
+#: Truncated before each test, children first.
+#:
+#: Left exactly as Stage 02 wrote it, deliberately. Stage 03's ten tables are
+#: not added: every one of them cascades from `workspace`, `project` or `run`,
+#: which are already here, so `CASCADE` clears them and the isolation this
+#: gives has not narrowed.
+#:
+#: A generated version of this list — `sorted(Base.metadata.tables)` — was
+#: tried and reverted. It is alphabetical rather than dependency-ordered, and
+#: changing the order a single TRUNCATE takes its AccessExclusiveLocks in is
+#: enough to deadlock it against any session that is mid-read. The symptom was
+#: a different two or three tests erroring on each run, which is a much worse
+#: thing to own than a hand-maintained list.
 TABLES = (
     "audit_log",
     "plan_calc",

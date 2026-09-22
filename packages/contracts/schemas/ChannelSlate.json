@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "AutomationBoundaries": {
+      "additionalProperties": true,
+      "description": "2.3.2. What Google's automation is allowed to decide for itself.",
+      "properties": {
+        "pmax": {
+          "additionalProperties": true,
+          "title": "Pmax",
+          "type": "object"
+        },
+        "broad_match": {
+          "additionalProperties": true,
+          "title": "Broad Match",
+          "type": "object"
+        },
+        "overlap": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Overlap",
+          "type": "array"
+        }
+      },
+      "title": "AutomationBoundaries",
+      "type": "object"
+    },
+    "BrandIsolation": {
+      "additionalProperties": true,
+      "description": "2.3.3. Which terms are ours, and where they may not be bid on.",
+      "properties": {
+        "brand_terms": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Brand Terms",
+          "type": "array"
+        },
+        "brand_campaign_ref": {
+          "default": "",
+          "title": "Brand Campaign Ref",
+          "type": "string"
+        },
+        "match_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Match Types",
+          "type": "array"
+        },
+        "budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Pct"
+        },
+        "negatives_for_nonbrand": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives For Nonbrand",
+          "type": "array"
+        },
+        "reporting_rule": {
+          "default": "",
+          "title": "Reporting Rule",
+          "type": "string"
+        },
+        "competitor_bidding_policy": {
+          "default": "",
+          "title": "Competitor Bidding Policy",
+          "type": "string"
+        }
+      },
+      "title": "BrandIsolation",
+      "type": "object"
+    },
+    "SlateEntry": {
+      "additionalProperties": true,
+      "description": "2.3.1. One campaign type in one market, and when it launches.",
+      "properties": {
+        "campaign_type": {
+          "title": "Campaign Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "launch_wave": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Wave"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "entry_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entry Criteria",
+          "type": "array"
+        },
+        "exit_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exit Criteria",
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prerequisites",
+          "type": "array"
+        },
+        "est_share_of_budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Share Of Budget Pct"
+        }
+      },
+      "required": [
+        "campaign_type"
+      ],
+      "title": "SlateEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "\u00a712's `channel_slate` \u2014 stage 2.3 in one section.",
+  "properties": {
+    "slate": {
+      "items": {
+        "$ref": "#/$defs/SlateEntry"
+      },
+      "title": "Slate",
+      "type": "array"
+    },
+    "rejected": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Rejected",
+      "type": "array"
+    },
+    "brand_isolation": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/BrandIsolation"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "automation_boundaries": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AutomationBoundaries"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "notes": {
+      "default": "",
+      "title": "Notes",
+      "type": "string"
+    },
+    "calc_evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Calc Evidence Ids",
+      "type": "array"
+    }
+  },
+  "title": "ChannelSlate",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

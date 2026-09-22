@@ -149,6 +149,13 @@ browser-s2p6c: ## Drive the Plan Viewer, structure tree, freeze dialog and diff,
 		/app/.venv/bin/python /tmp/browser-check-s2p6c.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
+browser-s3p0: ## Drive Stage 03's cold-start entry on a bare project, at 1440 and 390
+	@docker compose cp scripts/browser-check-s3p0.py worker:/tmp/browser-check-s3p0.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-s3p0.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390
 	@docker compose cp scripts/browser-check-connections.py worker:/tmp/browser-check-connections.py
 	@docker compose exec -T worker mkdir -p /tmp/shots

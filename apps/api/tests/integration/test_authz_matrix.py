@@ -389,6 +389,37 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PLAN_EXECUTE,
         None,
     ),
+    # Stage 03. `GUIDELINE_EXECUTE` and not `PLAN_EXECUTE`: an approver may
+    # publish a guideline and may never start one, which is the same asymmetry
+    # Stage 02 drew between running a plan and freezing it.
+    (
+        "GET",
+        "/projects/{project_id}/guidelines/eligibility",
+        "/projects/{project}/guidelines/eligibility",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/guidelines/runs",
+        "/projects/{project}/guidelines/runs",
+        Permission.GUIDELINE_EXECUTE,
+        {},
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/guidelines",
+        "/projects/{project}/guidelines",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/guidelines/{guideline_id}",
+        "/guidelines/00000000-0000-0000-0000-000000000000",
+        Permission.READ,
+        None,
+    ),
     ("GET", "/projects/{project_id}/plans", "/projects/{project}/plans", Permission.READ, None),
     (
         "GET",

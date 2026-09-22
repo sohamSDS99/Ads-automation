@@ -9,7 +9,8 @@
         "json",
         "csv",
         "editor_csv",
-        "xlsx"
+        "xlsx",
+        "ruleset_json"
       ],
       "title": "ExportFormat",
       "type": "string"

@@ -13,6 +13,10 @@
         "audit_read",
         "plan_execute",
         "plan_freeze",
+        "guideline_execute",
+        "guideline_publish",
+        "claim_sign",
+        "attest_submit",
         "platform_admin"
       ],
       "title": "Permission",

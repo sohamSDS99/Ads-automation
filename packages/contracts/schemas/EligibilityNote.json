@@ -1,0 +1,43 @@
+{
+  "description": "One precondition, in words the person reading it can act on.",
+  "properties": {
+    "code": {
+      "anyOf": [
+        {
+          "enum": [
+            "no_content_source",
+            "guideline_in_flight",
+            "missing_credential",
+            "no_eligible_owners"
+          ],
+          "type": "string"
+        },
+        {
+          "enum": [
+            "running_unlinked",
+            "will_mint_major",
+            "unreviewed_amendments"
+          ],
+          "type": "string"
+        }
+      ],
+      "title": "Code"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "fix_url": {
+      "title": "Fix Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "fix_url"
+  ],
+  "title": "EligibilityNote",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

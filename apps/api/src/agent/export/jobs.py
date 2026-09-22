@@ -70,6 +70,9 @@ MEDIA_TYPES: dict[ExportFormat, str] = {
     ExportFormat.CSV: "text/csv; charset=utf-8",
     ExportFormat.EDITOR_CSV: "text/csv; charset=utf-8",
     ExportFormat.XLSX: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    # Stage 03's machine handoff. `application/json` and not a bespoke type:
+    # the point of the ruleset export is that anything can read it.
+    ExportFormat.RULESET_JSON: "application/json; charset=utf-8",
 }
 
 EXTENSIONS: dict[ExportFormat, str] = {
@@ -80,6 +83,7 @@ EXTENSIONS: dict[ExportFormat, str] = {
     ExportFormat.CSV: "csv",
     ExportFormat.EDITOR_CSV: "csv",
     ExportFormat.XLSX: "xlsx",
+    ExportFormat.RULESET_JSON: "json",
 }
 
 #: The formats a *research report* can be rendered as. Not every member of

@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "GuidelineMode": {
+      "description": "Which optional bindings resolved at run start (PRD \u00a74.2).\n\nDerived from what actually resolved, never taken from the client. The four\nvalues are not a quality ranking \u2014 `standalone` is a first-class, tested\npath (law 21) \u2014 they are a record of what the rulebook was built from.",
+      "enum": [
+        "standalone",
+        "research_linked",
+        "plan_linked",
+        "fully_linked"
+      ],
+      "title": "GuidelineMode",
+      "type": "string"
+    },
+    "GuidelineStatus": {
+      "description": "PRD \u00a712.4. `succeeded` on the run never means `published`.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_publish",
+        "published",
+        "superseded"
+      ],
+      "title": "GuidelineStatus",
+      "type": "string"
+    },
+    "GuidelineVersion": {
+      "description": "One row of the history list.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "version_major": {
+          "title": "Version Major",
+          "type": "integer"
+        },
+        "version_minor": {
+          "title": "Version Minor",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/GuidelineStatus"
+        },
+        "mode": {
+          "$ref": "#/$defs/GuidelineMode"
+        },
+        "guideline_run_id": {
+          "format": "uuid",
+          "title": "Guideline Run Id",
+          "type": "string"
+        },
+        "ruleset_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ruleset Id"
+        },
+        "unbound_inputs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unbound Inputs",
+          "type": "array"
+        },
+        "signature_stale": {
+          "default": false,
+          "title": "Signature Stale",
+          "type": "boolean"
+        },
+        "binding_superseded": {
+          "default": false,
+          "title": "Binding Superseded",
+          "type": "boolean"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published At"
+        },
+        "published_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Published By"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "version_major",
+        "version_minor",
+        "status",
+        "mode",
+        "guideline_run_id",
+        "created_at"
+      ],
+      "title": "GuidelineVersion",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "versions": {
+      "items": {
+        "$ref": "#/$defs/GuidelineVersion"
+      },
+      "title": "Versions",
+      "type": "array"
+    }
+  },
+  "title": "GuidelineVersionList",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
