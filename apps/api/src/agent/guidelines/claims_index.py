@@ -44,9 +44,7 @@ def signature_is_live(signature: ClaimSignature | None, *, now: datetime) -> boo
     return not (signature.expires_at is not None and signature.expires_at <= now)
 
 
-def ref_status(
-    claim: ClaimRecord, signature: ClaimSignature | None, *, now: datetime
-) -> RefStatus:
+def ref_status(claim: ClaimRecord, signature: ClaimSignature | None, *, now: datetime) -> RefStatus:
     """The status the linter will act on.
 
     Default-deny is expressed as structure rather than as a comment: the only

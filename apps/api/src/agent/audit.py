@@ -77,6 +77,12 @@ class AuditAction(StrEnum):
     #: transaction as the change, which is what makes "who agreed to spend
     #: this, on what basis, on what date" answerable without a thread.
     PLAN_FROZEN = "plan.frozen"
+
+    #: Stage 03. A signature is the only audit row in the system that records an
+    #: act an administrator cannot perform, so it is worth being able to find.
+    CLAIM_SIGNED = "claim.signed"
+    CLAIM_SIGNATURE_REVOKED = "claim.signature_revoked"
+    CLAIM_EDITED = "claim.edited"
     #: A previously frozen plan displaced by a newer version. Written per
     #: superseded plan rather than once for the freeze: a reader asking why
     #: v2 stopped being current wants a row about v2.
@@ -148,6 +154,8 @@ class AuditTarget(StrEnum):
     BACKUP = "backup"
     RESEARCH_ACCEPTANCE = "research_acceptance"
     CAMPAIGN_PLAN = "campaign_plan"
+    CLAIM = "claim"
+    CLAIM_SIGNATURE = "claim_signature"
 
 
 def write_audit(

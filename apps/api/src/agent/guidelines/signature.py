@@ -21,11 +21,13 @@ needs the database. What is here is pure enough to test without one.
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import secrets
 import uuid
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -84,3 +86,74 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
+
+
+# -- the step-up ------------------------------------------------------------
+
+#: Redis key for a minted token. Keyed by the token's *hash*, so a Redis dump
+#: yields nothing replayable — the same reasoning as `auth/invites.py`.
+REAUTH_KEY = "reauth:{fingerprint}"
+
+#: 32 bytes of `secrets`. There is no dictionary to attack, so SHA-256 is the
+#: right primitive here even though passwords get Argon2id.
+REAUTH_TOKEN_BYTES = 32
+
+
+class ReauthError(Exception):
+    """The step-up proof was missing, expired, already spent, or somebody else's."""
+
+
+def new_reauth_token() -> str:
+    """The value handed to the browser. Never persisted in the clear."""
+    return secrets.token_urlsafe(REAUTH_TOKEN_BYTES)
+
+
+def reauth_fingerprint(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+class ReauthTokens:
+    """Mint and spend single-use step-up proofs.
+
+    A live session proves somebody signed in at some point; a signature needs
+    the person to be *present now*. This is the difference, and it is why the
+    token is single-use: without that it is a password typed once and replayable
+    for the rest of its TTL.
+
+    Spending is an atomic `GETDEL`. A plain read-then-delete would let two
+    concurrent submits both pass the read, and "the signature route is racy"
+    is not a sentence anyone wants attached to a legal record.
+    """
+
+    def __init__(self, redis: Any, *, ttl_seconds: int) -> None:
+        self._redis = redis
+        self._ttl = ttl_seconds
+
+    async def mint(self, user_id: uuid.UUID) -> tuple[str, str]:
+        """Returns `(token, token_id)`. The token is shown once; the id is audited."""
+        token = new_reauth_token()
+        token_id = uuid.uuid4().hex
+        await self._redis.set(
+            REAUTH_KEY.format(fingerprint=reauth_fingerprint(token)),
+            json.dumps({"user_id": str(user_id), "token_id": token_id}),
+            ex=self._ttl,
+        )
+        return token, token_id
+
+    async def consume(self, user_id: uuid.UUID, token: str) -> str:
+        """Spend a token and return its id, or raise `ReauthError`.
+
+        The bound user is checked *after* the delete on purpose: a token
+        presented by the wrong account is burned rather than left for the right
+        one to find, because at that point it has been seen by somebody it was
+        not issued to.
+        """
+        if not token:
+            raise ReauthError("no step-up proof was supplied")
+        raw = await self._redis.getdel(REAUTH_KEY.format(fingerprint=reauth_fingerprint(token)))
+        if raw is None:
+            raise ReauthError("that step-up proof is unknown, expired, or already used")
+        payload = json.loads(raw)
+        if not hmac.compare_digest(str(payload.get("user_id", "")), str(user_id)):
+            raise ReauthError("that step-up proof was issued to a different account")
+        return str(payload["token_id"])

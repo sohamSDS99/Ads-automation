@@ -25,6 +25,8 @@ from agent.api.schemas_auth import (
     CsrfResponse,
     LoginRequest,
     MeResponse,
+    ReauthRequest,
+    ReauthResponse,
     SessionListResponse,
     SessionSummary,
     SwitchWorkspaceRequest,
@@ -47,6 +49,7 @@ from agent.config import Settings, get_settings
 from agent.db.models import User, UserRole, UserStatus, Workspace
 from agent.db.repos import account_by_email, utcnow
 from agent.db.session import get_session
+from agent.guidelines.signature import ReauthTokens
 
 log = structlog.get_logger(__name__)
 
@@ -573,3 +576,50 @@ async def revoke_session(
     )
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post(
+    "/auth/reauth",
+    response_model=ReauthResponse,
+    summary="Prove presence before a non-delegable act",
+)
+async def reauth(
+    me_: SignedIn,
+    body: ReauthRequest,
+    request: Request,
+    db: Db,
+    redis: RedisDep,
+    settings: SettingsDep,
+) -> ReauthResponse:
+    """Mint a single-use, short-lived proof that the caller is present (PRD §5.2 layer 3).
+
+    A session says somebody signed in at some point. A signature needs the
+    person to be here *now*, so `CLAIM_SIGN` and `ATTEST_SUBMIT` demand a token
+    minted against the current password within the last
+    `SIGNATURE_REAUTH_TTL_SECONDS`.
+
+    This endpoint is a password oracle by construction, so it carries the same
+    lockout the sign-in path does. Without it, an attacker holding a stolen
+    session cookie could grind the password here at no cost — and the prize is
+    the one permission an administrator cannot exercise.
+    """
+    limiter = LoginRateLimiter(redis)
+    ip = client_ip(request)
+    state = await limiter.check(me_.user.email, ip)
+    if state.locked:
+        raise _lockout_problem(state)
+
+    if not passwords.verify(me_.user.password_hash or passwords.dummy_hash(), body.password):
+        await limiter.record_failure(me_.user.email, ip)
+        await _audit_login_failure(db, AuditAction.LOGIN_FAILED, me_.user.email, ip)
+        await db.commit()
+        raise problems.Problem(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            title="Password incorrect",
+            detail="That password is not correct.",
+            type_=problems.TYPE_UNAUTHENTICATED,
+        )
+
+    tokens = ReauthTokens(redis, ttl_seconds=settings.signature_reauth_ttl_seconds)
+    token, _token_id = await tokens.mint(me_.user.id)
+    return ReauthResponse(token=token, expires_in=settings.signature_reauth_ttl_seconds)

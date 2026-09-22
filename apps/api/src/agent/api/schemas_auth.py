@@ -157,6 +157,19 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=1, max_length=512)
 
 
+class ReauthRequest(BaseModel):
+    """The current password, re-typed, to prove presence before a signature."""
+
+    password: str = Field(min_length=1, max_length=512)
+
+
+class ReauthResponse(BaseModel):
+    """A single-use step-up proof. Shown once; only its hash is stored."""
+
+    token: str
+    expires_in: int
+
+
 class CsrfResponse(BaseModel):
     """The double-submit token. Also set as the `csrf` cookie on this response."""
 
