@@ -1,0 +1,88 @@
+{
+  "name": "eu_only_no_brand",
+  "why": "EU-only scope with no brand and no priced demand. Three things are being held: \u00a713's consent-signal mechanism must be named when EU markets are in scope; a plan with no brand terms has no isolation section at all, and assertion 5 must pass by returning early rather than by finding nothing; and an empty keyword list must produce an account the assertions pass over vacuously instead of crashing on.",
+  "plan_input": {
+    "schema_version": "1.0",
+    "project_id": "0eaa9000-0000-4000-8000-000000000001",
+    "research_run_id": "0eaa9000-0000-4000-8000-000000000050",
+    "research_report_id": "0eaa9001-0000-4000-8000-000000000050",
+    "research_schema_version": "1.0",
+    "accepted_by": "0eaa9000-0000-4000-8000-000000000002",
+    "accepted_at": "2026-09-01T09:00:00Z",
+    "acceptance_note": null,
+    "override_reason": null,
+    "launch_readiness": "go",
+    "launch_blockers": [],
+    "business_context": {
+      "products": [],
+      "ltv_estimate": null,
+      "target_cac": null,
+      "payback_months": null,
+      "segments": [],
+      "exclusions": [],
+      "markets": [],
+      "compliance": null
+    },
+    "account_learnings": {
+      "winners": [],
+      "losers": [],
+      "structural_findings": [],
+      "profitable_terms": [],
+      "wasteful_terms": [],
+      "tried_and_failed": []
+    },
+    "competitive_landscape": {
+      "competitors": [],
+      "ads": [],
+      "message_clusters": [],
+      "spend_estimates": [],
+      "whitespace": [],
+      "recommended_claim": null,
+      "substantiation_required": []
+    },
+    "demand_map": {
+      "total_keywords": 0,
+      "negatives": [],
+      "mapping": [],
+      "content_gaps": []
+    },
+    "readiness": {
+      "pages": [],
+      "conversion_actions": [],
+      "synthetic_check": null,
+      "alerts": [],
+      "lists": [
+        {
+          "evidence_ids": [
+            "0eaa4444-4444-4444-8444-444444444444"
+          ],
+          "name": "EU customers",
+          "size": 4200,
+          "consent_basis": "Consent captured at sign-up, logged per market.",
+          "markets_allowed": [
+            "DE",
+            "NL"
+          ],
+          "usable": true,
+          "blocker": null
+        }
+      ],
+      "scenarios": []
+    },
+    "priced_keyword_list": [],
+    "degraded_sources": [],
+    "markets": [
+      {
+        "country": "DE",
+        "language": "de",
+        "currency": "EUR"
+      },
+      {
+        "country": "NL",
+        "language": "nl",
+        "currency": "EUR"
+      }
+    ],
+    "product_context": {}
+  }
+}

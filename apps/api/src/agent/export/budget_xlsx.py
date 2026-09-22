@@ -30,6 +30,9 @@ every page of a document; a workbook's pages are its sheets.
 from __future__ import annotations
 
 import io
+import re
+import zipfile
+from datetime import datetime
 from typing import Any
 
 from openpyxl import Workbook
@@ -91,6 +94,23 @@ FORECAST_COLUMNS = (
 def render_budget_xlsx(plan: CampaignPlan, *, project_name: str | None = None) -> bytes:
     """The media plan as an .xlsx a person can flex."""
     book = Workbook()
+    # `Workbook()` stamps `properties.created` and `.modified` from
+    # `datetime.now()`, which puts a **clock inside the file**. §14 acceptance
+    # 6 says exporting a frozen plan twice produces byte-identical output, and
+    # it did — for as long as both renders landed in the same second. Two
+    # renders either side of a tick differ in `docProps/core.xml`, so the test
+    # that guards the rule failed roughly one run in a hundred and passed the
+    # rest, which is how it survived S2-P5b.
+    #
+    # Stamping the plan's own time fixes the determinism and is the more
+    # truthful metadata besides: a reader opening the file's properties wants
+    # to know when the plan was sealed, not when somebody happened to press
+    # export. `generated_at` is the right field for both cases — the freeze
+    # rewrites it to the moment the plan was sealed, precisely so that §14's
+    # frozen exports carry that date rather than the draft's.
+    book.properties.created = plan.generated_at
+    book.properties.modified = plan.generated_at
+
     # `Workbook()` ships one empty sheet named "Sheet". Dropping it here rather
     # than renaming the first real one keeps the sheet order deterministic:
     # Allocation, then one per scenario in the plan's own order, then Forecast.
@@ -105,7 +125,54 @@ def render_budget_xlsx(plan: CampaignPlan, *, project_name: str | None = None) -
 
     buffer = io.BytesIO()
     book.save(buffer)
-    return buffer.getvalue()
+    return _deterministic(buffer.getvalue(), plan.generated_at)
+
+
+#: The earliest date the ZIP format can represent, and therefore the obvious
+#: "no date here" value. Same constant and same reasoning as `editor_csv`.
+EPOCH = (1980, 1, 1, 0, 0, 0)
+
+
+def _deterministic(blob: bytes, stamped: datetime) -> bytes:
+    """Take the clocks back out of a saved workbook.
+
+    openpyxl puts **two** of them in, and setting `book.properties` before
+    saving only removes one. `Workbook.save` overwrites `dcterms:modified` with
+    `datetime.now()` on the way out, and `zipfile` stamps every member with the
+    wall clock on top of that. Either is enough to break §14 acceptance 6 —
+    "exporting a frozen plan twice produces byte-identical output" — which is
+    exactly how it broke: the guarding test compared two renders taken
+    milliseconds apart, so it passed unless the pair straddled a second tick,
+    and it failed about one run in a hundred for a whole phase before anyone
+    caught it.
+
+    `editor_csv` already writes its ZIP this way. The difference here is that
+    openpyxl owns the writing, so the normalisation is a second pass rather
+    than a set of `ZipInfo`s handed in.
+    """
+    stamp = stamped.strftime("%Y-%m-%dT%H:%M:%SZ")
+    out = io.BytesIO()
+    with (
+        zipfile.ZipFile(io.BytesIO(blob)) as source,
+        zipfile.ZipFile(out, "w", compression=zipfile.ZIP_DEFLATED) as target,
+    ):
+        for member in source.infolist():
+            payload = source.read(member.filename)
+            if member.filename == "docProps/core.xml":
+                payload = MODIFIED.sub(
+                    lambda match: f"{match.group(1)}{stamp}{match.group(3)}",
+                    payload.decode("utf-8"),
+                ).encode("utf-8")
+            info = zipfile.ZipInfo(filename=member.filename, date_time=EPOCH)
+            info.compress_type = zipfile.ZIP_DEFLATED
+            info.external_attr = 0o644 << 16
+            target.writestr(info, payload)
+    return out.getvalue()
+
+
+#: `<dcterms:modified …>…</dcterms:modified>`, split so the value can be
+#: replaced without rewriting the attributes around it.
+MODIFIED = re.compile(r"(<dcterms:modified\b[^>]*>)([^<]*)(</dcterms:modified>)")
 
 
 # ---------------------------------------------------------------------------

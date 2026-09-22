@@ -9,6 +9,7 @@ fail it with a named `check` — a check that can only pass is not a check.
 from __future__ import annotations
 
 from agent.export.plan_contract import AllocationLine, Dependency, PlannedKeyword
+from agent.nodes.plan.stage_2_5 import StageMapping
 from agent.planning import critique as checks
 from tests import plan_fixture as fixture
 
@@ -274,10 +275,52 @@ def test_an_audience_test_in_a_blocked_market_blocks() -> None:
     assert blocking_codes(checks.check_consent(plan)) == {"8_consent"}
 
 
-def test_an_offline_upload_planned_for_a_blocked_market_blocks() -> None:
+def test_the_stage_map_cannot_carry_a_market_so_nothing_may_read_one() -> None:
+    """Why `check_consent` no longer probes `stage_map` (S2-P7).
+
+    It used to, and the test that covered it hand-wrote `{"crm_stage": "won",
+    "market": "FR"}` into the contract's untyped `list[dict]` — a shape 2.5.2
+    cannot emit. `StageMapping` is `{crm_stage, ads_conversion_action,
+    value_field}`; pydantic drops anything else on the way out, so against a
+    real node output the probe read `None` every time and refused nothing.
+
+    This test is what stops it coming back. If a future phase adds a market to
+    the stage map — a reasonable thing to want — this fails, and whoever is
+    holding it can restore the guard knowing it will now fire.
+    """
+    row = StageMapping.model_validate(
+        {
+            "crm_stage": "won",
+            "ads_conversion_action": "Qualified lead",
+            "value_field": "acv_usd",
+            "market": "FR",
+        }
+    ).model_dump(mode="json")
+    assert "market" not in row
+
+
+def test_an_upload_with_no_recorded_basis_blocks() -> None:
+    """§13: planned only where a lawful basis is recorded, stated inline."""
     plan = fixture.plan()
-    plan.measurement_plan.stage_map = [{"crm_stage": "won", "market": "FR"}]
-    assert blocking_codes(checks.check_consent(plan)) == {"8_consent"}
+    plan.measurement_plan.consent_basis = []
+    issues = checks.check_consent(plan)
+    assert blocking_codes(issues) == {"8_consent"}
+    assert "lawful basis" in issues[0].finding
+
+
+def test_an_upload_with_a_basis_is_fine() -> None:
+    plan = fixture.plan()
+    assert plan.measurement_plan.upload.get("method")
+    assert plan.measurement_plan.consent_basis
+    assert checks.check_consent(plan) == []
+
+
+def test_a_plan_that_uploads_nothing_needs_no_basis() -> None:
+    """The guard is about uploads, not about having a consent section."""
+    plan = fixture.plan()
+    plan.measurement_plan.upload = {}
+    plan.measurement_plan.consent_basis = []
+    assert checks.check_consent(plan) == []
 
 
 def test_a_market_listed_as_both_allowed_and_blocked_blocks() -> None:

@@ -136,8 +136,21 @@ export function PlanViewer({
 
       {detail.source_superseded ? (
         <Alert tone="warning" title="The research behind this plan has been re-accepted">
-          A newer research report was accepted after this plan was built. The plan is still the
-          record of what was decided; a plan built on the newer research needs a new run.
+          <p>
+            A newer research report was accepted after this plan was built. The plan is still the
+            record of what was decided and still downloadable; a plan built on the newer research
+            needs a new run.
+          </p>
+          {/* §4.4 asks the banner to *offer* the re-plan, not merely to state
+              that one is needed. The offer is a link to the console rather
+              than a start button here: starting takes the plan lock and the
+              console is where the eligibility blockers are already rendered,
+              so a button on this page could only fail with less to say. */}
+          <p className="mt-1">
+            <Link href={`/projects/${projectId}/plan`} className="text-accent hover:underline">
+              Plan against the current research
+            </Link>
+          </p>
         </Alert>
       ) : null}
 

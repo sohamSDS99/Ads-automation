@@ -80,6 +80,15 @@ class AuditAction(StrEnum):
     #: superseded plan rather than once for the freeze: a reader asking why
     #: v2 stopped being current wants a row about v2.
     PLAN_SUPERSEDED = "plan.superseded"
+    #: The research behind a plan stopped being the current acceptance (§4.4).
+    #: Distinct from PLAN_SUPERSEDED: that one is "a newer *plan* displaced
+    #: this", this one is "a newer *research report* did", and only the second
+    #: leaves a frozen plan valid and downloadable.
+    PLAN_SOURCE_SUPERSEDED = "plan.source_superseded"
+    #: ...and the way back. Withdrawing a newer acceptance revives the one
+    #: before it, so a plan can stop being stale. Recorded because a flag that
+    #: silently cleared itself is indistinguishable from one that was never set.
+    PLAN_SOURCE_RESTORED = "plan.source_restored"
 
     USER_INVITED = "user.invited"
     #: A fresh link for somebody who never accepted. The old one stops working,

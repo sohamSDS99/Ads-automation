@@ -1,0 +1,104 @@
+{
+  "name": "degraded_forecast_override",
+  "why": "Two \u00a718 rows at once: the Google Ads forecast service was unavailable, so the plan is built on derived arithmetic and must carry `degraded_sources`; and an admin accepted a `no_go` verdict with a written reason, which travels on the input and is printed on the plan rather than being looked up again later.",
+  "plan_input": {
+    "schema_version": "1.0",
+    "project_id": "0eaa9000-0000-4000-8000-000000000001",
+    "research_run_id": "0eaa9000-0000-4000-8000-000000000040",
+    "research_report_id": "0eaa9001-0000-4000-8000-000000000040",
+    "research_schema_version": "1.0",
+    "accepted_by": "0eaa9000-0000-4000-8000-000000000002",
+    "accepted_at": "2026-09-01T09:00:00Z",
+    "acceptance_note": null,
+    "override_reason": "The board accepted the risk in writing on 2026-08-30.",
+    "launch_readiness": "no_go",
+    "launch_blockers": [],
+    "business_context": {
+      "products": [],
+      "ltv_estimate": null,
+      "target_cac": null,
+      "payback_months": null,
+      "segments": [],
+      "exclusions": [],
+      "markets": [],
+      "compliance": null
+    },
+    "account_learnings": {
+      "winners": [],
+      "losers": [],
+      "structural_findings": [],
+      "profitable_terms": [],
+      "wasteful_terms": [],
+      "tried_and_failed": []
+    },
+    "competitive_landscape": {
+      "competitors": [],
+      "ads": [],
+      "message_clusters": [],
+      "spend_estimates": [],
+      "whitespace": [],
+      "recommended_claim": null,
+      "substantiation_required": []
+    },
+    "demand_map": {
+      "total_keywords": 0,
+      "negatives": [],
+      "mapping": [],
+      "content_gaps": []
+    },
+    "readiness": {
+      "pages": [],
+      "conversion_actions": [],
+      "synthetic_check": null,
+      "alerts": [],
+      "lists": [
+        {
+          "evidence_ids": [
+            "0eaa4444-4444-4444-8444-444444444444"
+          ],
+          "name": "US customers",
+          "size": 4200,
+          "consent_basis": "Contract, with a marketing opt-in on file.",
+          "markets_allowed": [
+            "US"
+          ],
+          "usable": true,
+          "blocker": null
+        }
+      ],
+      "scenarios": []
+    },
+    "priced_keyword_list": [
+      {
+        "term": "safety data sheet software",
+        "market": "US",
+        "intent": "transactional",
+        "funnel_stage": null,
+        "volume": 900,
+        "cpc_low": 3.2,
+        "cpc_high": 4.2,
+        "competition": null,
+        "seasonality_index": [],
+        "trend_yoy": null,
+        "best_url": null,
+        "verdict": "good_fit",
+        "match_type": "phrase"
+      }
+    ],
+    "degraded_sources": [
+      "google_ads_forecast"
+    ],
+    "markets": [
+      {
+        "country": "US",
+        "language": "en",
+        "currency": "USD"
+      }
+    ],
+    "product_context": {
+      "brand_terms": [
+        "sds manager"
+      ]
+    }
+  }
+}

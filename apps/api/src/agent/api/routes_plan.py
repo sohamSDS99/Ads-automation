@@ -95,6 +95,7 @@ from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailab
 from agent.orchestrator.plan_input import PlanInputError, build_plan_input
 from agent.orchestrator.state import RunLock
 from agent.planning import freeze as freezing
+from agent.planning import staleness
 from agent.planning.diff import diff_plans, flatten_structure
 from agent.queue import enqueue_export
 from agent.redis_client import get_redis
@@ -198,6 +199,17 @@ async def accept_research(
         readiness=readiness,
         ip=client_ip(request),
     )
+    # §4.4. A newer acceptance does not invalidate the plans built from the
+    # older one — it marks them, so a frozen plan stays valid and downloadable
+    # while saying out loud that the research under it has moved on. Same
+    # transaction as the acceptance (PS4).
+    await staleness.refresh_for_project(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=run.project_id,
+        actor_id=me.user.id,
+        ip=client_ip(request),
+    )
     await db.commit()
     return await _acceptance_response(db, me, acceptance)
 
@@ -247,6 +259,17 @@ async def withdraw_acceptance(
             run_id=str(run.id),
             reason="withdrawn",
         ),
+        ip=client_ip(request),
+    )
+    # The assignment above is pending until something flushes it, and the
+    # refresh reads `superseded_by` back out of the database. Explicit rather
+    # than relying on autoflush: this one is load-bearing.
+    await db.flush()
+    await staleness.refresh_for_project(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=acceptance.project_id,
+        actor_id=me.user.id,
         ip=client_ip(request),
     )
     await db.commit()

@@ -1,0 +1,32 @@
+# An isolated stack for a git worktree.
+#
+# The base file hardcodes `name: ads-research-agent`, one IPv4 subnet and one
+# published port, so two worktrees that both run `docker compose up` share
+# containers and share a database. Every phase since S2-P0 has re-derived the
+# same override by hand; this is that override, once, parameterised.
+#
+#   COMPOSE_PROJECT_NAME=ads-s2p7 \
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.worktree.yml \
+#   WORKTREE_SUBNET=172.31.216.0/24 WORKTREE_SUBNET6=fd00:ada:7::/64 \
+#   WORKTREE_WEB_PORT=3107 \
+#   docker compose up -d
+#
+# Pick a subnet nothing else holds. In use at the time of writing:
+# 172.31.{216=s2p7, 228=s2p5b, 232=s2p6c, 236=s2p6b, 240=base, 244=s2p4,
+#         245=s2p5a, 249=s2p2, 252=s2p0, 253=s2p6a}.
+#
+# `!override` on `ipam` is load-bearing: compose **merges** list-valued keys,
+# so a plain `subnet:` here would add a second subnet to the network rather
+# than replace the base one, and the network would fail to create.
+services:
+  web:
+    ports: !override
+      - "${WORKTREE_WEB_PORT:-3100}:3000"
+
+networks:
+  internal:
+    enable_ipv6: true
+    ipam: !override
+      config:
+        - subnet: ${WORKTREE_SUBNET:-172.31.216.0/24}
+        - subnet: ${WORKTREE_SUBNET6:-fd00:ada:7::/64}

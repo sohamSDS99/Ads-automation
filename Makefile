@@ -96,6 +96,9 @@ verify-p8: ## Run P8's exit criteria against the running stack
 verify-s2p1: ## Run S2-P1's exit criteria (no stack needed; uses it for the dedupe test if up)
 	./scripts/verify-s2p1.sh
 
+verify-s2p7: ## Run S2-P7's exit criteria (§21: eval, coverage, the §17 index, staleness)
+	./scripts/verify-s2p7.sh
+
 verify-google-ads: ## Prove our own account history against the live Google Ads API
 	./scripts/verify-google-ads.sh
 
@@ -110,31 +113,34 @@ browser-autofill: ## Drive "let the agent work it out" on step 1, at 1440 and 39
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright \
 		-e PROJECT_ID="$(PROJECT_ID)" worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-autofill.py
+		/app/.venv/bin/python /tmp/browser-check-autofill.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s2p7: ## Drive the staleness banner and its re-plan offer, at 1440 and 390
+	@docker compose cp apps/api/scripts/plan_payload.py worker:/tmp/plan_payload.py
+	@docker compose cp scripts/browser-check-s2p7.py worker:/tmp/browser-check-s2p7.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-s2p7.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-s2p6c: ## Drive the Plan Viewer, structure tree, freeze dialog and diff, at 1440 and 390
 	@docker compose cp apps/api/scripts/plan_payload.py worker:/tmp/plan_payload.py
 	@docker compose cp scripts/browser-check-s2p6c.py worker:/tmp/browser-check-s2p6c.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
-	# The venv's own Python, not `uv run --with playwright==1.49.0`.
+	# The venv's own Python. Every browser target uses this form; see the
+	# note on `browser-s2p0` for what the pinned form did.
 	# `Dockerfile` installs browsers for the Playwright in `uv.lock`, which
 	# resolves the `>=1.49.0` floor to whatever is current — build 1243 at the
 	# time of writing. A pinned 1.49.0 addresses build 1148 and dies with
 	# "Executable doesn't exist at /ms-playwright/...".
 	#
-	# This trap has now been diagnosed FOUR separate times in this file:
-	# `browser-s2p0`, `browser-s2p6a` and `browser-workspaces` each carry their
-	# own comment block explaining it, each fixed only its own target, and each
-	# left the rest alone. The result is four different invocations doing the
-	# same job — bare `python`, `uv run python`, this one, and seven still on
-	# the pinned form that cannot work: browser, browser-p6, browser-p7,
-	# browser-p8, browser-autofill, browser-connections, browser-documents.
-	#
-	# Fixing those seven is one line each and is deliberately NOT done here:
-	# they belong to merged phases and a repo-wide Makefile change does not
-	# belong inside a feature PR, which is exactly how the previous three fixes
-	# stayed local. Raised separately instead.
+	# S2-P7 note: this trap had been diagnosed four separate times in this
+	# file, each fix local to one target, leaving four spellings of the same
+	# invocation and seven targets still on the pinned form that cannot survive
+	# an image rebuild. All twelve now use `/app/.venv/bin/python`. A repo-wide
+	# Makefile change did not belong in a feature PR; it belongs in hardening,
+	# which is this one.
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		/app/.venv/bin/python /tmp/browser-check-s2p6c.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
@@ -143,10 +149,10 @@ browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and
 	@docker compose cp scripts/browser-check-connections.py worker:/tmp/browser-check-connections.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-connections.py
+		/app/.venv/bin/python /tmp/browser-check-connections.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
-eval: ## Run the eval harness (10 golden fixtures x schema + groundedness)
+eval: ## Run both eval harnesses (10 node fixtures + 5 golden PlanInputs)
 	cd $(API) && uv run pytest tests/eval -q
 
 coverage: ## Measure coverage on the packages PRD §15 NF9 names
@@ -160,74 +166,84 @@ coverage-calc: ## Stage 02 PQ2: >= 85% on calc/ and planning/, measured on their
 		--cov=agent.calc --cov=agent.planning \
 		--cov-report=term-missing:skip-covered --cov-fail-under=85
 
+coverage-plan: ## Stage 02 PQ2: >= 80% on nodes/plan, planning/ and export/, each on its own
+	# §17 PQ2 names three floors, not one — and one blended number lets a
+	# well-covered package carry a bare one, which is the measurement this
+	# gate exists to refuse. Three runs, three floors.
+	@for pkg in agent.nodes.plan agent.planning agent.export; do \
+		echo "== $$pkg"; \
+		(cd $(API) && uv run pytest tests -q --ignore=tests/integration \
+			--cov=$$pkg --cov-report=term-missing:skip-covered \
+			--cov-fail-under=80) || exit 1; \
+	done
+
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check.py
+		/app/.venv/bin/python /tmp/browser-check.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p6: ## Drive the P6 screens as an admin and as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-p6.py worker:/tmp/browser-check-p6.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p6.py
+		/app/.venv/bin/python /tmp/browser-check-p6.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p8: ## Drive the P8 screens (schedules, storage, compare, banners) at 1440 and 390
 	@docker compose cp scripts/browser-check-p8.py worker:/tmp/browser-check-p8.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p8.py
+		/app/.venv/bin/python /tmp/browser-check-p8.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-s2p0: ## Drive the Stage 02 handshake screens (tabs, lock, accept, start) at 1440 and 390
 	@docker compose cp scripts/browser-check-s2p0.py worker:/tmp/browser-check-s2p0.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
-	# The worker image already carries playwright and its browsers. `--with
-	# playwright==1.49.0` (what the older targets do) installs a second copy
-	# that looks for a chromium build this image does not have.
+	# The worker's own interpreter. `uv run --with playwright==1.49.0` — what
+	# every browser target here used to do — installs a second Playwright that
+	# addresses chromium build 1148, while the image installs whatever
+	# `uv.lock` resolves (1243). It worked until the image was next rebuilt.
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		python /tmp/browser-check-s2p0.py
+		/app/.venv/bin/python /tmp/browser-check-s2p0.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-s2p6b: ## Drive the budget gate's allocation editor and the forecast figures at 1440 and 390
 	@docker compose cp scripts/browser-check-s2p6b.py worker:/tmp/browser-check-s2p6b.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run python /tmp/browser-check-s2p6b.py
+		/app/.venv/bin/python /tmp/browser-check-s2p6b.py
 
 browser-s2p6a: ## Drive the Plan Console (rail, Calc tab, stage guard) at 1440 and 390
 	@docker compose cp scripts/browser-check-s2p6a.py worker:/tmp/browser-check-s2p6a.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
-	# The worker's own venv: the image ships the playwright its browsers were
-	# installed for, and `--with playwright==1.49.0` pulls a second copy that
-	# then cannot find them.
+	# The worker's own venv: the image ships the Playwright its browsers were
+	# installed for.
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run python /tmp/browser-check-s2p6a.py
+		/app/.venv/bin/python /tmp/browser-check-s2p6a.py
 
 browser-documents: ## Upload a real PDF into step 1 and assert on what the screen says
 	@docker compose cp scripts/browser-check-documents.py worker:/tmp/browser-check-documents.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-documents.py
+		/app/.venv/bin/python /tmp/browser-check-documents.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-workspaces: ## Drive the workspace switcher, the two admin tabs and the refusals, at 1440 and 390
 	@docker compose cp scripts/browser-check-workspaces.py worker:/tmp/browser-check-workspaces.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
-	# The worker's own venv, not `--with playwright==1.49.0`: the image ships
-	# the browsers *its* Playwright asks for (chromium-1243), and pulling a
-	# pinned older Playwright in alongside them fails on a missing executable.
+	# The worker's own venv: the image ships the browsers *its* Playwright
+	# asks for (chromium-1243).
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		python /tmp/browser-check-workspaces.py
+		/app/.venv/bin/python /tmp/browser-check-workspaces.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-p7: ## Drive the P7 screens as four roles, at 1440 and 390
 	@docker compose cp scripts/browser-check-p7.py worker:/tmp/browser-check-p7.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
-		uv run --no-project --with playwright==1.49.0 python /tmp/browser-check-p7.py
+		/app/.venv/bin/python /tmp/browser-check-p7.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 typecheck: ## mypy (api) + tsc (web)

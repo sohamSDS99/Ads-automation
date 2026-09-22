@@ -378,6 +378,53 @@ def test_a_frozen_plan_exports_byte_identically_twice(fmt: ExportFormat) -> None
     assert first.payload == second.payload, fmt.value
 
 
+def test_the_workbook_carries_the_plans_clock_and_not_the_wall_clock() -> None:
+    """Why the parametrised test above stopped being a coin toss (S2-P7).
+
+    `openpyxl` puts two clocks into an .xlsx: `Workbook()` sets
+    `dcterms:created` from `datetime.now()`, `save` overwrites
+    `dcterms:modified` with it again, and `zipfile` stamps every member on top.
+    Two renders therefore matched only when they landed in the same second, so
+    the byte-identity test passed on almost every run and failed on about one
+    in a hundred — which is the worst kind of green, and it stayed that way for
+    a whole phase.
+
+    Comparing two renders cannot catch that without sleeping through a tick, so
+    this asserts the property directly: there is no `now()` anywhere in the
+    file.
+    """
+    plan = fixture.frozen_plan()
+    blob = render_budget_xlsx(plan, project_name="SDS Manager")
+    stamp = plan.generated_at.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    with zipfile.ZipFile(io.BytesIO(blob)) as archive:
+        core = archive.read("docProps/core.xml").decode()
+        assert core.count(stamp) == 2, f"core.xml does not carry the plan's time twice:\n{core}"
+        stamped = {member.date_time for member in archive.infolist()}
+        assert stamped == {(1980, 1, 1, 0, 0, 0)}, f"a ZIP member carries a wall clock: {stamped}"
+
+
+def test_the_workbook_still_opens_after_the_timestamps_are_normalised() -> None:
+    """The control for the test above.
+
+    Rewriting every ZIP member is the kind of fix that can leave a file that
+    compares equal and opens in nothing. Read it back with the library Excel's
+    own format is defined by, and check a formula survived.
+    """
+    from openpyxl import load_workbook
+
+    plan = fixture.frozen_plan()
+    book = load_workbook(io.BytesIO(render_budget_xlsx(plan, project_name="SDS Manager")))
+    assert book.sheetnames[0] == "Allocation"
+    formulas = [
+        cell.value
+        for row in book["Allocation"].iter_rows()
+        for cell in row
+        if isinstance(cell.value, str) and cell.value.startswith("=")
+    ]
+    assert formulas, "the allocation sheet lost its live formulas"
+
+
 def test_the_docx_differs_only_where_python_docx_stamps_a_time() -> None:
     """DOCX is excluded from the byte-identical parametrisation above, honestly.
 
