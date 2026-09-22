@@ -28,7 +28,7 @@ def corpus() -> list:
     return [
         evidence("creative_history", BEST, {"performance_label": "BEST"}),
         evidence("creative_history", WORST, {"performance_label": "LOW"}),
-        evidence("site_pages", "We replace the binder with a searchable library."),
+        evidence("page", "We replace the binder with a searchable library."),
     ]
 
 
@@ -128,7 +128,7 @@ class TestVoiceProfile:
 
     async def test_it_runs_with_no_creative_history_at_all(self) -> None:
         """§10.3: no connected account means site copy alone, and the run continues."""
-        rows = [evidence("site_pages", "We replace the binder with a searchable library.")]
+        rows = [evidence("page", "We replace the binder with a searchable library.")]
         h = harness(
             "3.1.1",
             answers={
@@ -136,7 +136,7 @@ class TestVoiceProfile:
                     do_examples=[
                         {
                             "text": "We replace the binder with a searchable library.",
-                            "source_ref": "site_pages",
+                            "source_ref": "page",
                             "why": "plain",
                         }
                     ],
@@ -407,15 +407,28 @@ class TestGathering:
     gap that would put "insufficient evidence" on a rulebook that has plenty.
     """
 
-    async def test_gathering_nothing_at_all_is_not_an_error(self) -> None:
+    async def test_gathering_nothing_at_all_is_not_an_error(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         """Law 21's cold start, at the gather layer.
 
-        A bare project has no stored evidence and no connected source, so every
-        need misses and every pull declines for want of a credential. That has
-        to come back as an empty corpus rather than an exception — 3.1.1 still
-        has to run and say what it could not see.
+        A bare project has no stored evidence, so every need misses and 3.1.1
+        has to come back with an empty corpus rather than an exception — it
+        still has to run and say what it could not see.
+
+        The pull is stubbed, and that is not laziness. `web_crawler` needs no
+        credential, so an unstubbed miss on the `page` need makes this unit test
+        crawl a real website: it hung for two minutes the first time it ran that
+        way. A unit suite that reaches the internet is a unit suite that fails
+        on a train.
         """
-        h = harness("3.1.1", queries=[[], [], [], [], [], [], [], []])
+        from agent.nodes import gather as gather_module
+
+        async def no_pull(ctx: object, need: object) -> gather_module.PullResult:
+            return gather_module.PullResult(wrote=False, skipped=True)
+
+        monkeypatch.setattr(gather_module, "_pull", no_pull)
+        h = harness("3.1.1", queries=[[], [], []])
 
         rows = await voice_profile.gather(h.ctx)
 
@@ -427,7 +440,7 @@ class TestGathering:
 
         assert [need.kind for need in needs] == [
             "creative_history",
-            "site_pages",
+            "page",
             "brand_book_span",
         ]
         assert all(need.optional for need in needs)
@@ -456,3 +469,27 @@ class TestGathering:
         needs = visual_identity_rules.needs()
 
         assert {need.connector for need in needs} == {"brand_book"}
+
+    async def test_it_reads_the_evidence_kind_the_crawler_actually_writes(self) -> None:
+        """§11 calls it `site_pages`. Nothing in this repo writes that.
+
+        `web_crawler` emits `page` — `stage_1_1.PAGE` — and has since Stage 01.
+        A need for a kind no connector produces is not a harmless rename: it
+        reads as satisfied, returns nothing forever, and 3.1.1 quietly profiles
+        voice from ads alone on every project that has no ad account either.
+        """
+        from agent.nodes.stage_1_1 import PAGE
+
+        kinds = {need.kind for need in voice_profile.needs()}
+
+        assert PAGE in kinds
+        assert "site_pages" not in kinds
+
+    async def test_the_voice_corpus_accepts_a_crawled_page(self) -> None:
+        h = harness("3.1.1", answers={"VoiceDraft": voice_answer(do_examples=[], dont_examples=[])})
+        rows = [evidence("page", "We replace the binder with a searchable library.")]
+
+        out = await voice_profile.reason(h.ctx, rows)
+
+        assert out.input_mode == "unbound"
+        assert "searchable library" in h.llm.every_prompt()

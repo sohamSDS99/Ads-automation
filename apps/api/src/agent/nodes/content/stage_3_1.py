@@ -33,13 +33,22 @@ from agent.guardrails.registry import kind_for
 from agent.llm.router import TaskClass
 from agent.nodes import gather, prompts
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
+from agent.nodes.stage_1_1 import PAGE
 from agent.schemas.guardrails import Matcher, TermSetMatcher
 
 #: The gate key 3.1.3 writes onto.
 VISUAL_GATE = "G5"
 
 #: Evidence kinds 3.1.1 profiles voice from, best-performing copy first.
-VOICE_KINDS = ("creative_history", "site_pages", "brand_book_span")
+#:
+#: §11 spells the middle one `site_pages`. **Nothing in this repo writes that
+#: kind.** `web_crawler` has emitted `page` since Stage 01 (`stage_1_1.PAGE`),
+#: and a need for a kind no connector produces does not fail loudly — it reads
+#: as satisfied, returns nothing forever, and leaves 3.1.1 profiling voice from
+#: ads alone on exactly the projects that have no ad account either. Same class
+#: of mismatch S3-P0 recorded for §4.5's field names: the PRD's vocabulary and
+#: the shipped contract's are not the same, and the shipped one wins.
+VOICE_KINDS = ("creative_history", PAGE, "brand_book_span")
 
 #: Performance labels Google reports, best first. A `BEST` asset is what §11
 #: means by "real best-performing copy"; the order is what decides which
@@ -133,9 +142,9 @@ class VoiceProfileNode:
         return (
             gather.Need("creative_history", connector="google_ads", optional=True),
             gather.Need(
-                "site_pages",
+                PAGE,
                 connector="web_crawler",
-                params={"domain": domain},
+                params={"domain": domain, "kinds": [PAGE]},
                 optional=True,
             ),
             gather.Need("brand_book_span", connector="brand_book", optional=True),
