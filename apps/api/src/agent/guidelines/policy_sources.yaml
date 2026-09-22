@@ -1,0 +1,135 @@
+# Stage 03 watched-policy registry — PRD §9.7, global law 25.
+#
+# The URLs the `policy_watch` job fetches, hashes and diffs. Configuration,
+# never prompt text: a policy URL pasted into a prompt is a URL nobody can
+# review, and §9.7 makes hardcoding one a law-15 violation.
+#
+# Every source carries a `source` and a `reviewed_at`, on the same rule as
+# `content_constants.yaml`: **a source without attribution fails startup with
+# its own label in the message.**
+#
+# ---------------------------------------------------------------------------
+# THREE THINGS MEASURED ON 2026-09-23, BECAUSE EACH ONE CHANGES THE WATCHER
+# ---------------------------------------------------------------------------
+#
+# 1. `selector: article` — NOT `main`. §9.7's seed said "main". There is no
+#    <main> element on support.google.com; a selector that matches nothing
+#    would hash the empty string and report "unchanged" forever. The real
+#    container is <article class="article page">.
+#
+# 2. The hash is taken over the *text* inside the selector, never over the
+#    response body. Two fetches of the policy index three seconds apart
+#    produced different whole-page hashes — the diff is CSP `nonce`
+#    attributes and per-request stat tokens, not content. Hashing the body
+#    would open an amendment every single day, and §8.6 routes an
+#    `unclassified` amendment to the performance owner as `substantive`, so
+#    the inbox would fill with noise until somebody turned the watcher off.
+#    Scoped to `article` and reduced to text, all eight hashed identically
+#    across three separate runs.
+#
+# 3. `?hl=en` is pinned on every URL. The index states plainly that English
+#    "is the official language used to enforce Google Ads policies", and an
+#    unpinned URL localises by IP — so the same page fetched from a different
+#    region would diff against itself.
+#
+# robots.txt (fetched 2026-09-23) disallows only /*/search, /*/apis, /*/api,
+# /bin/search.* and /*/forum-attachment. /adspolicy/answer/* is permitted. One
+# plain GET per source per day, no headless browser.
+#
+# ---------------------------------------------------------------------------
+# EVERY URL BELOW SHIPS `source: unverified`
+# ---------------------------------------------------------------------------
+# They were read from Google's own policy index rather than guessed, and each
+# returned 200 with a parseable <article>. "Unverified" here means no human has
+# confirmed that this URL is the one *we* want watched for *our* industry —
+# which is a judgement, not a fetch. Settings exposes them for exactly that.
+
+version: "2026.09.1"
+
+# §8.5: daily. 04:00 UTC keeps it away from the 03:17 nightly maintenance job.
+poll_default_cron: "0 4 * * *"
+
+sources:
+  - label: "Google Ads policies — index"
+    url: "https://support.google.com/adspolicy/answer/6008942?hl=en"
+    area: editorial
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+    # Carries all four policy areas inline (#con, #pra, #res, #ed), so it is
+    # also where 3.3.1 reads the restricted-*category* list. The sections are
+    # flat <h2> siblings with no wrapping element, which is why the restricted
+    # source below is a separate page rather than a selector into this one.
+
+  - label: "Editorial"
+    url: "https://support.google.com/adspolicy/answer/6021546?hl=en"
+    area: editorial
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+
+  - label: "Restricted ad formats and features"
+    url: "https://support.google.com/adspolicy/answer/9481382?hl=en"
+    area: restricted_content
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+    # WEAKEST OF THE SEVEN, FLAGGED FOR REVIEW. Google publishes no standalone
+    # "restricted content" page — the area is split across 16 sub-policies and
+    # enumerated only in the index above. This is the page Google's own index
+    # designates for the area, but it covers restricted *formats and features*
+    # rather than restricted *categories* (alcohol, gambling, healthcare,
+    # financial, crypto, dating, political). Retarget here if the industry map
+    # wants a category page instead.
+
+  - label: "Trademarks"
+    url: "https://support.google.com/adspolicy/answer/6118?hl=en"
+    area: trademark
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+
+  - label: "Personalized advertising"
+    url: "https://support.google.com/adspolicy/answer/143465?hl=en"
+    area: personalization
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+
+  - label: "Advertiser verification"
+    url: "https://support.google.com/adspolicy/answer/9703665?hl=en"
+    area: verification
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+
+  # --- disclosure is TWO sources, and §9.7 asked for one -------------------
+  # Deviation from §9.7, recorded rather than hidden. Node 3.3.4 emits
+  # `disclosure_rules[]` scoped by `markets[]`, and no single page carries both
+  # halves of what that needs:
+  #
+  #   6014595  — Google's OWN policy. Election ads containing synthetic or
+  #              digitally altered content must be disclosed via the campaign
+  #              setting; Google generates the in-ad disclosure. Enforced by
+  #              Google, so it maps to authority `google_policy`.
+  #   17140115 — EXTERNAL regulation Google surfaces: the EU, India and New
+  #              York require AI-generated/edited assets to be labelled. This
+  #              is the only page carrying that market list, and it states
+  #              plainly that using Google's label setting "doesn't guarantee
+  #              your compliance with specific regulations".
+  #
+  # Dropping either one loses a trigger 3.3.4 is specified to emit.
+
+  - label: "Political content — synthetic and digitally altered content"
+    url: "https://support.google.com/adspolicy/answer/6014595?hl=en"
+    area: disclosure
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23
+
+  - label: "AI content labels and disclosures"
+    url: "https://support.google.com/google-ads/answer/17140115?hl=en"
+    area: disclosure
+    selector: "article"
+    source: unverified
+    reviewed_at: 2026-09-23

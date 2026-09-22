@@ -18,6 +18,7 @@ from typing import Any
 
 import structlog
 
+from agent.config import get_settings
 from agent.db.session import get_sessionmaker
 from agent.redis_client import get_redis
 
@@ -119,3 +120,75 @@ async def nightly_maintenance_job(ctx: dict[str, Any]) -> dict[str, Any]:
         "exports_expired": outcome.exports_expired,
     }
     return result
+
+
+async def policy_watch_job(ctx: dict[str, Any]) -> dict[str, Any]:
+    """Fetch, hash and diff every watched policy page (PRD §8.5, §8.6).
+
+    Daily at 04:00 UTC per `policy_sources.yaml`. One GET per source, and an
+    `arq` cron rather than Railway Cron for the reason Stage 01 §5.2 gives.
+
+    The gateway is built per workspace because the OpenRouter credential is a
+    workspace credential — the sweep classifies each workspace's amendments
+    with that workspace's key, exactly as the executor does. A workspace with
+    no key still gets its pages fetched and its amendments opened; they stay
+    `unclassified`, which §8.6 resolves to a human.
+    """
+    import sqlalchemy as sa
+
+    from agent.credentials import resolve_values
+    from agent.db.models import CredentialKind, Workspace
+    from agent.db.session import get_sessionmaker as _sessionmaker
+    from agent.llm.gateway import build_gateway
+    from agent.llm.router import ModelRouter
+    from agent.policy.sweep import SweepOutcome, sweep
+
+    totals = SweepOutcome()
+    try:
+        async with _sessionmaker()() as session:
+            settings = get_settings()
+            workspaces = list((await session.execute(sa.select(Workspace.id))).scalars().all())
+            for workspace_id in workspaces:
+                client = None
+                try:
+                    values = await resolve_values(
+                        session, workspace_id=workspace_id, kind=CredentialKind.OPENROUTER
+                    )
+                    gateway, client = build_gateway(api_key=values["api_key"], settings=settings)
+                    outcome = await sweep(
+                        session,
+                        llm=gateway,
+                        router=ModelRouter(),
+                        workspace_id=workspace_id,
+                    )
+                except Exception as exc:  # noqa: BLE001 — see module docstring
+                    log.error(
+                        "cron.policy_watch_workspace_failed",
+                        workspace_id=str(workspace_id),
+                        error=str(exc),
+                    )
+                    continue
+                finally:
+                    if client is not None:
+                        await client.aclose()
+                totals.checked += outcome.checked
+                totals.changed += outcome.changed
+                totals.amendments += outcome.amendments
+                totals.auto_applied += outcome.auto_applied
+                totals.needs_review += outcome.needs_review
+                totals.stale.extend(outcome.stale)
+                totals.failed.extend(outcome.failed)
+                totals.unclassifiable.extend(outcome.unclassifiable)
+    except Exception as exc:  # noqa: BLE001 — see module docstring
+        log.error("cron.policy_watch_failed", error=str(exc))
+        return {"error": str(exc)}
+    return {
+        "checked": totals.checked,
+        "changed": totals.changed,
+        "amendments": totals.amendments,
+        "auto_applied": totals.auto_applied,
+        "needs_review": totals.needs_review,
+        "stale": totals.stale,
+        "failed": totals.failed,
+        "unclassifiable": totals.unclassifiable,
+    }

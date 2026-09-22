@@ -107,6 +107,20 @@ class NodeSpec(BaseModel):
     #: exclusive with `gate_key`: an approval and a person-task are different
     #: primitives, and the difference is the whole of law 23.
     human_task_key: str | None = None
+    #: Whether this person-task has somebody to ask on *every* run.
+    #:
+    #: False for H1: reaching 3.2.3 means there are claims and somebody has to
+    #: sign them. True for H2, which is the first person-task that can
+    #: legitimately have nothing to ask — §11 requires 3.3.2 to emit
+    #: `status='not_required'` and create **no task** when 3.3.1 found nothing
+    #: needing verification, and opening one anyway would put "verify nothing"
+    #: in front of a company officer.
+    #:
+    #: The exact twin of `gate_conditional`, down to the registry refusing the
+    #: declaration unless `task_required()` is implemented alongside it. Two
+    #: mechanisms for "this halt is conditional" would eventually disagree
+    #: about which one the executor consults.
+    human_task_conditional: bool = False
     #: The `GuidelineInput` fields this node reads *when they are bound*. Every
     #: one of them can be None on a standalone run, and the unbound golden
     #: fixture exercises exactly that (PRD §4.3, §8.1 item 2).

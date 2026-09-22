@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.connectors.brand_book import COLOUR, SPAN
 from agent.db.models import Evidence, EvidenceSource
 from agent.nodes.stage_1_1 import PAGE
+from agent.policy.watcher import POLICY_SNAPSHOT
 from tests.integration.conftest import ApiClient, build_client, make_member
 from tests.integration.runs_support import by_output_model, execute
 from tests.openrouter_fake import FakeOpenRouter
@@ -110,14 +111,139 @@ async def seed_corpus(db: AsyncSession, project_id: uuid.UUID) -> None:
             hash=uuid.uuid4().hex,
         ),
     ]
+    rows.extend(_policy_snapshots(project_id))
     for row in rows:
         db.add(row)
     await db.commit()
 
 
-def script(owners: dict[str, str]) -> dict[str, Any]:
+#: The policy pages stage 3.3 reads, and the URLs `policy_sources.yaml` ships.
+#: Kept in step with that file by
+#: `tests/test_policy_sources.py::TestShippedRegistry::test_the_integration_corpus_covers_every_seeded_source`,
+#: which fails if a seeded source has no snapshot here — otherwise the first
+#: sign of drift is a suite that goes quiet for fifteen minutes.
+POLICY_PAGES = {
+    "https://support.google.com/adspolicy/answer/6008942?hl=en": (
+        "editorial",
+        "Our advertising policies cover four broad areas.",
+    ),
+    "https://support.google.com/adspolicy/answer/6021546?hl=en": (
+        "editorial",
+        "Ads must be clear, and must not use gimmicky punctuation.",
+    ),
+    "https://support.google.com/adspolicy/answer/9481382?hl=en": (
+        "restricted_content",
+        "Some ad formats and features need certification before you may use them.",
+    ),
+    "https://support.google.com/adspolicy/answer/6118?hl=en": (
+        "trademark",
+        "Trademark policies apply when an owner submits a valid complaint.",
+    ),
+    "https://support.google.com/adspolicy/answer/143465?hl=en": (
+        "personalization",
+        "Ads must not imply knowledge of a sensitive attribute about the viewer.",
+    ),
+    "https://support.google.com/adspolicy/answer/9703665?hl=en": (
+        "verification",
+        "Advertisers in certain industries must complete advertiser verification.",
+    ),
+    "https://support.google.com/adspolicy/answer/6014595?hl=en": (
+        "disclosure",
+        "Advertisers must disclose election ads containing synthetic or altered content.",
+    ),
+    "https://support.google.com/google-ads/answer/17140115?hl=en": (
+        "disclosure",
+        "Regulations in the EU, India and New York require AI-generated assets to be labelled.",
+    ),
+}
+
+
+def _policy_snapshots(project_id: uuid.UUID) -> list[Evidence]:
+    """One stored snapshot per watched source, so 3.3.1 never opens a socket.
+
+    `block_network_pulls` cannot cover this path: it patches `gather._pull`,
+    and stage 3.3 does not gather through a connector — the watcher is not one.
+    3.3.1 calls `watcher.ensure_snapshots`, which reuses a stored snapshot and
+    fetches only what is missing. Seeding all eight means nothing is missing,
+    so no test reaches `support.google.com`.
+
+    Found the way the docstring on `block_network_pulls` describes: the first
+    full-suite run after stage 3.3 landed went to the live site from inside the
+    test container and then failed on an unscripted completion.
+    """
+    return [
+        Evidence(
+            project_id=project_id,
+            source=EvidenceSource.WEB,
+            source_url=url,
+            kind=POLICY_SNAPSHOT,
+            payload={"label": area.title(), "area": area, "selector": "article"},
+            content_text=text,
+            hash=uuid.uuid4().hex,
+        )
+        for url, (area, text) in POLICY_PAGES.items()
+    ]
+
+
+def script(owners: dict[str, str], policy: list[str] | None = None) -> dict[str, Any]:
     """One answer per node, keyed by the output model each one asks for."""
+    cited = list(policy or [])
     return {
+        # --- stage 3.3 (S3-P4) ------------------------------------------
+        "PolicySurfaceDraft": {
+            "applicable": [
+                {
+                    "area": "trademark",
+                    "policy_ref": "adspolicy/6118",
+                    "why_applicable": "comparison copy names competitors",
+                    "markets": ["GB"],
+                    "obligations": ["no competitor mark in a headline"],
+                    "evidence_ids": cited[:1],
+                },
+                {
+                    "area": "editorial",
+                    "policy_ref": "adspolicy/6021546",
+                    "why_applicable": "every ad we run is subject to the editorial standard",
+                    "markets": ["GB"],
+                    "obligations": ["no gimmicky punctuation"],
+                    "evidence_ids": cited[:1],
+                },
+            ],
+            "not_applicable": [
+                {"area": "personalization", "why_not": "we run no remarketing audiences"},
+                {
+                    "area": "restricted_content",
+                    "why_not": "safety software is not a restricted category",
+                },
+                {
+                    "area": "verification",
+                    "why_not": "not an industry Google requires verification for",
+                },
+                {"area": "disclosure", "why_not": "no generated creative is in use"},
+            ],
+            "requires_verification": [],
+            "open_interpretation": [],
+        },
+        "CompetitiveAndPersonalizationOutput": {
+            "competitor_mentions": {
+                "policy_ref": "adspolicy/6118",
+                "permitted": ["a factual comparison in body copy"],
+                "forbidden": ["a competitor mark in a headline"],
+                "trademark_notes": ["complaints are owner-initiated"],
+                "per_market_variance": [],
+            },
+            "personalization": {
+                "forbidden_implications": ["implying knowledge of an employer"],
+                "sensitive_inference_categories": ["health"],
+                "remarketing_copy_rules": ["do not address a prior visit directly"],
+            },
+            "evidence_ids": [],
+        },
+        "AiDisclosureOutput": {
+            "disclosure_rules": [],
+            "internal_policy_addendum": "",
+            "uncovered_surfaces": [],
+        },
         "SignOffProposal": {
             "brand_owner_id": owners["brand"],
             "legal_owner_id": owners["legal"],
@@ -221,6 +347,35 @@ def script(owners: dict[str, str]) -> dict[str, Any]:
     }
 
 
+async def policy_ids(db: AsyncSession) -> list[str]:
+    """The seeded policy snapshots, as the ids 3.3.1 must cite.
+
+    Read back rather than scripted as a constant: `_assert_cited` requires an
+    `applicable` area to name a snapshot the node actually gathered, and a
+    static script cannot know the ids. That check is the point — an obligation
+    nobody can trace to a page is an obligation the model wrote — so the script
+    bends, not the node.
+    """
+    rows = (
+        (await db.execute(sa.select(Evidence.id).where(Evidence.kind == POLICY_SNAPSHOT)))
+        .scalars()
+        .all()
+    )
+    return [str(row) for row in rows]
+
+
+async def seed_policy_corpus(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """Google's policy pages, for a project that has no copy of its own.
+
+    Separate from `seed_corpus` because the cold-start path needs exactly this
+    and nothing else: a bare project still lives under Google's policies, so
+    3.3.1 has real text to read even when 3.1.1 and 3.2.1 have none.
+    """
+    for row in _policy_snapshots(project_id):
+        db.add(row)
+    await db.commit()
+
+
 async def owner_ids(admin: ApiClient, db: AsyncSession) -> dict[str, str]:
     from agent.db.models import User
 
@@ -236,7 +391,7 @@ async def run_to_the_gates(
 ) -> tuple[uuid.UUID, dict[str, tuple[str, str]]]:
     cast = await people(admin)
     await seed_corpus(db, project_id)
-    by_output_model(fake, script(await owner_ids(admin, db)))
+    by_output_model(fake, script(await owner_ids(admin, db), await policy_ids(db)))
 
     started = await admin.post(f"/projects/{project_id}/guidelines/runs", json={})
     assert started.status_code == 202, started.text
@@ -294,13 +449,13 @@ async def advance(
         decided = await approver.post(f"/approvals/{gate['id']}", json={"decision": "approve"})
         assert decided.status_code == 200, decided.text
         decided_keys.append(gate["gate_key"])
-    by_output_model(fake, script(await owner_ids(admin, db)))
+    by_output_model(fake, script(await owner_ids(admin, db), await policy_ids(db)))
     result = await execute(run_id, fake)
     assert result.error is None, result.error
     return ",".join(sorted(decided_keys))
 
 
-def cold_script(owners: dict[str, str]) -> dict[str, Any]:
+def cold_script(owners: dict[str, str], policy: list[str] | None = None) -> dict[str, Any]:
     """The same script for a project with no copy at all.
 
     A bare project has no ads and no crawled pages, so there is nothing for
@@ -310,7 +465,7 @@ def cold_script(owners: dict[str, str]) -> dict[str, Any]:
     invented lines. The node enforces exactly that, which is why this script
     differs from `script()` only in those two fields.
     """
-    cold = script(owners)
+    cold = script(owners, policy)
     cold["VoiceDraft"] = {**cold["VoiceDraft"], "do_examples": [], "dont_examples": []}
     # Same honesty, one stage along: 3.2.1 harvests claims out of published
     # copy, and a bare project has published none. A candidate here would name
@@ -339,8 +494,23 @@ def block_network_pulls(monkeypatch: pytest.MonkeyPatch) -> None:
     what a blocked `await` on a socket looks like from the database's side.
     """
     from agent.nodes import gather as gather_module
+    from agent.policy import watcher as watcher_module
 
     async def skipped(ctx: Any, need: Any) -> gather_module.PullResult:
         return gather_module.PullResult(wrote=False, skipped=True)
 
     monkeypatch.setattr(gather_module, "_pull", skipped)
+
+    # Stage 3.3 opens the second socket, and `_pull` does not cover it: the
+    # watcher is not a connector, so `watcher.ensure_snapshots` reaches
+    # `support.google.com` directly. Seeding the snapshots means it never needs
+    # to; this makes that a guarantee rather than a hope, so a source added to
+    # `policy_sources.yaml` without a fixture fails loudly here instead of
+    # quietly crawling Google from CI.
+    async def refuse(url: str, settings: Any = None) -> str:
+        raise AssertionError(
+            f"a test tried to fetch {url}. Seed the snapshot in POLICY_PAGES "
+            "instead of letting the suite reach the live policy site."
+        )
+
+    monkeypatch.setattr(watcher_module, "fetch", refuse)

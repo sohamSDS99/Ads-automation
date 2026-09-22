@@ -383,12 +383,18 @@ async def test_a_cold_guideline_run_is_executed_by_a_real_worker(
         cold_script,
         owner_ids,
         patch_gateway,
+        policy_ids,
+        seed_policy_corpus,
     )
 
     await _approver(admin)
+    # Google's policy pages, and nothing else. A bare project has no copy of
+    # its own — that is the whole point of this test — but it still lives under
+    # Google's policies, so 3.3.1 has real text to read on the cold path too.
+    await seed_policy_corpus(db, project_id)
     patch_gateway(monkeypatch, fake_openrouter)
     block_network_pulls(monkeypatch)
-    by_output_model(fake_openrouter, cold_script(await owner_ids(admin, db)))
+    by_output_model(fake_openrouter, cold_script(await owner_ids(admin, db), await policy_ids(db)))
 
     started = await admin.post(f"/projects/{project_id}/guidelines/runs", json={})
     assert started.status_code == 202, started.text

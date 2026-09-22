@@ -154,6 +154,31 @@ def gate_wanted(node: Node, ctx: RunContext, output: BaseModel) -> bool:
     return bool(node.gate_required(ctx, output))  # type: ignore[attr-defined]
 
 
+def task_wanted(node: Node, ctx: RunContext, output: BaseModel) -> bool:
+    """Does this person-task node have somebody to ask on *this* run?
+
+    The twin of `gate_wanted`, and a separate function for the reason §8.4
+    gives: an approval and a person-task are different primitives. Folding them
+    together here would be the first place the distinction started to blur.
+
+    H1 always has somebody to ask — reaching 3.2.3 means there are claims and
+    they need signing. H2 does not: §11 requires 3.3.2 to emit
+    `status='not_required'` and create **no task** when 3.3.1 found nothing
+    requiring verification. Without this, `_open_human_task` would raise on the
+    missing `assignee_id` and fail a run whose correct outcome is "nothing to
+    do here", which is the opposite of what the phase asks for.
+    """
+    spec = node.spec
+    if not spec.human_task_key:
+        return False
+    if not spec.human_task_conditional:
+        return True
+    # `human_task_conditional` without `task_required()` is refused by the
+    # registry at import time, so the attribute is present by the time a run
+    # reaches here.
+    return bool(node.task_required(ctx, output))  # type: ignore[attr-defined]
+
+
 class NodeHalted(RuntimeError):
     """A gate node produced its proposal and is waiting for a human (PRD §7.2.5).
 
@@ -791,7 +816,7 @@ class RunExecutor:
                 )
 
         telemetry = ctx.telemetry
-        if spec.human_task_key:
+        if task_wanted(node, ctx, result):
             await self._open_human_task(
                 node_run=node_run,
                 spec=spec,
