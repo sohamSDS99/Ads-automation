@@ -13,7 +13,6 @@ green tick.
 from __future__ import annotations
 
 import pytest
-from tests.guardrails.helpers import GOOGLE, INTERNAL, context, target
 
 from agent.guardrails.matchers.disclosure import (
     ai_generated,
@@ -28,6 +27,7 @@ from agent.guardrails.matchers.image import (
 )
 from agent.guardrails.registry import GuardrailsError
 from agent.schemas.guardrails import DisclosureMatcher, RatioMatcher
+from tests.guardrails.helpers import GOOGLE, INTERNAL, context, target
 
 COVERAGE = text_coverage(authority=GOOGLE, maximum=0.20)
 

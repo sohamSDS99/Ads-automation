@@ -359,7 +359,7 @@ def _offer_rule(
     ) -> RuleBody:
         return RuleBody(
             matcher=OfferBindingMatcher(
-                construction=construction,  # type: ignore[arg-type]
+                construction=construction,
                 field=default_field,
                 tolerance=tolerance,
                 product_set=product_set,

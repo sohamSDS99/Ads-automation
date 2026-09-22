@@ -19,7 +19,6 @@ from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
-from tests.guardrails.helpers import LEGAL, NOW, context, target
 
 from agent.guardrails.matchers.claims import (
     claim_licence,
@@ -30,6 +29,7 @@ from agent.guardrails.matchers.claims import (
 from agent.guardrails.normalize import normalized_text
 from agent.guidelines.constants import load_content_constants
 from agent.schemas.guardrails import ClaimRef
+from tests.guardrails.helpers import LEGAL, NOW, context, target
 
 DETECTORS = load_content_constants().detectors()
 EN_DETECTORS = tuple(d.detector_id for d in DETECTORS if d.locale == "en")

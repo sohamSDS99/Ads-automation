@@ -281,7 +281,7 @@ def banned_term(
     somebody will route around by accident on their first day.
     """
     return RuleBody(
-        matcher=TermSetMatcher(terms=terms, match=match, mode="forbid", locale=locale),  # type: ignore[arg-type]
+        matcher=TermSetMatcher(terms=terms, match=match, mode="forbid", locale=locale),
         message=message,
         authority=authority,
         scope=scope,
@@ -309,7 +309,7 @@ def required_term(
     missing.
     """
     return RuleBody(
-        matcher=TermSetMatcher(terms=terms, match=match, mode="require", locale=locale),  # type: ignore[arg-type]
+        matcher=TermSetMatcher(terms=terms, match=match, mode="require", locale=locale),
         message=message,
         authority=authority,
         scope=scope,

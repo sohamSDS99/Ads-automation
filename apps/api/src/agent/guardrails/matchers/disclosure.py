@@ -100,7 +100,7 @@ def ai_generated(
 ) -> RuleBody:
     """Disclosure on generated creative, where a policy requires one."""
     return RuleBody(
-        matcher=DisclosureMatcher(required_text=required_text, placement=placement),  # type: ignore[arg-type]
+        matcher=DisclosureMatcher(required_text=required_text, placement=placement),
         message=message,
         authority=authority,
         scope=scope,

@@ -88,7 +88,7 @@ mypy_path = "src"
 packages = ["agent"]
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*"]
+module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*", "snowballstemmer.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]

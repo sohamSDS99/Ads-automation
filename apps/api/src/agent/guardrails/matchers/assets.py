@@ -219,7 +219,7 @@ def prepare_enum(matcher: Matcher) -> PreparedEnum:
         )
     return PreparedEnum(
         field=matcher.field,
-        allowed={value.casefold() for value in matcher.allowed},
+        allowed=frozenset(value.casefold() for value in matcher.allowed),
         written=matcher.allowed,
     )
 
@@ -263,7 +263,7 @@ def asset_length(
 ) -> RuleBody:
     """A platform character or word limit. Blocking: the platform rejects it anyway."""
     return RuleBody(
-        matcher=LengthMatcher(min=minimum, max=maximum, unit=unit),  # type: ignore[arg-type]
+        matcher=LengthMatcher(min=minimum, max=maximum, unit=unit),
         message=message,
         authority=authority,
         scope=scope,

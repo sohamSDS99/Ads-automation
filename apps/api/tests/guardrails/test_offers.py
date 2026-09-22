@@ -11,7 +11,6 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 import pytest
-from tests.guardrails.helpers import GOOGLE, NOW, context, target
 
 from agent.guardrails.matchers.offers import (
     amount_off,
@@ -24,6 +23,7 @@ from agent.guardrails.matchers.offers import (
     prepare_offer,
 )
 from agent.schemas.guardrails import OfferRecord, Rule
+from tests.guardrails.helpers import GOOGLE, NOW, context, target
 
 
 def offer(**overrides: object) -> OfferRecord:

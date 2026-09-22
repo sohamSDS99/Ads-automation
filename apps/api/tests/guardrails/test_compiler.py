@@ -12,14 +12,6 @@ from __future__ import annotations
 from datetime import UTC, date, datetime
 
 import pytest
-from tests.guardrails.fixture import (
-    BRAND,
-    COMPILED_AT,
-    CONSTANTS,
-    golden_claims,
-    golden_payload,
-    golden_ruleset,
-)
 
 from agent.guardrails.compiler import (
     CompileError,
@@ -31,6 +23,14 @@ from agent.guardrails.compiler import (
 from agent.guardrails.matchers.lexicon import banned_term
 from agent.guardrails.registry import RuleRegistrationError
 from agent.schemas.guardrails import RegexMatcher, Rule
+from tests.guardrails.fixture import (
+    BRAND,
+    COMPILED_AT,
+    CONSTANTS,
+    golden_claims,
+    golden_payload,
+    golden_ruleset,
+)
 
 
 def build(**payload_overrides: object):

@@ -13,6 +13,13 @@ import time
 from datetime import UTC, datetime
 
 import pytest
+
+from agent.guardrails.compiler import build_program, compile
+from agent.guardrails.linter import lint
+from agent.guardrails.matchers.assets import SET_REF, asset_count, asset_length
+from agent.guardrails.matchers.image import text_coverage
+from agent.guardrails.matchers.lexicon import banned_term, review_trigger
+from agent.schemas.guardrails import RuleScope
 from tests.guardrails.fixture import (
     BRAND,
     COMPILED_AT,
@@ -26,13 +33,6 @@ from tests.guardrails.fixture import (
     golden_targets,
 )
 from tests.guardrails.helpers import target
-
-from agent.guardrails.compiler import build_program, compile
-from agent.guardrails.linter import lint
-from agent.guardrails.matchers.assets import SET_REF, asset_count, asset_length
-from agent.guardrails.matchers.image import text_coverage
-from agent.guardrails.matchers.lexicon import banned_term, review_trigger
-from agent.schemas.guardrails import RuleScope
 
 RULESET = golden_ruleset()
 

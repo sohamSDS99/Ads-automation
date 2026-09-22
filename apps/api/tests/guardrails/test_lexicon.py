@@ -9,7 +9,6 @@ changes it shows up as a failing test rather than as a verdict quietly moving.
 from __future__ import annotations
 
 import pytest
-from tests.guardrails.helpers import BRAND, GOOGLE, context, target
 
 from agent.guardrails.matchers import lexicon
 from agent.guardrails.matchers.lexicon import (
@@ -25,6 +24,7 @@ from agent.guardrails.matchers.lexicon import (
 )
 from agent.guardrails.registry import GuardrailsError
 from agent.schemas.guardrails import RegexMatcher, Rule, RuleScope, TermSetMatcher
+from tests.guardrails.helpers import BRAND, GOOGLE, context, target
 
 
 def run(rule: Rule, text: str, **target_kwargs: object) -> list:

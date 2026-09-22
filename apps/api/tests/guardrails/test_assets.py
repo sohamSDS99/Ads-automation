@@ -13,7 +13,6 @@ Two properties here are easy to get wrong and expensive to get wrong:
 from __future__ import annotations
 
 import pytest
-from tests.guardrails.helpers import BRAND, GOOGLE, context, target
 
 from agent.guardrails.matchers.assets import (
     SET_REF,
@@ -31,6 +30,7 @@ from agent.guardrails.matchers.assets import (
 )
 from agent.guardrails.registry import GuardrailsError
 from agent.schemas.guardrails import CountMatcher, EnumAllowMatcher, LengthMatcher, RuleScope
+from tests.guardrails.helpers import BRAND, GOOGLE, context, target
 
 
 def lint_length(rule, text: str, **kw):

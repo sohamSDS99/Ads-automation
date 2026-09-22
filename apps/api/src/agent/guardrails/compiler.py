@@ -37,6 +37,8 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel
+
 from agent.guardrails.matchers.lexicon import LANGUAGE_LIB_VERSION
 from agent.guardrails.registry import (
     GUARDRAILS_CODE_VERSION,
@@ -164,7 +166,9 @@ def _int(payload: Mapping[str, Any], key: str, default: int) -> int:
     return value
 
 
-def _models(payload: Mapping[str, Any], key: str, model: type) -> tuple[Any, ...]:
+def _models[ModelT: BaseModel](
+    payload: Mapping[str, Any], key: str, model: type[ModelT]
+) -> tuple[ModelT, ...]:
     raw = payload.get(key, ())
     if not isinstance(raw, Sequence) or isinstance(raw, str | bytes):
         raise CompileError(f"`{key}` must be a list")
