@@ -203,7 +203,23 @@ else
   bad "postgres is not running; the staleness rule cannot be verified without it"
 fi
 
-step "11. The whole integration suite still passes"
+step "11. The real DAG, end to end — twenty nodes, four gates, a freeze"
+# The phase's strongest single piece of evidence, and the one that was missing:
+# `run_to_g3` was as far as any harness went, so PQ3's claim rested entirely on
+# a deterministic stand-in for the DAG. Running the real thing found that every
+# plan run for a project whose research left a launch blocker died at 2.6.1.
+if docker compose ps --status running --format '{{.Service}}' 2>/dev/null | grep -qx postgres; then
+  if docker compose run --rm test pytest tests/integration/test_plan_whole_dag.py \
+      -q >/tmp/s2p7-whole-dag.txt 2>&1; then
+    ok "$( tail -1 /tmp/s2p7-whole-dag.txt )"
+  else
+    bad "a real whole-DAG plan run is red — see /tmp/s2p7-whole-dag.txt"
+  fi
+else
+  bad "postgres is not running; the whole-DAG proof cannot run without it"
+fi
+
+step "12. The whole integration suite still passes"
 if docker compose ps --status running --format '{{.Service}}' 2>/dev/null | grep -qx postgres; then
   if docker compose run --rm test >/tmp/s2p7-suite.txt 2>&1; then
     ok "$( tail -1 /tmp/s2p7-suite.txt )"
@@ -214,7 +230,7 @@ else
   bad "postgres is not running"
 fi
 
-step "12. Lint, format, types and the route/arithmetic guards"
+step "13. Lint, format, types and the route/arithmetic guards"
 (cd "$API" && uv run ruff check . >/tmp/s2p7-ruff.txt 2>&1) \
   && ok "ruff check clean" || bad "ruff check — see /tmp/s2p7-ruff.txt"
 (cd "$API" && uv run ruff format --check . >/tmp/s2p7-fmt.txt 2>&1) \

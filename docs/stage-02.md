@@ -283,6 +283,18 @@ make coverage-plan       # PQ2: >= 80% on nodes/plan, planning/ and export/, eac
 ./scripts/verify-s2p7.sh # the phase gate: all of the above plus the §17 index
 ```
 
+The single most useful test in the suite is
+`tests/integration/test_plan_whole_dag.py`: twenty nodes, four gates decided by
+a real approver, a plan the critique accepts, and a freeze — all against a real
+Postgres, scripted only where a model would otherwise speak. Until S2-P7 no
+harness drove a plan run past gate G3, and the first run that did found that
+**every plan run for a project whose research left a launch blocker failed at
+node 2.6.1**: §12 carries each blocker forward with its citations, 2.6.1 did not
+gather the evidence those citations name, and the executor refuses a node that
+cites what it did not gather. If you add a stage, add its answers to
+`tests/integration/plan_answers.py` — that file is what a whole-DAG run needs,
+and a stage missing from it makes the DAG unrunnable end to end.
+
 **The integration suite cannot run on the host.** `postgres`, `redis` and `api`
 publish no host port, and running the suite against a local Postgres fails
 ~14/19 with asyncio "Future attached to a different loop" — anyio drives the

@@ -253,3 +253,44 @@ async def gate_g3(admin: ApiClient, plan_run_id: uuid.UUID) -> dict[str, Any]:
     pending = [item for item in inbox if item["gate_key"] == "G3"]
     assert pending, f"no G3 gate in {[item['gate_key'] for item in inbox]}"
     return pending[0]
+
+
+async def run_whole_dag(
+    admin: ApiClient, accepted: dict[str, Any], fake: FakeOpenRouter
+) -> uuid.UUID:
+    """Every node, every gate, to a finished plan.
+
+    `run_to_g3` was as far as any harness went, which left the most expensive
+    claim in the phase untested: §17 PQ3 says five golden `PlanInput` fixtures
+    produce plans that pass every §11 assertion, and the eval harness proves
+    that about a **deterministic stand-in** for the DAG. Nothing proved it
+    about the DAG. This does.
+
+    Gates are decided in the order the executor opens them rather than by a
+    fixed list: G2 and the 2.5 branch run in parallel with the critical path
+    (§11), so which gate is pending after a given wave is not fixed, and a
+    hard-coded sequence would be a flaky test pretending to be a strict one.
+    """
+    from tests.integration.runs_support import by_output_model
+
+    plan_run_id, script = await run_to_g3(admin, accepted, fake)
+
+    for _ in range(8):  # four gates, plus slack; the loop exits on its own
+        detail = (await admin.get(f"/runs/{plan_run_id}")).json()
+        if detail["status"] != RunStatus.AWAITING_APPROVAL.value:
+            break
+        inbox = (await admin.get(f"/approvals?run_id={plan_run_id}")).json()["items"]
+        pending = [item for item in inbox if item["status"] == "pending"]
+        assert pending, f"the run waits on approval with an empty inbox: {detail['status']}"
+        for gate in pending:
+            decided = await admin.post(f"/approvals/{gate['id']}", json={"decision": "approve"})
+            assert decided.status_code == 200, decided.text
+        by_output_model(fake, script)
+        result = await execute(plan_run_id, fake)
+        assert result.error is None, result.error
+    else:  # pragma: no cover — the loop is bounded so a stall is visible
+        raise AssertionError("the plan run never left AWAITING_APPROVAL")
+
+    final = (await admin.get(f"/runs/{plan_run_id}")).json()
+    assert final["status"] == RunStatus.SUCCEEDED.value, final.get("error") or final["status"]
+    return plan_run_id

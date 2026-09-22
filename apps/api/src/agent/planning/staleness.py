@@ -145,7 +145,13 @@ async def refresh_for_plan(
     ip: str | None = None,
     meta: Mapping[str, Any] | None = None,
 ) -> bool:
-    """Recompute one plan's flag, and return what it is now.
+    """Recompute one plan's flag in place, and say whether it **changed**.
+
+    The return is "did this write", not "what is the value" — read the value
+    off `plan.source_superseded`, which this sets. The caller needs the former:
+    the freeze commits a correction even on the path where it then refuses the
+    seal, and committing unconditionally on a refusal path would carry along
+    whatever else a future edit left pending in that session.
 
     The project-wide refresh above only ever sees rows that **already exist**,
     and a plan row is written at the *end* of a plan run (2.6.1). So a run that
@@ -167,7 +173,7 @@ async def refresh_for_plan(
     ).scalar_one_or_none()
     stale = superseded_by is not None
     if plan.source_superseded == stale:
-        return stale
+        return False
 
     plan.source_superseded = stale
     plan_id, plan_run_id, version = plan.id, plan.plan_run_id, plan.version
@@ -195,7 +201,7 @@ async def refresh_for_plan(
         source_superseded=stale,
         at="freeze",
     )
-    return stale
+    return True
 
 
 async def derived_flags(

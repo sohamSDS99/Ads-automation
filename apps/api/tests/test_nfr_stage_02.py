@@ -54,7 +54,7 @@ NFRS: dict[str, tuple[str, str]] = {
     ),
     "PF2": (
         "A gate approval resumes the branch within 5 seconds.",
-        "tests.test_nfr_stage_02::test_pf2_a_decided_gate_enqueues_the_run_in_the_same_request",
+        "tests.integration.test_plan_whole_dag::test_pf2_a_decided_gate_requeues_the_run_inside_the_same_request",
     ),
     "PF3": (
         "A budget what-if recalculation round trip is under 2 seconds.",
@@ -66,7 +66,7 @@ NFRS: dict[str, tuple[str, str]] = {
     ),
     "PT1": (
         "Every Number resolves to a PlanCalc row.",
-        "tests.test_nfr_stage_02::test_pt1_a_figure_cannot_exist_without_its_calculation",
+        "tests.integration.test_plan_whole_dag::test_the_run_writes_a_plan_whose_every_figure_has_a_calculation",
     ),
     "PT2": (
         "Every Claim carries at least one resolvable evidence id.",
@@ -127,7 +127,7 @@ NFRS: dict[str, tuple[str, str]] = {
     ),
     "PQ3": (
         "Five golden PlanInput fixtures pass every §11 critique assertion.",
-        "tests.eval.test_plan_eval::test_the_plan_passes_every_critique_assertion",
+        "tests.integration.test_plan_whole_dag::test_a_whole_plan_run_produces_a_plan_the_critique_accepts",
     ),
 }
 
@@ -219,31 +219,6 @@ def test_pf1_the_research_dag_is_untouched_by_the_plan_one() -> None:
 # ---------------------------------------------------------------------------
 # PF2 — a gate approval resumes the branch in 5 seconds
 # ---------------------------------------------------------------------------
-
-
-def test_pf2_a_decided_gate_enqueues_the_run_in_the_same_request() -> None:
-    """Five seconds is a budget only if nothing is polling.
-
-    `decide_approval` resumes inline — it calls `_resume`, which enqueues the
-    run before the response is written. There is no interval to tune and no
-    cron to wait for, which is *why* PF2 is achievable, and this test is what
-    notices if resumption is ever moved onto a poller. Asserted against the
-    source rather than by timing a request: a stopwatch on a laptop measures
-    the laptop.
-    """
-    from agent.api import routes_approvals
-
-    source = routes_approvals.__doc__ or ""
-    assert "resumes" in source
-
-    import inspect
-
-    decide = inspect.getsource(routes_approvals.decide_approval)
-    resume = inspect.getsource(routes_approvals._resume)
-    assert "_resume(" in decide, "deciding a gate no longer resumes the run inline"
-    assert "enqueue_run" in resume, "the resume path no longer enqueues the run itself"
-    # A poller would have to sleep, and a sleep in this path is the regression.
-    assert "sleep" not in resume
 
 
 # ---------------------------------------------------------------------------

@@ -30,7 +30,7 @@ to keep a field populated is the one thing §12 invariant 1 exists to prevent.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
@@ -199,9 +199,19 @@ def assemble(
     launch_blockers: Iterable[Any] = (),
     plan_status: PlanStatus | None = None,
     critique_issues: Iterable[Mapping[str, Any]] = (),
+    citable: Collection[uuid.UUID] | None = None,
     drop: Drop | None = None,
 ) -> CampaignPlan:
-    """Build the `CampaignPlan` for one plan run."""
+    """Build the `CampaignPlan` for one plan run.
+
+    `citable` is the evidence the calling node gathered. Anything the plan
+    would cite and cannot is dropped rather than stated, for the same reason a
+    figure with no calculation behind it is omitted: the executor refuses a
+    node that cites what it did not gather, and a plan that takes the run down
+    because a Stage 01 evidence row was pruned by retention is a plan nobody
+    gets. `None` means "do not filter" — the eval harness assembles without a
+    session and has nothing to check against.
+    """
     record: Drop = drop if drop is not None else _ignore
     calcs = facts.calcs
 
@@ -221,7 +231,7 @@ def assemble(
         measurement_plan=_measurement_plan(outputs),
         experiment_backlog=_experiments(outputs),
         decisions=list(facts.decisions),
-        open_dependencies=_dependencies(outputs, launch_blockers),
+        open_dependencies=_dependencies(outputs, launch_blockers, citable, record),
         assumptions=list(assumptions),
         risks=list(risks),
         constants_version=facts.constants_version,
@@ -502,7 +512,12 @@ def _experiments(outputs: Outputs) -> list[Experiment]:
     return _rows(backlog.get("tests"), Experiment, _ignore, "2.5.3 test")
 
 
-def _dependencies(outputs: Outputs, launch_blockers: Iterable[Any]) -> list[Dependency]:
+def _dependencies(
+    outputs: Outputs,
+    launch_blockers: Iterable[Any],
+    citable: Collection[uuid.UUID] | None = None,
+    drop: Drop | None = None,
+) -> list[Dependency]:
     """Everything that has to happen before this plan can run.
 
     Three sources, in the order a reader would want them: what Stage 01 already
@@ -510,6 +525,7 @@ def _dependencies(outputs: Outputs, launch_blockers: Iterable[Any]) -> list[Depe
     listed as a prerequisite. Deduped on the task text, keeping the first — a
     blocker named by both research and 2.5.2 is one job, not two.
     """
+    record: Drop = drop if drop is not None else _ignore
     found: dict[str, Dependency] = {}
 
     for blocker in launch_blockers:
@@ -517,6 +533,16 @@ def _dependencies(outputs: Outputs, launch_blockers: Iterable[Any]) -> list[Depe
         if not statement:
             continue
         ids = getattr(blocker, "evidence_ids", None) or _dict(blocker).get("evidence_ids") or []
+        kept = [item for item in ids if isinstance(item, uuid.UUID)]
+        if citable is not None:
+            lost = [item for item in kept if item not in citable]
+            kept = [item for item in kept if item in citable]
+            if lost:
+                record(
+                    f"open_dependencies: {len(lost)} citation(s) on the launch blocker "
+                    f"{statement[:60]!r} name evidence this run could not read, so the "
+                    "blocker is carried without them rather than taking the run down"
+                )
         found.setdefault(
             statement.lower(),
             Dependency(
@@ -524,7 +550,7 @@ def _dependencies(outputs: Outputs, launch_blockers: Iterable[Any]) -> list[Depe
                 owner="unassigned",
                 blocking=True,
                 source="research",
-                evidence_ids=[item for item in ids if isinstance(item, uuid.UUID)],
+                evidence_ids=kept,
             ),
         )
 

@@ -144,18 +144,24 @@ async def freeze_plan(
     # so a run that was in flight when newer research was accepted lands with
     # the flag at its default. Deciding the freeze on a stored value nobody has
     # recomputed is deciding it on a guess.
-    await staleness.refresh_for_plan(
+    corrected = await staleness.refresh_for_plan(
         session, workspace_id=workspace_id, plan=plan, actor_id=actor_id, ip=ip
     )
 
     approvals = await _approvals(session, plan_run_id)
     blockers = _blockers(plan, approvals)
     if blockers:
-        # Nothing has been sealed, but the refresh above may have corrected a
-        # row — and that correction is why this refusal happened. Commit it, or
-        # the next caller recomputes the same thing and the audit trail never
-        # says when it was noticed.
-        await session.commit()
+        # Nothing is sealed, but the refresh above may have corrected a row —
+        # and that correction is often *why* this refusal happened. Commit it,
+        # or the next caller recomputes the same thing and the audit trail
+        # never says when it was noticed.
+        #
+        # Only when it actually wrote. An unconditional commit on a refusal
+        # path would also carry along whatever a future edit left pending in
+        # this session, which is a much larger promise than this function
+        # means to make.
+        if corrected:
+            await session.commit()
         raise FreezeRefused(blockers)
 
     version = await repo.next_version(plan.project_id)
