@@ -73,6 +73,11 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   output: "standalone",
   reactStrictMode: true,
+  // Out of the way of the side panel. Next's dev indicator defaults to the
+  // bottom-left corner, which is where Settings now lives — and on the 56px
+  // rail the badge covers that row completely. Development only; it is not in
+  // a production build either way.
+  devIndicators: { position: "bottom-right" },
   // The framework's version is not a fact a visitor needs.
   poweredByHeader: false,
   async headers() {
