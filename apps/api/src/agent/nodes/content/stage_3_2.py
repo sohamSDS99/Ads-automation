@@ -23,9 +23,11 @@ The arithmetic is ours too. The model picks the *basis* for an expiry
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, date, datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+import structlog
+from pydantic import BaseModel, Field, ValidationError
 
 from agent.db.models import ClaimRiskTier, ClaimStatus, ClaimType, Evidence, RunStage
 from agent.evidence.redact import redact_pii
@@ -35,6 +37,8 @@ from agent.llm.router import TaskClass
 from agent.nodes import gather, prompts
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
 from agent.nodes.stage_1_1 import PAGE
+
+log = structlog.get_logger(__name__)
 
 #: The evidence a claim can be observed in. Site copy and live ads carry most
 #: of them; the brand book carries the ones marketing believes are settled.
@@ -241,8 +245,16 @@ class ClaimSubstantiationNode:
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        """Nothing new to pull: 3.2.1 already read the corpus."""
-        return []
+        """The same corpus 3.2.1 read, from store rather than re-pulled.
+
+        Not `[]`. A node that gathers nothing has nothing to offer the model to
+        cite, and since a citation that does not resolve fails the node, an
+        empty gather would make every claim permanently unsupportable — the
+        failure would look like a model that never finds evidence rather than a
+        node that never offers any.
+        """
+        found = await gather.collect(ctx, *claim_harvest.needs(ctx.project.domain))
+        return found.evidence
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         harvested = (ctx.outputs.get("3.2.1") or {}).get("candidates") or []
@@ -418,3 +430,345 @@ def _is_uuid(value: Any) -> bool:
 #: Module-level instances. The registry discovers instances, not classes.
 claim_harvest = ClaimHarvestNode()
 claim_substantiation = ClaimSubstantiationNode()
+
+
+# ---------------------------------------------------------------------------
+# 3.2.3 legal_claim_signoff — H1, the non-delegable signature
+# ---------------------------------------------------------------------------
+
+
+class LegalClaimSignoffOutput(BaseModel):
+    """3.2.3 🔒 H1 — the person-task the executor turns into a `HumanTask`.
+
+    People appear as ids and never as names: §11's critique assertion 10 forbids
+    a personal name anywhere in the payload, and the payload is what gets
+    exported, diffed and handed to Stage 04.
+    """
+
+    assignee_id: uuid.UUID
+    task_key: Literal["H1"] = "H1"
+    blocking_for: Literal["publish"] = "publish"
+    title: str
+    instructions: str
+    required_artifacts: dict[str, Any]
+    claim_count: int
+    claim_ids_pending: list[int]
+
+
+class LegalClaimSignoffNode:
+    """3.2.3 🔒 H1 — stop, and ask one named person.
+
+    **This node makes no model call, and that is the whole design.** Every other
+    node in the stage drafts something for a human to confirm. This one exists
+    because the decision is not draftable: liability for a claim sits with a
+    named person, and a proposal would only invite somebody to click through it.
+    """
+
+    spec = NodeSpec(
+        id="3.2.3",
+        name="legal_claim_signoff",
+        stage="3.2",
+        run_stage=RunStage.GUIDELINE,
+        depends_on=("3.2.2", "3.5.1"),
+        # Declared because `NodeSpec` requires one; nothing routes on it, since
+        # `reason()` never opens a completion.
+        task_class=TaskClass.CLASSIFY,
+        input_model=BaseModel,
+        output_model=LegalClaimSignoffOutput,
+        connectors=(),
+        human_task_key="H1",
+    )
+
+    async def gather(self, ctx: RunContext) -> list[Evidence]:
+        return []
+
+    async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
+        import sqlalchemy as sa
+
+        from agent.db.models import SignOffMatrix
+
+        matrix = (
+            (
+                await ctx.db.execute(
+                    sa.select(SignOffMatrix)
+                    .where(
+                        SignOffMatrix.project_id == ctx.project.id,
+                        SignOffMatrix.superseded_at.is_(None),
+                    )
+                    .limit(1)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if matrix is None:
+            raise NodeContractError(
+                "3.2.3 found no current sign-off matrix, so there is no named legal owner "
+                "to route H1 to. A non-delegable signature cannot fall back to a role — "
+                "that fallback is exactly what law 23 removes — so the branch stops here "
+                "rather than assigning the task to whoever happens to be an approver."
+            )
+
+        claims = (ctx.outputs.get("3.2.2") or {}).get("claims") or []
+        pending = [
+            index
+            for index, claim in enumerate(claims)
+            if claim.get("status") != ClaimStatus.APPROVED.value
+        ]
+        return LegalClaimSignoffOutput(
+            assignee_id=matrix.legal_owner_id,
+            title=f"Sign the claims register ({len(claims)} claims)",
+            instructions=(
+                "Read each claim, the evidence behind it and where we already say it. "
+                "Approve the ones that are legally safe to run and reject the ones that "
+                "are not — a partly approved set is normal, and a rejection is recorded "
+                "as a rule that stops any copy asserting the claim. Submitting requires "
+                "confirming your password."
+            ),
+            required_artifacts={
+                "decisions": "one approved/rejected decision per claim",
+                "statement": "the attestation text you are confirming",
+                "step_up": "your current password, re-entered",
+            },
+            claim_count=len(claims),
+            claim_ids_pending=pending,
+        )
+
+
+#: Module-level instance. The registry discovers instances, not classes.
+legal_claim_signoff = LegalClaimSignoffNode()
+
+
+# ---------------------------------------------------------------------------
+# 3.2.4 offer_integrity_rules
+# ---------------------------------------------------------------------------
+
+#: The six constructions `matchers/offers.py` knows how to check.
+CONSTRUCTIONS = (
+    "from_price",
+    "percent_off",
+    "amount_off",
+    "countdown",
+    "free_trial",
+    "price_match",
+)
+
+
+class OfferRuleDraft(BaseModel):
+    construction: Literal[
+        "from_price", "percent_off", "amount_off", "countdown", "free_trial", "price_match"
+    ]
+    #: The model's one job here: say in a sentence what a writer must do.
+    requirement: str = Field(min_length=1)
+    severity: Literal["blocking", "warning", "advisory"] = "blocking"
+
+
+class OfferRulesDraft(BaseModel):
+    rules: list[OfferRuleDraft] = Field(default_factory=list)
+
+
+class LiveViolation(BaseModel):
+    """Something wrong on the live site, right now. Computed, never drafted."""
+
+    surface: str
+    url_or_ad_id: str
+    construction: str
+    detail: str
+    found: str
+
+
+class OfferIntegrityOutput(BaseModel):
+    """3.2.4 — the offer rules, and what already breaks them."""
+
+    rules: list[OfferRuleDraft]
+    live_violations: list[LiveViolation]
+    offer_records_seen: int
+    offer_data_available: bool
+
+
+class OfferIntegrityNode:
+    """3.2.4 — price, discount and deadline rules, checked against live data.
+
+    The division of labour is the point. The model writes the `requirement`
+    sentence a human reads and names which constructions apply. It is never
+    shown a price and never asked whether an offer is compliant, because that
+    question is arithmetic over live data — and arithmetic does not go to a
+    model (Stage 02, law 14). `live_violations` comes from running the real
+    `matchers/offers.py` over the site's own offer blocks.
+    """
+
+    spec = NodeSpec(
+        id="3.2.4",
+        name="offer_integrity_rules",
+        stage="3.2",
+        run_stage=RunStage.GUIDELINE,
+        depends_on=("3.2.2",),
+        task_class=TaskClass.EXTRACT,
+        input_model=BaseModel,
+        output_model=OfferIntegrityOutput,
+        connectors=("csv_ingest", "web_crawler"),
+    )
+
+    async def gather(self, ctx: RunContext) -> list[Evidence]:
+        found = await gather.collect(
+            ctx,
+            gather.Need("offer_record", connector="csv_ingest", optional=True),
+            gather.Need("offer_block", connector="web_crawler", optional=True),
+        )
+        return found.evidence
+
+    async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
+        offers = _offer_records(ev)
+        blocks = [row for row in ev if row.kind == "offer_block"]
+
+        draft = await ctx.complete(
+            OfferRulesDraft,
+            system=prompts.system_prompt(
+                "You write the rules that keep pricing copy honest. You are given the "
+                "kinds of offer construction a company uses and you state, in one "
+                "sentence each, what a writer must do to use them correctly. You are "
+                "never shown a price and you never judge whether a particular offer is "
+                "correct — that is checked against live data, not by you."
+            ),
+            user=prompts.compose(
+                prompts.project_block(ctx.project),
+                prompts.computed_block("the constructions we may need rules for", CONSTRUCTIONS),
+                prompts.computed_block(
+                    "offer language already on the site (text only, no prices to judge)",
+                    [redact_pii(row.content_text or "") for row in blocks],
+                ),
+            ),
+        )
+
+        return OfferIntegrityOutput(
+            rules=draft.rules,
+            live_violations=_live_violations(draft.rules, blocks, offers),
+            offer_records_seen=len(offers),
+            offer_data_available=bool(offers),
+        )
+
+
+def _offer_records(ev: list[Evidence]) -> list[Any]:
+    """Build `OfferRecord` contracts from `csv_ingest` evidence.
+
+    The PRD's "binding to OfferRecord": the numbers reach the matcher as data
+    the connector wrote, never as text a model restated.
+    """
+    from agent.schemas.guardrails import OfferRecord
+
+    records: list[Any] = []
+    for row in ev:
+        if row.kind != "offer_record":
+            continue
+        try:
+            records.append(OfferRecord.model_validate(row.payload or {}))
+        except ValidationError as exc:
+            # One malformed CSV row must not stop the node, but it must not
+            # vanish either: a silently dropped offer is a price the linter
+            # then fails to check, which reads as "no violation".
+            log.warning(
+                "offer_record.unusable",
+                evidence_id=str(row.id),
+                errors=exc.error_count(),
+            )
+    return records
+
+
+def _live_violations(
+    rules: list[OfferRuleDraft], blocks: list[Evidence], offers: list[Any]
+) -> list[LiveViolation]:
+    """Run the real matchers over the site's own offer copy.
+
+    With no offer data there is nothing to check against, and the honest answer
+    is an empty list plus `offer_data_available=False` — not a pass, and not an
+    invented violation either. The matcher itself reports indeterminate in that
+    case; surfacing it as a violation would be a confident wrong verdict, which
+    is the one thing §9.4 is most careful to avoid.
+    """
+    if not offers or not blocks:
+        return []
+
+    from agent.guardrails.matchers import offers as offer_matchers
+    from agent.guardrails.normalize import normalize
+    from agent.guardrails.registry import LintContext
+    from agent.schemas.guardrails import Authority, LintTarget, RuleSet
+
+    constructors = {
+        name: getattr(offer_matchers, name)
+        for name in CONSTRUCTIONS
+        if hasattr(offer_matchers, name)
+    }
+    authority = Authority(
+        source="google_policy",
+        reference="content_constants.yaml#offers",
+        reviewed_at=_today(),
+    )
+
+    found: list[LiveViolation] = []
+    for block in blocks:
+        text = block.content_text or ""
+        ref = str((block.payload or {}).get("url") or (block.payload or {}).get("ad_id") or "")
+        target = LintTarget.model_validate(
+            {
+                "ref": ref or "offer_block",
+                "surface": "landing_page_section",
+                "campaign_type": "search",
+                "market": offers[0].market,
+                "language": "en",
+                "text": text,
+            }
+        )
+        ctx = LintContext(
+            ruleset=RuleSet.model_validate(
+                {
+                    "ruleset_version": "0.0+draft",
+                    "project_id": uuid.uuid4(),
+                    "guideline_id": uuid.uuid4(),
+                    "compiler_version": "draft",
+                    "constants_version": load_content_constants().version,
+                    "compiled_at": _now(),
+                    "hash": "draft",
+                }
+            ),
+            now=_now(),
+            targets=(target,),
+            normalized={target.ref: normalize(text, locale="en")},
+            offers=tuple(offers),
+        )
+        for entry in rules:
+            build = constructors.get(entry.construction)
+            if build is None:
+                continue
+            rule_ = build(authority=authority)
+            for finding in offer_matchers.evaluate_offer(
+                rule_, offer_matchers.prepare_offer(rule_.matcher), target, ctx
+            ):
+                if finding.severity != "blocking":
+                    continue
+                found.append(
+                    LiveViolation(
+                        surface="landing_page_section",
+                        url_or_ad_id=ref,
+                        construction=entry.construction,
+                        detail=finding.message,
+                        found=text,
+                    )
+                )
+    return found
+
+
+def _now() -> datetime:
+    """The wall clock, read here rather than in `guardrails/`.
+
+    `guardrails/` is clock-free by CI check; a node is not, and the linter needs
+    a `now` passed in. This is where it comes from.
+    """
+    return datetime.now(UTC)
+
+
+def _today() -> date:
+    return _now().date()
+
+
+#: Module-level instance. The registry discovers instances, not classes.
+offer_integrity_rules = OfferIntegrityNode()

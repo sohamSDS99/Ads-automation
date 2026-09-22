@@ -207,3 +207,206 @@ class TestClaimSubstantiation:
 
         quantified = int(load_content_constants().value("claims.quantified_expiry_days"))
         assert out.claims[0].proposed_expiry_days == quantified
+
+
+# ---------------------------------------------------------------------------
+# 3.2.3 legal_claim_signoff — H1
+# ---------------------------------------------------------------------------
+
+
+def matrix(legal_id: uuid.UUID):
+    from agent.db.models import SignOffMatrix
+
+    from tests.guideline_support import PROJECT_ID, WORKSPACE_ID
+
+    return SignOffMatrix(
+        id=uuid.uuid4(),
+        workspace_id=WORKSPACE_ID,
+        project_id=PROJECT_ID,
+        brand_owner_id=uuid.uuid4(),
+        legal_owner_id=legal_id,
+        performance_owner_id=uuid.uuid4(),
+        version=1,
+        set_by=uuid.uuid4(),
+    )
+
+
+def substantiated_output() -> dict:
+    return {
+        "claims": [
+            {
+                "claim_index": 0,
+                "claim_text": "The best SDS software",
+                "normalized_text": "the best sds software",
+                "claim_type": "superlative",
+                "status": "pending_signoff",
+                "risk_tier": "high",
+                "substantiation": {},
+                "evidence_ids": [],
+                "gaps": [],
+                "proposed_expiry_days": 365,
+            }
+        ],
+        "unsupported_count": 0,
+        "expiry_basis": "qualitative",
+    }
+
+
+class TestLegalClaimSignoff:
+    async def test_it_never_calls_a_model(self) -> None:
+        """A person-task that consulted a model would be the thing law 23 forbids.
+
+        There is nothing here for a model to decide: the whole node exists
+        because the decision is a named human's to make.
+        """
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        legal = uuid.uuid4()
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(legal)]],
+            outputs={"3.2.2": substantiated_output()},
+        )
+        await legal_claim_signoff.reason(h.ctx, [])
+        assert h.llm.prompts == []
+
+    async def test_it_routes_to_the_named_legal_owner(self) -> None:
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        legal = uuid.uuid4()
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(legal)]],
+            outputs={"3.2.2": substantiated_output()},
+        )
+        out = await legal_claim_signoff.reason(h.ctx, [])
+        assert out.assignee_id == legal
+
+    async def test_it_blocks_publish_not_launch(self) -> None:
+        """H1 blocks publish: a register with no terminal decisions licenses nothing."""
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(uuid.uuid4())]],
+            outputs={"3.2.2": substantiated_output()},
+        )
+        out = await legal_claim_signoff.reason(h.ctx, [])
+        assert out.blocking_for == "publish"
+
+    async def test_without_a_matrix_the_node_fails_rather_than_guessing(self) -> None:
+        """You cannot route a non-delegable signature without a named owner.
+
+        Falling back to "any approver" here would rebuild the role fallback that
+        law 23 exists to remove, in the one place it matters most.
+        """
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        h = harness("3.2.3", queries=[[]], outputs={"3.2.2": substantiated_output()})
+        with pytest.raises(NodeContractError, match="legal owner"):
+            await legal_claim_signoff.reason(h.ctx, [])
+
+    async def test_it_carries_the_claims_awaiting_a_decision(self) -> None:
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(uuid.uuid4())]],
+            outputs={"3.2.2": substantiated_output()},
+        )
+        out = await legal_claim_signoff.reason(h.ctx, [])
+        assert out.claim_count == 1
+
+    def test_the_spec_is_a_person_task_and_not_a_gate(self) -> None:
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        assert legal_claim_signoff.spec.human_task_key == "H1"
+        assert legal_claim_signoff.spec.gate is False
+        assert legal_claim_signoff.spec.gate_key is None
+
+
+# ---------------------------------------------------------------------------
+# 3.2.4 offer_integrity_rules
+# ---------------------------------------------------------------------------
+
+
+OFFER_ROW = {
+    "sku": "sds-pro",
+    "product_set": "software",
+    "list_price": 99.0,
+    "current_price": 49.0,
+    "currency": "EUR",
+    "market": "DE",
+}
+
+
+def offer_evidence(**overrides):
+    row = dict(OFFER_ROW)
+    row.update(overrides)
+    return evidence("offer_record", "sds-pro", row)
+
+
+def offer_answer(**overrides) -> dict:
+    answer = {
+        "rules": [
+            {
+                "construction": "from_price",
+                "requirement": "A 'from' price must equal the lowest live price.",
+                "severity": "blocking",
+            }
+        ]
+    }
+    answer.update(overrides)
+    return answer
+
+
+class TestOfferIntegrityRules:
+    async def test_it_reads_offer_records_from_evidence_not_from_the_model(self) -> None:
+        """The prices are data. A model that could restate them could restate them wrong."""
+        from agent.nodes.content.stage_3_2 import offer_integrity_rules
+
+        h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
+        out = await offer_integrity_rules.reason(h.ctx, [offer_evidence()])
+        assert out.offer_records_seen == 1
+
+    async def test_a_stale_from_price_on_the_site_is_a_live_violation(self) -> None:
+        """Computed by the matcher against live data, never asserted by the model.
+
+        The site says €39; the cheapest thing we actually sell is €49. That is
+        the exact shape of the policy breach this node exists to surface.
+        """
+        from agent.nodes.content.stage_3_2 import offer_integrity_rules
+
+        rows = [
+            offer_evidence(),
+            evidence("offer_block", "SDS software from €39", {"url": "https://sdsmanager.com/pricing"}),
+        ]
+        h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
+        out = await offer_integrity_rules.reason(h.ctx, rows)
+        assert out.live_violations, "a stale from-price should be reported"
+        assert "39" in str(out.live_violations[0].found) or "39" in out.live_violations[0].detail
+
+    async def test_a_correct_from_price_is_not_a_violation(self) -> None:
+        from agent.nodes.content.stage_3_2 import offer_integrity_rules
+
+        rows = [
+            offer_evidence(),
+            evidence("offer_block", "SDS software from €49", {"url": "https://sdsmanager.com/pricing"}),
+        ]
+        h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
+        out = await offer_integrity_rules.reason(h.ctx, rows)
+        assert out.live_violations == []
+
+    async def test_without_offer_data_no_violation_is_invented(self) -> None:
+        """No data is not a clean bill of health, and it is not a violation either.
+
+        The node says it could not check, which is what law 31 asks of a
+        blocking check whose input is missing.
+        """
+        from agent.nodes.content.stage_3_2 import offer_integrity_rules
+
+        rows = [evidence("offer_block", "SDS software from €39", {"url": "https://x/"})]
+        h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
+        out = await offer_integrity_rules.reason(h.ctx, rows)
+        assert out.live_violations == []
+        assert out.offer_data_available is False

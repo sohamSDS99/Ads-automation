@@ -58,6 +58,9 @@ class EventType(StrEnum):
     NODE_COMPLETED = "node.completed"
     NODE_FAILED = "node.failed"
     APPROVAL_REQUIRED = "approval.required"
+    #: A named person must act. Distinct from `approval.required` so the
+    #: console can render "assigned to you" rather than "awaiting approval".
+    HUMAN_TASK_REQUIRED = "human_task.required"
     RUN_COMPLETED = "run.completed"
     EXPORT_READY = "export.ready"
 

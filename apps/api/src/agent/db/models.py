@@ -137,6 +137,10 @@ class NodeRunStatus(StrEnum):
     QUEUED = "queued"
     RUNNING = "running"
     AWAITING_APPROVAL = "awaiting_approval"
+    #: Halted for one named person rather than for any holder of a role. The
+    #: run-level twin is `RunStatus.AWAITING_HUMAN_TASK`; keeping the two apart
+    #: is what lets the inbox offer the right control to the right person.
+    AWAITING_HUMAN_TASK = "awaiting_human_task"
     SUCCEEDED = "succeeded"
     FAILED = "failed"
     SKIPPED = "skipped"

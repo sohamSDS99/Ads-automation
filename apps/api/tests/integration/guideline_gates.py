@@ -160,6 +160,36 @@ def script(owners: dict[str, str]) -> dict[str, Any]:
             ],
             "case_and_spelling": [{"canonical": "SDS Manager", "variants": ["sds manager"]}],
         },
+        "ClaimHarvestDraft": {
+            "candidates": [
+                {
+                    "claim_text": "Find any safety data sheet in seconds",
+                    "surface_forms": ["find any safety data sheet in seconds"],
+                    "claim_type": "quantified",
+                    "observed_on": [{"surface": "rsa_headline", "url_or_ad_id": "1"}],
+                    "market_scope": ["DE"],
+                    "languages": ["en"],
+                }
+            ],
+            "detector_recall_note": "two ads and one page read",
+        },
+        # No evidence ids: a static script cannot know the ids the fixture rows
+        # were given, and a citation that does not resolve fails the node by
+        # design. The claim therefore lands `unsupported`, which is the honest
+        # outcome and still opens H1.
+        "ClaimSubstantiationDraft": {
+            "claims": [
+                {
+                    "claim_index": 0,
+                    "status": "unsupported",
+                    "risk_tier": "high",
+                    "expiry_basis": "quantified",
+                    "substantiation": {"method": "none on file"},
+                    "evidence_ids": [],
+                    "gaps": ["no benchmark document"],
+                }
+            ]
+        },
         "VisualDraft": {
             "logo": {
                 "clear_space_ratio": 1.0,

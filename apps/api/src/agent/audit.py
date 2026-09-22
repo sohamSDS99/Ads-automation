@@ -83,6 +83,8 @@ class AuditAction(StrEnum):
     CLAIM_SIGNED = "claim.signed"
     CLAIM_SIGNATURE_REVOKED = "claim.signature_revoked"
     CLAIM_EDITED = "claim.edited"
+    HUMAN_TASK_OPENED = "human_task.opened"
+    HUMAN_TASK_SUBMITTED = "human_task.submitted"
     #: A previously frozen plan displaced by a newer version. Written per
     #: superseded plan rather than once for the freeze: a reader asking why
     #: v2 stopped being current wants a row about v2.
@@ -156,6 +158,7 @@ class AuditTarget(StrEnum):
     CAMPAIGN_PLAN = "campaign_plan"
     CLAIM = "claim"
     CLAIM_SIGNATURE = "claim_signature"
+    HUMAN_TASK = "human_task"
 
 
 def write_audit(
