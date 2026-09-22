@@ -278,6 +278,11 @@ class ClaimLicenceMatcher(_Contract):
     kind: Literal["claim_licence"] = "claim_licence"
     detector_ids: tuple[str, ...] = Field(min_length=1)
     licence_source: Literal["claims_index"] = "claims_index"
+    #: `claims.match_threshold`, compiled in rather than read from the constants
+    #: file at lint time. A ruleset has to fully determine its own verdicts:
+    #: Stage 04 is handed one and nothing else, and two processes holding
+    #: different constants files must not disagree about the same ruleset.
+    match_threshold: float = Field(default=0.88, ge=0.0, le=1.0)
 
 
 class OfferBindingMatcher(_Contract):

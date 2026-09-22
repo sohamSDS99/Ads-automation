@@ -80,7 +80,10 @@ claim_detectors:
       family: superlative
       locale: en
       description: "Superlative and uniqueness language"
-      pattern: '\b(?:best|finest|greatest|#\s?1|no\.?\s?1|number one|leading|top[- ]rated|world''?s\s+\w+|market[- ]leading|unrivall?ed|unbeatable|unmatched|the only|first ever)\b'
+      # `#1` is held OUTSIDE the \b group on purpose: a word boundary before a
+      # non-word character can never match, so `\b(?:...|#\s?1|...)` silently
+      # drops that alternative and "we are #1" reads as claiming nothing.
+      pattern: '(?:#\s?1\b|\b(?:best|finest|greatest|no\.?\s?1|number one|leading|top[- ]rated|world''?s\s+\w+|market[- ]leading|unrivall?ed|unbeatable|unmatched|the only|first ever)\b)'
     - detector_id: "claim.comparative.en.v1"
       family: comparative
       locale: en

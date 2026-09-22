@@ -68,7 +68,7 @@ def a_term_rule() -> RuleBody:
 
 @pytest.mark.parametrize(
     "rule_id",
-    ["lexicon.banned_term.v1", "claim.superlative.en.v1", "image.text_coverage.v12"],
+    ["spec.banned_term.v1", "claim.superlative.en.v1", "image.text_coverage.v12"],
 )
 def test_a_well_formed_rule_id_is_accepted(rule_id: str) -> None:
     assert RULE_ID.match(rule_id)
@@ -94,41 +94,39 @@ def test_a_malformed_rule_id_is_refused_at_decoration(rule_id: str) -> None:
 
 
 def test_the_decorator_stamps_the_identity_the_body_cannot_reach() -> None:
-    built = rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")(
-        a_term_rule
-    )()
+    built = rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")(a_term_rule)()
     assert isinstance(built, Rule)
-    assert built.rule_id == "lexicon.banned_term.v1"
+    assert built.rule_id == "spec.banned_term.v1"
     assert built.category == "lexicon"
     assert built.severity == "warning"
     assert built.authority.reference == "brand_book#p3"
 
 
 def test_a_registered_rule_appears_in_the_registry_with_its_docstring() -> None:
-    @rule("lexicon.required_term.v1", category="lexicon", matcher_kind="term_set")
+    @rule("spec.required_term.v1", category="lexicon", matcher_kind="term_set")
     def required_term() -> RuleBody:
         """Terms the brand requires on first use."""
         return a_term_rule()
 
-    spec = RULES["lexicon.required_term.v1"]
+    spec = RULES["spec.required_term.v1"]
     assert spec.category == "lexicon"
     assert spec.matcher_kind == "term_set"
     assert spec.doc == "Terms the brand requires on first use."
 
 
 def test_two_rules_cannot_share_an_id() -> None:
-    rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")(a_term_rule)
+    rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")(a_term_rule)
 
     def another() -> RuleBody:
         return a_term_rule()
 
     with pytest.raises(RuleRegistrationError, match="already registered"):
-        rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")(another)
+        rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")(another)
 
 
 def test_re_registering_the_same_function_is_not_a_collision() -> None:
     """`importlib.reload` re-executes a module. That is not two rules."""
-    decorate = rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")
+    decorate = rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")
     decorate(a_term_rule)
     decorate(a_term_rule)  # must not raise
 
@@ -149,7 +147,7 @@ def test_a_law_fixed_severity_cannot_be_talked_down() -> None:
         )
 
     built = rule(
-        "claim.licence.v1", category="claim", matcher_kind="term_set", severity="blocking"
+        "spec.claim_licence.v1", category="claim", matcher_kind="term_set", severity="blocking"
     )(soft_claim)
     with pytest.raises(RuleRegistrationError, match="always blocking"):
         built()
@@ -160,7 +158,7 @@ def test_a_fixed_severity_is_stamped_when_the_body_leaves_it_open() -> None:
         return RuleBody(matcher=TermSetMatcher(terms=("best",)), message="m", authority=AUTHORITY)
 
     built = rule(
-        "claim.licence.v1", category="claim", matcher_kind="term_set", severity="blocking"
+        "spec.claim_licence.v1", category="claim", matcher_kind="term_set", severity="blocking"
     )(open_claim)()
     assert built.severity == "blocking"
 
@@ -169,7 +167,7 @@ def test_a_rule_with_no_severity_anywhere_is_refused() -> None:
     def no_severity() -> RuleBody:
         return RuleBody(matcher=TermSetMatcher(terms=("best",)), message="m", authority=AUTHORITY)
 
-    built = rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")(no_severity)
+    built = rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")(no_severity)
     with pytest.raises(RuleRegistrationError, match="declares no severity"):
         built()
 
@@ -180,7 +178,7 @@ def test_a_body_returning_the_wrong_matcher_kind_is_refused() -> None:
             matcher=LengthMatcher(max=30), message="m", authority=AUTHORITY, severity="blocking"
         )
 
-    built = rule("lexicon.banned_term.v1", category="lexicon", matcher_kind="term_set")(wrong_kind)
+    built = rule("spec.banned_term.v1", category="lexicon", matcher_kind="term_set")(wrong_kind)
     with pytest.raises(RuleRegistrationError, match="registered for matcher kind"):
         built()
 
@@ -193,12 +191,19 @@ def _prepare(matcher: object) -> object:
 
 
 def test_a_matcher_kind_registers_its_evaluator() -> None:
+    MATCHER_KINDS.pop("term_set", None)
+
     @matcher_kind("term_set", prepare=_prepare)
     def evaluate(rule_: Rule, prepared: object, target: object, ctx: LintContext) -> list[object]:
         return []
 
     assert MATCHER_KINDS["term_set"].applies_to == "target"
     assert kind_for(TermSetMatcher(terms=("x",))).evaluate is evaluate
+
+
+def test_re_registering_a_kind_from_another_module_is_a_collision() -> None:
+    with pytest.raises(RuleRegistrationError, match="already registered"):
+        matcher_kind("term_set", prepare=_prepare)(lambda r, p, t, c: [])
 
 
 def test_a_matcher_kind_must_apply_to_a_target_or_a_set() -> None:
@@ -218,7 +223,7 @@ def test_an_unregistered_matcher_kind_raises_rather_than_being_skipped() -> None
 
 def a_rule(**overrides: object) -> Rule:
     payload: dict[str, object] = {
-        "rule_id": "lexicon.banned_term.v1",
+        "rule_id": "spec.banned_term.v1",
         "category": "lexicon",
         "severity": "warning",
         "scope": RuleScope(),
@@ -232,18 +237,19 @@ def a_rule(**overrides: object) -> Rule:
 
 def register_the_term_rule(*, severity: str | None = None) -> None:
     rule(
-        "lexicon.banned_term.v1",
+        "spec.banned_term.v1",
         category="lexicon",
         matcher_kind="term_set",
         severity=severity,  # type: ignore[arg-type]
     )(a_term_rule)
+    MATCHER_KINDS.pop("term_set", None)
     matcher_kind("term_set", prepare=_prepare)(lambda r, p, t, c: [])
 
 
 def test_an_unregistered_rule_cannot_enter_a_ruleset() -> None:
     register_the_term_rule()
     with pytest.raises(RuleRegistrationError, match="unregistered rule id"):
-        require_registered([a_rule(rule_id="lexicon.invented.v1")])
+        require_registered([a_rule(rule_id="spec.invented.v1")])
 
 
 def test_a_registered_rule_carrying_the_wrong_matcher_is_refused() -> None:
@@ -277,7 +283,7 @@ def test_every_finding_carries_its_rule_s_authority() -> None:
     """PRD §9.1 item 5. A writer who is blocked can see who said so."""
     built = finding(a_rule(), "headline-1", span=(0, 5))
     assert built.authority_ref == "brand_book#p3"
-    assert built.rule_id == "lexicon.banned_term.v1"
+    assert built.rule_id == "spec.banned_term.v1"
     assert built.severity == "warning"
     assert built.span == (0, 5)
     assert built.message == "m"

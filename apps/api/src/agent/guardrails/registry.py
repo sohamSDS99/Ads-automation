@@ -64,6 +64,11 @@ GUARDRAILS_CODE_VERSION: Final[str] = "1.0"
 #: alongside `.v1` rather than silently redefining what old findings claimed.
 RULE_ID: Final[re.Pattern[str]] = re.compile(r"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\.v\d+$")
 
+#: The default scope. An empty `RuleScope` applies everywhere, which is what
+#: lets an unbound run emit rules that still enforce something (law 21); a
+#: shared singleton keeps that reading the same in every constructor signature.
+EVERYWHERE: Final[RuleScope] = RuleScope()
+
 
 class RuleRegistrationError(RuntimeError):
     """Two rules claiming one id, an id that is not a rule id, or an unknown kind."""
