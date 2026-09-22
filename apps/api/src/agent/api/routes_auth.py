@@ -609,7 +609,15 @@ async def reauth(
     if state.locked:
         raise _lockout_problem(state)
 
-    if not passwords.verify(me_.user.password_hash or passwords.dummy_hash(), body.password):
+    # `dummy_hash()` is a real Argon2id hash of a fixed literal in this repo. It
+    # exists so an unknown *email* costs the same time as a wrong password on
+    # the sign-in path, where `stored_hash is not None` separately guarantees
+    # nobody can authenticate with it. There is no such guard here, so verifying
+    # against it would make that literal a working password for any account with
+    # no hash — and what this endpoint mints is the presence layer of a
+    # non-delegable signature.
+    stored = me_.user.password_hash
+    if not stored or not passwords.verify(stored, body.password):
         await limiter.record_failure(me_.user.email, ip)
         await _audit_login_failure(db, AuditAction.LOGIN_FAILED, me_.user.email, ip)
         await db.commit()

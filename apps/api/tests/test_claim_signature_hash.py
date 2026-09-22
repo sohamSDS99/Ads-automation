@@ -112,3 +112,63 @@ def test_the_note_and_expiry_are_not_part_of_the_set() -> None:
         note="cleared with outside counsel",
     )
     assert set_hash([bare]) == set_hash([annotated])
+
+
+# -- what a signature actually licenses --------------------------------------
+#
+# `licences()` does not consult `normalized_text` alone. It also reads
+# `surface_forms`, `market_scope` and `languages`, and an empty market or
+# language list means *unrestricted*. All three are writable through
+# PATCH /guidelines/{id}/claims/{claim_id}, which `operator` and `admin` hold —
+# the two roles deliberately denied CLAIM_SIGN. If they are outside the hash,
+# somebody who cannot sign can still widen what a signature licenses, after the
+# signer has read the register and without tripping the 409.
+
+
+def test_changing_a_surface_form_changes_the_hash() -> None:
+    claim = uuid.uuid4()
+    narrow = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", surface_forms=("the best sds",)
+    )
+    widened = ClaimDecision(
+        claim_id=claim,
+        normalized_text="x",
+        decision="approved",
+        surface_forms=("the best sds", "guaranteed cheapest in europe"),
+    )
+    assert set_hash([narrow]) != set_hash([widened])
+
+
+def test_widening_the_market_scope_changes_the_hash() -> None:
+    """An empty market list licenses every market, so emptying it is a widening."""
+    claim = uuid.uuid4()
+    scoped = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", market_scope=("DE",)
+    )
+    everywhere = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", market_scope=()
+    )
+    assert set_hash([scoped]) != set_hash([everywhere])
+
+
+def test_widening_the_languages_changes_the_hash() -> None:
+    claim = uuid.uuid4()
+    scoped = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", languages=("en",)
+    )
+    everywhere = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", languages=()
+    )
+    assert set_hash([scoped]) != set_hash([everywhere])
+
+
+def test_the_order_of_surface_forms_does_not_change_the_hash() -> None:
+    """Sorted inside the material: reordering a list is not a change to the set."""
+    claim = uuid.uuid4()
+    one = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", surface_forms=("a", "b")
+    )
+    other = ClaimDecision(
+        claim_id=claim, normalized_text="x", decision="approved", surface_forms=("b", "a")
+    )
+    assert set_hash([one]) == set_hash([other])

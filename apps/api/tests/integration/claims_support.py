@@ -132,11 +132,20 @@ async def seed_register(
 
 
 def decisions_for(claims: list[ClaimRecord], verdict: str = "approved") -> list[dict[str, Any]]:
+    """What the drawer sends back, and what it hashes.
+
+    The licensing fields are carried because the *client* has to hash what it
+    read: the server rebuilds them from the row, so a client hashing without
+    them would disagree and get a 409 on every submit.
+    """
     return [
         {
             "claim_id": str(claim.id),
             "normalized_text": claim.normalized_text,
             "decision": verdict,
+            "surface_forms": list(claim.surface_forms or []),
+            "market_scope": list(claim.market_scope or []),
+            "languages": list(claim.languages or []),
         }
         for claim in claims
     ]

@@ -285,3 +285,129 @@ async def test_editing_a_claim_normalizes_it_the_way_the_linter_will(
     )
     assert response.status_code == 200, response.text
     assert response.json()["normalized_text"] == normalize(awkward, locale="en").text
+
+
+# --- the security review's findings, as regressions -------------------------
+
+
+async def test_widening_a_claim_after_the_signer_read_it_is_a_409(
+    admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
+) -> None:
+    """An operator cannot broaden what a signature licenses (finding 1).
+
+    `licences()` matches candidate copy against `surface_forms` and scopes the
+    match by `market_scope` and `languages` — and an empty market or language
+    list means *every* market or language. All three are writable with
+    GUIDELINE_EXECUTE, which `operator` and `admin` hold and which is exactly
+    the pair denied CLAIM_SIGN. If they sat outside the hash, somebody who
+    cannot sign could widen a named person's signature after that person read
+    the register, and the 409 would never fire.
+    """
+    people = await cast(admin)
+    guideline_id, claims = await seed_register(admin, db, project_id)
+    legal = await as_client(people["legal"])
+
+    # The signer reads the register and computes the hash of what they saw.
+    decisions = decisions_for(claims)
+    digest = await hash_of(admin, guideline_id, decisions)
+
+    # An operator widens one claim while the drawer is open.
+    operator = await as_client(people["operator"])
+    widened = await operator.patch(
+        f"/guidelines/{guideline_id}/claims/{claims[0].id}",
+        json={"surface_forms": ["guaranteed cheapest in Europe"], "market_scope": []},
+    )
+    assert widened.status_code == 200, widened.text
+
+    response = await sign(legal, guideline_id, decisions, digest)
+    assert response.status_code == 409, response.text
+    await db.rollback()
+    assert (await db.execute(sa.select(sa.func.count()).select_from(ClaimSignature))).scalar() == 0
+
+
+async def test_the_stored_decisions_are_the_servers_text_not_the_clients(
+    admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
+) -> None:
+    """The append-only record must not freeze text that was never in the register (finding 2)."""
+    people = await cast(admin)
+    guideline_id, claims = await seed_register(admin, db, project_id)
+    legal = await as_client(people["legal"])
+
+    decisions = decisions_for(claims)
+    digest = await hash_of(admin, guideline_id, decisions)
+    # Read before the rollback below expires these rows.
+    expected_text = {claim.normalized_text for claim in claims}
+    for entry in decisions:
+        entry["normalized_text"] = "wording that was never in the register"
+
+    response = await sign(legal, guideline_id, decisions, digest)
+    assert response.status_code in (200, 201), response.text
+
+    await db.rollback()
+    signature = (await db.execute(sa.select(ClaimSignature))).scalars().one()
+    stored = {entry["normalized_text"] for entry in signature.decisions}
+    assert "wording that was never in the register" not in stored
+    assert stored == expected_text
+
+
+async def test_re_signing_after_a_reversal_takes_effect(
+    admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
+) -> None:
+    """Idempotency must not fail open on a superseded signature (finding 3).
+
+    Reject, then approve, then reject again. The third set hashes the same as
+    the first, whose signature was superseded but never voided — so matching on
+    the hash alone would hand back the original receipt and leave the claim
+    approved, showing the signer a success screen over a decision that never
+    took effect.
+    """
+    people = await cast(admin)
+    guideline_id, claims = await seed_register(admin, db, project_id)
+    legal = await as_client(people["legal"])
+    one = claims[:1]
+    claim_id = one[0].id  # read before any rollback expires the row
+
+    rejected = decisions_for(one, "rejected")
+    first = await sign(legal, guideline_id, rejected, await hash_of(admin, guideline_id, rejected))
+    assert first.status_code in (200, 201), first.text
+
+    approved = decisions_for(one, "approved")
+    second = await sign(legal, guideline_id, approved, await hash_of(admin, guideline_id, approved))
+    assert second.status_code in (200, 201), second.text
+    await db.rollback()
+    row = (await db.execute(sa.select(ClaimRecord).where(ClaimRecord.id == claim_id))).scalar_one()
+    assert row.status is ClaimStatus.APPROVED
+
+    third = await sign(legal, guideline_id, rejected, await hash_of(admin, guideline_id, rejected))
+    assert third.status_code in (200, 201), third.text
+    await db.rollback()
+    row = (await db.execute(sa.select(ClaimRecord).where(ClaimRecord.id == claim_id))).scalar_one()
+    assert row.status is ClaimStatus.REJECTED, "the reversal was reported but never applied"
+
+
+async def test_reauth_refuses_an_account_with_no_password_hash(
+    admin: ApiClient, db: AsyncSession
+) -> None:
+    """The constant-time placeholder is not a password (finding 4).
+
+    `dummy_hash()` is a real Argon2id hash of a fixed literal in this repo. Its
+    job is to make an unknown email cost the same as a wrong password on the
+    sign-in path, where a separate `stored_hash is not None` check stops anyone
+    authenticating with it. Verifying against it here would make that literal a
+    working password for any account without a hash — and this endpoint mints
+    the presence layer of a non-delegable signature.
+    """
+    from agent.auth import passwords
+    from agent.db.models import User
+
+    me = (await admin.get("/auth/me")).json()
+    await db.execute(
+        sa.update(User).where(User.id == uuid.UUID(me["id"])).values(password_hash=None)
+    )
+    await db.commit()
+
+    placeholder = "\x00unknown-account-constant-time-placeholder\x00"
+    assert passwords.verify(passwords.dummy_hash(), placeholder), "premise: it does match"
+
+    response = await admin.post("/auth/reauth", json={"password": placeholder})
+    assert response.status_code == 401

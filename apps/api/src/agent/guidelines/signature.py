@@ -49,6 +49,13 @@ class ClaimDecision(BaseModel):
     claim_id: uuid.UUID
     normalized_text: str
     decision: Decision
+    #: What the approval actually licenses. `licences()` matches a candidate
+    #: span against these as well as against `normalized_text`, and treats an
+    #: empty market or language list as *unrestricted* — so all three are part
+    #: of what a signer is agreeing to, and all three are in the hash.
+    surface_forms: tuple[str, ...] = ()
+    market_scope: tuple[str, ...] = ()
+    languages: tuple[str, ...] = ()
     note: str | None = None
     expires_at: datetime | None = None
 
@@ -60,10 +67,22 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
     happened to be in — otherwise re-sorting a column in the UI would produce a
     409 and teach signers to retry until one worked.
 
-    The material is exactly the three fields PRD §7.2 names. `note` and
-    `expires_at` are excluded on purpose: they are what the signer is writing,
-    not what the register said, and a signer editing their own note must not
-    invalidate the set they are part-way through signing.
+    The material is the three fields PRD §7.2 names **plus the three that decide
+    what the approval licenses**: `surface_forms`, `market_scope` and
+    `languages`. §7.2's list is necessary and not sufficient — `licences()`
+    matches candidate spans against the surface forms and scopes the match by
+    market and language, and an empty market or language list means *every*
+    market or language. All three are writable by `GUIDELINE_EXECUTE`, held by
+    `operator` and `admin` — precisely the roles denied `CLAIM_SIGN`. Leaving
+    them out of the hash would let somebody who cannot sign widen what a named
+    person's signature licenses, after that person read the register, without
+    tripping the 409 that exists to stop exactly this.
+
+    Each list is sorted inside the material, so reordering one is not a change.
+
+    `note` and `expires_at` stay outside: they are what the signer is writing,
+    not what the register said, and editing your own note must not invalidate
+    the set you are part-way through signing.
     """
     if not decisions:
         raise ValueError(
@@ -71,7 +90,7 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
         )
 
     seen: set[uuid.UUID] = set()
-    material: list[list[str]] = []
+    material: list[list[str | list[str]]] = []
     for entry in decisions:
         if entry.claim_id in seen:
             raise ValueError(
@@ -80,7 +99,16 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
                 "and the row would assert both that it was approved and that it was not."
             )
         seen.add(entry.claim_id)
-        material.append([str(entry.claim_id), entry.normalized_text, entry.decision])
+        material.append(
+            [
+                str(entry.claim_id),
+                entry.normalized_text,
+                entry.decision,
+                sorted(entry.surface_forms),
+                sorted(entry.market_scope),
+                sorted(entry.languages),
+            ]
+        )
 
     material.sort()
     return hashlib.sha256(

@@ -19,8 +19,9 @@ produces a mismatch and a 409 that writes nothing.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 import sqlalchemy as sa
 import structlog
@@ -241,6 +242,15 @@ async def sign_claims(
             claim_id=entry.claim_id,
             normalized_text=claims[entry.claim_id].normalized_text,
             decision=entry.decision,
+            # The three fields that decide what the approval licenses, taken
+            # from the row rather than the request. `licences()` matches spans
+            # against the surface forms and scopes by market and language, and
+            # an empty list means *unrestricted* — so a signature that did not
+            # cover them could be widened after the fact by anybody holding
+            # GUIDELINE_EXECUTE, which `operator` and `admin` do.
+            surface_forms=_texts(claims[entry.claim_id].surface_forms),
+            market_scope=_texts(claims[entry.claim_id].market_scope),
+            languages=_texts(claims[entry.claim_id].languages),
             note=entry.note,
             expires_at=entry.expires_at,
         )
@@ -283,10 +293,17 @@ async def sign_claims(
         ) from exc
 
     existing = await _signature_by_hash(db, guideline.project_id, recomputed)
-    if existing is not None and existing.voided_at is None:
+    if existing is not None and existing.voided_at is None and _still_current(existing, claims):
         # Idempotent on the set hash (PRD §16 rule 2): a retried submit — a
         # flaky connection, a double click — returns the signature that already
         # exists rather than minting a second one over identical material.
+        #
+        # `_still_current` is what stops that failing open. A superseded
+        # signature keeps `voided_at IS NULL`, so hash alone would match a row
+        # that no longer governs anything: sign {A: rejected}, then
+        # {A: approved}, then {A: rejected} again, and the third submit would
+        # return the first receipt while A stayed approved — a success screen
+        # over a decision that never took effect.
         return _receipt(existing)
 
     now = datetime.now(UTC)
@@ -296,7 +313,13 @@ async def sign_claims(
         signer_id=me.user.id,
         claim_ids=list(wanted),
         set_hash=recomputed,
-        decisions=[entry.model_dump(mode="json") for entry in body.decisions],
+        # The server's view, not the request's. `decisions` is the readable
+        # content of an append-only legal record, and `ClaimDecisionIn` carries
+        # a `normalized_text` nothing validates — persisting the client's copy
+        # would freeze text that was never in the register into the artifact an
+        # auditor reads, and make re-hashing the stored row disagree with
+        # `set_hash`.
+        decisions=[entry.model_dump(mode="json") for entry in server_view],
         statement=body.statement,
         method=SignatureMethod.STEP_UP_PASSWORD,
         reauth_token_id=token_id,
@@ -540,12 +563,29 @@ async def _signature_by_hash(
     )
 
 
+def _texts(value: Sequence[Any] | None) -> tuple[str, ...]:
+    """JSONB and text[] both arrive as loose lists; the hash wants strings."""
+    if not value:
+        return ()
+    return tuple(str(item) for item in value)
+
+
+def _still_current(signature: ClaimSignature, claims: dict[uuid.UUID, ClaimRecord]) -> bool:
+    """Is this signature still the one governing every claim in the set?"""
+    return all(claim.current_signature_id == signature.id for claim in claims.values())
+
+
 def _hash_of(claims: list[ClaimRecord]) -> str:
     """The hash of "approve everything outstanding", which is what the drawer opens on."""
     return set_hash(
         [
             ClaimDecision(
-                claim_id=claim.id, normalized_text=claim.normalized_text, decision="approved"
+                claim_id=claim.id,
+                normalized_text=claim.normalized_text,
+                decision="approved",
+                surface_forms=_texts(claim.surface_forms),
+                market_scope=_texts(claim.market_scope),
+                languages=_texts(claim.languages),
             )
             for claim in claims
         ]
