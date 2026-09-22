@@ -1,36 +1,19 @@
 import type { ReactNode } from "react";
 
-import { StageTabs } from "@/components/plan/stage-tabs";
-
 /**
- * Every project route sits under the pipeline strip (Stage 02 PRD §15.1).
+ * The column every project route sits in.
  *
- * A server component with no data of its own: the strip needs the project id,
- * which is in the URL, and nothing else. Putting it here rather than in each
- * page is what stops the tabs disappearing on the one route somebody forgets.
+ * No navigation of its own any more: the pipeline strip that used to run
+ * across the top of this is now a group in the side panel
+ * (`components/shell/stage-nav.tsx`), which is where the rest of this
+ * product's navigation lives.
  *
- * The strip is full-bleed — it cancels `<main>`'s padding so its rule spans
- * the content area — and its labels sit on the content gutter rather than on
- * whatever max-width the page below happens to use. Project routes are 4xl,
- * 5xl and full-width depending on what they hold, so a strip that tried to
- * line up with one of them would be visibly out by 60px on the others.
+ * What is left is load-bearing all the same. `flex flex-col` is the column the
+ * pages size themselves against — the evidence explorer is a bare
+ * `min-h-0 flex-1` child with no other flex parent, and the two run consoles
+ * measure their height from here — and `gap-6` is the rhythm between the
+ * stacked blocks on the routes that have several.
  */
-export default async function ProjectLayout({
-  children,
-  params,
-}: {
-  children: ReactNode;
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = await params;
-  return (
-    <div className="flex flex-col gap-6">
-      <div className="-mx-6 -mt-6 border-b">
-        <div className="px-6">
-          <StageTabs projectId={id} />
-        </div>
-      </div>
-      {children}
-    </div>
-  );
+export default function ProjectLayout({ children }: { children: ReactNode }) {
+  return <div className="flex flex-col gap-6">{children}</div>;
 }

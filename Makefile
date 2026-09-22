@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -196,6 +196,13 @@ browser-p8: ## Drive the P8 screens (schedules, storage, compare, banners) at 14
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		/app/.venv/bin/python /tmp/browser-check-p8.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-nav: ## Drive the side panel (stages in it, pages at its foot) at 1440 and 390
+	@docker compose cp scripts/browser-check-nav.py worker:/tmp/browser-check-nav.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-nav.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-s2p0: ## Drive the Stage 02 handshake screens (tabs, lock, accept, start) at 1440 and 390
