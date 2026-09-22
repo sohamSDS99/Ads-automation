@@ -1,0 +1,121 @@
+# Stage 03 content constants — PRD §9.6, global law 25.
+#
+# Google's asset specs, the image thresholds, the claim-detector families and
+# our internal minimums live HERE. Never in a prompt, never in a function body.
+# Every value carries a `source` and a `reviewed_at`, and **a value with no
+# source fails startup with its own key in the message** — a rulebook built on
+# an unattributable threshold is a rulebook nobody can check.
+#
+# `version` is stamped into every RuleSet, so any verdict any asset ever got
+# can be re-derived against the constants that actually produced it.
+#
+# READ THIS BEFORE TRUSTING A NUMBER: every `asset_specs` value below ships
+# `source: unverified`. They are shaped correctly and numerically unconfirmed
+# (PRD §9.6, open question Q7). Enforcing an unverified character limit is
+# worse than enforcing none, because people will trust it. The performance
+# owner verifies each against Google's live documentation before the first
+# publish; being wrong here is a one-line edit and a MINOR bump, not a deploy.
+
+version: "2026.09.1"
+
+asset_specs:
+  search:
+    headline:        { max_chars: 30, min_count: 3, max_count: 15, source: "unverified", reviewed_at: 2026-09-22 }
+    description:     { max_chars: 90, min_count: 2, max_count: 4,  source: "unverified", reviewed_at: 2026-09-22 }
+    path:            { max_chars: 15, max_count: 2, source: "unverified", reviewed_at: 2026-09-22 }
+  performance_max:
+    headline:        { max_chars: 30, min_count: 3, max_count: 15, source: "unverified", reviewed_at: 2026-09-22 }
+    long_headline:   { max_chars: 90, min_count: 1, max_count: 5,  source: "unverified", reviewed_at: 2026-09-22 }
+    description:     { max_chars: 90, min_count: 2, max_count: 5,  source: "unverified", reviewed_at: 2026-09-22 }
+    image_landscape: { ratio: "1.91:1", min_px: "600x314", max_bytes: 5242880, min_count: 1, source: "unverified", reviewed_at: 2026-09-22 }
+
+image_policy:
+  search_image_text_coverage_max: { value: 0.20, source: "unverified", reviewed_at: 2026-09-22 }
+  logo_match_score_min:           { value: 0.62, source: "internal",   reviewed_at: 2026-09-22 }
+  ocr_working_width_px:           { value: 1280, source: "internal",   reviewed_at: 2026-09-22 }
+
+claims:
+  default_expiry_days:    { value: 365,  source: "internal", reviewed_at: 2026-09-22 }
+  quantified_expiry_days: { value: 180,  source: "internal", reviewed_at: 2026-09-22 }
+  match_threshold:        { value: 0.88, source: "internal", reviewed_at: 2026-09-22 }
+  high_risk_types:        { value: [superlative, comparative, guarantee, safety_regulatory], source: "internal", reviewed_at: 2026-09-22 }
+
+signature:
+  reauth_ttl_seconds:       { value: 300, source: "internal", reviewed_at: 2026-09-22 }
+  max_claims_per_signature: { value: 100, source: "internal", reviewed_at: 2026-09-22 }
+
+amendment:
+  confidence_floor: { value: 0.8, source: "internal", reviewed_at: 2026-09-22 }
+
+review:
+  guideline_review_days: { value: 90, source: "internal", reviewed_at: 2026-09-22 }
+
+# PRD §9.4. A countdown whose deadline has been extended is a countdown that
+# was never real; the default of 0 means any extension is blocking.
+offers:
+  countdown_max_extensions: { value: 0,  source: "internal", reviewed_at: 2026-09-22 }
+  staleness_warning_days:   { value: 30, source: "internal", reviewed_at: 2026-09-22 }
+
+# ---------------------------------------------------------------------------
+# Claim detectors — PRD §9.3.
+#
+# NOT IN §9.6's listing, and required by §9.3 and by matchers/claims.py, which
+# is why they are here: the detector pass reads "regex families per locale,
+# held in content_constants.yaml". Keeping them as data is the point — adding
+# "we are the only X" to the superlative family is a constants edit and a MINOR
+# version bump, not a deploy.
+#
+# These detect claim-SHAPED LANGUAGE, not false claims. Whether a claim is true
+# is not decidable here and is never attempted; a match means "this sentence is
+# making a claim, so it needs a licence" (law 24). Patterns run against
+# NORMALIZED text — NFKC, case-folded, homoglyphs and zero-width characters
+# stripped — so they are written lower-case and need no `i` flag. Spans are
+# mapped back to the caller's original offsets by normalize.py.
+# ---------------------------------------------------------------------------
+claim_detectors:
+  source: "internal"
+  reviewed_at: 2026-09-22
+  detectors:
+    - detector_id: "claim.superlative.en.v1"
+      family: superlative
+      locale: en
+      description: "Superlative and uniqueness language"
+      # `#1` is held OUTSIDE the \b group on purpose: a word boundary before a
+      # non-word character can never match, so `\b(?:...|#\s?1|...)` silently
+      # drops that alternative and "we are #1" reads as claiming nothing.
+      pattern: '(?:#\s?1\b|\b(?:best|finest|greatest|no\.?\s?1|number one|leading|top[- ]rated|world''?s\s+\w+|market[- ]leading|unrivall?ed|unbeatable|unmatched|the only|first ever)\b)'
+    - detector_id: "claim.comparative.en.v1"
+      family: comparative
+      locale: en
+      description: "Explicit comparison against an alternative"
+      pattern: '\b(?:\w+er than|more \w+ than|less \w+ than|better than|faster than|cheaper than|safer than|outperforms?|beats?)\b'
+    - detector_id: "claim.quantified.en.v1"
+      family: quantified
+      locale: en
+      description: "A number asserted as fact about performance or scale"
+      pattern: '(?:\b\d+(?:[.,]\d+)?\s?%|\bup to \d+|\b\d+(?:[.,]\d+)?x\b|\b\d+\+? (?:customers|users|companies|clients|years)\b)'
+    - detector_id: "claim.guarantee.en.v1"
+      family: guarantee
+      locale: en
+      description: "A promise of outcome or of no risk"
+      pattern: '\b(?:guarante\w*|risk[- ]free|money[- ]back|no[- ]risk|promise\w*|assured|100% (?:safe|secure|effective|accurate))\b'
+    - detector_id: "claim.certification.en.v1"
+      family: certification
+      locale: en
+      description: "An assertion of certification, accreditation or compliance"
+      pattern: '\b(?:iso\s?\d+|certified|accredited|approved by|compliant with|meets? (?:all )?(?:the )?(?:requirements|standards)|reach|ghs|osha)\b'
+    - detector_id: "claim.endorsement.en.v1"
+      family: endorsement
+      locale: en
+      description: "A third party presented as endorsing us"
+      pattern: '\b(?:recommended by|endorsed by|trusted by|preferred by|award[- ]winning|voted|rated (?:#|no\.?\s?)?\d|as seen (?:in|on))\b'
+    - detector_id: "claim.superlative.de.v1"
+      family: superlative
+      locale: de
+      description: "Superlative and uniqueness language, German"
+      pattern: '\b(?:beste[rsnm]?|führend\w*|nummer eins|nr\.?\s?1|weltweit \w+|einzig\w*|unübertroffen|marktführer\w*)\b'
+    - detector_id: "claim.guarantee.de.v1"
+      family: guarantee
+      locale: de
+      description: "A promise of outcome or of no risk, German"
+      pattern: '\b(?:garanti\w*|risikofrei|geld[- ]zurück|versprech\w*|zugesichert)\b'

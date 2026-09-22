@@ -1,0 +1,156 @@
+{
+  "$defs": {
+    "LintFinding": {
+      "additionalProperties": false,
+      "description": "One rule, one target, one reason. Never a bare \"violation\".\n\n`authority_ref` duplicates `Rule.authority.reference` onto the finding on\npurpose: findings travel to a writer's screen and to Stage 04's logs\nwithout the ruleset attached, and \"who said so\" has to survive that trip.",
+      "properties": {
+        "target_ref": {
+          "title": "Target Ref",
+          "type": "string"
+        },
+        "rule_id": {
+          "minLength": 1,
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "warning",
+            "advisory"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "span": {
+          "anyOf": [
+            {
+              "maxItems": 2,
+              "minItems": 2,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Span"
+        },
+        "message": {
+          "minLength": 1,
+          "title": "Message",
+          "type": "string"
+        },
+        "fix_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Hint"
+        },
+        "authority_ref": {
+          "minLength": 1,
+          "title": "Authority Ref",
+          "type": "string"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "indeterminate": {
+          "default": false,
+          "title": "Indeterminate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "target_ref",
+        "rule_id",
+        "severity",
+        "message",
+        "authority_ref"
+      ],
+      "title": "LintFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything one `lint()` call produced.\n\n`elapsed_ms` is the only field that legitimately differs between two runs\nof the same inputs, which is why the determinism test excludes it and\nnothing else.",
+  "properties": {
+    "ruleset_version": {
+      "minLength": 1,
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "pass_with_warnings",
+        "fail"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "findings": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/LintFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "targets_checked": {
+      "minimum": 0,
+      "title": "Targets Checked",
+      "type": "integer"
+    },
+    "rules_evaluated": {
+      "minimum": 0,
+      "title": "Rules Evaluated",
+      "type": "integer"
+    },
+    "elapsed_ms": {
+      "minimum": 0,
+      "title": "Elapsed Ms",
+      "type": "integer"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ruleset_version",
+    "verdict",
+    "targets_checked",
+    "rules_evaluated",
+    "elapsed_ms",
+    "evaluated_at"
+  ],
+  "title": "LintResult",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

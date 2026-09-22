@@ -39,13 +39,14 @@ SOURCE_MODULES: tuple[str, ...] = (
     # Stage 03.
     "agent.api.schemas_guidelines",
     "agent.schemas.guideline_input",
+    "agent.schemas.guardrails",
 )
 
 
 #: Base classes that exist to carry configuration, not to describe a payload.
 #: Emitting them would put two schemas in `packages/contracts` that no endpoint
 #: ever returns, and zod types nobody can use.
-ABSTRACT_BASES: frozenset[str] = frozenset({"ReportModel", "StrictReportModel"})
+ABSTRACT_BASES: frozenset[str] = frozenset({"ReportModel", "StrictReportModel", "_Contract"})
 
 
 def collect_models() -> dict[str, type[BaseModel]]:

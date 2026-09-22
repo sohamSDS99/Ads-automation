@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "description": "A size bound on one target's text. The asset-spec workhorse.",
+  "properties": {
+    "kind": {
+      "const": "length",
+      "default": "length",
+      "title": "Kind",
+      "type": "string"
+    },
+    "min": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min"
+    },
+    "max": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max"
+    },
+    "unit": {
+      "default": "chars",
+      "enum": [
+        "chars",
+        "words",
+        "graphemes"
+      ],
+      "title": "Unit",
+      "type": "string"
+    }
+  },
+  "title": "LengthMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

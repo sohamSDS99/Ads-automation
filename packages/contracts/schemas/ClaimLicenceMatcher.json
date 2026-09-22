@@ -1,0 +1,39 @@
+{
+  "additionalProperties": false,
+  "description": "Default deny on claim-shaped language (law 24, PRD \u00a79.3).\n\nRuns the named detectors over the target, then asks the ruleset's\n`claims_index` whether each candidate span is licensed. Unlicensed,\nunsigned, rejected and expired all behave identically: blocking. Nothing is\nlicensed because it \"reads true\" \u2014 the licence is a signature or it does\nnot exist.",
+  "properties": {
+    "kind": {
+      "const": "claim_licence",
+      "default": "claim_licence",
+      "title": "Kind",
+      "type": "string"
+    },
+    "detector_ids": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Detector Ids",
+      "type": "array"
+    },
+    "licence_source": {
+      "const": "claims_index",
+      "default": "claims_index",
+      "title": "Licence Source",
+      "type": "string"
+    },
+    "match_threshold": {
+      "default": 0.88,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Match Threshold",
+      "type": "number"
+    }
+  },
+  "required": [
+    "detector_ids"
+  ],
+  "title": "ClaimLicenceMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

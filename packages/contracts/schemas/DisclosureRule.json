@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "description": "Where an AI-disclosure string is required, and what it must say.",
+  "properties": {
+    "disclosure_id": {
+      "minLength": 1,
+      "title": "Disclosure Id",
+      "type": "string"
+    },
+    "surfaces": {
+      "default": [],
+      "items": {
+        "enum": [
+          "rsa_headline",
+          "rsa_description",
+          "rsa_path",
+          "long_headline",
+          "pmax_headline",
+          "pmax_description",
+          "asset_group_description",
+          "display_text",
+          "youtube_script",
+          "sitelink",
+          "callout",
+          "structured_snippet",
+          "business_name",
+          "landing_page_section"
+        ],
+        "type": "string"
+      },
+      "title": "Surfaces",
+      "type": "array"
+    },
+    "markets": {
+      "default": [],
+      "items": {
+        "type": "string"
+      },
+      "title": "Markets",
+      "type": "array"
+    },
+    "required_text": {
+      "minLength": 1,
+      "title": "Required Text",
+      "type": "string"
+    },
+    "placement": {
+      "default": "anywhere",
+      "enum": [
+        "prefix",
+        "suffix",
+        "anywhere"
+      ],
+      "title": "Placement",
+      "type": "string"
+    }
+  },
+  "required": [
+    "disclosure_id",
+    "required_text"
+  ],
+  "title": "DisclosureRule",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

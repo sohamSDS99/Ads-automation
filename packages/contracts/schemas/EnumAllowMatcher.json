@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "description": "An allow-list on one scalar field of the target.",
+  "properties": {
+    "kind": {
+      "const": "enum_allow",
+      "default": "enum_allow",
+      "title": "Kind",
+      "type": "string"
+    },
+    "field": {
+      "minLength": 1,
+      "title": "Field",
+      "type": "string"
+    },
+    "allowed": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Allowed",
+      "type": "array"
+    }
+  },
+  "required": [
+    "field",
+    "allowed"
+  ],
+  "title": "EnumAllowMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

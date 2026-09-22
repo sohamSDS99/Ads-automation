@@ -1,0 +1,49 @@
+{
+  "additionalProperties": false,
+  "description": "A bound on *how many* targets of a kind a set contains.\n\nThe one matcher that is not a function of a single target: \"fewer than\nthree headlines\" is a property of the whole submission, so the linter\nevaluates it once per lint call over the targets in scope rather than once\nper target. A finding from this matcher is attached to the set, not to any\none piece of copy \u2014 see `LintFinding.target_ref`.",
+  "properties": {
+    "kind": {
+      "const": "count",
+      "default": "count",
+      "title": "Kind",
+      "type": "string"
+    },
+    "min": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min"
+    },
+    "max": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max"
+    },
+    "entity": {
+      "minLength": 1,
+      "title": "Entity",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entity"
+  ],
+  "title": "CountMatcher",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

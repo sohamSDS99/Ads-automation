@@ -1,0 +1,99 @@
+{
+  "additionalProperties": false,
+  "description": "Google's shape for one asset type, with the provenance of every number.\n\nEvery field is optional because the specs are not uniform \u2014 a path has a\ncharacter limit and no ratio, an image has a ratio and no character limit.\n`source` travels with the numbers all the way to the finding, which is what\nstops an `unverified` limit from being enforced as though Google had said\nit (PRD \u00a79.6, Q7).",
+  "properties": {
+    "max_chars": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Chars"
+    },
+    "min_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Count"
+    },
+    "max_count": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Count"
+    },
+    "ratio": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ratio"
+    },
+    "min_px": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Px"
+    },
+    "max_bytes": {
+      "anyOf": [
+        {
+          "minimum": 1,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Bytes"
+    },
+    "source": {
+      "minLength": 1,
+      "title": "Source",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "format": "date",
+      "title": "Reviewed At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "source",
+    "reviewed_at"
+  ],
+  "title": "AssetSpec",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
