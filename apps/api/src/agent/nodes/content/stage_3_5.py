@@ -23,10 +23,12 @@ The node proposes. G6 decides. The row is written when the gate is approved
 
 from __future__ import annotations
 
+import re
 import uuid
 from typing import Literal
 
 import sqlalchemy as sa
+import structlog
 from pydantic import BaseModel, Field
 
 from agent.db.models import (
@@ -36,12 +38,15 @@ from agent.db.models import (
     RunStage,
     SignOffMatrix,
     User,
+    UserRole,
     UserStatus,
 )
 from agent.guidelines import signoff
 from agent.llm.router import TaskClass
 from agent.nodes import prompts
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
+
+log = structlog.get_logger(__name__)
 
 #: The gate key G6 is written onto. Imported by the decision route, which turns
 #: an approved proposal into the `signoff_matrix` row.
@@ -237,3 +242,165 @@ class SignOffMatrixNode:
 
 #: Module-level instance. The registry discovers instances, not classes.
 signoff_matrix = SignOffMatrixNode()
+
+
+# ---------------------------------------------------------------------------
+# 3.5.2 legal_review_triggers
+# ---------------------------------------------------------------------------
+
+
+class ReviewTriggerDraft(BaseModel):
+    """One pattern that should never ship unread, as the model proposes it."""
+
+    id: str = Field(default="", max_length=64)
+    pattern_kind: Literal["term", "claim_type", "campaign_type", "market", "asset_type"]
+    pattern: str = Field(min_length=1)
+    why: str = Field(min_length=1)
+    reviewer_role: str
+    severity: Literal["blocking", "warning", "advisory"] = "warning"
+
+
+class ReviewTriggersDraft(BaseModel):
+    triggers: list[ReviewTriggerDraft] = Field(default_factory=list)
+    always_review: list[str] = Field(default_factory=list)
+
+
+class LegalReviewTriggersOutput(BaseModel):
+    """3.5.2 — the copy that goes to a human before it goes to Google.
+
+    `reviewer_role` is a **role**. Routing to a named person is `SignOffMatrix`'s
+    job and it is non-delegable; a trigger naming an identity would be a second,
+    weaker path to the same decision, and the weaker one is the one an operator
+    could edit.
+    """
+
+    triggers: list[ReviewTriggerDraft]
+    always_review: list[str]
+    #: Why the list is empty, when it is. §4.3: a project with nothing risky to
+    #: say has nothing to route, and that is a finding rather than a failure.
+    reason: str = ""
+
+
+#: Who a trigger may route to. The four workspace roles and nothing else — an
+#: id here would be an identity, which is the one thing this node may not name.
+REVIEWER_ROLES: frozenset[str] = frozenset(role.value for role in UserRole)
+
+
+class LegalReviewTriggersNode:
+    """3.5.2 — what must not ship unread, and who reads it.
+
+    **§21 assigns this node to no phase.** §11 defines it, §12.1's `Governance`
+    section is built from it, `3.6.1←{all}` depends on it, and S3-P1 registered
+    `governance.review_trigger.v1` for the rules it compiles to. The phase table
+    simply skips it between S3-P5's 3.4.x and S3-P9's 3.5.3. It is built here
+    because S3-P6 is the phase whose exit criterion is a full-DAG run, and a
+    rulebook missing a third of its governance section is not one.
+    """
+
+    spec = NodeSpec(
+        id="3.5.2",
+        name="legal_review_triggers",
+        stage="3.5",
+        run_stage=RunStage.GUIDELINE,
+        depends_on=("3.2.2", "3.3.1"),
+        task_class=TaskClass.CLASSIFY,
+        input_model=BaseModel,
+        output_model=LegalReviewTriggersOutput,
+        connectors=(),
+        optional_inputs=("compliance_guardrails",),
+    )
+
+    async def gather(self, ctx: RunContext) -> list[Evidence]:
+        """Nothing new. Both inputs are node outputs already in the context."""
+        return []
+
+    async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
+        claims = (ctx.outputs.get("3.2.2") or {}).get("claims") or []
+        applicable = (ctx.outputs.get("3.3.1") or {}).get("applicable") or []
+
+        if not claims and not applicable:
+            return LegalReviewTriggersOutput(
+                triggers=[],
+                always_review=[],
+                reason=(
+                    "No substantiated claims and no applicable policy area, so there is "
+                    "nothing that needs a second read before it ships."
+                ),
+            )
+
+        draft = await ctx.complete(
+            ReviewTriggersDraft,
+            system=prompts.system_prompt(
+                "You decide which wording in an advertising account must be read by a "
+                "human before it runs. You route to a role, never to a person. You "
+                "propose a trigger only where there is a claim or a policy area behind "
+                "it, and you never invent a risk the inputs do not show."
+            ),
+            user=prompts.compose(
+                prompts.project_block(ctx.project),
+                prompts.computed_block(
+                    "claims and their risk tiers",
+                    [
+                        {
+                            "claim_text": row.get("claim_text"),
+                            "claim_type": row.get("claim_type"),
+                            "risk_tier": row.get("risk_tier"),
+                            "status": row.get("status"),
+                        }
+                        for row in claims[:200]
+                    ],
+                ),
+                prompts.computed_block(
+                    "Google policy areas that apply to this account",
+                    [
+                        {
+                            "area": row.get("area"),
+                            "obligations": row.get("obligations"),
+                            "markets": row.get("markets"),
+                        }
+                        for row in applicable[:100]
+                    ],
+                ),
+                prompts.computed_block("the roles you may route to", sorted(REVIEWER_ROLES)),
+            ),
+        )
+
+        triggers = [item for item in draft.triggers if self._keep(item, ctx)]
+        return LegalReviewTriggersOutput(
+            triggers=triggers,
+            always_review=[line.strip() for line in draft.always_review if line.strip()],
+            reason="" if triggers else "The model proposed no trigger this input supports.",
+        )
+
+    def _keep(self, trigger: ReviewTriggerDraft, ctx: RunContext) -> bool:
+        """Drop a trigger that names a person or cannot be evaluated.
+
+        Dropped rather than raised. One malformed trigger among thirty is a
+        model slip, and failing the node would throw away the other twenty-nine
+        along with the hour of run that produced them — where a missing trigger
+        costs a second read nobody was going to get anyway. A trigger that
+        reached `guardrails/` uncompilable would be worse: it reads as enforced
+        and matches nothing.
+        """
+        if trigger.reviewer_role not in REVIEWER_ROLES:
+            # The failure this catches is a UUID, which is an identity. Law 23
+            # keeps identity routing in `SignOffMatrix` and nowhere else.
+            log.warning(
+                "3.5.2.trigger_dropped",
+                why="reviewer_role is not a workspace role",
+                reviewer_role=trigger.reviewer_role[:64],
+            )
+            return False
+        if trigger.pattern_kind == "term":
+            try:
+                re.compile(trigger.pattern)
+            except re.error as exc:
+                log.warning(
+                    "3.5.2.trigger_dropped", why=f"pattern does not compile: {exc}"
+                )
+                return False
+        return True
+
+
+#: Module-level instance. The registry discovers instances, not classes.
+legal_review_triggers = LegalReviewTriggersNode()
