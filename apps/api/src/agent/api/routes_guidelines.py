@@ -355,11 +355,21 @@ async def start_guideline_run(
             "Retry it once Redis is back.",
         ) from unavailable
 
-    # The artifact exists from the moment the run does. It has to: 3.2.2
+    # The artifact exists from the moment the run does. It has to: 3.2.3
     # registers claims a dozen nodes before 3.6.1 synthesises anything, and
     # `ClaimRecord.first_seen_guideline_id` is NOT NULL. `payload` and
     # `markdown` are nullable for exactly this window — see
     # `guidelines/versions.ensure_draft`.
+    #
+    # **Not atomic with the run, and it cannot be.** `launch` commits the `Run`
+    # and only then enqueues (a job that starts against an uncommitted run
+    # cannot find it), so by the time this line executes the run is already
+    # queued. The window is milliseconds and the worker is several nodes away
+    # from needing the row — and `ensure_draft` is idempotent precisely so the
+    # node that does need it can create it if this never ran. What this buys is
+    # not correctness but reach: the Rulebook Viewer, the claims register and
+    # the linter playground can address the guideline from the first second of
+    # the run rather than only after the last node lands.
     await versions.ensure_draft(
         db,
         workspace_id=me.workspace_id,

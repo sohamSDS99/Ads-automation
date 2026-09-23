@@ -98,10 +98,18 @@ class StubRouter:
 
 @dataclass(slots=True)
 class StubLedger:
-    spent: Decimal = Decimal(0)
+    """Mirrors `RunLedger`'s field name, which is `spent_usd` and not `spent`.
+
+    The first version of this stub said `spent`, so a node reading
+    `ctx.ledger.spent_usd` — 1.6.1, 2.6.1 and 3.6.1 all do, to stamp the run's
+    cost onto the artifact — would raise `AttributeError` under test while
+    working in production. `plan_support.StubLedger` still has that gap.
+    """
+
+    spent_usd: Decimal = Decimal(0)
 
     def record(self, *, usage: Any, cost: Decimal) -> None:
-        self.spent += cost
+        self.spent_usd += cost
 
 
 @dataclass(slots=True)
@@ -139,6 +147,7 @@ class ScriptedSession:
     #: is a much weaker claim than "it opened H1 over these rows".
     added: list[Any] = field(default_factory=list)
     flushes: int = 0
+    commits: int = 0
 
     async def execute(self, _statement: Any, *_args: Any, **_kwargs: Any) -> ScriptedResult:
         if self.executed >= len(self.results):
@@ -167,6 +176,11 @@ class ScriptedSession:
         for row in self.added:
             if getattr(row, "id", None) is None:
                 row.id = uuid.uuid4()
+
+    async def commit(self) -> None:
+        """Counted. A node that commits mid-run is doing something worth seeing."""
+        self.commits += 1
+        await self.flush()
 
 
 def person(name: str, role: UserRole) -> tuple[User, Membership]:

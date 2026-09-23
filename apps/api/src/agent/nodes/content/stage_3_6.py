@@ -688,14 +688,21 @@ def _run_mode(ctx: RunContext) -> Any:
 
 
 async def _store(ctx: RunContext, guideline: ContentGuideline, markdown: str) -> GuidelineRow:
-    """Persist the rulebook and commit. One row per run; the second write updates."""
-    row = await versions.ensure_draft(
-        ctx.db,
-        workspace_id=ctx.run.workspace_id,
-        project_id=ctx.project.id,
-        run_id=ctx.run.id,
-        mode=_run_mode(ctx),
-    )
+    """Persist the rulebook and commit. One row per run; the second write updates.
+
+    The row is looked up rather than ensured: `synthesise` created it moments
+    ago in this same session, and `ensure_draft` here would be a second
+    round-trip whose only purpose is to re-find what the caller already has.
+    """
+    row = await versions.for_run(ctx.db, ctx.run.id)
+    if row is None:  # pragma: no cover — `synthesise` ensures it first
+        row = await versions.ensure_draft(
+            ctx.db,
+            workspace_id=ctx.run.workspace_id,
+            project_id=ctx.project.id,
+            run_id=ctx.run.id,
+            mode=_run_mode(ctx),
+        )
     row.payload = guideline.model_dump(mode="json")
     row.markdown = markdown
     row.status = _row_status(guideline.status)

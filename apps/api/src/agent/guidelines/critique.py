@@ -295,6 +295,16 @@ def check_dead_claims_are_refused(guideline: ContentGuideline) -> list[CritiqueI
     unlicensed claim"; with it they see "legal rejected this on 4 March". The
     second is actionable and the first invites a second attempt at the same
     sentence.
+
+    **Only a blocking *refusal* counts.** The first version matched the claim
+    text against every regex in the rulebook, so a `governance.
+    review_trigger.v1` whose pattern happened to contain the phrase satisfied
+    the check. A review trigger is not a refusal even at `blocking` severity: it
+    means "a named role reads this before it ships", not "this may not be
+    asserted", and the two land very differently in front of a writer who has
+    just been stopped. So `governance` is excluded by category rather than by
+    severity — the severity of a routing rule says how urgently to route, not
+    whether the claim is licensed.
     """
     dead = [claim for claim in guideline.claims_register.claims if claim.status in UNLICENSED]
     if not dead:
@@ -615,7 +625,7 @@ def check_no_personal_data(guideline: ContentGuideline) -> list[CritiqueIssue]:
         elif isinstance(node, Sequence) and not isinstance(node, str | bytes):
             for item in node:
                 walk(item)
-        elif isinstance(node, str) and node and redact_pii(node) != node:
+        elif isinstance(node, str) and node and not _is_uuid(node) and redact_pii(node) != node:
             found.append(node[:60])
 
     walk(payload)
@@ -652,8 +662,14 @@ def _issue(
     )
 
 
+#: Rule categories that *refuse* a claim outright. `governance` is deliberately
+#: absent: a review trigger routes copy to a person, which is not a refusal —
+#: see `check_dead_claims_are_refused`.
+_REFUSING_CATEGORIES = frozenset({"policy", "claim", "learned"})
+
+
 def _patterns(guideline: ContentGuideline) -> list[str]:
-    """Every regex pattern in the rulebook.
+    """Every blocking refusal pattern in the rulebook.
 
     `isinstance` rather than a `kind` string check: the matcher union is
     discriminated, and mypy narrows on the class but not on the tag — so a
@@ -661,7 +677,11 @@ def _patterns(guideline: ContentGuideline) -> list[str]:
     ignoring a genuinely wrong attribute later.
     """
     return [
-        rule.matcher.pattern for rule in guideline.rules if isinstance(rule.matcher, RegexMatcher)
+        rule.matcher.pattern
+        for rule in guideline.rules
+        if isinstance(rule.matcher, RegexMatcher)
+        and rule.severity == "blocking"
+        and rule.category in _REFUSING_CATEGORIES
     ]
 
 
@@ -670,3 +690,34 @@ def _names(values: Sequence[str], *, limit: int = MAX_NAMED) -> str:
     rest = len(values) - len(shown)
     joined = ", ".join(shown)
     return f"{joined} and {rest} more" if rest > 0 else joined
+
+
+def _is_uuid(value: str) -> bool:
+    """Whether this string is an identifier rather than prose.
+
+    **Every id in the payload is a UUID, and `redact_pii`'s phone pattern
+    matches one.** `00000000-0000-0000-0000-0000000000b0` reads as grouped
+    digits separated by dashes with well over the seven-digit floor, so the
+    first version of check 10 reported six "personal data" findings on a
+    rulebook containing none — `project_id`, `guideline_id`, `guideline_run_id`
+    and all three owner ids — and would have made **every** rulebook
+    unpublishable.
+
+    That is not a defect in `redact_pii`: it redacts `content_text` harvested
+    from connectors, which is prose and never contains a UUID. It is a defect in
+    running it over a payload whose identifiers are UUIDs.
+
+    Excluding them is not a loosening of §11.10 but a reading of it. The
+    assertion forbids "a raw brand-book binary, customer record, CRM field,
+    email address or personal name" — and the contract represents people as ids
+    *precisely in order to satisfy it*: `SignOffMatrixOutput` says so in its own
+    docstring. Flagging those ids inverts the rule it is enforcing.
+
+    Nothing is lost: a phone number cannot take the 8-4-4-4-12 hex shape, so no
+    real finding hides behind this.
+    """
+    try:
+        uuid.UUID(value)
+    except (ValueError, AttributeError, TypeError):
+        return False
+    return True
