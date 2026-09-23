@@ -81,6 +81,7 @@ from agent.evidence.normalize import EvidenceDraft
 from agent.evidence.store import EvidenceScopeError, EvidenceStore
 from agent.guardrails.compiler import compiler_version, ruleset_hash
 from agent.guardrails.linter import lint
+from agent.guidelines import versions
 from agent.guidelines.constants import get_content_constants
 from agent.orchestrator.guideline_input import build_guideline_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
@@ -339,6 +340,22 @@ async def start_guideline_run(
             detail="The guideline run was recorded but could not be queued. "
             "Retry it once Redis is back.",
         ) from unavailable
+
+    # The artifact exists from the moment the run does. It has to: 3.2.2
+    # registers claims a dozen nodes before 3.6.1 synthesises anything, and
+    # `ClaimRecord.first_seen_guideline_id` is NOT NULL. `payload` and
+    # `markdown` are nullable for exactly this window — see
+    # `guidelines/versions.ensure_draft`.
+    await versions.ensure_draft(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=project_id,
+        run_id=run.id,
+        mode=built.mode,
+        bindings=_json_bindings(built),
+        unbound_inputs=list(built.unbound_inputs),
+    )
+    await db.commit()
 
     return GuidelineRunAccepted(
         run_id=run.id,

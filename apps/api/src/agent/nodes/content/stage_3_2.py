@@ -29,9 +29,17 @@ from typing import Any, Literal
 import structlog
 from pydantic import BaseModel, Field, ValidationError
 
-from agent.db.models import ClaimRiskTier, ClaimStatus, ClaimType, Evidence, RunStage
+from agent.db.models import (
+    ClaimRiskTier,
+    ClaimStatus,
+    ClaimType,
+    Evidence,
+    GuidelineMode,
+    RunStage,
+)
 from agent.evidence.redact import redact_pii
 from agent.guardrails.normalize import normalize
+from agent.guidelines import register, versions
 from agent.guidelines.constants import load_content_constants
 from agent.llm.router import TaskClass
 from agent.nodes import gather, prompts
@@ -452,7 +460,14 @@ class LegalClaimSignoffOutput(BaseModel):
     instructions: str
     required_artifacts: dict[str, Any]
     claim_count: int
+    #: Positions in 3.2.2's `claims[]`, not identifiers. Kept under its own
+    #: name because S3-P3 shipped it and the console reads it; `claim_ids` is
+    #: the one that addresses rows.
     claim_ids_pending: list[int]
+    #: The `claim_record` rows this task is a signature over, in register
+    #: order. Written by `guidelines/register.materialise` immediately above —
+    #: before S3-P6 there were no such rows and H1 named nothing.
+    claim_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
 class LegalClaimSignoffNode:
@@ -515,7 +530,36 @@ class LegalClaimSignoffNode:
             for index, claim in enumerate(claims)
             if claim.get("status") != ClaimStatus.APPROVED.value
         ]
+
+        # Write the register before opening the task against it. Until S3-P6
+        # nothing created a `ClaimRecord` at all: 3.2.2 returned verdicts as
+        # node output and the sign route read rows only S3-P3's fixtures had
+        # seeded. H1 would have opened for a legal owner with an empty register
+        # to sign, and publish's "every claim is signed" would have held
+        # vacuously. `guidelines/register.py` has the full argument.
+        #
+        # Here rather than in 3.2.2 because this is the node that needs the
+        # rows, and because 3.2.2 is a pure classify pass whose tests script
+        # exactly zero queries — making it write would have made the register a
+        # side effect of a node nobody expects to have one.
+        guideline = await versions.ensure_draft(
+            ctx.db,
+            workspace_id=ctx.run.workspace_id,
+            project_id=ctx.project.id,
+            run_id=ctx.run.id,
+            mode=_run_mode(ctx),
+        )
+        registered = await register.materialise(
+            ctx.db,
+            workspace_id=ctx.run.workspace_id,
+            project_id=ctx.project.id,
+            guideline_id=guideline.id,
+            candidates=[dict(item) for item in ((ctx.outputs.get("3.2.1") or {}).get("candidates") or [])],
+            verdicts=[dict(item) for item in claims],
+        )
+
         return LegalClaimSignoffOutput(
+            claim_ids=[row.id for row in registered],
             assignee_id=matrix.legal_owner_id,
             title=f"Sign the claims register ({len(claims)} claims)",
             instructions=(
@@ -533,6 +577,21 @@ class LegalClaimSignoffNode:
             claim_count=len(claims),
             claim_ids_pending=pending,
         )
+
+
+def _run_mode(ctx: RunContext) -> GuidelineMode:
+    """The binding mode this run resolved, off `Run.bindings`.
+
+    Read rather than recomputed: `launch` wrote it from `build_guideline_input`
+    at run start, and re-deriving it here from what happens to be bound *now*
+    would let a mid-run change to the project rewrite what the rulebook says it
+    was built from.
+    """
+    bindings = ctx.run.bindings if isinstance(ctx.run.bindings, dict) else {}
+    try:
+        return GuidelineMode(str(bindings.get("mode")))
+    except ValueError:
+        return GuidelineMode.STANDALONE
 
 
 #: Module-level instance. The registry discovers instances, not classes.
