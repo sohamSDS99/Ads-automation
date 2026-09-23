@@ -206,6 +206,9 @@ class ApiClient:
     async def post(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._mutate("POST", path, **kwargs)
 
+    async def put(self, path: str, **kwargs: Any) -> httpx.Response:
+        return await self._mutate("PUT", path, **kwargs)
+
     async def patch(self, path: str, **kwargs: Any) -> httpx.Response:
         return await self._mutate("PATCH", path, **kwargs)
 

@@ -1,6 +1,16 @@
 "use client";
 
-import { ArrowLeft, BookCheck, Info, TriangleAlert } from "lucide-react";
+import {
+  ArrowLeft,
+  BookCheck,
+  FlaskConical,
+  Inbox,
+  Info,
+  PenLine,
+  ScrollText,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 import Link from "next/link";
 import { use } from "react";
 
@@ -74,6 +84,27 @@ export default function GuidelinesLandingPage({ params }: { params: Promise<{ id
           against. Startable on its own — research and a plan narrow it, and neither is required.
         </p>
       </header>
+
+      {/* 0. Where else this stage lives ---------------------------------
+          Four screens hang off this one and none of them is discoverable from
+          a URL nobody types. They sit above the status card rather than below
+          the history, because the two people who use this stage most — the
+          legal owner with claims to sign, and the writer checking a headline —
+          are not here to read the version history. */}
+      <nav aria-label="Content guidelines sections" className="flex flex-wrap gap-2">
+        <SectionLink href={`/projects/${id}/guidelines/claims`} icon={ScrollText}>
+          Claims register
+        </SectionLink>
+        <SectionLink href={`/projects/${id}/guidelines/lint`} icon={FlaskConical}>
+          Check your copy
+        </SectionLink>
+        <SectionLink href={`/projects/${id}/guidelines/amendments`} icon={Inbox}>
+          Amendments &amp; sign-off
+        </SectionLink>
+        <SectionLink href="/approvals" icon={PenLine}>
+          Signatures &amp; attestations
+        </SectionLink>
+      </nav>
 
       {/* 1. Status ------------------------------------------------------- */}
       <Card>
@@ -253,5 +284,31 @@ function VersionRow({ projectId, version }: { projectId: string; version: Guidel
         </time>
       </Td>
     </Tr>
+  );
+}
+
+/**
+ * One section link.
+ *
+ * A link and not a card: four same-size cards of icon-plus-heading is the lazy
+ * page scaffold, and these are navigation, not content.
+ */
+function SectionLink({
+  href,
+  icon: Icon,
+  children,
+}: {
+  href: string;
+  icon: LucideIcon;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-2 rounded-[var(--radius)] border bg-surface-raised px-3 py-2 text-sm text-fg transition-colors hover:bg-surface-hover"
+    >
+      <Icon aria-hidden className="size-4 text-fg-subtle" />
+      {children}
+    </Link>
   );
 }

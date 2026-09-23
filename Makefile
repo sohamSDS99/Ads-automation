@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -166,6 +166,13 @@ browser-s3p0: ## Drive Stage 03's cold-start entry on a bare project, at 1440 an
 	@docker compose exec -T worker mkdir -p /tmp/shots
 	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
 		/app/.venv/bin/python /tmp/browser-check-s3p0.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
+browser-s3p8: ## Drive the claims register, the signature ceremony and the S3-P8 screens, at 1440 and 390
+	@docker compose cp scripts/browser-check-s3p8.py worker:/tmp/browser-check-s3p8.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-s3p8.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390

@@ -89,6 +89,49 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
             "a signature over no claims is not a signature — refusing to hash an empty set"
         )
 
+    return _digest(_material(decisions, with_decision=True))
+
+
+def register_hash(decisions: Sequence[ClaimDecision]) -> str:
+    """The same material as `set_hash`, **minus the signer's own decision**.
+
+    This is the anti-race token, and it is a different value from `set_hash`
+    for a reason that took a real signature attempt to surface.
+
+    §16 rule 2 gives the hash one job: *"a `set_hash` that does not match the
+    server's recomputation returns 409 — the register changed under the signer
+    and they must re-read it."* The register is what the rows say. It is not
+    what the signer decided about them.
+
+    Folding `decision` into the value the client echoes makes the two
+    inseparable, and then the only hash the server can hand out before the
+    signer has decided anything is the hash of a guess — "approve everything".
+    From there, every partially-approved set disagrees with its own token and is
+    refused as a race that never happened. §15.3 C.2 requires per-claim
+    rejection and the `ClaimSignature.decisions` docstring calls a partially
+    approved set "legal and common", so that is not an edge case; it is most of
+    them.
+
+    So the two hashes are split by what they are *for*:
+
+    * `register_hash` — what the signer read. Handed to the client, echoed back,
+      recomputed on submit. Changes only when somebody edits the register.
+    * `set_hash` — what the signer said, stored on the signature and used for
+      idempotency. Never travels to a client, so it never needs to be
+      predictable before the decisions exist.
+    """
+    return _digest(_material(decisions, with_decision=False))
+
+
+def _material(
+    decisions: Sequence[ClaimDecision], *, with_decision: bool
+) -> list[list[str | list[str]]]:
+    """The hashed rows, sorted so the value is a property of the set not the order."""
+    if not decisions:
+        raise ValueError(
+            "a signature over no claims is not a signature — refusing to hash an empty set"
+        )
+
     seen: set[uuid.UUID] = set()
     material: list[list[str | list[str]]] = []
     for entry in decisions:
@@ -99,18 +142,23 @@ def set_hash(decisions: Sequence[ClaimDecision]) -> str:
                 "and the row would assert both that it was approved and that it was not."
             )
         seen.add(entry.claim_id)
-        material.append(
+        row: list[str | list[str]] = [str(entry.claim_id), entry.normalized_text]
+        if with_decision:
+            row.append(entry.decision)
+        row.extend(
             [
-                str(entry.claim_id),
-                entry.normalized_text,
-                entry.decision,
                 sorted(entry.surface_forms),
                 sorted(entry.market_scope),
                 sorted(entry.languages),
             ]
         )
+        material.append(row)
 
     material.sort()
+    return material
+
+
+def _digest(material: list[list[str | list[str]]]) -> str:
     return hashlib.sha256(
         json.dumps(material, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()

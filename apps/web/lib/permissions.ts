@@ -18,6 +18,14 @@ export const PERMISSIONS = [
   // signs it off and does not run it.
   "plan_execute",
   "plan_freeze",
+  // Stage 03. The last two are the only permissions in the system an admin
+  // does not hold: `permissions_for()` subtracts them even on the superadmin
+  // branch. A screen that gates on "is admin" instead of on these two will be
+  // wrong about the one act that matters most (Stage 03 PRD §5.2, law 23).
+  "guideline_execute",
+  "guideline_publish",
+  "claim_sign",
+  "attest_submit",
   // Held by no role. It comes from `user.is_superadmin` and nothing else,
   // which is what keeps one company's workspace admin out of another's.
   "platform_admin",
@@ -39,6 +47,6 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   admin: "Manages people, credentials and settings",
   operator: "Creates projects and launches research runs",
-  approver: "Decides the approval gates routed to them",
+  approver: "Decides approval gates, and is the only role that can sign a claim",
   viewer: "Reads reports, evidence and run history",
 };

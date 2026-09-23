@@ -94,6 +94,21 @@ class AuditAction(StrEnum):
     GUIDELINE_SUPERSEDED = "guideline.superseded"
     HUMAN_TASK_OPENED = "human_task.opened"
     HUMAN_TASK_SUBMITTED = "human_task.submitted"
+    #: Moving a person-task to somebody else. Carries the reason, which is
+    #: mandatory, and every signature the handover voided. Deliberately not a
+    #: flavour of `USER_ROLE_CHANGED`: this is the act that takes a
+    #: non-delegable duty off one named person and puts it on another, and it
+    #: is the row an auditor asking "why did somebody else sign" needs to find.
+    HUMAN_TASK_REASSIGNED = "human_task.reassigned"
+    #: The sign-off matrix changed outside a gate decision. The only path that
+    #: can displace a legal owner, so it carries the outgoing owner, the
+    #: incoming one, the mandatory reason and the signatures it voided.
+    SIGNOFF_MATRIX_CHANGED = "signoff_matrix.changed"
+    #: An amendment a person decided on, as opposed to the `policy_amendment.*`
+    #: rows the watcher writes with no actor. Two vocabularies on purpose: "who
+    #: applied this" and "what applied itself" are different questions.
+    AMENDMENT_APPLIED = "policy_amendment.applied_by_person"
+    AMENDMENT_DISMISSED = "policy_amendment.dismissed_by_person"
     #: A previously frozen plan displaced by a newer version. Written per
     #: superseded plan rather than once for the freeze: a reader asking why
     #: v2 stopped being current wants a row about v2.
@@ -169,6 +184,8 @@ class AuditTarget(StrEnum):
     CLAIM_SIGNATURE = "claim_signature"
     HUMAN_TASK = "human_task"
     CONTENT_GUIDELINE = "content_guideline"
+    SIGNOFF_MATRIX = "signoff_matrix"
+    POLICY_AMENDMENT = "policy_amendment"
 
 
 def write_audit(

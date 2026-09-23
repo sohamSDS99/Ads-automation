@@ -18,6 +18,7 @@ from agent.api.middleware import (
     WriteThrottleMiddleware,
 )
 from agent.api.problems import install_problem_handlers
+from agent.api.routes_amendments import router as amendments_router
 from agent.api.routes_approvals import router as approvals_router
 from agent.api.routes_audit import router as audit_router
 from agent.api.routes_auth import router as auth_router
@@ -25,6 +26,7 @@ from agent.api.routes_claims import router as claims_router
 from agent.api.routes_connections import router as connections_router
 from agent.api.routes_documents import router as documents_router
 from agent.api.routes_evidence import router as evidence_router
+from agent.api.routes_governance import router as governance_router
 from agent.api.routes_guidelines import router as guidelines_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
@@ -36,6 +38,7 @@ from agent.api.routes_reports import router as reports_router
 from agent.api.routes_runs import router as runs_router
 from agent.api.routes_schedules import router as schedules_router
 from agent.api.routes_sources import router as sources_router
+from agent.api.routes_tasks import router as tasks_router
 from agent.api.routes_users import router as users_router
 from agent.api.routes_workspace import router as workspace_router
 from agent.api.worker_files import close_worker_client
@@ -138,6 +141,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plan_router,
         guidelines_router,
         claims_router,
+        tasks_router,
+        governance_router,
+        amendments_router,
     ):
         app.include_router(router, prefix=API_PREFIX)
     return app
