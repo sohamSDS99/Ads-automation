@@ -24,7 +24,14 @@ import { listClaims } from "@/lib/api/claims";
 import { listHumanTasks, type TaskFilters } from "@/lib/api/tasks";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
-import { getGuidelineEligibility, listGuidelines } from "@/lib/api/guidelines";
+import {
+  getGuideline,
+  getGuidelineAttention,
+  getGuidelineEligibility,
+  getPublishedRuleSet,
+  listGuidelines,
+  publishGuideline,
+} from "@/lib/api/guidelines";
 import { getModels } from "@/lib/api/models";
 import {
   freezePlan,
@@ -71,6 +78,11 @@ export const keys = {
   guidelineEligibility: (projectId: string) =>
     ["projects", projectId, "guidelines", "eligibility"] as const,
   guidelines: (projectId: string) => ["projects", projectId, "guidelines"] as const,
+  guidelineAttention: (projectId: string) =>
+    ["projects", projectId, "guidelines", "attention"] as const,
+  guideline: (guidelineId: string) => ["guidelines", guidelineId] as const,
+  publishedRuleSet: (projectId: string) =>
+    ["projects", projectId, "guidelines", "ruleset"] as const,
   plans: (projectId: string) => ["projects", projectId, "plans"] as const,
   plan: (planRunId: string) => ["plans", planRunId] as const,
   planStructure: (planRunId: string) => ["plans", planRunId, "structure"] as const,
@@ -149,6 +161,76 @@ export function useGuidelines(projectId: string) {
     queryKey: keys.guidelines(projectId),
     queryFn: () => listGuidelines(projectId),
     enabled: Boolean(projectId),
+  });
+}
+
+/**
+ * One guideline version, payload included.
+ *
+ * Not polled. A draft's payload is written once, by 3.6.1, and the console's
+ * SSE stream is what tells anybody that happened — the Rulebook Viewer is
+ * opened *after* the run, and a poll here would re-fetch a 140KB payload every
+ * few seconds to learn nothing.
+ */
+export function useGuideline(guidelineId: string | null) {
+  return useQuery({
+    queryKey: keys.guideline(guidelineId ?? ""),
+    queryFn: () => getGuideline(guidelineId as string),
+    enabled: Boolean(guidelineId),
+  });
+}
+
+/**
+ * What is waiting on a person, for the rail's badges and the landing's third block.
+ *
+ * `retry: false` because the only interesting failure is a project that is not
+ * visible to this member, and retrying a 404 three times to draw two dots is
+ * three requests too many.
+ */
+export function useGuidelineAttention(projectId: string) {
+  return useQuery({
+    queryKey: keys.guidelineAttention(projectId),
+    queryFn: () => getGuidelineAttention(projectId),
+    enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+/**
+ * The published ruleset.
+ *
+ * A `404` here means *nothing is published*, which is an answer this product
+ * shows on purpose (contract rule 4) — so it is never retried and the caller
+ * reads `isError` as "no published version", not as a failure.
+ */
+export function usePublishedRuleSet(projectId: string) {
+  return useQuery({
+    queryKey: keys.publishedRuleSet(projectId),
+    queryFn: () => getPublishedRuleSet(projectId),
+    enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+/**
+ * Publish.
+ *
+ * The response is a receipt and shares no shape with `GuidelineDetail`, so
+ * nothing here writes it into a read cache — every affected key is
+ * invalidated instead. A `409` carries every blocker and is handled by the
+ * dialog, which is why this does not swallow it.
+ */
+export function usePublishGuideline(guidelineId: string, projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmVersion: number) => publishGuideline(guidelineId, confirmVersion),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.guideline(guidelineId) });
+      void client.invalidateQueries({ queryKey: keys.guidelines(projectId) });
+      void client.invalidateQueries({ queryKey: keys.publishedRuleSet(projectId) });
+      void client.invalidateQueries({ queryKey: keys.guidelineAttention(projectId) });
+      void client.invalidateQueries({ queryKey: keys.guidelineEligibility(projectId) });
+    },
   });
 }
 

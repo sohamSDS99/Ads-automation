@@ -125,7 +125,19 @@ class GuidelineVersion(BaseModel):
     binding_superseded: bool = False
     published_at: datetime | None = None
     published_by: uuid.UUID | None = None
+    #: Resolved so the history does not render a uuid at a person (§15.3 A).
+    published_by_name: str = ""
     created_at: datetime
+
+    #: Counted in SQL off the payload rather than by shipping it: a rulebook
+    #: payload is ~140KB and the history lists every version of it.
+    #:
+    #: Both come from the document, not from the compiled ruleset, because the
+    #: history is a list of *rulebooks* — `payload.rules` is what a reader sees
+    #: and what `compiler.compile` reads, so a row whose counts disagreed with
+    #: the page it links to would be the wrong kind of surprising.
+    rule_count: int = 0
+    claim_count: int = 0
 
 
 class GuidelineVersionList(BaseModel):
@@ -324,3 +336,68 @@ class PublishedRuleSet(BaseModel):
     published_at: datetime | None = None
     stale: bool = False
     created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# what is waiting on a person (§15.1 rule 3, §15.3 A block 3)
+# ---------------------------------------------------------------------------
+
+
+class OpenTaskRef(BaseModel):
+    """One person-task, named enough for a badge and a row and no more.
+
+    The person-task *card* is S3-P8's, and this is deliberately not a step
+    toward it: no instructions, no artifact checklist, no attachments. What the
+    rail and the landing's attention block need is who owes what and what it
+    stops, and a shape that answers only that cannot quietly become the card.
+    """
+
+    task_id: uuid.UUID
+    #: `H1` | `H2`, and text for the same reason `HumanTask.task_key` is.
+    task_key: str
+    title: str
+    status: str
+    #: `publish` | `launch` — rendered as the chip §15.3 D describes.
+    blocking_for: str
+    assignee_id: uuid.UUID
+    assignee_name: str = ""
+    #: True when the caller is the assignee. The red badge is *yours*, not
+    #: anyone's (§15.1 rule 3), and deriving that on the client means shipping
+    #: the current user id into a component that has no other use for it.
+    mine: bool = False
+    due_at: datetime | None = None
+
+
+class GuidelineAttention(BaseModel):
+    """Everything on this project that is waiting for a human (§15.3 A).
+
+    One request rather than three, because the two surfaces that read it — the
+    stage rail on every project page, and the landing's attention block — both
+    want the whole answer at once, and a rail that fires three requests per
+    project navigation is a rail nobody will keep.
+
+    Counts and a list, not a paginated collection: the badge needs a number and
+    the block needs a handful of rows. When there are more open tasks than the
+    list carries, `open_tasks_total` is still the truth and the block says so.
+    """
+
+    #: Open person-tasks assigned to anyone on this project, soonest due first.
+    open_tasks: list[OpenTaskRef] = Field(default_factory=list)
+    open_tasks_total: int = 0
+    #: Of those, how many are the caller's — what the red badge counts.
+    my_open_tasks: int = 0
+
+    #: Approved claims whose licence lapses inside `expiry_window_days`.
+    expiring_claims: int = 0
+    earliest_expiry: datetime | None = None
+    expiry_window_days: int = 30
+
+    #: Amendments nobody has ruled on. `auto_applied` rows are not unreviewed —
+    #: a mechanical change that already minted its MINOR needs no one.
+    unreviewed_amendments: int = 0
+    #: Of those, the ones styled red in S3-P8's inbox because they voided a
+    #: signature. Counted here so the amber badge can say which kind it is.
+    signature_affecting_amendments: int = 0
+
+    #: The published version is serving with a voided or lapsed signature.
+    signature_stale: bool = False

@@ -4,6 +4,7 @@ import { Hourglass } from "lucide-react";
 import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { RulesPanel } from "@/components/guidelines/rules-panel";
 import { PlanNodeFigure } from "@/components/plan/node-figure";
 import { CalcPanel } from "@/components/run/calc-panel";
 import { NodeEvidence } from "@/components/run/node-evidence";
@@ -21,7 +22,7 @@ import { absoluteTime, usd } from "@/lib/format";
 import { useNodeRun } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc";
+type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc" | "rules";
 
 /**
  * Everything one node did (PRD §13.4 B, right panel).
@@ -45,7 +46,11 @@ export function NodePanel({
   node: NodeState | null;
   approval: ApprovalItem | null;
   onDecided: () => void;
-  /** A plan run gains the Calc tab; a research run has no arithmetic to show. */
+  /**
+   * A plan run gains the Calc tab; a guideline run gains the Rules tab. A
+   * research run has neither arithmetic nor a rulebook to show, so offering
+   * either there would be a tab that is always empty.
+   */
   stage?: RunStage;
   className?: string;
 }) {
@@ -106,6 +111,8 @@ export function NodePanel({
           // research node has no `plan_calc` rows, so offering it there would
           // be a tab that is always empty.
           ...(stage === "plan" ? [{ id: "calc", label: "Calc" }] : []),
+          // Stage 03 PRD §15.3 B: the sixth.
+          ...(stage === "guideline" ? [{ id: "rules", label: "Rules" }] : []),
         ]}
       />
 
@@ -157,6 +164,15 @@ export function NodePanel({
                 the node, which is exactly this panel's subject. */}
             {tab === "calc" ? (
               <CalcPanel planRunId={runId} nodeId={node.id} projectId={projectId} />
+            ) : null}
+
+            {tab === "rules" ? (
+              <RulesPanel
+                projectId={projectId}
+                runId={runId}
+                stage={node.stage}
+                output={data.output}
+              />
             ) : null}
           </>
         ) : null}
