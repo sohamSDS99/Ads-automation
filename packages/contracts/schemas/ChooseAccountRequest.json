@@ -1,0 +1,18 @@
+{
+  "description": "Which of the accounts this grant reaches the research should read.",
+  "properties": {
+    "customer_id": {
+      "description": "One of the customer ids the grant already reported reaching",
+      "maxLength": 20,
+      "minLength": 1,
+      "title": "Customer Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "customer_id"
+  ],
+  "title": "ChooseAccountRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

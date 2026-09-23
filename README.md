@@ -253,25 +253,79 @@ there is a verification script.
   read. That one is minted from a `client_id`/`client_secret`/`refresh_token`
   trio, and it is the part that cannot be typed from memory.
 
-All six values are read from the deployment's environment, like every other
-source. Nobody types them into the interface — there is no box to type them
-into, and Settings → **Connections** only switches the source on and off:
+The first two belong to the deployment. The third belongs to a *person*, and
+that split is why this source has a button and the others do not. A developer
+token is issued once, to one manager account; if holding one were the price of
+connecting, one person would end up minting refresh tokens on a laptop for
+everybody else. So the deployment supplies its half in the environment, and
+anybody in the workspace supplies theirs by pressing **Connect with Google**.
 
 ```bash
 GOOGLE_ADS_DEVELOPER_TOKEN=…
 GOOGLE_ADS_CLIENT_ID=…apps.googleusercontent.com
 GOOGLE_ADS_CLIENT_SECRET=GOCSPX-…
-GOOGLE_ADS_REFRESH_TOKEN=1//…
-GOOGLE_ADS_CUSTOMER_ID=1234567890
-# GOOGLE_ADS_LOGIN_CUSTOMER_ID=  only when reached through a manager account
 ```
 
-**The refresh token comes from the script**, once per deployment:
+### Connect with Google
+
+Settings → **Connections** → the Google Ads card. It reads *Sign-in needed*
+until somebody presses the button; the press goes to Google's consent screen,
+and the redirect back seals the grant onto that workspace's connection row.
+Signing in needs only a session — not `credential_write` — because what it hands
+over is the presser's own Google account. Disconnecting still needs an admin:
+that one stops everybody's runs.
+
+Two things must be true in the Cloud console, and both fail in ways that look
+like something else:
+
+1. **The authorised redirect URI must be registered, exactly.**
+
+   ```
+   <APP_BASE_URL>/api/v1/connections/google/callback
+   ```
+
+   The *web app's* address, not the API's — `api` has no ingress, so every
+   browser request arrives through the web app's rewrite. Register one per
+   environment (`http://localhost:3000/…` for compose, the Railway host for
+   production). An unregistered URI fails as `Error 400: redirect_uri_mismatch`
+   on Google's own page, before anybody sees a consent screen. The client must
+   be of type **Web application**; a Desktop client accepts loopback only.
+
+2. **The consent screen must be published — "In production".** While it is in
+   *Testing*, Google expires every refresh token after **seven days**. The
+   button works, the card says Working, and a week later every workspace is
+   signed out with no event to point at.
+
+The consent asks for Google Ads, Analytics (read-only), Search Console
+(read-only) and `openid email`. Only Google Ads is spent today; the other two
+are asked for now because widening a scope later sends everybody who already
+connected back through the consent screen. A grant that comes back without the
+Google Ads scope is refused rather than stored — Google renders one checkbox per
+sensitive scope and answers `200` for whatever survived, and a connection that
+reads nothing is worse than no connection.
+
+What a sign-in produces: the refresh token, AES-256-GCM sealed onto
+`source_connection.grant_ciphertext` with the row's id as the AAD, and — in the
+same row's `meta`, because these are what the card must *show* — the chosen
+account, every account the grant reaches, the signed-in address and the granted
+scopes. `credentials.resolve_values` merges the deployment's three values with
+those, so the worker's gather node receives the same five-key mapping the
+connector has always expected. Disconnecting deletes the row and asks Google to
+revoke the grant, best-effort: a Google that will not answer must not be able to
+keep a source connected.
+
+**The command-line path still works**, for a deployment that would rather mint
+one grant than have people sign in:
 
 ```bash
 make google-ads-oauth      # consent in the browser -> refresh token + account ids
 make verify-google-ads     # proves the whole path against the live account
+make browser-google-connect  # drives the button as an operator, at 1440 and 390
 ```
+
+`GOOGLE_ADS_REFRESH_TOKEN` and `GOOGLE_ADS_CUSTOMER_ID` are read as a fallback
+when a workspace has not signed in. A workspace that has overrides them, so the
+first person to connect does not decide for everyone after them.
 
 `scripts/google-ads-oauth.py` opens Google's consent screen, catches the
 redirect on a loopback port, exchanges the code for an *offline* refresh token,
@@ -371,26 +425,28 @@ a credential:
 OPENROUTER_API_KEY=sk-or-…      # the model surface; a run cannot start without it
 DATAFORSEO_API_KEY=…            # the Basic token, or login:password
 WEBSHARE_API_KEY=…              # the crawl proxy, the one that is optional
-GOOGLE_ADS_DEVELOPER_TOKEN=…    # plus the five below — see "Our own account"
-GOOGLE_ADS_CLIENT_ID=…
+GOOGLE_ADS_DEVELOPER_TOKEN=…    # the deployment's half — see "Connecting Google Ads"
+GOOGLE_ADS_CLIENT_ID=…          # the person's half comes from Connect with Google
 GOOGLE_ADS_CLIENT_SECRET=…
-GOOGLE_ADS_REFRESH_TOKEN=…
-GOOGLE_ADS_CUSTOMER_ID=…
 ```
 
 What a *workspace* owns is one row per source saying "use this"
 (`source_connection`), and Settings → **Connections** is the single switch that
-writes it. So connecting Google Ads is one click that asks for nothing, and
-`credentials.resolve_values` is two questions rather than a four-level ladder:
+writes it. So connecting a source is one click that asks for nothing — except
+Google Ads, whose row also carries the consent somebody gave it — and
+`credentials.resolve_values` is three questions rather than a four-level ladder:
 
-1. has an administrator switched this source on for this workspace, and
-2. does the environment supply its values?
+1. has an administrator switched this source on for this workspace,
+2. does the environment supply its half, and
+3. for an OAuth source, has anybody signed in?
 
-Both yes, or `MissingCredential` — which every caller already treats as "this
-source is not configured", so degradation (PRD §16) is unchanged. The two facts
-are separate because one deployment serves several workspaces: a key being
-*present* is not the same as a workspace being entitled to spend it, and
-deleting the row withdraws that without touching anyone else.
+All yes, or `MissingCredential` — which every caller already treats as "this
+source is not configured", so degradation (PRD §16) is unchanged. The facts are
+separate because they have separate fixes: one deployment serves several
+workspaces, so a key being *present* is not the same as a workspace being
+entitled to spend it; and a deployment holding the developer token is not the
+same as anybody having signed in to Google. Deleting the row withdraws the
+first without touching anyone else's deployment.
 
 A card names the variables it reads, and an unconfigured one names exactly the
 ones that are missing — "not configured" without the list is a dead end for

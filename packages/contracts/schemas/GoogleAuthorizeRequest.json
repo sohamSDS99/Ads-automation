@@ -1,0 +1,15 @@
+{
+  "description": "Where to send the browser back to once Google is done with it.",
+  "properties": {
+    "return_to": {
+      "default": "/settings/connections",
+      "description": "A path on this app. Anything naming another origin is replaced.",
+      "maxLength": 500,
+      "title": "Return To",
+      "type": "string"
+    }
+  },
+  "title": "GoogleAuthorizeRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

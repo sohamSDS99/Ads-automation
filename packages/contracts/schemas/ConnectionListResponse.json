@@ -1,5 +1,61 @@
 {
   "$defs": {
+    "AccessibleAccount": {
+      "description": "One Google Ads account a consent reaches.",
+      "properties": {
+        "customer_id": {
+          "title": "Customer Id",
+          "type": "string"
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "manager": {
+          "default": false,
+          "description": "A manager (MCC) account. It holds no campaigns, so it is never the default.",
+          "title": "Manager",
+          "type": "boolean"
+        },
+        "via_manager": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Via Manager"
+        },
+        "currency": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Currency"
+        }
+      },
+      "required": [
+        "customer_id"
+      ],
+      "title": "AccessibleAccount",
+      "type": "object"
+    },
     "CredentialKind": {
       "enum": [
         "openrouter",
@@ -10,6 +66,132 @@
       ],
       "title": "CredentialKind",
       "type": "string"
+    },
+    "SourceOAuth": {
+      "description": "The half of a credential a person supplies, and what may be said about it.\n\nPresent only on a source that has an `OAuthSpec`. `granted` is deliberately\na separate fact from the card's `connected`: a deployment can hold the\nOAuth client and the developer token \u2014 `configured` \u2014 while nobody has yet\nsigned in, and those two states have completely different fixes.",
+      "properties": {
+        "provider": {
+          "description": "Which consent flow finishes this credential",
+          "title": "Provider",
+          "type": "string"
+        },
+        "action": {
+          "description": "The button, in the words the card shows",
+          "title": "Action",
+          "type": "string"
+        },
+        "explains": {
+          "description": "What the consent is for, shown under the button",
+          "title": "Explains",
+          "type": "string"
+        },
+        "granted": {
+          "description": "Whether somebody has signed in for this workspace",
+          "title": "Granted",
+          "type": "boolean"
+        },
+        "granted_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Granted At"
+        },
+        "granted_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Granted By"
+        },
+        "granted_by_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Granted By Name"
+        },
+        "email": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The Google account the grant was given by",
+          "title": "Email"
+        },
+        "scopes": {
+          "description": "What Google actually granted, not what was asked",
+          "items": {
+            "type": "string"
+          },
+          "title": "Scopes",
+          "type": "array"
+        },
+        "accounts": {
+          "description": "Every account this grant reaches",
+          "items": {
+            "$ref": "#/$defs/AccessibleAccount"
+          },
+          "title": "Accounts",
+          "type": "array"
+        },
+        "customer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The account being read",
+          "title": "Customer Id"
+        },
+        "login_customer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The manager it is reached through, when it is",
+          "title": "Login Customer Id"
+        }
+      },
+      "required": [
+        "provider",
+        "action",
+        "explains",
+        "granted"
+      ],
+      "title": "SourceOAuth",
+      "type": "object"
     },
     "SourceSummary": {
       "description": "One source, as a card: what it is, whether it *can* run, whether it *may*.",
@@ -31,7 +213,7 @@
           "type": "boolean"
         },
         "env_vars": {
-          "description": "Every variable this source reads, in the order the screen lists them",
+          "description": "The variables an operator sets for this source, in the order the screen lists them. A value a person's consent supplies is not here: naming it would be telling whoever reads the card to do something they cannot do.",
           "items": {
             "type": "string"
           },
@@ -136,6 +318,18 @@
           "description": "Masked hints from the last successful test \u2014 an account name, a last-4",
           "title": "Meta",
           "type": "object"
+        },
+        "oauth": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceOAuth"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Set when part of this credential comes from a person's consent rather than from the deployment. Null for every source the environment supplies whole."
         }
       },
       "required": [

@@ -8,12 +8,14 @@ import {
   MoreHorizontal,
   Network,
   Plug,
+  RefreshCw,
   ScanSearch,
   Search,
   Sparkles,
 } from "lucide-react";
 import { type ComponentType } from "react";
 
+import { GoogleMark } from "@/components/settings/google-mark";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -21,10 +23,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Select } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { ApiError } from "@/lib/api";
 import {
+  authorizeGoogle,
+  chooseAccount,
   connectSource,
   disconnectSource,
   testSource,
@@ -62,12 +67,21 @@ const ICONS: Partial<Record<SourceKind, ComponentType<{ className?: string }>>> 
  *   ready        the key is there; nobody has switched it on yet
  *   connected    switched on, with the verdict of the last real call
  *
+ * Google Ads adds a fourth, because two of its five values are not the
+ * deployment's to hold: **sign-in needed**. The deployment has the developer
+ * token and the OAuth client, and what is missing is a person — any person in
+ * the workspace — pressing Connect with Google. That state is not "not set up"
+ * and it is not "ready": it has its own fix, and its own button, and it is the
+ * one button on this screen that does not need an admin, because what it hands
+ * over is the presser's own Google account.
+ *
  * Connecting proves itself, so the button is not a promise: the API tests the
  * key on the way through and the toast reports what the upstream actually said.
  */
 export function ConnectionCard({ source, canWrite }: { source: Source; canWrite: boolean }) {
   const queryClient = useQueryClient();
   const invalidate = () => queryClient.invalidateQueries({ queryKey: keys.connections });
+  const oauth = source.oauth;
 
   const connect = useMutation({
     mutationFn: () => connectSource(source.kind),
@@ -92,6 +106,41 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
       }),
   });
 
+  const signIn = useMutation({
+    // Where Google's redirect should land: the screen this card is on, read at
+    // the moment of the click rather than through `useSearchParams`. The value
+    // is only ever needed here, and the hook would opt this component — and so
+    // every page rendering a card — into a Suspense boundary for it.
+    mutationFn: () => authorizeGoogle(window.location.pathname + window.location.search),
+    // No `onSuccess` invalidation and no toast: this navigates away. The
+    // outcome arrives back as `?google=…` on the returning request, which the
+    // page reads — a toast fired here would be destroyed by the navigation it
+    // is announcing.
+    onSuccess: ({ url }) => window.location.assign(url),
+    onError: (error) =>
+      toast.error("Google sign-in could not be started", {
+        description: error instanceof ApiError ? error.detail : "Try again in a moment.",
+      }),
+  });
+
+  const switchAccount = useMutation({
+    mutationFn: (customerId: string) => chooseAccount(source.kind, customerId),
+    onSuccess: async (updated) => {
+      await invalidate();
+      if (updated.last_test_ok === false) {
+        toast.error("That account did not answer", {
+          description: updated.last_test_detail ?? undefined,
+        });
+      } else {
+        toast.success("Account changed", { description: updated.last_test_detail ?? undefined });
+      }
+    },
+    onError: (error) =>
+      toast.error("The account was not changed", {
+        description: error instanceof ApiError ? error.detail : "Try again in a moment.",
+      }),
+  });
+
   const disconnect = useMutation({
     mutationFn: () => disconnectSource(source.kind),
     onSuccess: async () => {
@@ -101,7 +150,9 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
       // is the same one click — so a dialog asking "are you sure" would be
       // guarding against an action that undoes itself.
       toast.success(`${source.label} disconnected`, {
-        description: "Runs continue without it. Connect again whenever you need it.",
+        description: oauth
+          ? "The Google sign-in has been handed back. Connect again whenever you need it."
+          : "Runs continue without it. Connect again whenever you need it.",
       });
     },
     onError: (error) =>
@@ -123,7 +174,8 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
       }),
   });
 
-  const busy = connect.isPending || disconnect.isPending;
+  const busy = connect.isPending || disconnect.isPending || signIn.isPending;
+  const needsSignIn = oauth !== null && !oauth.granted;
 
   return (
     <article className="flex flex-col rounded-[var(--radius)] border bg-surface-raised p-5">
@@ -145,12 +197,22 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
                 watching a run skip a source is often not the person who can
                 switch it back on, and telling them why is the point. */}
             <DropdownMenuItem
-              disabled={test.isPending || !source.configured}
+              disabled={test.isPending || !source.configured || needsSignIn}
               onSelect={() => test.mutate()}
             >
               <Plug aria-hidden />
               {test.isPending ? "Testing…" : "Test connection"}
             </DropdownMenuItem>
+            {/* Signing in again is how a revoked grant, an expired one, or a
+                colleague's account that should have been yours gets replaced.
+                No permission, same as the button: it is the presser's own
+                Google account either way. */}
+            {oauth && oauth.granted ? (
+              <DropdownMenuItem disabled={signIn.isPending} onSelect={() => signIn.mutate()}>
+                <RefreshCw aria-hidden />
+                {signIn.isPending ? "Opening Google…" : "Sign in with a different account"}
+              </DropdownMenuItem>
+            ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -161,14 +223,50 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
 
       <p className="mt-3 text-sm text-fg-muted">{source.description}</p>
 
+      {/* Only shown when the choice is real. One account is not a decision, and
+          a picker offering it would imply there was something to get wrong. */}
+      {oauth && oauth.granted && oauth.accounts.length > 1 ? (
+        <label className="mt-4 block text-xs text-fg-muted">
+          Account the research reads
+          <Select
+            className="mt-1.5"
+            value={oauth.customer_id ?? ""}
+            disabled={switchAccount.isPending}
+            onChange={(event) => switchAccount.mutate(event.target.value)}
+          >
+            {oauth.accounts.map((account) => (
+              <option key={account.customer_id} value={account.customer_id}>
+                {accountLabel(account)}
+              </option>
+            ))}
+          </Select>
+        </label>
+      ) : null}
+
       <div className="mt-auto pt-5">
         <Detail source={source} />
 
-        {/* No button without the permission, and no apology on every card
-            either: the screen says once, above the grid, who can switch a
-            source. Six cards each repeating it is six times the words for one
-            fact. */}
-        {canWrite ? (
+        {needsSignIn ? (
+          /* Not gated on `canWrite`, and this is the whole point of the change:
+             what this button hands over is the presser's own Google account,
+             and the developer token it is joined to belongs to the deployment.
+             Requiring an admin here would mean one person minting refresh
+             tokens on a laptop for everybody else, which is the arrangement
+             that left this source unconnected. */
+          <Button
+            variant={source.configured ? "primary" : "secondary"}
+            className="w-full"
+            disabled={busy || !source.configured}
+            onClick={() => signIn.mutate()}
+          >
+            {signIn.isPending ? (
+              <Spinner label="Opening Google" />
+            ) : (
+              <GoogleMark className="size-4 shrink-0" />
+            )}
+            {oauth.action}
+          </Button>
+        ) : canWrite ? (
           <Button
             /* Primary only when pressing it would do something. A disabled
                primary still reads as the next action and pulls the eye away
@@ -190,6 +288,10 @@ export function ConnectionCard({ source, canWrite }: { source: Source; canWrite:
             {source.connected ? "Disconnect" : "Connect"}
           </Button>
         ) : null}
+        {/* No button without the permission, and no apology on every card
+            either: the screen says once, above the grid, who can switch a
+            source. Six cards each repeating it is six times the words for one
+            fact. */}
       </div>
     </article>
   );
@@ -245,6 +347,10 @@ function StatePill({ source }: { source: Source }) {
       <Pill tone="off" label="Not set up" />
     );
   }
+  // A third fact for an OAuth source, and it outranks the other two: without a
+  // grant there is no credential, whatever the row says. "Ready to connect"
+  // here would point at the wrong button.
+  if (source.oauth && !source.oauth.granted) return <Pill tone="env" label="Sign-in needed" />;
   if (!source.connected) return <Pill tone="env" label="Ready to connect" />;
   if (source.last_test_ok === true) return <Pill tone="ok" label="Working" />;
   if (source.last_test_ok === false) return <Pill tone="bad" label="Not working" />;
@@ -296,6 +402,26 @@ function Detail({ source }: { source: Source }) {
     );
   }
 
+  // An OAuth source spends these two lines on the person rather than on the
+  // plumbing. Whose account this is, is the first question asked when a grant
+  // stops working, and no variable name answers it.
+  const oauth = source.oauth;
+  if (oauth && !oauth.granted) {
+    return <p className="mb-3 min-h-14 text-xs leading-5 text-fg-muted">{oauth.explains}</p>;
+  }
+  if (oauth) {
+    const account = oauth.accounts.find((row) => row.customer_id === oauth.customer_id);
+    return (
+      <p className="mb-3 min-h-14 text-xs leading-5 break-words text-fg-subtle">
+        {oauth.email ? <>Signed in as {oauth.email}</> : <>Signed in to Google</>}
+        {oauth.granted_by_name ? ` by ${oauth.granted_by_name}` : ""}
+        <br />
+        {account ? accountLabel(account) : (oauth.customer_id ?? "no account chosen")}
+        {source.last_tested_at ? ` · tested ${relativeTime(source.last_tested_at)}` : ""}
+      </p>
+    );
+  }
+
   const identity = source.connected ? identify(source.meta) : null;
   const tested = source.last_tested_at
     ? `tested ${relativeTime(source.last_tested_at)}`
@@ -315,6 +441,20 @@ function Detail({ source }: { source: Source }) {
       )}
     </p>
   );
+}
+
+/** An account as a person would name it: what it is called, then which one it is. */
+function accountLabel(account: AccessibleAccount): string {
+  const id = formatCustomerId(account.customer_id);
+  const suffix = account.manager ? " · manager" : "";
+  return account.name ? `${account.name} (${id})${suffix}` : `${id}${suffix}`;
+}
+
+/** Google prints customer ids in threes. Ten digits in a row is a serial number. */
+function formatCustomerId(customerId: string): string {
+  return /^\d{10}$/.test(customerId)
+    ? `${customerId.slice(0, 3)}-${customerId.slice(3, 6)}-${customerId.slice(6)}`
+    : customerId;
 }
 
 /** The most specific masked hint a test recorded. Never the secret. */

@@ -1,15 +1,24 @@
 """What each source is made of, which variables supply it, and how to prove it works.
 
-Every secret this product uses is read from the deployment's environment. There
-is no form, no paste, and no per-workspace copy of a key: an operator writes the
-variables into `.env` (or into Railway's variables) once, and the interface's
-only decision is whether a workspace may use what is already there.
+Most secrets this product uses are read from the deployment's environment. There
+is no form and no paste: an operator writes the variables into `.env` (or into
+Railway's variables) once, and the interface's only decision is whether a
+workspace may use what is already there.
 
-That is the whole shape of this module. A `FieldSpec` names one value *and the
-variable that carries it*; a `KindSpec` gathers the fields one connector needs.
-`from_env` turns the pair into the `dict[str, str]` that
-`ConnectorContext.credentials` expects, which is the same shape
-`nodes/gather.py` used to decode out of the vault — connectors did not change
+One source does not fit that shape, and pretending it did is what kept Google
+Ads unconnected for months. A Google Ads call needs five values, and only three
+of them belong to the deployment — the developer token and the OAuth client.
+The other two are a *person's*: the refresh token their consent mints, and the
+customer id of the account that consent reaches. Nobody can write those into an
+environment on someone else's behalf, and the developer token is issued once to
+one manager account, so requiring every person to hold one is requiring most of
+them not to connect at all.
+
+So a `FieldSpec` says where its value comes from. `granted=True` means a consent
+supplies it, and everything that reads the environment — `missing_env_vars`,
+`configured`, the "not set up" card — skips those fields. `KindSpec.values`
+merges the two halves back into the single `dict[str, str]` that
+`ConnectorContext.credentials` has always expected, so connectors did not change
 and did not need to.
 
 `meta` is what may be shown about a configured source. A secret is never
@@ -21,7 +30,7 @@ there.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from agent.db.models import CredentialKind
 
@@ -39,11 +48,32 @@ class FieldSpec:
     #: into a field named by lowercasing this, and `test_source_env.py` asserts
     #: the two agree — a name that drifts would otherwise show up as a source
     #: that is silently unconfigured rather than as an error.
+    #:
+    #: A granted field keeps one anyway: a deployment that already minted a
+    #: refresh token with `make google-ads-oauth` should keep working, and that
+    #: path writes exactly these variables.
     env_var: str
     required: bool = True
     #: Secret fields are never returned by any endpoint and never reach `meta`.
     secret: bool = True
     hint: str = ""
+    #: True when a person's consent supplies this, not the operator. The
+    #: environment may still carry one as a fallback, but its absence is not a
+    #: misconfiguration — it is a source nobody has signed in to yet.
+    granted: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class OAuthSpec:
+    """How a person hands this source the half the deployment cannot hold."""
+
+    #: Which consent flow finishes this credential. One provider today; the
+    #: field exists so the routes dispatch on data rather than on the kind.
+    provider: Literal["google"]
+    #: The button, in the words a person reading the card would use.
+    action: str
+    #: What the consent is for, shown under the button.
+    explains: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +90,8 @@ class KindSpec:
     #: every node is a call through OpenRouter, while every other source thins
     #: the report rather than stopping it (PRD §15 NF4, §16).
     required_for_runs: bool = False
+    #: Set when part of this credential comes from a person's consent.
+    oauth: OAuthSpec | None = None
 
     @property
     def env_vars(self) -> tuple[str, ...]:
@@ -67,8 +99,23 @@ class KindSpec:
         return tuple(field.env_var for field in self.fields)
 
     @property
+    def deployment_env_vars(self) -> tuple[str, ...]:
+        """The variables an operator is actually expected to set.
+
+        A granted field's variable is a fallback, not an instruction: telling
+        someone to put `GOOGLE_ADS_REFRESH_TOKEN` in the environment is telling
+        them to go and run a script, which is the whole thing consent replaces.
+        """
+        return tuple(field.env_var for field in self.fields if not field.granted)
+
+    @property
     def required_env_vars(self) -> tuple[str, ...]:
-        return tuple(field.env_var for field in self.fields if field.required)
+        return tuple(field.env_var for field in self.fields if field.required and not field.granted)
+
+    @property
+    def granted_fields(self) -> tuple[str, ...]:
+        """The field names a consent supplies, in the order they are sealed."""
+        return tuple(field.name for field in self.fields if field.granted)
 
     def from_env(self, settings: Settings) -> dict[str, str]:
         """This source's values as the deployment supplied them.
@@ -78,6 +125,10 @@ class KindSpec:
         is the case that matters: the Google Ads connector sends the
         `login-customer-id` header if the key is present, and an empty header is
         not the same request as no header.
+
+        Granted fields are read here too. The environment is not where they are
+        expected to come from, but a deployment that set them before consent
+        existed must keep working.
         """
         found: dict[str, str] = {}
         for field in self.fields:
@@ -86,16 +137,46 @@ class KindSpec:
                 found[field.name] = value
         return found
 
+    def values(self, settings: Settings, grant: dict[str, str] | None = None) -> dict[str, str]:
+        """Everything a connector needs: the deployment's half, then the person's.
+
+        The grant wins where they overlap. A workspace that signed in to Google
+        is using the account it chose, whatever a leftover variable on the
+        deployment says — otherwise the first workspace to connect would decide
+        for every workspace after it.
+        """
+        merged = self.from_env(settings)
+        for name, value in (grant or {}).items():
+            if value:
+                merged[name] = value
+        return merged
+
     def missing_env_vars(self, settings: Settings) -> tuple[str, ...]:
-        """The required variables this deployment has not set."""
+        """The required deployment variables this deployment has not set."""
         return tuple(
             field.env_var
             for field in self.fields
-            if field.required and not _setting(settings, field.env_var)
+            if field.required and not field.granted and not _setting(settings, field.env_var)
+        )
+
+    def missing_values(self, values: dict[str, str]) -> tuple[str, ...]:
+        """The required *fields* still absent once env and grant are merged.
+
+        Field names, not variable names: what is missing here is not something
+        anybody types into an environment.
+        """
+        return tuple(
+            field.name for field in self.fields if field.required and not values.get(field.name)
         )
 
     def configured(self, settings: Settings) -> bool:
-        """Whether the environment supplies enough to use this source at all."""
+        """Whether the environment supplies enough for this source to be usable at all.
+
+        For an OAuth source this is the deployment's half only — the half a
+        person cannot supply. Whether anyone has actually signed in is a
+        separate question, answered by the connection row, because the two have
+        different fixes and a single boolean would name neither.
+        """
         return not self.missing_env_vars(settings)
 
     def meta(self, values: dict[str, str]) -> dict[str, Any]:
@@ -149,7 +230,7 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
         label="Google Ads",
         description=(
             "Your own spend, conversions, search terms and past creative, read "
-            "from the account the deployment's credentials reach."
+            "from the Google Ads account you sign in to."
         ),
         fields=(
             FieldSpec(
@@ -172,14 +253,16 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
                 name="refresh_token",
                 label="Refresh token",
                 env_var="GOOGLE_ADS_REFRESH_TOKEN",
-                hint="Minted once by scripts/google-ads-oauth.py",
+                granted=True,
+                hint="Minted by signing in to Google. Never typed.",
             ),
             FieldSpec(
                 name="customer_id",
                 label="Customer ID",
                 env_var="GOOGLE_ADS_CUSTOMER_ID",
                 secret=False,
-                hint="The 10-digit account id, with or without dashes",
+                granted=True,
+                hint="The account chosen after signing in",
             ),
             FieldSpec(
                 name="login_customer_id",
@@ -187,10 +270,19 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
                 env_var="GOOGLE_ADS_LOGIN_CUSTOMER_ID",
                 required=False,
                 secret=False,
-                hint="Only when the account is reached through a manager account",
+                granted=True,
+                hint="Set for you when the account is reached through a manager account",
             ),
         ),
         connector="google_ads",
+        oauth=OAuthSpec(
+            provider="google",
+            action="Connect with Google",
+            explains=(
+                "Sign in with the Google account that can see your Google Ads, "
+                "then choose which account to read."
+            ),
+        ),
     ),
     CredentialKind.DATAFORSEO: KindSpec(
         kind=CredentialKind.DATAFORSEO,
@@ -241,6 +333,16 @@ KIND_SPECS: dict[CredentialKind, KindSpec] = {
 #: difference is that SMTP has nothing to switch on or off per workspace, so it
 #: needs no card.
 CONNECTABLE_KINDS: tuple[CredentialKind, ...] = tuple(KIND_SPECS)
+
+#: The sources a consent finishes, by provider. `routes_connections` walks this
+#: rather than naming Google Ads, so a second Google source — Analytics, Search
+#: Console — joins the same flow by gaining an `OAuthSpec`.
+OAUTH_KINDS: dict[str, tuple[CredentialKind, ...]] = {
+    provider: tuple(
+        kind for kind, spec in KIND_SPECS.items() if spec.oauth and spec.oauth.provider == provider
+    )
+    for provider in {spec.oauth.provider for spec in KIND_SPECS.values() if spec.oauth}
+}
 
 
 def spec_for(kind: CredentialKind) -> KindSpec:

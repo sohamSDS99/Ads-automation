@@ -175,6 +175,13 @@ browser-s3p8: ## Drive the claims register, the signature ceremony and the S3-P8
 		/app/.venv/bin/python /tmp/browser-check-s3p8.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
+browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
+	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py
+	@docker compose exec -T worker mkdir -p /tmp/shots
+	docker compose exec -T -e PLAYWRIGHT_BROWSERS_PATH=/ms-playwright worker \
+		/app/.venv/bin/python /tmp/browser-check-google-connect.py
+	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
+
 browser-connections: ## Assert the Connections tab asks for nothing, at 1440 and 390
 	@docker compose cp scripts/browser-check-connections.py worker:/tmp/browser-check-connections.py
 	@docker compose exec -T worker mkdir -p /tmp/shots

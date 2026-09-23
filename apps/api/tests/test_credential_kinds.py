@@ -107,14 +107,92 @@ def test_an_unset_optional_field_is_absent_rather_than_empty(env: None) -> None:
     assert spec.from_env(settings)["login_customer_id"] == "999-888-7777"
 
 
-def test_google_ads_names_every_value_it_needs(env: None) -> None:
-    """Six values, five of them required — and the screen can name the missing ones."""
+def test_google_ads_asks_the_deployment_only_for_what_the_deployment_can_hold(
+    env: None,
+) -> None:
+    """Six values, and only three of them are an operator's to set.
+
+    A developer token is issued once to one manager account and the OAuth client
+    belongs to the Cloud project, so those three are the deployment's. The
+    refresh token and the account id are a *person's* — nobody can write them
+    into an environment on somebody else's behalf — so naming them as missing
+    variables would be telling an operator to do something impossible.
+    """
     spec = spec_for(CredentialKind.GOOGLE_ADS)
     settings = _set()
 
-    assert spec.missing_env_vars(settings) == tuple(GOOGLE_ADS_ENV)
+    assert spec.missing_env_vars(settings) == (
+        "GOOGLE_ADS_DEVELOPER_TOKEN",
+        "GOOGLE_ADS_CLIENT_ID",
+        "GOOGLE_ADS_CLIENT_SECRET",
+    )
+    assert spec.granted_fields == ("refresh_token", "customer_id", "login_customer_id")
+    assert "GOOGLE_ADS_REFRESH_TOKEN" not in spec.deployment_env_vars
+    # Still passed through to the container, and still readable: a deployment
+    # that minted a refresh token before consent existed must keep working.
+    assert "GOOGLE_ADS_REFRESH_TOKEN" in spec.env_vars
     assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" in spec.env_vars
     assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" not in spec.required_env_vars
+
+
+def test_the_deployment_half_alone_counts_as_configured(env: None) -> None:
+    """`configured` is "could this work at all", not "has anyone signed in".
+
+    Two facts with two different fixes: one is a variable an operator sets, the
+    other is a button a person presses. A single boolean would name neither, and
+    the card would tell whoever is reading it to go and do the wrong one.
+    """
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    settings = _set(
+        GOOGLE_ADS_DEVELOPER_TOKEN="dev-token",
+        GOOGLE_ADS_CLIENT_ID="client-id",
+        GOOGLE_ADS_CLIENT_SECRET="client-secret",
+    )
+
+    assert spec.configured(settings)
+    assert spec.missing_values(spec.values(settings)) == ("refresh_token", "customer_id")
+
+
+def test_a_consent_completes_what_the_environment_started(env: None) -> None:
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    settings = _set(
+        GOOGLE_ADS_DEVELOPER_TOKEN="dev-token",
+        GOOGLE_ADS_CLIENT_ID="client-id",
+        GOOGLE_ADS_CLIENT_SECRET="client-secret",
+    )
+
+    values = spec.values(settings, {"refresh_token": "1//granted", "customer_id": "1234567890"})
+
+    assert spec.missing_values(values) == ()
+    assert values["developer_token"] == "dev-token"
+    assert values["refresh_token"] == "1//granted"
+
+
+def test_a_grant_beats_a_leftover_variable(env: None) -> None:
+    """Otherwise the first workspace to connect decides for every one after it.
+
+    A deployment that once ran `make google-ads-oauth` has one person's refresh
+    token and one account id in its environment. Those are a fallback, not an
+    override: a workspace that has signed in is reading the account it chose.
+    """
+    spec = spec_for(CredentialKind.GOOGLE_ADS)
+    settings = _set(**GOOGLE_ADS_ENV)
+
+    assert spec.values(settings)["customer_id"] == "123-456-7890"
+    assert spec.values(settings, {"customer_id": "9999999999"})["customer_id"] == "9999999999"
+    # An empty grant value is not a value. It would blank a working fallback.
+    assert spec.values(settings, {"customer_id": ""})["customer_id"] == "123-456-7890"
+
+
+def test_only_google_ads_is_finished_by_a_consent() -> None:
+    """Every other source is entirely the deployment's, and its card has no button."""
+    from agent.credential_kinds import OAUTH_KINDS
+
+    assert OAUTH_KINDS == {"google": (CredentialKind.GOOGLE_ADS,)}
+    for kind, spec in KIND_SPECS.items():
+        if kind is not CredentialKind.GOOGLE_ADS:
+            assert spec.oauth is None, kind.value
+            assert spec.granted_fields == (), kind.value
 
 
 # --- what reaches a connector -----------------------------------------------
