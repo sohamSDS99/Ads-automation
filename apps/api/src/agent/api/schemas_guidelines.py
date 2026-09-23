@@ -139,3 +139,83 @@ class GuidelineDetail(GuidelineVersion):
     bindings: GuidelineBindings
     payload: dict[str, Any] | None = None
     markdown: str | None = None
+
+
+# ---------------------------------------------------------------------------
+# the image precheck — PRD §16, §9.5
+# ---------------------------------------------------------------------------
+
+
+class ImageLogoMatch(BaseModel):
+    """One registered logo found in the submitted image."""
+
+    asset_id: uuid.UUID
+    label: str
+    score: float
+    bbox: tuple[int, int, int, int] | None = None
+    phash_distance: int
+    method: Literal["orb", "phash"]
+
+
+class ImageMetrics(BaseModel):
+    """What the worker measured. The numbers a verdict can be argued from.
+
+    Returned in full rather than summarised because §21's exit criterion is
+    that a blocking finding carries "the ratio and the OCR text in evidence" —
+    a writer told their image is 31% text will ask which text, and an answer
+    that cannot be produced is an answer nobody believes.
+    """
+
+    image_hash: str
+    width_px: int
+    height_px: int
+    byte_size: int
+    media_type: str
+    status: Literal["measured", "detector_unavailable"]
+    reason: str | None = None
+    ocr_text: str = ""
+    ocr_word_count: int = 0
+    text_coverage_ratio: float | None = None
+    logo_match_score: float | None = None
+    logo_area_ratio: float | None = None
+    logo_present: float | None = None
+    logo_matches: list[ImageLogoMatch] = Field(default_factory=list)
+    detector_version: str
+    working_width_px: int
+    measured_ms: int
+
+
+class ImageLintFinding(BaseModel):
+    """One image rule's verdict on this image."""
+
+    rule_id: str
+    severity: Literal["blocking", "warning", "advisory"]
+    message: str
+    fix_hint: str | None = None
+    authority_ref: str
+    indeterminate: bool = False
+
+
+class ImageLintResult(BaseModel):
+    """PRD §16's `POST /guidelines/{id}/lint/image` response.
+
+    `verdict` carries a fourth value the text linter's `LintResult` does not:
+    **`indeterminate`**. §18 requires it by name — with OCR unavailable the
+    precheck "returns `verdict='indeterminate'` with `reason='detector_
+    unavailable'` — never `pass`". Folding that into `pass` would be law 31's
+    exact failure: an unreviewed image reaching a live campaign wearing a green
+    tick because the detector was missing rather than because the image was
+    fine.
+    """
+
+    guideline_id: uuid.UUID
+    ruleset_version: str
+    verdict: Literal["pass", "pass_with_warnings", "fail", "indeterminate"]
+    reason: str | None = None
+    findings: list[ImageLintFinding] = Field(default_factory=list)
+    metrics: ImageMetrics
+    rules_evaluated: int = 0
+    #: The `derived` / `image_metric` Evidence row this measurement was written
+    #: to (§7.3), so the verdict can be re-derived later without re-running OCR.
+    evidence_id: uuid.UUID | None = None
+    evaluated_at: datetime

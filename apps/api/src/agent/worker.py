@@ -12,6 +12,7 @@ disagree about whether the Volume is mounted.
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from typing import Any
 
@@ -45,6 +46,20 @@ JOB_TIMEOUT_SECONDS = 60 * 60
 #: re-running the whole job would re-enter a run that is already running.
 MAX_TRIES = 1
 
+#: §17 CF5 gives the image precheck 3 s p95. Ten is the hard stop: long enough
+#: that a big JPEG on a busy worker still succeeds, short enough that a wedged
+#: `tesseract` cannot hold the single measurement slot for the hour
+#: `JOB_TIMEOUT_SECONDS` would otherwise allow. A timeout here surfaces as
+#: `detector_unavailable`, which law 31 makes `indeterminate` rather than a pass.
+IMAGE_MEASURE_TIMEOUT_SECONDS = 10
+
+#: §9.5 and open question Q6: "one image at a time". `max_jobs` is 4, so
+#: without this four uploads would OCR concurrently on a container whose memory
+#: floor was sized for one. Process-wide because the worker is one process; if
+#: it ever becomes several, this has to become a Redis lock and the comment is
+#: here so that is a decision rather than a surprise.
+_IMAGE_SLOT = asyncio.Semaphore(1)
+
 
 async def execute_run(ctx: dict[str, Any], run_id: str) -> dict[str, Any]:
     """Run one DAG to a terminal state. Idempotent: a finished run returns at once."""
@@ -58,6 +73,56 @@ async def execute_run(ctx: dict[str, Any], run_id: str) -> dict[str, Any]:
         "cost_usd": str(result.cost_usd),
         "nodes_executed": result.nodes_executed,
     }
+
+
+async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Measure one image for the precheck (PRD §9.5). Worker-only, by design.
+
+    This is the only place `tesseract` and OpenCV are used, and the worker is
+    the only image that carries them — §6 keeps `api` slim, so `api` receives
+    the upload, enqueues this, and adjudicates the numbers that come back with
+    the pure rules in `guardrails/`.
+
+    Runs in a thread because the measurement is CPU-bound C code: awaiting it
+    on the event loop would stall every other job in this worker for the
+    duration, including the SSE heartbeats of a run in flight.
+    """
+    from agent.imaging import precheck
+
+    content = payload["content"]
+    templates = tuple(
+        precheck.LogoTemplateData(
+            asset_id=uuid.UUID(str(item["asset_id"])),
+            label=str(item["label"]),
+            phash=str(item["phash"]),
+            descriptors_b64=str(item.get("descriptors_b64") or ""),
+            keypoint_count=int(item.get("keypoint_count") or 0),
+            min_score=float(item["min_score"]),
+        )
+        for item in payload.get("templates") or []
+    )
+
+    async with _IMAGE_SLOT:
+        try:
+            measurement = await asyncio.wait_for(
+                asyncio.to_thread(
+                    precheck.measure,
+                    content,
+                    templates=templates,
+                    working_width=int(payload.get("working_width") or 1280),
+                    lang=str(payload.get("lang") or "eng"),
+                ),
+                timeout=IMAGE_MEASURE_TIMEOUT_SECONDS,
+            )
+        except TimeoutError:
+            # Fails closed (law 31). The caller turns a `detector_unavailable`
+            # measurement into `indeterminate` findings, never into a pass.
+            log.warning("imaging.timeout", seconds=IMAGE_MEASURE_TIMEOUT_SECONDS)
+            return {
+                "status": "detector_unavailable",
+                "reason": "detector_timeout",
+            }
+    return measurement.model_dump(mode="json")
 
 
 async def startup(ctx: dict[str, Any]) -> None:
@@ -104,7 +169,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_run, generate_export]
+    functions = [execute_run, generate_export, measure_image]
     # Everything unattended. `run_at_startup` is off for all of them: startup
     # already reaps explicitly above, and firing a nightly backup on every
     # deploy would make a busy afternoon of releases into a busy afternoon of

@@ -1,0 +1,334 @@
+{
+  "$defs": {
+    "ImageLintFinding": {
+      "description": "One image rule's verdict on this image.",
+      "properties": {
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "warning",
+            "advisory"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "fix_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Fix Hint"
+        },
+        "authority_ref": {
+          "title": "Authority Ref",
+          "type": "string"
+        },
+        "indeterminate": {
+          "default": false,
+          "title": "Indeterminate",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "rule_id",
+        "severity",
+        "message",
+        "authority_ref"
+      ],
+      "title": "ImageLintFinding",
+      "type": "object"
+    },
+    "ImageLogoMatch": {
+      "description": "One registered logo found in the submitted image.",
+      "properties": {
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "phash_distance": {
+          "title": "Phash Distance",
+          "type": "integer"
+        },
+        "method": {
+          "enum": [
+            "orb",
+            "phash"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "label",
+        "score",
+        "phash_distance",
+        "method"
+      ],
+      "title": "ImageLogoMatch",
+      "type": "object"
+    },
+    "ImageMetrics": {
+      "description": "What the worker measured. The numbers a verdict can be argued from.\n\nReturned in full rather than summarised because \u00a721's exit criterion is\nthat a blocking finding carries \"the ratio and the OCR text in evidence\" \u2014\na writer told their image is 31% text will ask which text, and an answer\nthat cannot be produced is an answer nobody believes.",
+      "properties": {
+        "image_hash": {
+          "title": "Image Hash",
+          "type": "string"
+        },
+        "width_px": {
+          "title": "Width Px",
+          "type": "integer"
+        },
+        "height_px": {
+          "title": "Height Px",
+          "type": "integer"
+        },
+        "byte_size": {
+          "title": "Byte Size",
+          "type": "integer"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "measured",
+            "detector_unavailable"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "ocr_text": {
+          "default": "",
+          "title": "Ocr Text",
+          "type": "string"
+        },
+        "ocr_word_count": {
+          "default": 0,
+          "title": "Ocr Word Count",
+          "type": "integer"
+        },
+        "text_coverage_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Text Coverage Ratio"
+        },
+        "logo_match_score": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logo Match Score"
+        },
+        "logo_area_ratio": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logo Area Ratio"
+        },
+        "logo_present": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Logo Present"
+        },
+        "logo_matches": {
+          "items": {
+            "$ref": "#/$defs/ImageLogoMatch"
+          },
+          "title": "Logo Matches",
+          "type": "array"
+        },
+        "detector_version": {
+          "title": "Detector Version",
+          "type": "string"
+        },
+        "working_width_px": {
+          "title": "Working Width Px",
+          "type": "integer"
+        },
+        "measured_ms": {
+          "title": "Measured Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "image_hash",
+        "width_px",
+        "height_px",
+        "byte_size",
+        "media_type",
+        "status",
+        "detector_version",
+        "working_width_px",
+        "measured_ms"
+      ],
+      "title": "ImageMetrics",
+      "type": "object"
+    }
+  },
+  "description": "PRD \u00a716's `POST /guidelines/{id}/lint/image` response.\n\n`verdict` carries a fourth value the text linter's `LintResult` does not:\n**`indeterminate`**. \u00a718 requires it by name \u2014 with OCR unavailable the\nprecheck \"returns `verdict='indeterminate'` with `reason='detector_\nunavailable'` \u2014 never `pass`\". Folding that into `pass` would be law 31's\nexact failure: an unreviewed image reaching a live campaign wearing a green\ntick because the detector was missing rather than because the image was\nfine.",
+  "properties": {
+    "guideline_id": {
+      "format": "uuid",
+      "title": "Guideline Id",
+      "type": "string"
+    },
+    "ruleset_version": {
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "pass_with_warnings",
+        "fail",
+        "indeterminate"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ImageLintFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "metrics": {
+      "$ref": "#/$defs/ImageMetrics"
+    },
+    "rules_evaluated": {
+      "default": 0,
+      "title": "Rules Evaluated",
+      "type": "integer"
+    },
+    "evidence_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Evidence Id"
+    },
+    "evaluated_at": {
+      "format": "date-time",
+      "title": "Evaluated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "guideline_id",
+    "ruleset_version",
+    "verdict",
+    "metrics",
+    "evaluated_at"
+  ],
+  "title": "ImageLintResult",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

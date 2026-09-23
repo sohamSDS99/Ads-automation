@@ -1,0 +1,205 @@
+{
+  "$defs": {
+    "ImageLogoMatch": {
+      "description": "One registered logo found in the submitted image.",
+      "properties": {
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "phash_distance": {
+          "title": "Phash Distance",
+          "type": "integer"
+        },
+        "method": {
+          "enum": [
+            "orb",
+            "phash"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "label",
+        "score",
+        "phash_distance",
+        "method"
+      ],
+      "title": "ImageLogoMatch",
+      "type": "object"
+    }
+  },
+  "description": "What the worker measured. The numbers a verdict can be argued from.\n\nReturned in full rather than summarised because \u00a721's exit criterion is\nthat a blocking finding carries \"the ratio and the OCR text in evidence\" \u2014\na writer told their image is 31% text will ask which text, and an answer\nthat cannot be produced is an answer nobody believes.",
+  "properties": {
+    "image_hash": {
+      "title": "Image Hash",
+      "type": "string"
+    },
+    "width_px": {
+      "title": "Width Px",
+      "type": "integer"
+    },
+    "height_px": {
+      "title": "Height Px",
+      "type": "integer"
+    },
+    "byte_size": {
+      "title": "Byte Size",
+      "type": "integer"
+    },
+    "media_type": {
+      "title": "Media Type",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "measured",
+        "detector_unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "ocr_text": {
+      "default": "",
+      "title": "Ocr Text",
+      "type": "string"
+    },
+    "ocr_word_count": {
+      "default": 0,
+      "title": "Ocr Word Count",
+      "type": "integer"
+    },
+    "text_coverage_ratio": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Text Coverage Ratio"
+    },
+    "logo_match_score": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Match Score"
+    },
+    "logo_area_ratio": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Area Ratio"
+    },
+    "logo_present": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Present"
+    },
+    "logo_matches": {
+      "items": {
+        "$ref": "#/$defs/ImageLogoMatch"
+      },
+      "title": "Logo Matches",
+      "type": "array"
+    },
+    "detector_version": {
+      "title": "Detector Version",
+      "type": "string"
+    },
+    "working_width_px": {
+      "title": "Working Width Px",
+      "type": "integer"
+    },
+    "measured_ms": {
+      "title": "Measured Ms",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "image_hash",
+    "width_px",
+    "height_px",
+    "byte_size",
+    "media_type",
+    "status",
+    "detector_version",
+    "working_width_px",
+    "measured_ms"
+  ],
+  "title": "ImageMetrics",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -19,14 +19,18 @@ owns that decision; this module never inspects a binding itself.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
-from typing import Annotated
+from datetime import UTC, datetime
+from typing import Annotated, Any, Literal, get_args
 
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent import queue
 from agent.api import problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_guidelines import (
@@ -37,6 +41,9 @@ from agent.api.schemas_guidelines import (
     GuidelineRunAccepted,
     GuidelineVersion,
     GuidelineVersionList,
+    ImageLintFinding,
+    ImageLintResult,
+    ImageMetrics,
     PlanBinding,
     ResearchBinding,
     StartGuidelineRequest,
@@ -45,6 +52,7 @@ from agent.api.throttle import throttle
 from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
+from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     AmendmentStatus,
@@ -52,11 +60,15 @@ from agent.db.models import (
     CampaignPlanStatus,
     ContentGuideline,
     CredentialKind,
+    EvidenceSource,
     GuidelineStatus,
     Membership,
+    NodeRun,
+    NodeRunStatus,
     PolicyAmendment,
     Report,
     ResearchAcceptance,
+    RuleSet,
     RunStage,
     RunTrigger,
     SignOffMatrix,
@@ -65,10 +77,18 @@ from agent.db.models import (
 )
 from agent.db.repos import ProjectRepo
 from agent.db.session import get_session
+from agent.evidence.normalize import EvidenceDraft
+from agent.evidence.store import EvidenceScopeError, EvidenceStore
+from agent.guardrails.compiler import compiler_version, ruleset_hash
+from agent.guardrails.linter import lint
+from agent.guidelines.constants import get_content_constants
 from agent.orchestrator.guideline_input import build_guideline_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.state import RunLock
 from agent.redis_client import get_redis
+from agent.schemas.guardrails import LintResult, LintTarget, LogoTemplate, Rule, Surface
+from agent.schemas.guardrails import RuleSet as RuleSetContract
+from agent.schemas.imaging import ImageMeasurement
 
 log = structlog.get_logger(__name__)
 
@@ -523,3 +543,333 @@ async def _open_amendments(db: AsyncSession, workspace_id: uuid.UUID, project_id
             )
         )
     ).scalar_one()
+
+
+# ---------------------------------------------------------------------------
+# the image precheck — PRD §16, §9.5
+# ---------------------------------------------------------------------------
+
+#: What Google accepts as an image asset, and therefore the only thing worth
+#: prechecking. Anything else is refused here rather than handed to a decoder.
+ImageVerdict = Literal["pass", "pass_with_warnings", "fail", "indeterminate"]
+
+IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
+
+#: The `Surface` literal's members, read from the contract rather than retyped.
+#: A copy here would drift the first time §12.2 gains a surface, and the drift
+#: would show up as a 422 on a surface the linter happily scopes rules to.
+SURFACES: frozenset[str] = frozenset(get_args(Surface))
+
+
+@router.post(
+    "/guidelines/{guideline_id}/lint/image",
+    response_model=ImageLintResult,
+    summary="Check one image against this guideline's image rules",
+)
+async def lint_image(
+    guideline_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    file: Annotated[UploadFile, File(description="PNG, JPEG, WebP or GIF")],
+    surface: Annotated[str, Form()] = "display_text",
+    campaign_type: Annotated[str, Form()] = "search",
+    market: Annotated[str, Form()] = "",
+    language: Annotated[str, Form()] = "en",
+) -> ImageLintResult:
+    """Measure an image in `worker`, adjudicate it in `guardrails`, return both.
+
+    Three constraints meet on this route and only one shape satisfies all of
+    them: §16 says it answers with metrics and findings in one response, §9.5
+    says the measurement happens in `worker` one image at a time, and §6 says
+    `api` never grows a `tesseract` dependency. So `api` takes the bytes,
+    enqueues the measurement, waits for the number, and evaluates the rule
+    itself — the rule being pure, which is the entire reason `guardrails/` is
+    allowed nowhere near a native binary.
+
+    `READ` permission, and that is not an oversight: this writes no guideline,
+    decides nothing, and a `viewer` who can see the rulebook should be able to
+    check an image against it before asking anybody for anything. The one thing
+    it does write is the §7.3 `derived` evidence row, which is the record of a
+    measurement rather than a change to the rulebook.
+    """
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline).where(
+                ContentGuideline.id == guideline_id,
+                ContentGuideline.workspace_id == me.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if guideline is None:
+        raise problems.not_found(f"No guideline {guideline_id}.")
+
+    content = await file.read()
+    if not content:
+        raise problems.unprocessable("That file is empty.")
+    settings = get_settings()
+    if len(content) > settings.image_lint_max_bytes:
+        raise problems.unprocessable(
+            f"That image is {len(content) // 1024} KB; the limit is "
+            f"{settings.image_lint_max_bytes // 1024} KB.",
+            title="File too large",
+        )
+    media_type = (file.content_type or "").split(";")[0].strip().lower()
+    if media_type and media_type not in IMAGE_MEDIA_TYPES:
+        raise problems.unprocessable(
+            f"{media_type} is not an image format Google accepts as an asset.",
+            title="Unsupported format",
+        )
+
+    if surface not in SURFACES:
+        # Without this the `Surface` literal raises inside `LintTarget` and the
+        # caller gets a 500 for a typo. The valid values are listed back because
+        # this is a form field, not a dropdown the UI necessarily constrains.
+        raise problems.unprocessable(
+            f"{surface!r} is not an ad surface. Valid values: {', '.join(sorted(SURFACES))}.",
+            title="Unknown surface",
+        )
+
+    rules, templates, ruleset_version = await _image_ruleset(db, guideline)
+    constants = get_content_constants()
+
+    measured = await queue.measure_image(
+        {
+            "content": content,
+            "templates": [
+                {
+                    "asset_id": str(t.asset_id),
+                    "label": t.label,
+                    "phash": t.phash,
+                    "descriptors_b64": t.descriptors_b64,
+                    "keypoint_count": t.keypoint_count,
+                    "min_score": t.min_score,
+                }
+                for t in templates
+            ],
+            "working_width": constants.image_policy.ocr_working_width_px.as_int(),
+        }
+    )
+    measurement = _measurement_from(measured, content=content, media_type=media_type)
+
+    ruleset = RuleSetContract(
+        ruleset_version=ruleset_version,
+        project_id=guideline.project_id,
+        guideline_id=guideline.id,
+        compiler_version=compiler_version(),
+        constants_version=constants.version,
+        compiled_at=datetime.now(UTC),
+        rules=tuple(rules),
+        logo_templates=tuple(templates),
+        hash=_transient_hash(rules),
+    )
+    target = LintTarget(
+        ref=file.filename or "image",
+        surface=surface,
+        campaign_type=campaign_type,
+        market=market or "*",
+        language=language or "en",
+        image_ref=measurement.image_hash,
+        image_metrics=measurement.metrics(),
+    )
+    result = lint([target], ruleset, now=datetime.now(UTC))
+
+    evidence_id = await _record_measurement(db, me, guideline, measurement)
+    await db.commit()
+
+    verdict, unchecked = image_verdict(result)
+    return ImageLintResult(
+        guideline_id=guideline.id,
+        ruleset_version=ruleset.ruleset_version,
+        verdict=verdict,
+        reason=measurement.reason if unchecked else None,
+        findings=[
+            ImageLintFinding(
+                rule_id=f.rule_id,
+                severity=f.severity,
+                message=f.message,
+                fix_hint=f.fix_hint,
+                authority_ref=f.authority_ref,
+                indeterminate=f.indeterminate,
+            )
+            for f in result.findings
+        ],
+        metrics=ImageMetrics.model_validate(measurement.model_dump(mode="json")),
+        rules_evaluated=result.rules_evaluated,
+        evidence_id=evidence_id,
+        evaluated_at=result.evaluated_at,
+    )
+
+
+def _transient_hash(rules: list[Rule]) -> str:
+    """A hash over the rules this check actually used.
+
+    Not a `RuleSet` row and never written as one — `compiler.py` is the only
+    writer of those (§9.1 rule 3). This exists so the response can name what it
+    evaluated against when the guideline is still a draft and no ruleset has
+    been minted, which is every guideline until S3-P6's publish.
+    """
+    return ruleset_hash({"rules": [rule.model_dump(mode="json") for rule in rules]})[:8]
+
+
+async def _image_ruleset(
+    db: AsyncSession, guideline: ContentGuideline
+) -> tuple[list[Rule], list[LogoTemplate], str]:
+    """This guideline's image rules and logo templates, published or draft.
+
+    Filtered to the `image` category deliberately. A published ruleset also
+    holds length and count rules, and a `count` rule is evaluated over the
+    whole target set — so linting a single image against the full set would
+    report "fewer than three headlines" about a picture. §16 calls this route
+    "multipart -> image metrics + findings"; the image rules are the findings
+    it means.
+    """
+    if guideline.ruleset_id is not None:
+        row = (
+            await db.execute(sa.select(RuleSet).where(RuleSet.id == guideline.ruleset_id))
+        ).scalar_one_or_none()
+        if row is not None:
+            compiled = RuleSetContract.model_validate(row.compiled)
+            return (
+                [rule for rule in compiled.rules if rule.category == "image"],
+                list(compiled.logo_templates),
+                compiled.ruleset_version,
+            )
+
+    payload = guideline.payload or {}
+    raw_rules = payload.get("rules")
+    raw_logos = payload.get("logo_templates")
+    if raw_rules is None:
+        # No published ruleset and no synthesised payload: the guideline is
+        # mid-run. 3.4.3's own output is the authoritative source at that point,
+        # and reading it is what makes the playground usable before publish.
+        node = (
+            (
+                await db.execute(
+                    sa.select(NodeRun).where(
+                        NodeRun.run_id == guideline.guideline_run_id,
+                        NodeRun.node_id == "3.4.3",
+                        NodeRun.status == NodeRunStatus.SUCCEEDED,
+                    )
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if node is None or not node.output:
+            raise problems.conflict(
+                "This guideline has no image rules yet. Node 3.4.3 has not completed "
+                "for this run, so there is nothing to check an image against.",
+                title="Image rules not ready",
+            )
+        raw_rules = node.output.get("rules") or []
+        raw_logos = node.output.get("logo_templates") or []
+
+    rules = [Rule.model_validate(item) for item in raw_rules]
+    logos = [LogoTemplate.model_validate(item) for item in (raw_logos or [])]
+    return (
+        [rule for rule in rules if rule.category == "image"],
+        logos,
+        f"draft+{guideline.version_major}.{guideline.version_minor}",
+    )
+
+
+def _measurement_from(
+    measured: dict[str, Any], *, content: bytes, media_type: str
+) -> ImageMeasurement:
+    """Validate the worker's answer, or fail closed.
+
+    The degraded dict `queue.measure_image` returns on an unreachable worker
+    carries only a status and a reason, so the fields a full measurement would
+    have are filled in here from what `api` already knows. It must still be an
+    `ImageMeasurement` with every metric `None` — that is what makes the rules
+    report `indeterminate` rather than the route inventing a verdict of its own.
+    """
+    if measured.get("status") == "measured":
+        try:
+            return ImageMeasurement.model_validate(measured)
+        except ValidationError as exc:
+            log.warning("imaging.measurement_invalid", error=str(exc))
+    return ImageMeasurement(
+        image_hash=hashlib.sha256(content).hexdigest(),
+        width_px=1,
+        height_px=1,
+        byte_size=len(content),
+        media_type=media_type or "image/unknown",
+        status="detector_unavailable",
+        reason=str(measured.get("reason") or "detector_unavailable"),
+        detector_version="unavailable",
+        working_width_px=1,
+        measured_ms=0,
+    )
+
+
+def image_verdict(result: LintResult) -> tuple[ImageVerdict, bool]:
+    """The image verdict, and whether anything went unchecked.
+
+    Law 31, spelled out rather than inherited. `LintResult.verdict` has only
+    `pass`, `pass_with_warnings` and `fail`; an `indeterminate` finding is
+    *neither* blocking nor warning, so it lands in `pass` — and a pass is
+    exactly what §18 forbids when a detector could not run. A green tick that
+    means "we could not check this" is worse than a red one, because nobody
+    looks at it again.
+
+    Public and separately tested because it is the one line in this route where
+    getting it wrong is silent: every other mistake here surfaces as an error,
+    and this one surfaces as an approval.
+
+    **A measured failure outranks an unmeasured check**, and that ordering was
+    wrong in the first draft of this function. Law 31 requires that
+    `indeterminate` never become `pass`; it says nothing about `fail`, and
+    between the two `fail` is both truthful and more useful. An image whose
+    coverage was measured at 31% against a 20% ceiling has definitely failed,
+    whatever else went unchecked — reporting `indeterminate` there would demote
+    a fact to a maybe and invite somebody to retry rather than fix it. The
+    `unchecked` flag still travels, so the response can say what was skipped
+    even when the verdict is `fail`.
+    """
+    unchecked = any(finding.indeterminate for finding in result.findings)
+    if any(f.severity == "blocking" and not f.indeterminate for f in result.findings):
+        return "fail", unchecked
+    if unchecked:
+        return "indeterminate", True
+    return result.verdict, False
+
+
+def _summary(measurement: ImageMeasurement) -> str:
+    """The one-line human rendering §7.3 wants beside the numbers."""
+    if measurement.text_coverage_ratio is None:
+        return "not measured"
+    return f"{measurement.text_coverage_ratio:.1%} text"
+
+
+async def _record_measurement(
+    db: AsyncSession,
+    me: Principal,
+    guideline: ContentGuideline,
+    measurement: ImageMeasurement,
+) -> uuid.UUID | None:
+    """Write §7.3's `derived` / `image_metric` row.
+
+    This is the architectural answer to a measurement that is not guaranteed
+    bit-identical across CPU architectures: the number is persisted once, and a
+    later re-check reads the stored value rather than re-measuring. A verdict
+    issued today therefore still means the same thing next year, on whatever
+    hardware happens to be running then.
+    """
+    store = EvidenceStore(db, me.workspace_id)
+    try:
+        written = await store.write(
+            [
+                EvidenceDraft(
+                    source=EvidenceSource.DERIVED,
+                    kind="image_metric",
+                    payload=measurement.evidence_payload(),
+                    content_text=f"image {measurement.image_hash[:12]}: {_summary(measurement)}",
+                )
+            ],
+            project_id=guideline.project_id,
+        )
+    except EvidenceScopeError as exc:  # pragma: no cover - the guideline scopes the project
+        log.warning("imaging.evidence_scope", error=str(exc))
+        return None
+    return written.evidence_ids[0] if written.evidence_ids else None

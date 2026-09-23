@@ -1,0 +1,20 @@
+{
+  "description": "A single-use step-up proof. Shown once; only its hash is stored.",
+  "properties": {
+    "token": {
+      "title": "Token",
+      "type": "string"
+    },
+    "expires_in": {
+      "title": "Expires In",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "token",
+    "expires_in"
+  ],
+  "title": "ReauthResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

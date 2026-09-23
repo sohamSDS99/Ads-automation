@@ -81,7 +81,9 @@ class TestClaimHarvest:
             answers={
                 "ClaimHarvestDraft": harvest_answer(
                     candidates=[
-                        candidate(observed_on=[{"surface": "rsa_headline", "url_or_ad_id": "ad-99"}])
+                        candidate(
+                            observed_on=[{"surface": "rsa_headline", "url_or_ad_id": "ad-99"}]
+                        )
                     ]
                 )
             },
@@ -100,7 +102,11 @@ class TestClaimHarvest:
     async def test_an_email_address_in_ad_history_never_reaches_a_prompt(self) -> None:
         """Law 30, and it is a deterministic pass rather than an instruction."""
         rows = [
-            evidence("creative_history", "Email sales@sdsmanager.com for the best SDS tool.", {"ad_id": "ad-1"}),
+            evidence(
+                "creative_history",
+                "Email sales@sdsmanager.com for the best SDS tool.",
+                {"ad_id": "ad-1"},
+            ),
             evidence("page", PAGE_COPY, {"url": "https://sdsmanager.com/features"}),
         ]
         h = harness("3.2.1", answers={"ClaimHarvestDraft": harvest_answer()})
@@ -216,7 +222,6 @@ class TestClaimSubstantiation:
 
 def matrix(legal_id: uuid.UUID):
     from agent.db.models import SignOffMatrix
-
     from tests.guideline_support import PROJECT_ID, WORKSPACE_ID
 
     return SignOffMatrix(
@@ -379,7 +384,9 @@ class TestOfferIntegrityRules:
 
         rows = [
             offer_evidence(),
-            evidence("offer_block", "SDS software from €39", {"url": "https://sdsmanager.com/pricing"}),
+            evidence(
+                "offer_block", "SDS software from €39", {"url": "https://sdsmanager.com/pricing"}
+            ),
         ]
         h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
         out = await offer_integrity_rules.reason(h.ctx, rows)
@@ -391,7 +398,9 @@ class TestOfferIntegrityRules:
 
         rows = [
             offer_evidence(),
-            evidence("offer_block", "SDS software from €49", {"url": "https://sdsmanager.com/pricing"}),
+            evidence(
+                "offer_block", "SDS software from €49", {"url": "https://sdsmanager.com/pricing"}
+            ),
         ]
         h = harness("3.2.4", answers={"OfferRulesDraft": offer_answer()})
         out = await offer_integrity_rules.reason(h.ctx, rows)

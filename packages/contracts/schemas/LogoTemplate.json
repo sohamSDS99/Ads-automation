@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "A registered logo, for the S3-P5 image match. Carried, not used, here.",
+  "description": "A registered logo, and everything needed to find it in a picture.\n\n\u00a711 specifies a `descriptor_path`. The descriptors are carried *inline*\ninstead, because a ruleset that named a file on a Volume would stop being\nself-determining \u2014 Stage 04 is handed a `RuleSet` and nothing else, and a\npath it cannot resolve would turn a logo rule into a silent no-op. Bounded\nat `TEMPLATE_KEYPOINTS` descriptors of 32 bytes, so a dozen logos cost tens\nof kilobytes rather than a dependency on shared storage.",
   "properties": {
     "asset_id": {
       "format": "uuid",
@@ -22,6 +22,17 @@
       "minimum": 0.0,
       "title": "Min Score",
       "type": "number"
+    },
+    "descriptors_b64": {
+      "default": "",
+      "title": "Descriptors B64",
+      "type": "string"
+    },
+    "keypoint_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Keypoint Count",
+      "type": "integer"
     }
   },
   "required": [

@@ -216,7 +216,13 @@ class Settings(BaseSettings):
     #: output shaped by the old numbers. S3-P1 replaces this default by reading
     #: `version:` out of `content_constants.yaml`; it lives here now so the
     #: hash is honest before that file exists.
-    content_constants_version: str = "2026.09.1"
+    content_constants_version: str = "2026.09.2"
+    #: Ceiling on an image submitted to `POST /guidelines/{id}/lint/image`.
+    #: 5,242,880 bytes is Google's own limit for an image asset — "Maximum file
+    #: size: 5120 KB" — so anything larger could not be uploaded to Google
+    #: whatever the precheck said about it. Checked 2026-09-23 against
+    #: support.google.com/google-ads/answer/9566341.
+    image_lint_max_bytes: int = 5_242_880
 
     # --- source keys supplied by the deployment ----------------------------
     # Every secret the product uses, and the only place any of them lives. The

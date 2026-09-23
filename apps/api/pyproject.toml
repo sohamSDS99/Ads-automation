@@ -48,6 +48,15 @@ dependencies = [
     # disabled on its first poll — `ZoneInfo("UTC")` itself raises.
     "snowballstemmer>=3.0.1",
     "simplemma>=1.1.2",
+    "pytesseract>=0.3.13",  # the image precheck's OCR (Stage 03 PRD §9.5). A thin wrapper that
+    # shells out to the `tesseract` binary, which only the WORKER image carries — `api` never
+    # measures an image, it enqueues the measurement. Chosen over `tesserocr` because the OCR
+    # engine version is then pinned by one apt line we control rather than by a wheel that can
+    # bump libtesseract underneath a metric already stored in an Evidence row.
+    "opencv-python-headless>=4.10",  # ORB feature matching for the logo templates (§9.5 step 3).
+    # `headless` because the worker has no display and the GUI build drags in GTK. Threading is
+    # pinned off at import in `imaging/precheck.py`: thread count changes float reduction order,
+    # and a blocking verdict must not move in its last decimal place.
 ]
 
 [dependency-groups]
@@ -92,7 +101,7 @@ mypy_path = "src"
 packages = ["agent"]
 
 [[tool.mypy.overrides]]
-module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*", "snowballstemmer.*"]
+module = ["pgvector.*", "arq.*", "fastembed.*", "selectolax.*", "vcr.*", "weasyprint.*", "docx.*", "snowballstemmer.*", "pytesseract.*"]
 ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
