@@ -50,6 +50,7 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import ClaimRecord, ClaimRiskTier, ClaimStatus, ClaimType
+from agent.guidelines import coerce
 
 log = structlog.get_logger(__name__)
 
@@ -99,13 +100,15 @@ async def materialise(
     written: list[ClaimRecord] = []
     seen: set[str] = set()
     for verdict in verdicts:
-        index = _int(verdict.get("claim_index"))
+        index = coerce.integer(verdict.get("claim_index"))
         candidate = by_index.get(index) if index is not None else None
         if candidate is None and index is not None and 0 <= index < len(positional):
             candidate = positional[index]
         source: Mapping[str, Any] = candidate or {}
 
-        normalized = _text(verdict.get("normalized_text")) or _text(source.get("normalized_text"))
+        normalized = coerce.text(verdict.get("normalized_text")) or coerce.text(
+            source.get("normalized_text")
+        )
         if not normalized:
             # A verdict whose claim cannot be identified is dropped rather than
             # written under a synthesised key: an unidentifiable row in a legal
@@ -130,7 +133,7 @@ async def materialise(
                 project_id=project_id,
                 first_seen_guideline_id=guideline_id,
                 normalized_text=normalized,
-                claim_text=_text(verdict.get("claim_text")) or normalized,
+                claim_text=coerce.text(verdict.get("claim_text")) or normalized,
                 claim_type=_claim_type(verdict.get("claim_type") or source.get("claim_type")),
                 status=_status(verdict.get("status")),
                 risk_tier=_risk(verdict.get("risk_tier")),
@@ -140,13 +143,19 @@ async def materialise(
         # Harvested facts are refreshed on every run: the copy moved, a new
         # market went live, a surface form appeared. These never carry a
         # licence, so refreshing them cannot widen one.
-        row.claim_text = _text(verdict.get("claim_text")) or row.claim_text
-        row.surface_forms = _strings(source.get("surface_forms")) or list(row.surface_forms or [])
-        row.market_scope = _strings(source.get("market_scope")) or list(row.market_scope or [])
-        row.languages = _strings(source.get("languages")) or list(row.languages or [])
-        row.observed_on = _dicts(source.get("observed_on")) or list(row.observed_on or [])
+        row.claim_text = coerce.text(verdict.get("claim_text")) or row.claim_text
+        row.surface_forms = coerce.strings(source.get("surface_forms")) or list(
+            row.surface_forms or []
+        )
+        row.market_scope = coerce.strings(source.get("market_scope")) or list(
+            row.market_scope or []
+        )
+        row.languages = coerce.strings(source.get("languages")) or list(row.languages or [])
+        row.observed_on = coerce.mappings(source.get("observed_on")) or list(row.observed_on or [])
         row.substantiation = dict(verdict.get("substantiation") or {}) or row.substantiation
-        row.evidence_ids = _uuids(verdict.get("evidence_ids")) or list(row.evidence_ids or [])
+        row.evidence_ids = coerce.identifiers(verdict.get("evidence_ids")) or list(
+            row.evidence_ids or []
+        )
         row.risk_tier = _risk(verdict.get("risk_tier"))
 
         # The licence is not a harvested fact. A signed claim keeps its status,
@@ -165,45 +174,6 @@ async def materialise(
         verdicts=len(verdicts),
     )
     return written
-
-
-def _int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int | str):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _text(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-def _strings(value: Any) -> list[str]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [str(item).strip() for item in value if item is not None and str(item).strip()]
-
-
-def _dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [dict(item) for item in value if isinstance(item, Mapping)]
-
-
-def _uuids(value: Any) -> list[uuid.UUID]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    found: list[uuid.UUID] = []
-    for item in value:
-        try:
-            parsed = item if isinstance(item, uuid.UUID) else uuid.UUID(str(item))
-        except (TypeError, ValueError, AttributeError):
-            continue
-        if parsed not in found:
-            found.append(parsed)
-    return found
 
 
 def _claim_type(value: Any) -> ClaimType:

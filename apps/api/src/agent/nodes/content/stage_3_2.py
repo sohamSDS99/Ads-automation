@@ -34,7 +34,6 @@ from agent.db.models import (
     ClaimStatus,
     ClaimType,
     Evidence,
-    GuidelineMode,
     RunStage,
 )
 from agent.evidence.redact import redact_pii
@@ -547,7 +546,7 @@ class LegalClaimSignoffNode:
             workspace_id=ctx.run.workspace_id,
             project_id=ctx.project.id,
             run_id=ctx.run.id,
-            mode=_run_mode(ctx),
+            mode=versions.run_mode(ctx.run),
         )
         registered = await register.materialise(
             ctx.db,
@@ -579,21 +578,6 @@ class LegalClaimSignoffNode:
             claim_count=len(claims),
             claim_ids_pending=pending,
         )
-
-
-def _run_mode(ctx: RunContext) -> GuidelineMode:
-    """The binding mode this run resolved, off `Run.bindings`.
-
-    Read rather than recomputed: `launch` wrote it from `build_guideline_input`
-    at run start, and re-deriving it here from what happens to be bound *now*
-    would let a mid-run change to the project rewrite what the rulebook says it
-    was built from.
-    """
-    bindings = ctx.run.bindings if isinstance(ctx.run.bindings, dict) else {}
-    try:
-        return GuidelineMode(str(bindings.get("mode")))
-    except ValueError:
-        return GuidelineMode.STANDALONE
 
 
 #: Module-level instance. The registry discovers instances, not classes.

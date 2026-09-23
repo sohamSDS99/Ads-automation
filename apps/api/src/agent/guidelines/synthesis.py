@@ -73,6 +73,7 @@ from agent.export.guideline_contract import (
     VoiceProfile,
 )
 from agent.guardrails.registry import RULES
+from agent.guidelines import coerce
 from agent.guidelines.constants import ContentConstants
 from agent.schemas.guardrails import (
     AssetSpecSheet,
@@ -274,16 +275,16 @@ def _brand_rules(outputs: Mapping[str, Mapping[str, Any]], drop: Drop) -> BrandR
     visual_out = _out(outputs, "3.1.3")
 
     voice = VoiceProfile(
-        voice_words=_strings(voice_out.get("voice_words")),
+        voice_words=coerce.strings(voice_out.get("voice_words")),
         definition_per_word=_str_map(voice_out.get("definition_per_word")),
         do_examples=_examples(voice_out.get("do_examples")),
         dont_examples=_examples(voice_out.get("dont_examples")),
         # 3.1.1 already spells it `voice_register`; the contract's alias keeps
         # a payload written under §11's `register` valid too.
-        voice_register=_dict(voice_out.get("voice_register") or voice_out.get("register")),
-        readability_targets=_dict(voice_out.get("readability_targets")),
-        input_mode=_text(voice_out.get("input_mode")),
-        evidence_ids=_uuids(voice_out.get("evidence_ids")),
+        voice_register=coerce.mapping(voice_out.get("voice_register") or voice_out.get("register")),
+        readability_targets=coerce.mapping(voice_out.get("readability_targets")),
+        input_mode=coerce.text(voice_out.get("input_mode")),
+        evidence_ids=coerce.identifiers(voice_out.get("evidence_ids")),
     )
     if not voice.voice_words:
         drop("3.1.1 produced no voice words")
@@ -291,19 +292,19 @@ def _brand_rules(outputs: Mapping[str, Mapping[str, Any]], drop: Drop) -> BrandR
     lexicon = Lexicon(
         always=_lexicon(lexicon_out.get("always"), drop, "always"),
         never=_lexicon(lexicon_out.get("never"), drop, "never"),
-        case_and_spelling=_dicts(lexicon_out.get("case_and_spelling")),
+        case_and_spelling=coerce.mappings(lexicon_out.get("case_and_spelling")),
         # Read, never recomputed. 3.1.2 decides what conflicts; a second
         # opinion here is two pieces of code disagreeing about the same set,
         # and §11 assertion 5 checks the one the authoring node published.
-        conflicts=_dicts(lexicon_out.get("conflicts")),
+        conflicts=coerce.mappings(lexicon_out.get("conflicts")),
     )
 
     visual = VisualIdentity(
-        logo=_dict(visual_out.get("logo")),
-        colour=_dict(visual_out.get("colour")),
-        imagery=_dict(visual_out.get("imagery")),
-        extraction_confidence=_float(visual_out.get("extraction_confidence")),
-        evidence_ids=_uuids(visual_out.get("evidence_ids")),
+        logo=coerce.mapping(visual_out.get("logo")),
+        colour=coerce.mapping(visual_out.get("colour")),
+        imagery=coerce.mapping(visual_out.get("imagery")),
+        extraction_confidence=coerce.number(visual_out.get("extraction_confidence")),
+        evidence_ids=coerce.identifiers(visual_out.get("evidence_ids")),
     )
     return BrandRules(voice=voice, lexicon=lexicon, visual_identity=visual)
 
@@ -330,20 +331,20 @@ def _claims_register(
 
     return ClaimsRegister(
         claims=rows[:MAX_PER_SECTION],
-        unsupported_count=_int(substantiation.get("unsupported_count")) or 0,
-        expiry_basis=_text(substantiation.get("expiry_basis")),
-        detector_recall_note=_text(harvest.get("detector_recall_note")),
+        unsupported_count=coerce.integer(substantiation.get("unsupported_count")) or 0,
+        expiry_basis=coerce.text(substantiation.get("expiry_basis")),
+        detector_recall_note=coerce.text(harvest.get("detector_recall_note")),
         offer_rules=[
             OfferRule(
-                id=_text(item.get("id")),
-                construction=_text(item.get("construction")),
-                requirement=_text(item.get("requirement")),
-                data_binding=_dict(item.get("data_binding")),
-                severity=_text(item.get("severity")) or "blocking",
+                id=coerce.text(item.get("id")),
+                construction=coerce.text(item.get("construction")),
+                requirement=coerce.text(item.get("requirement")),
+                data_binding=coerce.mapping(item.get("data_binding")),
+                severity=coerce.text(item.get("severity")) or "blocking",
             )
-            for item in _dicts(offers.get("rules"))
+            for item in coerce.mappings(offers.get("rules"))
         ],
-        live_violations=_dicts(offers.get("live_violations")),
+        live_violations=coerce.mappings(offers.get("live_violations")),
     )
 
 
@@ -353,12 +354,12 @@ def _policy_profile(outputs: Mapping[str, Mapping[str, Any]], drop: Drop) -> Pol
     competitive = _out(outputs, "3.3.3")
     disclosure = _out(outputs, "3.3.4")
 
-    applicable = [_policy_area(item) for item in _dicts(surface.get("applicable"))]
+    applicable = [_policy_area(item) for item in coerce.mappings(surface.get("applicable"))]
     if not applicable:
         drop("3.3.1 found no applicable policy area")
 
     rules: list[DisclosureRule] = []
-    for item in _dicts(disclosure.get("disclosure_rules")):
+    for item in coerce.mappings(disclosure.get("disclosure_rules")):
         try:
             rules.append(DisclosureRule.model_validate(item))
         except Exception:  # noqa: BLE001 — one bad rule must not lose the rest
@@ -366,20 +367,22 @@ def _policy_profile(outputs: Mapping[str, Mapping[str, Any]], drop: Drop) -> Pol
 
     return PolicyProfile(
         applicable=applicable,
-        not_applicable=[_policy_area(item) for item in _dicts(surface.get("not_applicable"))],
-        requires_verification=_dicts(surface.get("requires_verification")),
-        open_interpretation=_dicts(surface.get("open_interpretation")),
+        not_applicable=[
+            _policy_area(item) for item in coerce.mappings(surface.get("not_applicable"))
+        ],
+        requires_verification=coerce.mappings(surface.get("requires_verification")),
+        open_interpretation=coerce.mappings(surface.get("open_interpretation")),
         attestation={
-            "status": _text(attestation.get("status")),
-            "blocking_for": _text(attestation.get("blocking_for")),
-            "verification_kinds": _strings(attestation.get("verification_kinds")),
-            "markets": _strings(attestation.get("markets")),
-            "why": _text(attestation.get("why")),
+            "status": coerce.text(attestation.get("status")),
+            "blocking_for": coerce.text(attestation.get("blocking_for")),
+            "verification_kinds": coerce.strings(attestation.get("verification_kinds")),
+            "markets": coerce.strings(attestation.get("markets")),
+            "why": coerce.text(attestation.get("why")),
         },
-        competitor_mentions=_dict(competitive.get("competitor_mentions")),
-        personalization=_dict(competitive.get("personalization")),
+        competitor_mentions=coerce.mapping(competitive.get("competitor_mentions")),
+        personalization=coerce.mapping(competitive.get("personalization")),
         disclosure_rules=rules,
-        internal_policy_addendum=_text(disclosure.get("internal_policy_addendum")),
+        internal_policy_addendum=coerce.text(disclosure.get("internal_policy_addendum")),
     )
 
 
@@ -400,27 +403,27 @@ def _asset_specs(
         sheet = constants.asset_sheet()
 
     logos: list[LogoTemplate] = []
-    for item in _dicts(image_out.get("logo_templates")):
+    for item in coerce.mappings(image_out.get("logo_templates")):
         try:
             logos.append(LogoTemplate.model_validate(item))
         except Exception:  # noqa: BLE001
             drop(f"logo template {item.get('label', '?')} did not validate")
 
-    scope = _text(sheet_out.get("scope")) or "unscoped"
+    scope = coerce.text(sheet_out.get("scope")) or "unscoped"
     return AssetSpecs(
         sheet=sheet,
         scope="scoped" if scope == "scoped" else "unscoped",
         launch_minimums=[
             LaunchMinimum(
-                campaign_type=_text(item.get("campaign_type")),
-                required_assets=_dicts(item.get("required_assets")),
-                optional_but_recommended=_dicts(item.get("optional_but_recommended")),
+                campaign_type=coerce.text(item.get("campaign_type")),
+                required_assets=coerce.mappings(item.get("required_assets")),
+                optional_but_recommended=coerce.mappings(item.get("optional_but_recommended")),
                 blocking_for_launch=bool(item.get("blocking_for_launch")),
             )
-            for item in _dicts(minimums_out.get("minimums"))
+            for item in coerce.mappings(minimums_out.get("minimums"))
         ],
-        readiness_checklist=_dicts(minimums_out.get("readiness_checklist")),
-        image_rules=_dicts(image_out.get("rules")),
+        readiness_checklist=coerce.mappings(minimums_out.get("readiness_checklist")),
+        image_rules=coerce.mappings(image_out.get("rules")),
         logo_templates=logos,
     )
 
@@ -428,24 +431,24 @@ def _asset_specs(
 def _governance(outputs: Mapping[str, Mapping[str, Any]], drop: Drop) -> Governance:
     matrix = _out(outputs, "3.5.1")
     triggers = _out(outputs, "3.5.2")
-    owners_raw = _dict(matrix.get("owners"))
+    owners_raw = coerce.mapping(matrix.get("owners"))
 
     owners = Owners(
-        brand_owner_id=_uuid(owners_raw.get("brand_owner_id")),
-        legal_owner_id=_uuid(owners_raw.get("legal_owner_id")),
-        performance_owner_id=_uuid(owners_raw.get("performance_owner_id")),
+        brand_owner_id=coerce.identifier(owners_raw.get("brand_owner_id")),
+        legal_owner_id=coerce.identifier(owners_raw.get("legal_owner_id")),
+        performance_owner_id=coerce.identifier(owners_raw.get("performance_owner_id")),
     )
     if owners.legal_owner_id is None:
         drop("3.5.1 named no legal owner")
 
     return Governance(
         owners=owners,
-        owners_rationale=_text(matrix.get("rationale")),
+        owners_rationale=coerce.text(matrix.get("rationale")),
         matrix_reused=bool(matrix.get("reused")),
         review_triggers=[
-            ReviewTrigger.model_validate(item) for item in _dicts(triggers.get("triggers"))
+            ReviewTrigger.model_validate(item) for item in coerce.mappings(triggers.get("triggers"))
         ],
-        always_review=_strings(triggers.get("always_review")),
+        always_review=coerce.strings(triggers.get("always_review")),
         # 3.5.3 is S3-P9. An empty list here is the honest answer until then,
         # and §11 assertion 7's counterpart for learned rules is not asserted
         # against a node that does not exist.
@@ -480,7 +483,8 @@ def _dependencies(
     ]
     found.extend(
         Dependency(
-            task=f"Decide the open interpretation: {_text(item.get('question')) or item!s:.120}",
+            task="Decide the open interpretation: "
+            + (coerce.text(item.get("question")) or str(item))[:120],
             owner="unassigned",
             blocking_for="none",
             source="3.3.1",
@@ -572,7 +576,7 @@ def _rule(
 
 def _voice_rules(brand: BrandRules, drop: Drop) -> list[Rule]:
     targets = brand.voice.readability_targets
-    max_words = _int(targets.get("max_sentence_words"))
+    max_words = coerce.integer(targets.get("max_sentence_words"))
     if not max_words:
         return []
     return [
@@ -723,7 +727,7 @@ def _offer_rules(register: ClaimsRegister, drop: Drop) -> list[Rule]:
             drop(f"offer rule {entry.id or '?'} names construction {entry.construction!r}")
             continue
         binding = entry.data_binding or {}
-        field_name = _text(binding.get("field")) or entry.construction
+        field_name = coerce.text(binding.get("field")) or entry.construction
         rules.append(
             _rule(
                 f"offer.{entry.construction}.v1",
@@ -731,8 +735,8 @@ def _offer_rules(register: ClaimsRegister, drop: Drop) -> list[Rule]:
                     construction=entry.construction,
                     field=field_name,
                     source="offer_record",
-                    tolerance=_float(binding.get("tolerance")) or 0.0,
-                    product_set=_optional_text(binding.get("product_set")),
+                    tolerance=coerce.number(binding.get("tolerance")) or 0.0,
+                    product_set=coerce.optional_text(binding.get("product_set")),
                 ),
                 message=(
                     entry.requirement or f"A {entry.construction} claim must match live offer data."
@@ -754,12 +758,12 @@ def _policy_rules(policy: PolicyProfile, drop: Drop) -> list[Rule]:
     worse than failing it.
     """
     rules: list[Rule] = []
-    forbidden = _dicts(policy.competitor_mentions.get("forbidden"))
+    forbidden = coerce.mappings(policy.competitor_mentions.get("forbidden"))
     phrases = tuple(
         dict.fromkeys(
-            _text(item.get("phrase") or item.get("text"))
+            coerce.text(item.get("phrase") or item.get("text"))
             for item in forbidden
-            if _text(item.get("phrase") or item.get("text"))
+            if coerce.text(item.get("phrase") or item.get("text"))
         )
     )
     if phrases:
@@ -771,12 +775,13 @@ def _policy_rules(policy: PolicyProfile, drop: Drop) -> list[Rule]:
                 fix_hint="Drop the comparison, or name only your own product.",
                 authority=_authority(
                     "google_policy",
-                    _text(policy.competitor_mentions.get("policy_ref")) or "competitor_mentions",
+                    coerce.text(policy.competitor_mentions.get("policy_ref"))
+                    or "competitor_mentions",
                 ),
             )
         )
     for item in policy.personalization.get("forbidden_implications", [])[:MAX_PER_SECTION]:
-        text = _text(item if isinstance(item, str) else _dict(item).get("phrase"))
+        text = coerce.text(item if isinstance(item, str) else coerce.mapping(item).get("phrase"))
         if not text:
             continue
         rules.append(
@@ -947,32 +952,32 @@ def _as_severity(value: str, default: Severity) -> Severity:
 def _examples(value: Any) -> list[VoiceExample]:
     return [
         VoiceExample(
-            text=_text(item.get("text")),
-            source_ref=_text(item.get("source_ref")),
-            why=_text(item.get("why")),
-            rewritten_as=_optional_text(item.get("rewritten_as")),
+            text=coerce.text(item.get("text")),
+            source_ref=coerce.text(item.get("source_ref")),
+            why=coerce.text(item.get("why")),
+            rewritten_as=coerce.optional_text(item.get("rewritten_as")),
         )
-        for item in _dicts(value)
-        if _text(item.get("text"))
+        for item in coerce.mappings(value)
+        if coerce.text(item.get("text"))
     ]
 
 
 def _lexicon(value: Any, drop: Drop, side: str) -> list[LexiconEntry]:
     entries: list[LexiconEntry] = []
-    for item in _dicts(value):
-        term = _text(item.get("term"))
+    for item in coerce.mappings(value):
+        term = coerce.text(item.get("term"))
         if not term:
             drop(f"lexicon `{side}` entry with no term")
             continue
         entries.append(
             LexiconEntry(
                 term=term,
-                surface_forms=_strings(item.get("surface_forms")),
-                severity=_text(item.get("severity")) or "warning",
-                locale=_optional_text(item.get("locale")),
-                context=_text(item.get("context")),
-                reason=_text(item.get("reason")),
-                suggested_replacement=_optional_text(item.get("suggested_replacement")),
+                surface_forms=coerce.strings(item.get("surface_forms")),
+                severity=coerce.text(item.get("severity")) or "warning",
+                locale=coerce.optional_text(item.get("locale")),
+                context=coerce.text(item.get("context")),
+                reason=coerce.text(item.get("reason")),
+                suggested_replacement=coerce.optional_text(item.get("suggested_replacement")),
             )
         )
     return entries
@@ -980,14 +985,14 @@ def _lexicon(value: Any, drop: Drop, side: str) -> list[LexiconEntry]:
 
 def _policy_area(item: Mapping[str, Any]) -> PolicyArea:
     return PolicyArea(
-        area=_text(item.get("area")),
-        policy_ref=_text(item.get("policy_ref")),
-        why_applicable=_text(item.get("why_applicable")),
-        why_not=_text(item.get("why_not")),
-        markets=_strings(item.get("markets")),
-        obligations=_strings(item.get("obligations")),
-        evidence_ids=_uuids(item.get("evidence_ids")),
-        no_rule_needed=_optional_text(item.get("no_rule_needed")),
+        area=coerce.text(item.get("area")),
+        policy_ref=coerce.text(item.get("policy_ref")),
+        why_applicable=coerce.text(item.get("why_applicable")),
+        why_not=coerce.text(item.get("why_not")),
+        markets=coerce.strings(item.get("markets")),
+        obligations=coerce.strings(item.get("obligations")),
+        evidence_ids=coerce.identifiers(item.get("evidence_ids")),
+        no_rule_needed=coerce.optional_text(item.get("no_rule_needed")),
     )
 
 
@@ -1001,24 +1006,24 @@ def _claims_from_outputs(
     rulebook can show the claim, and `critique` assertion 3 will still fail the
     publish because no signature covers it.
     """
-    candidates = _dicts(harvest.get("candidates"))
+    candidates = coerce.mappings(harvest.get("candidates"))
     rows: list[RegisteredClaim] = []
-    for index, verdict in enumerate(_dicts(substantiation.get("claims"))):
+    for index, verdict in enumerate(coerce.mappings(substantiation.get("claims"))):
         source = candidates[index] if index < len(candidates) else {}
         rows.append(
             RegisteredClaim(
-                claim_id=_uuid(verdict.get("claim_id")) or uuid.uuid4(),
-                claim_text=_text(verdict.get("claim_text")),
-                normalized_text=_text(verdict.get("normalized_text")),
-                surface_forms=_strings(source.get("surface_forms")),
-                claim_type=_text(verdict.get("claim_type")),
-                status=_text(verdict.get("status")) or "unsupported",
-                risk_tier=_text(verdict.get("risk_tier")),
-                market_scope=_strings(source.get("market_scope")),
-                languages=_strings(source.get("languages")),
-                substantiation=_dict(verdict.get("substantiation")),
-                gaps=_strings(verdict.get("gaps")),
-                evidence_ids=_uuids(verdict.get("evidence_ids")),
+                claim_id=coerce.identifier(verdict.get("claim_id")) or uuid.uuid4(),
+                claim_text=coerce.text(verdict.get("claim_text")),
+                normalized_text=coerce.text(verdict.get("normalized_text")),
+                surface_forms=coerce.strings(source.get("surface_forms")),
+                claim_type=coerce.text(verdict.get("claim_type")),
+                status=coerce.text(verdict.get("status")) or "unsupported",
+                risk_tier=coerce.text(verdict.get("risk_tier")),
+                market_scope=coerce.strings(source.get("market_scope")),
+                languages=coerce.strings(source.get("languages")),
+                substantiation=coerce.mapping(verdict.get("substantiation")),
+                gaps=coerce.strings(verdict.get("gaps")),
+                evidence_ids=coerce.identifiers(verdict.get("evidence_ids")),
             )
         )
     return rows
@@ -1036,68 +1041,5 @@ def _out(outputs: Mapping[str, Mapping[str, Any]], node_id: str) -> Mapping[str,
     return value if isinstance(value, Mapping) else {}
 
 
-def _text(value: Any) -> str:
-    return str(value).strip() if value is not None else ""
-
-
-def _optional_text(value: Any) -> str | None:
-    text = _text(value)
-    return text or None
-
-
-def _strings(value: Any) -> list[str]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [str(item).strip() for item in value if item is not None and str(item).strip()]
-
-
-def _dict(value: Any) -> dict[str, Any]:
-    return dict(value) if isinstance(value, Mapping) else {}
-
-
 def _str_map(value: Any) -> dict[str, str]:
-    return {str(key): _text(item) for key, item in _dict(value).items()}
-
-
-def _dicts(value: Any) -> list[dict[str, Any]]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    return [dict(item) for item in value if isinstance(item, Mapping)]
-
-
-def _int(value: Any) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        return None
-    try:
-        return int(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _float(value: Any) -> float | None:
-    if isinstance(value, bool) or not isinstance(value, int | float | str):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _uuid(value: Any) -> uuid.UUID | None:
-    if isinstance(value, uuid.UUID):
-        return value
-    try:
-        return uuid.UUID(str(value))
-    except (TypeError, ValueError, AttributeError):
-        return None
-
-
-def _uuids(value: Any) -> list[uuid.UUID]:
-    if not isinstance(value, Sequence) or isinstance(value, str | bytes):
-        return []
-    found: list[uuid.UUID] = []
-    for item in value:
-        parsed = _uuid(item)
-        if parsed is not None and parsed not in found:
-            found.append(parsed)
-    return found
+    return {str(key): coerce.text(item) for key, item in coerce.mapping(value).items()}

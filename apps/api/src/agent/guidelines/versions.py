@@ -44,10 +44,30 @@ from agent.db.models import (
     GuidelineMode,
     GuidelineStatus,
     RuleSet,
+    Run,
 )
 from agent.export.guideline_contract import GUIDELINE_SCHEMA_VERSION
 
 log = structlog.get_logger(__name__)
+
+
+def run_mode(run: Run) -> GuidelineMode:
+    """The binding mode this run resolved, off `Run.bindings`.
+
+    Read rather than recomputed: `launch` wrote it from `build_guideline_input`
+    at run start, and re-deriving it from what happens to be bound *now* would
+    let a mid-run change to the project rewrite what the rulebook says it was
+    built from.
+
+    Here rather than in a node module because two nodes need it — 3.2.3 to
+    register claims and 3.6.1 to assemble — and two copies of "how do we read
+    the mode" is two things that can disagree about a rulebook's provenance.
+    """
+    bindings = run.bindings if isinstance(run.bindings, dict) else {}
+    try:
+        return GuidelineMode(str(bindings.get("mode")))
+    except ValueError:
+        return GuidelineMode.STANDALONE
 
 
 async def next_major(db: AsyncSession, project_id: uuid.UUID) -> int:

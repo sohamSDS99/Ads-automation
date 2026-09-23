@@ -214,7 +214,7 @@ async def synthesise(
         workspace_id=ctx.run.workspace_id,
         project_id=ctx.project.id,
         run_id=ctx.run.id,
-        mode=_run_mode(ctx),
+        mode=versions.run_mode(ctx.run),
     )
     claims = await _registered_claims(ctx)
     decisions = await _gate_decisions(ctx)
@@ -672,16 +672,6 @@ def _degraded(ctx: RunContext) -> list[str]:
     return sorted(found)
 
 
-def _run_mode(ctx: RunContext) -> Any:
-    from agent.db.models import GuidelineMode
-
-    bindings = ctx.run.bindings if isinstance(ctx.run.bindings, dict) else {}
-    try:
-        return GuidelineMode(str(bindings.get("mode")))
-    except ValueError:
-        return GuidelineMode.STANDALONE
-
-
 # ---------------------------------------------------------------------------
 # writing it back
 # ---------------------------------------------------------------------------
@@ -701,7 +691,7 @@ async def _store(ctx: RunContext, guideline: ContentGuideline, markdown: str) ->
             workspace_id=ctx.run.workspace_id,
             project_id=ctx.project.id,
             run_id=ctx.run.id,
-            mode=_run_mode(ctx),
+            mode=versions.run_mode(ctx.run),
         )
     row.payload = guideline.model_dump(mode="json")
     row.markdown = markdown
