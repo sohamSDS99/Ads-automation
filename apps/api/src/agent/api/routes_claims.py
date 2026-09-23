@@ -54,7 +54,13 @@ from agent.db.models import (
 from agent.db.session import get_session
 from agent.guardrails.normalize import normalize
 from agent.guidelines.constants import load_content_constants
-from agent.guidelines.signature import ClaimDecision, ReauthError, ReauthTokens, set_hash
+from agent.guidelines.signature import (
+    ClaimDecision,
+    ReauthError,
+    ReauthTokens,
+    register_hash,
+    set_hash,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -256,9 +262,13 @@ async def sign_claims(
         )
         for entry in body.decisions
     ]
+    # Two values, two jobs. `seen` is the register the signer read and is what
+    # the 409 compares; `recomputed` carries their decisions and is what the
+    # signature is stored and de-duplicated under.
+    seen = register_hash(server_view)
     recomputed = set_hash(server_view)
 
-    if recomputed != body.set_hash:
+    if seen != body.set_hash:
         # Before the token is spent, so a signer who has to re-read the register
         # is not also made to re-type their password for an attempt that wrote
         # nothing.
@@ -576,8 +586,16 @@ def _still_current(signature: ClaimSignature, claims: dict[uuid.UUID, ClaimRecor
 
 
 def _hash_of(claims: list[ClaimRecord]) -> str:
-    """The hash of "approve everything outstanding", which is what the drawer opens on."""
-    return set_hash(
+    """The hash of the register as the signer is about to read it.
+
+    Not "approve everything outstanding", which is what this used to be. That
+    made the token a prediction of the signer's decisions, so a set with any
+    rejection in it disagreed with its own hash and was refused as a race that
+    had not happened — see `signature.register_hash`. The `decision` passed here
+    is therefore arbitrary and unused; it is `"approved"` only because
+    `ClaimDecision` requires one.
+    """
+    return register_hash(
         [
             ClaimDecision(
                 claim_id=claim.id,

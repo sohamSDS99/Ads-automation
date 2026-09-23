@@ -50,10 +50,24 @@ async def sign(
 
 
 async def hash_of(api: ApiClient, guideline_id: uuid.UUID, decisions: list[dict]) -> str:
-    """The server's own view of the set. The UI reads it the same way."""
-    from agent.guidelines.signature import ClaimDecision, set_hash
+    """The register hash over exactly the claims these decisions name.
 
-    return set_hash([ClaimDecision.model_validate(d) for d in decisions])
+    Computed here rather than read from `GET /claims`, and the distinction
+    matters. `ClaimList.set_hash` covers the claims currently *signable*, which
+    is the set the drawer submits and therefore the right value for a client.
+    Several tests below sign a narrower set on purpose — re-deciding one claim
+    that is already approved, for instance — and no endpoint offers a hash for
+    an arbitrary subset. So this exercises the sign route directly.
+
+    It used to call `set_hash`, which folds the signer's own decision into the
+    value. That made it impossible for any real client to produce a matching
+    hash for a partially-approved set, and because this helper never touched the
+    endpoint, nothing here noticed. The end-to-end contract — list, decide,
+    sign — is covered by `test_s3p8_routes`.
+    """
+    from agent.guidelines.signature import ClaimDecision, register_hash
+
+    return register_hash([ClaimDecision.model_validate(d) for d in decisions])
 
 
 # --- step-up re-auth --------------------------------------------------------
@@ -167,7 +181,12 @@ async def test_the_named_legal_owner_signs_and_the_claims_become_approved(
     # guarantee — so the invariant that is actually always true is that the column
     # is never written as an empty string, which is what a naive
     # `request.client.host or ""` would produce.
-    assert signature.ip is None or signature.ip.strip()
+    # `str()` because the column is `INET`: asyncpg hands back an
+    # `ipaddress.IPv4Address`, not text, so `.strip()` raised AttributeError and
+    # this assertion has been failing since it was written. Pre-existing on
+    # main; fixed here because S3-P8 touches this file and leaving a red test in
+    # it would hide the next real failure.
+    assert signature.ip is None or str(signature.ip).strip()
 
 
 async def test_a_partly_rejected_set_is_legal(

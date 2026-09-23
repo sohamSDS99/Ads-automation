@@ -200,6 +200,117 @@ async def _mechanical(
     )
 
 
+# ---------------------------------------------------------------------------
+# the decisions a person makes in the inbox
+# ---------------------------------------------------------------------------
+
+
+class AmendmentDecisionError(ValueError):
+    """An amendment that cannot be decided. The message is shown verbatim."""
+
+
+async def apply_by_person(
+    db: AsyncSession,
+    amendment: PolicyAmendment,
+    *,
+    decided_by: uuid.UUID,
+    constants: ContentConstants | None = None,
+    now: datetime | None = None,
+) -> Outcome:
+    """Apply an amendment a human decided on (PRD §15.3 G).
+
+    The counterpart to `apply()`, which runs on the watcher's classification
+    with no actor. Everything that *happens* to signatures has already happened
+    by the time a row reaches the inbox — `_signature_affecting` voids and
+    re-queues at classification time, because leaving a signature standing over
+    copy the policy no longer permits is the thing §8.6 exists to prevent. What
+    is left for a person to decide is whether the rulebook changes, and that is
+    a MINOR.
+
+    `mechanical` rows are refused rather than re-applied: they applied
+    themselves, and minting a second MINOR for one change would put a version
+    in the history that nothing caused.
+    """
+    stamp = now or datetime.now(UTC)
+    conf = constants or get_content_constants()
+
+    if amendment.status in (AmendmentStatus.APPLIED, AmendmentStatus.AUTO_APPLIED):
+        raise AmendmentDecisionError(
+            "This amendment has already been applied. Applying it twice would mint a "
+            "version nothing caused."
+        )
+    if amendment.status is AmendmentStatus.DISMISSED:
+        raise AmendmentDecisionError(
+            "This amendment was dismissed. Re-opening it is not a thing the inbox does — "
+            "if the policy still needs to change, the watcher will raise it again."
+        )
+
+    guideline = await _published_guideline(db, amendment.project_id)
+    if guideline is None:
+        raise AmendmentDecisionError(
+            "This project has no published guideline, so there is no rulebook to amend."
+        )
+
+    ruleset = await mint_minor(db, guideline, constants=conf, now=stamp)
+    amendment.status = AmendmentStatus.APPLIED
+    amendment.applied_ruleset_id = ruleset.id
+    amendment.reviewed_by = decided_by
+    amendment.reviewed_at = stamp
+    await db.flush()
+    log.info(
+        "amendment.applied_by_person",
+        amendment_id=str(amendment.id),
+        ruleset_version=ruleset.ruleset_version,
+    )
+    return Outcome(
+        amendment_id=amendment.id,
+        change_kind=amendment.change_kind,
+        status=AmendmentStatus.APPLIED,
+        ruleset_version=ruleset.ruleset_version,
+        ruleset_id=ruleset.id,
+        voided_signature_ids=tuple(amendment.voided_signature_ids or ()),
+    )
+
+
+async def dismiss_by_person(
+    db: AsyncSession,
+    amendment: PolicyAmendment,
+    *,
+    decided_by: uuid.UUID,
+    reason: str,
+    now: datetime | None = None,
+) -> Outcome:
+    """Record that a person read this and decided the rulebook does not change.
+
+    **Dismissal does not un-void anything.** A `signature_affecting` amendment
+    has already voided its signatures by the time anyone sees it, and dismissing
+    it says "no further rule change is needed", not "that never happened". The
+    reason is mandatory because this is the branch where the audit trail is the
+    only artifact left.
+    """
+    stamp = now or datetime.now(UTC)
+    if amendment.status in (AmendmentStatus.APPLIED, AmendmentStatus.AUTO_APPLIED):
+        raise AmendmentDecisionError(
+            "This amendment has already been applied, so there is nothing to dismiss."
+        )
+    if amendment.status is AmendmentStatus.DISMISSED:
+        raise AmendmentDecisionError("This amendment was already dismissed.")
+
+    amendment.status = AmendmentStatus.DISMISSED
+    amendment.reviewed_by = decided_by
+    amendment.reviewed_at = stamp
+    amendment.review_note = reason
+    await db.flush()
+    log.info("amendment.dismissed_by_person", amendment_id=str(amendment.id))
+    return Outcome(
+        amendment_id=amendment.id,
+        change_kind=amendment.change_kind,
+        status=AmendmentStatus.DISMISSED,
+        voided_signature_ids=tuple(amendment.voided_signature_ids or ()),
+        notes=[reason],
+    )
+
+
 async def current_minor(db: AsyncSession, guideline: ContentGuideline) -> int:
     """The highest MINOR minted for this guideline so far.
 

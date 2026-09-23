@@ -23,7 +23,8 @@ export const PERMISSIONS = [
   "guideline_execute",
   "guideline_publish",
   // The two non-delegable ones (law 23). They are held by `approver` and NOT
-  // by `admin`, and are narrowed further to one named identity — the sign-off
+  // by `admin` — `permissions_for()` subtracts them even on the superadmin
+  // branch — and are narrowed further to one named identity: the sign-off
   // matrix's legal owner, or the task's assignee. Holding the permission is
   // necessary and not sufficient, so a `<Can>` on either of these is only ever
   // half the check: the surfaces that use them (S3-P8) also compare the
@@ -51,6 +52,6 @@ export const ROLE_LABEL: Record<Role, string> = {
 export const ROLE_DESCRIPTION: Record<Role, string> = {
   admin: "Manages people, credentials and settings",
   operator: "Creates projects and launches research runs",
-  approver: "Decides the approval gates routed to them",
+  approver: "Decides approval gates, and is the only role that can sign a claim",
   viewer: "Reads reports, evidence and run history",
 };

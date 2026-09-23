@@ -46,6 +46,8 @@ from agent.api.schemas_guidelines import (
     ImageLintFinding,
     ImageLintResult,
     ImageMetrics,
+    LintRequest,
+    LintResponse,
     OpenTaskRef,
     PlanBinding,
     PublishBlocker,
@@ -823,6 +825,142 @@ IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "imag
 #: A copy here would drift the first time §12.2 gains a surface, and the drift
 #: would show up as a 422 on a surface the linter happily scopes rules to.
 SURFACES: frozenset[str] = frozenset(get_args(Surface))
+
+
+@router.post(
+    "/guidelines/{guideline_id}/lint",
+    response_model=LintResponse,
+    summary="Check copy against this guideline's rules",
+)
+async def lint_text(
+    guideline_id: uuid.UUID, body: LintRequest, me: AnyMember, db: Db
+) -> LintResponse:
+    """Evaluate copy against the compiled ruleset. No writes, no model calls.
+
+    `READ`, and deliberately the weakest permission in the stage. A `viewer`
+    who can read the rulebook must be able to ask it a question — §15.3 F calls
+    this the single best adoption lever in Stage 03, and putting it behind
+    `guideline_execute` would hand it to exactly the people who least need it.
+
+    **The evaluation happens here and only here.** §15.4 rule 2 calls a matcher
+    reimplemented in the frontend a bug rather than an optimisation, because two
+    implementations are two sets of verdicts and a writer whose copy passes in
+    the browser and fails in the pipeline has been told two different things by
+    the same system.
+    """
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline).where(
+                ContentGuideline.id == guideline_id,
+                ContentGuideline.workspace_id == me.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if guideline is None:
+        raise problems.not_found(f"No guideline {guideline_id}.")
+
+    rules, ruleset_version = await _text_ruleset(db, guideline)
+    constants = get_content_constants()
+    ruleset = RuleSetContract(
+        ruleset_version=ruleset_version,
+        project_id=guideline.project_id,
+        guideline_id=guideline.id,
+        compiler_version=compiler_version(),
+        constants_version=constants.version,
+        rules=rules,
+        hash=_transient_hash(rules),
+        compiled_at=datetime.now(UTC),
+    )
+    result = lint(body.targets, ruleset, now=datetime.now(UTC))
+    return LintResponse(guideline_id=guideline.id, result=result)
+
+
+async def _text_ruleset(db: AsyncSession, guideline: ContentGuideline) -> tuple[list[Rule], str]:
+    """This guideline's copy rules, published or draft.
+
+    **Image rules are excluded, and that is not an oversight.** An image rule
+    evaluated against a target carrying no `image_metrics` is `indeterminate`,
+    and law 31 makes a blocking indeterminate finding *fail*. Including them
+    would make every text lint return `fail` with a finding about a picture
+    nobody submitted — the linter working exactly as specified, producing an
+    answer that is useless. `POST /lint/image` is where images are checked, and
+    it applies the mirror-image filter for the mirror-image reason.
+    """
+    if guideline.ruleset_id is not None:
+        row = (
+            await db.execute(sa.select(RuleSet).where(RuleSet.id == guideline.ruleset_id))
+        ).scalar_one_or_none()
+        if row is not None:
+            compiled = RuleSetContract.model_validate(row.compiled)
+            return (
+                [rule for rule in compiled.rules if rule.category != "image"],
+                compiled.ruleset_version,
+            )
+
+    payload = guideline.payload or {}
+    raw_rules = payload.get("rules")
+    if raw_rules is None:
+        # Mid-run, before 3.6.1 has synthesised a payload. Every node that has
+        # emitted rules so far is the best available answer, and assembling it
+        # is what makes the playground usable before publish rather than after.
+        raw_rules = await _draft_rules(db, guideline)
+    if not raw_rules:
+        raise problems.conflict(
+            "This guideline has no rules yet. Nothing has compiled a rule for this run, "
+            "so there is nothing to check copy against.",
+            title="Rules not ready",
+        )
+
+    try:
+        rules = [Rule.model_validate(item) for item in raw_rules]
+    except ValidationError as exc:
+        # A stored payload the current `Rule` model cannot read. Reachable in
+        # practice: `guideline.payload` is written by 3.6.1 and outlives the
+        # compiler version that wrote it, so a contract change makes every old
+        # draft unparseable. Letting pydantic escape here turns that into a 500
+        # with a stack trace, which tells a writer checking a headline nothing
+        # and tells an operator the wrong thing — the server is fine, the
+        # stored rules are stale.
+        raise problems.conflict(
+            f"This guideline's stored rules were written by an older compiler and cannot "
+            f"be read by this one ({exc.error_count()} field(s) disagree). Re-run the "
+            "guideline stage to recompile them.",
+            title="Rules cannot be read",
+        ) from exc
+    return (
+        [rule for rule in rules if rule.category != "image"],
+        f"draft+{guideline.version_major}.{guideline.version_minor}",
+    )
+
+
+async def _draft_rules(db: AsyncSession, guideline: ContentGuideline) -> list[dict[str, Any]]:
+    """Every rule the succeeded nodes of this run have emitted so far.
+
+    Collected in node order and de-duplicated on `rule_id`, last writer winning
+    — a node that re-ran after a retry should not have its superseded rule
+    counted beside its replacement.
+    """
+    rows = (
+        (
+            await db.execute(
+                sa.select(NodeRun)
+                .where(
+                    NodeRun.run_id == guideline.guideline_run_id,
+                    NodeRun.status == NodeRunStatus.SUCCEEDED,
+                )
+                .order_by(NodeRun.node_id, NodeRun.started_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    collected: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        for item in (row.output or {}).get("rules") or []:
+            rule_id = item.get("rule_id")
+            if rule_id:
+                collected[rule_id] = item
+    return list(collected.values())
 
 
 @router.post(

@@ -18,7 +18,10 @@ import { useMemo } from "react";
 
 import { listAudit, type AuditFilters } from "@/lib/api/audit";
 import { listSessions } from "@/lib/api/account";
+import { listAmendments } from "@/lib/api/amendments";
 import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
+import { listClaims } from "@/lib/api/claims";
+import { listHumanTasks, type TaskFilters } from "@/lib/api/tasks";
 import { listConnections } from "@/lib/api/connections";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
@@ -87,6 +90,14 @@ export const keys = {
     ["plans", planRunId, "diff", against] as const,
   planCalcs: (planRunId: string, nodeId: string) =>
     ["plans", planRunId, "calcs", nodeId] as const,
+  // Stage 03 — S3-P8.
+  claims: (guidelineId: string) => ["guidelines", guidelineId, "claims"] as const,
+  humanTasks: (filters: TaskFilters) => ["human-tasks", filters] as const,
+  signoffMatrix: (projectId: string) => ["projects", projectId, "signoff-matrix"] as const,
+  matrixPreview: (projectId: string, legalOwnerId: string) =>
+    ["projects", projectId, "signoff-matrix", "preview", legalOwnerId] as const,
+  amendments: (filters: { status?: string; project_id?: string }) =>
+    ["policy-amendments", filters] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -523,5 +534,45 @@ export function useSwitchWorkspace() {
       router.push("/");
       router.refresh();
     },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Stage 03 — the claims register, person-tasks and the amendment inbox
+// ---------------------------------------------------------------------------
+
+/**
+ * The register.
+ *
+ * `staleTime: 0` on purpose. Everywhere else a few seconds of staleness is a
+ * kindness; here the response carries `set_hash`, and signing against a cached
+ * hash is exactly the race the hash exists to catch. Paying a refetch is
+ * cheaper than a 409 the signer has to recover from.
+ */
+export function useClaims(guidelineId: string) {
+  return useQuery({
+    queryKey: keys.claims(guidelineId),
+    queryFn: () => listClaims(guidelineId),
+    enabled: Boolean(guidelineId),
+    staleTime: 0,
+  });
+}
+
+export function useHumanTasks(
+  filters: TaskFilters = {},
+  options: { pollMs?: number; enabled?: boolean } = {},
+) {
+  return useQuery({
+    queryKey: keys.humanTasks(filters),
+    queryFn: () => listHumanTasks(filters),
+    refetchInterval: options.pollMs ?? false,
+    enabled: options.enabled ?? true,
+  });
+}
+
+export function useAmendments(filters: { status?: string; project_id?: string } = {}) {
+  return useQuery({
+    queryKey: keys.amendments(filters),
+    queryFn: () => listAmendments(filters),
   });
 }

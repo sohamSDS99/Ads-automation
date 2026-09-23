@@ -18,6 +18,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.db.models import GuidelineMode, GuidelineStatus, RunStatus
+from agent.schemas.guardrails import LintResult, LintTarget
 from agent.schemas.guideline_input import GuidelineBindings
 
 BlockerCode = Literal[
@@ -231,6 +232,36 @@ class ImageLintResult(BaseModel):
     #: to (§7.3), so the verdict can be re-derived later without re-running OCR.
     evidence_id: uuid.UUID | None = None
     evaluated_at: datetime
+
+
+class LintRequest(BaseModel):
+    """`POST /guidelines/{id}/lint` — §16's `{targets[]} -> LintResult`.
+
+    Side-effect free, zero LLM calls, zero writes, and safe for a `viewer`.
+    That is what lets the playground call it on a debounce rather than behind a
+    button, and the playground being fast is §15.3 F's entire argument: a
+    rulebook people can interrogate in four seconds gets read, and one they
+    have to remember does not.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    #: Bounded because `count`-scoped rules evaluate over the whole set, so a
+    #: caller sending thousands would turn a keystroke into a long scan. Stage
+    #: 04 submits an ad group at a time, which is far under this.
+    targets: list[LintTarget] = Field(min_length=1, max_length=200)
+
+
+class LintResponse(BaseModel):
+    """`LintResult`, plus which guideline and which ruleset answered.
+
+    The ruleset version is on the response rather than left to the caller to
+    remember: a finding that cannot name the ruleset that produced it cannot be
+    re-checked a year later, which is the whole reason rulesets are pinned.
+    """
+
+    guideline_id: uuid.UUID
+    result: LintResult
 
 
 # ---------------------------------------------------------------------------
