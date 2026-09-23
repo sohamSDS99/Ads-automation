@@ -81,6 +81,11 @@ class ImagePolicyConstants(_Node):
     search_image_text_coverage_max: NumberConstant
     logo_match_score_min: NumberConstant
     ocr_working_width_px: NumberConstant
+    #: Bounds on how much of an image the matched logo may occupy (§11, 3.4.3).
+    #: Both sides, because a logo can be wrong by being too big as well as too
+    #: small, and §11's `logo_area_ratio` metric has no meaning without them.
+    logo_area_ratio_max: NumberConstant
+    logo_area_ratio_min: NumberConstant
 
 
 class ClaimsConstants(_Node):

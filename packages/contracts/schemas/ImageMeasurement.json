@@ -1,0 +1,231 @@
+{
+  "$defs": {
+    "LogoMatch": {
+      "additionalProperties": false,
+      "description": "One registered logo, found in one image, with the evidence to argue it.\n\n`score` and `bbox` are both carried because \u00a718 says a disputed logo\nverdict has to be inspectable: a reviewer who thinks the match is a false\npositive can see how confident it was and where it claims the logo is.",
+      "properties": {
+        "asset_id": {
+          "format": "uuid",
+          "title": "Asset Id",
+          "type": "string"
+        },
+        "label": {
+          "minLength": 1,
+          "title": "Label",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "integer"
+                }
+              ],
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Bbox"
+        },
+        "phash_distance": {
+          "maximum": 64,
+          "minimum": 0,
+          "title": "Phash Distance",
+          "type": "integer"
+        },
+        "method": {
+          "default": "orb",
+          "enum": [
+            "orb",
+            "phash"
+          ],
+          "title": "Method",
+          "type": "string"
+        }
+      },
+      "required": [
+        "asset_id",
+        "label",
+        "score",
+        "phash_distance"
+      ],
+      "title": "LogoMatch",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything one image measurement produced \u2014 \u00a77.3's `image_metric` row.\n\nPersisted as a `derived` Evidence payload so a verdict can be re-derived\nwithout re-running OCR. That is not a cache: it is what makes the verdict\nreproducible even though the measurement is not guaranteed bit-identical\nacross architectures. Re-linting reads the stored number; it never\nre-measures, so a verdict issued in August still means in June what it\nmeant when it was issued.",
+  "properties": {
+    "image_hash": {
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Image Hash",
+      "type": "string"
+    },
+    "width_px": {
+      "minimum": 1,
+      "title": "Width Px",
+      "type": "integer"
+    },
+    "height_px": {
+      "minimum": 1,
+      "title": "Height Px",
+      "type": "integer"
+    },
+    "byte_size": {
+      "minimum": 1,
+      "title": "Byte Size",
+      "type": "integer"
+    },
+    "media_type": {
+      "minLength": 1,
+      "title": "Media Type",
+      "type": "string"
+    },
+    "status": {
+      "default": "measured",
+      "enum": [
+        "measured",
+        "detector_unavailable"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "ocr_text": {
+      "default": "",
+      "title": "Ocr Text",
+      "type": "string"
+    },
+    "ocr_word_count": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Ocr Word Count",
+      "type": "integer"
+    },
+    "text_coverage_ratio": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Text Coverage Ratio"
+    },
+    "logo_match_score": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Match Score"
+    },
+    "logo_area_ratio": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Area Ratio"
+    },
+    "logo_present": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Logo Present"
+    },
+    "logo_matches": {
+      "default": [],
+      "items": {
+        "$ref": "#/$defs/LogoMatch"
+      },
+      "title": "Logo Matches",
+      "type": "array"
+    },
+    "detector_version": {
+      "minLength": 1,
+      "title": "Detector Version",
+      "type": "string"
+    },
+    "working_width_px": {
+      "minimum": 1,
+      "title": "Working Width Px",
+      "type": "integer"
+    },
+    "measured_ms": {
+      "minimum": 0,
+      "title": "Measured Ms",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "image_hash",
+    "width_px",
+    "height_px",
+    "byte_size",
+    "media_type",
+    "detector_version",
+    "working_width_px",
+    "measured_ms"
+  ],
+  "title": "ImageMeasurement",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

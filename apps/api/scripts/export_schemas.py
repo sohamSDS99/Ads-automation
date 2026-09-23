@@ -40,6 +40,7 @@ SOURCE_MODULES: tuple[str, ...] = (
     "agent.api.schemas_guidelines",
     "agent.schemas.guideline_input",
     "agent.schemas.guardrails",
+    "agent.schemas.imaging",
 )
 
 

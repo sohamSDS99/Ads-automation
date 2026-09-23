@@ -233,3 +233,42 @@ def test_a_file_that_is_not_a_mapping_raises(tmp_path: Path) -> None:
 
 def test_the_process_wide_constants_are_cached() -> None:
     assert get_content_constants() is get_content_constants()
+
+
+# --- one source for the version string --------------------------------------
+
+
+def test_constants_version_has_one_source() -> None:
+    """`Settings.content_constants_version` must equal the YAML's `version`.
+
+    S3-P0 added the Settings field as a placeholder and S3-P1 then made
+    `content_constants.yaml` the real source, leaving two copies of one string
+    that happened to agree. They stopped agreeing the moment S3-P5 edited the
+    file: every `GuidelineInput` recorded `2026.09.1` while the `RuleSet`
+    compiled from the same constants recorded `2026.09.2`, so the pair that
+    exists to make a verdict re-derivable disagreed about which constants
+    produced it.
+
+    `build_guideline_input` now reads the loaded constants. This test is what
+    stops the duplicate from drifting again — it fails on the next edit that
+    bumps one and not the other.
+    """
+    from agent.config import Settings
+
+    assert Settings().content_constants_version == get_content_constants().version
+
+
+def test_the_image_coverage_threshold_does_not_claim_to_be_googles() -> None:
+    """Google publishes no text-coverage percentage. Checked 2026-09-23.
+
+    Both governing pages were read: for Search image assets the rule is
+    categorical — "absolutely no digitally added text, logos, or graphic
+    overlays" — and Performance Max explicitly permits overlays. There is no
+    number upstream to attribute this to, so `source` must stay `internal`.
+
+    Relabelling it `google_policy` (or `unverified`, which implies somebody
+    still might verify it) would put a figure in Google's mouth on the face of
+    every finding the rule produces.
+    """
+    constant = get_content_constants().image_policy.search_image_text_coverage_max
+    assert constant.source == "internal"

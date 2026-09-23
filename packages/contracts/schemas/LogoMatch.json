@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "description": "One registered logo, found in one image, with the evidence to argue it.\n\n`score` and `bbox` are both carried because \u00a718 says a disputed logo\nverdict has to be inspectable: a reviewer who thinks the match is a false\npositive can see how confident it was and where it claims the logo is.",
+  "properties": {
+    "asset_id": {
+      "format": "uuid",
+      "title": "Asset Id",
+      "type": "string"
+    },
+    "label": {
+      "minLength": 1,
+      "title": "Label",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Score",
+      "type": "number"
+    },
+    "bbox": {
+      "anyOf": [
+        {
+          "maxItems": 4,
+          "minItems": 4,
+          "prefixItems": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "integer"
+            }
+          ],
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bbox"
+    },
+    "phash_distance": {
+      "maximum": 64,
+      "minimum": 0,
+      "title": "Phash Distance",
+      "type": "integer"
+    },
+    "method": {
+      "default": "orb",
+      "enum": [
+        "orb",
+        "phash"
+      ],
+      "title": "Method",
+      "type": "string"
+    }
+  },
+  "required": [
+    "asset_id",
+    "label",
+    "score",
+    "phash_distance"
+  ],
+  "title": "LogoMatch",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

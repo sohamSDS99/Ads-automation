@@ -43,6 +43,7 @@ from agent.db.models import (
     SignOffMatrix,
 )
 from agent.export.contract import ComplianceGuardrails
+from agent.guidelines.constants import get_content_constants
 from agent.schemas.guideline_input import GuidelineBindings, GuidelineInput
 
 log = structlog.get_logger(__name__)
@@ -150,7 +151,16 @@ async def build_guideline_input(
         account_structure=account_structure,
         measurement_consent=measurement_consent,
         unbound_inputs=unbound,
-        constants_version=settings.content_constants_version,
+        # The LOADED constants, not `settings.content_constants_version`.
+        # S3-P0 added that Settings field as a placeholder and S3-P1 then made
+        # `content_constants.yaml` the real source, leaving two copies of one
+        # string. They agreed until this phase edited the YAML — at which point
+        # every run would have recorded `2026.09.1` while the `RuleSet` compiled
+        # from the same file recorded `2026.09.2`, and the pair that is supposed
+        # to make a verdict re-derivable would have disagreed about which
+        # constants produced it. `test_constants_version_has_one_source` fails
+        # if the two ever drift again.
+        constants_version=get_content_constants().version,
     )
     if unbound:
         log.info(

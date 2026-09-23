@@ -16,7 +16,7 @@
 # owner verifies each against Google's live documentation before the first
 # publish; being wrong here is a one-line edit and a MINOR bump, not a deploy.
 
-version: "2026.09.1"
+version: "2026.09.2"
 
 asset_specs:
   search:
@@ -29,10 +29,34 @@ asset_specs:
     description:     { max_chars: 90, min_count: 2, max_count: 5,  source: "unverified", reviewed_at: 2026-09-22 }
     image_landscape: { ratio: "1.91:1", min_px: "600x314", max_bytes: 5242880, min_count: 1, source: "unverified", reviewed_at: 2026-09-22 }
 
+# READ THIS BEFORE CHANGING A NUMBER HERE: `search_image_text_coverage_max` is
+# NOT Google's. Both governing pages were read on 2026-09-23 and **Google
+# publishes no text-coverage percentage anywhere**. What it publishes is
+# categorical and differs by campaign type: for Search image assets, "ensure
+# there are absolutely no digitally added text, logos, or graphic overlays, as
+# these will be immediately disapproved"; for Performance Max, "you can use
+# images with overlays". Since July 2026 an AI-disclosure label is exempt from
+# the overlay prohibition entirely.
+#
+# A ratio cannot express that rule, and encoding Google's Search position
+# literally as 0.0 would be worse than useless: OCR cannot tell text somebody
+# added from text that was in the photographed scene, and Google permits the
+# second. A 0.0 threshold would block a legitimate photograph of a signposted
+# warehouse on every run.
+#
+# So this is OURS — a screening threshold that says "a human should look at
+# this image", carrying `source: internal` because that is the truth. It is not
+# `unverified`: it has been checked, and the finding is that there is nothing
+# upstream to verify it against. Do not relabel it `google_policy`.
 image_policy:
-  search_image_text_coverage_max: { value: 0.20, source: "unverified", reviewed_at: 2026-09-22 }
-  logo_match_score_min:           { value: 0.62, source: "internal",   reviewed_at: 2026-09-22 }
-  ocr_working_width_px:           { value: 1280, source: "internal",   reviewed_at: 2026-09-22 }
+  search_image_text_coverage_max: { value: 0.20, source: "internal", reviewed_at: 2026-09-23 }
+  logo_match_score_min:           { value: 0.62, source: "internal", reviewed_at: 2026-09-22 }
+  ocr_working_width_px:           { value: 1280, source: "internal", reviewed_at: 2026-09-22 }
+  # A logo taking up a third of the frame is the advertisement, not the
+  # branding on it. Warning-severity, so this is a nudge rather than a block.
+  logo_area_ratio_max:            { value: 0.30, source: "internal", reviewed_at: 2026-09-23 }
+  # Below this a logo is unreadable at the size a phone renders the asset.
+  logo_area_ratio_min:            { value: 0.01, source: "internal", reviewed_at: 2026-09-23 }
 
 claims:
   default_expiry_days:    { value: 365,  source: "internal", reviewed_at: 2026-09-22 }

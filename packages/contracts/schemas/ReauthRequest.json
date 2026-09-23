@@ -1,0 +1,17 @@
+{
+  "description": "The current password, re-typed, to prove presence before a signature.",
+  "properties": {
+    "password": {
+      "maxLength": 512,
+      "minLength": 1,
+      "title": "Password",
+      "type": "string"
+    }
+  },
+  "required": [
+    "password"
+  ],
+  "title": "ReauthRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

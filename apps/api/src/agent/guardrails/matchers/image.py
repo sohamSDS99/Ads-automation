@@ -144,3 +144,61 @@ def logo_match(
         scope=scope,
         fix_hint=fix_hint,
     )
+
+
+@rule("image.logo_area.v1", category="image", matcher_kind="ratio", severity="warning")
+def logo_area(
+    *,
+    authority: Authority,
+    maximum: float | None = None,
+    minimum: float | None = None,
+    message: str = "The logo is not at its permitted size in this image.",
+    scope: RuleScope = EVERYWHERE,
+    fix_hint: str | None = "Resize the logo to the proportion the brand rules give.",
+) -> RuleBody:
+    """Share of the image area the best-matching logo occupies (§11, 3.4.3).
+
+    Takes a bound on either side because both mistakes are real: a logo big
+    enough to be the ad, and a logo too small to read on a phone. Warning by
+    default — a mis-sized logo is a brand problem, not a policy one, and §9.2
+    reserves `blocking` in the `image` category for what Google will reject.
+    """
+    return RuleBody(
+        matcher=RatioMatcher(metric="logo_area_ratio", max=maximum, min=minimum),
+        message=message,
+        authority=authority,
+        scope=scope,
+        fix_hint=fix_hint,
+    )
+
+
+@rule("image.logo_present.v1", category="image", matcher_kind="ratio", severity="warning")
+def logo_present(
+    *,
+    authority: Authority,
+    message: str = "This image carries no registered logo.",
+    scope: RuleScope = EVERYWHERE,
+    fix_hint: str | None = "Place an approved logo asset on the image.",
+) -> RuleBody:
+    """Whether any registered logo was found at all (§11, 3.4.3).
+
+    A 1.0/0.0 metric expressed as a ratio so one `RatioMatcher` serves all four
+    image metrics rather than the union growing a boolean kind for one rule.
+
+    **Severity is `warning` by default and §18 says so explicitly** — "Severity
+    for `logo_present` in non-search surfaces defaults to `warning`, not
+    `blocking`". A missing logo is not a disapproval; blocking on it would
+    teach writers that the image rules cry wolf, and they would stop reading
+    the one rule in this category that really does block.
+
+    `logo_present` is absent from the metrics when no template was registered,
+    which makes this `indeterminate` rather than a failure: "nobody registered
+    a logo" is not the same finding as "this image is missing the logo".
+    """
+    return RuleBody(
+        matcher=RatioMatcher(metric="logo_present", min=1.0),
+        message=message,
+        authority=authority,
+        scope=scope,
+        fix_hint=fix_hint,
+    )

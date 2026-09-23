@@ -21,7 +21,9 @@ from agent.guardrails.matchers.disclosure import (
 )
 from agent.guardrails.matchers.image import (
     evaluate_ratio,
+    logo_area,
     logo_match,
+    logo_present,
     prepare_ratio,
     text_coverage,
 )
@@ -137,3 +139,64 @@ def test_an_empty_required_text_is_refused() -> None:
 def test_a_finding_says_where_the_disclosure_belongs() -> None:
     prefixed = ai_generated(authority=GOOGLE, required_text="AI-generated", placement="prefix")
     assert "at the start" in lint_disclosure(prefixed, "Manage sheets")[0].message
+
+
+# --- the two metrics S3-P5 added (§11's `logo_area_ratio` and `logo_present`)
+
+
+AREA = logo_area(authority=INTERNAL, maximum=0.30, minimum=0.01)
+PRESENT = logo_present(authority=INTERNAL)
+
+
+def test_a_logo_within_its_size_bounds_passes() -> None:
+    assert lint_image(AREA, image_metrics={"logo_area_ratio": 0.12}) == []
+
+
+def test_a_logo_taking_over_the_frame_warns_and_states_both_numbers() -> None:
+    findings = lint_image(AREA, image_metrics={"logo_area_ratio": 0.55})
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+    assert "0.550" in findings[0].message
+    assert "0.300" in findings[0].message
+
+
+def test_a_logo_too_small_to_read_also_warns() -> None:
+    """Both bounds are real mistakes; only checking the upper one misses half."""
+    findings = lint_image(AREA, image_metrics={"logo_area_ratio": 0.001})
+    assert len(findings) == 1
+    assert "minimum" in findings[0].message
+
+
+def test_logo_presence_is_a_warning_not_a_block() -> None:
+    """§18 names this severity explicitly.
+
+    "Severity for `logo_present` in non-search surfaces defaults to `warning`,
+    not `blocking`". A missing logo is not a disapproval, and blocking on it
+    would teach writers that the image category cries wolf.
+    """
+    findings = lint_image(PRESENT, image_metrics={"logo_present": 0.0})
+    assert len(findings) == 1
+    assert findings[0].severity == "warning"
+
+
+def test_a_present_logo_passes_silently() -> None:
+    assert lint_image(PRESENT, image_metrics={"logo_present": 1.0}) == []
+
+
+def test_an_unmeasured_logo_is_indeterminate_rather_than_missing() -> None:
+    """Law 31 again, and the distinction the whole metric exists to keep.
+
+    No template registered means `logo_present` is absent from the metrics.
+    That has to read as "not checked", never as "this image has no logo" —
+    otherwise every project without a brand book fails a rule about a logo
+    nobody ever gave it.
+    """
+    findings = lint_image(PRESENT, image_metrics={"text_coverage_ratio": 0.1})
+    assert len(findings) == 1
+    assert findings[0].indeterminate is True
+    assert findings[0].severity == "warning"
+
+
+def test_an_area_rule_with_neither_bound_refuses_to_compile() -> None:
+    with pytest.raises(GuardrailsError, match="neither a max nor a min"):
+        prepare_ratio(RatioMatcher(metric="logo_area_ratio"))

@@ -426,12 +426,25 @@ class AssetSpecSheet(_Contract):
 
 
 class LogoTemplate(_Contract):
-    """A registered logo, for the S3-P5 image match. Carried, not used, here."""
+    """A registered logo, and everything needed to find it in a picture.
+
+    §11 specifies a `descriptor_path`. The descriptors are carried *inline*
+    instead, because a ruleset that named a file on a Volume would stop being
+    self-determining — Stage 04 is handed a `RuleSet` and nothing else, and a
+    path it cannot resolve would turn a logo rule into a silent no-op. Bounded
+    at `TEMPLATE_KEYPOINTS` descriptors of 32 bytes, so a dozen logos cost tens
+    of kilobytes rather than a dependency on shared storage.
+    """
 
     asset_id: UUID
     label: str = Field(min_length=1)
     phash: str = Field(min_length=1)
     min_score: float = Field(ge=0.0, le=1.0)
+    #: Base64 of the ORB descriptor matrix, `keypoint_count` rows of 32 bytes.
+    #: Empty for a flat wordmark with no corners to describe — such a logo is
+    #: still matchable whole, by `phash`.
+    descriptors_b64: str = ""
+    keypoint_count: int = Field(default=0, ge=0)
 
 
 class DisclosureRule(_Contract):

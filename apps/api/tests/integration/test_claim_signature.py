@@ -160,7 +160,14 @@ async def test_the_named_legal_owner_signs_and_the_claims_become_approved(
 
     signature = (await db.execute(sa.select(ClaimSignature))).scalars().one()
     assert signature.statement == STATEMENT
-    assert signature.ip is not None or True  # recorded when the transport supplies one
+    # Pre-existing from S3-P3, corrected here because it failed `ruff` (SIM222):
+    # `x is not None or True` is always True, so this line asserted nothing while
+    # reading like a check on the receipt. Whether an IP is recorded depends on the
+    # transport supplying `request.client`, which the ASGI test client does not
+    # guarantee — so the invariant that is actually always true is that the column
+    # is never written as an empty string, which is what a naive
+    # `request.client.host or ""` would produce.
+    assert signature.ip is None or signature.ip.strip()
 
 
 async def test_a_partly_rejected_set_is_legal(

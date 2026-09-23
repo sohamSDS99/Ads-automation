@@ -1,0 +1,52 @@
+{
+  "description": "One image rule's verdict on this image.",
+  "properties": {
+    "rule_id": {
+      "title": "Rule Id",
+      "type": "string"
+    },
+    "severity": {
+      "enum": [
+        "blocking",
+        "warning",
+        "advisory"
+      ],
+      "title": "Severity",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    },
+    "fix_hint": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Fix Hint"
+    },
+    "authority_ref": {
+      "title": "Authority Ref",
+      "type": "string"
+    },
+    "indeterminate": {
+      "default": false,
+      "title": "Indeterminate",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "rule_id",
+    "severity",
+    "message",
+    "authority_ref"
+  ],
+  "title": "ImageLintFinding",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

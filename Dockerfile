@@ -59,6 +59,53 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
+# The image precheck's OCR engine (Stage 03 PRD §9.5, §6). WORKER ONLY — `api`
+# receives the upload and enqueues the measurement; it never runs tesseract, so
+# it stays slim exactly as §6 requires.
+#
+# MEASURED, because the PRD's estimate is wrong by a factor of twenty: these two
+# packages cost **9.8 MiB** on this base (879,849,937 -> 890,090,986 bytes), not
+# the "roughly +200 MB" §6 and open question Q6 budget for. Q6 asks whether the
+# OCR stack justifies a separate one-shot job. At 10 MiB the question does not
+# arise.
+#
+# `tesseract-ocr-eng` is listed explicitly rather than relied upon. jammy's
+# `tesseract-ocr` recommends it and this install uses --no-install-recommends,
+# so without the second package there is a tesseract binary with NO language
+# data — which fails at the first call, at runtime, in the worker, on an image
+# somebody was waiting on, rather than here at build time.
+#
+# NOT version-pinned, deliberately, and the alternative was tried first.
+# `tesseract-ocr=4.1.1-2.1build1` is what jammy resolves today and the pin builds
+# fine — until Ubuntu supersedes it and drops the old version from the archive,
+# at which point every worker build fails on a line nobody has touched in months.
+# A pin that expires silently is worse than no pin.
+#
+# The drift it was meant to catch is caught properly instead, in two places that
+# cannot expire: the assertion below fails the BUILD if the engine is ever not
+# tesseract 4.x, and `imaging/precheck.detector_version()` stamps the exact
+# running version into every `derived` image_metric row, so two metrics taken
+# months apart are always comparable by inspection rather than by assumption.
+# The assertion runs in its own `sh -eu` with a `case`, not as a chain of
+# `&&`/`||` around a pipe. Two reasons, both learned the hard way in this repo:
+# `cmd | head -1` SIGPIPEs the writer and reads as a failure the moment anything
+# enables pipefail, and a `||` guard in a long `&&` chain is exactly the shape
+# that reports a pass when the check itself never ran.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        tesseract-ocr \
+        tesseract-ocr-eng \
+    && rm -rf /var/lib/apt/lists/* \
+    && tesseract --version \
+    && tesseract --list-langs \
+    && sh -euc 'version=$(tesseract --version 2>&1 | sed -n "1s/^tesseract //p"); \
+        case "$version" in \
+          4.*) echo "tesseract $version — as expected" ;; \
+          *) echo "FATAL: expected tesseract 4.x, got \"${version:-nothing}\". A major-version change moves every stored image metric."; exit 1 ;; \
+        esac; \
+        if ! tesseract --list-langs 2>&1 | grep -qx eng; then \
+          echo "FATAL: no eng language data. OCR would fail at runtime in the worker, not here."; exit 1; \
+        fi'
+
 # `pg_dump` for the nightly backup (PRD §17, P8). Version 16 specifically, from
 # PGDG rather than Ubuntu's archive: jammy ships client 14, and pg_dump refuses
 # outright to dump a newer server ("server version 16.x; pg_dump version 14.x").
