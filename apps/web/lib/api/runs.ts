@@ -55,7 +55,7 @@ export type DegradedSource = {
   severity: "degraded" | "unavailable";
 };
 
-export type RunStage = "research" | "plan";
+export type RunStage = "research" | "plan" | "guideline";
 
 export type RunDetail = {
   id: string;

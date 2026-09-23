@@ -32,26 +32,81 @@ import { keys } from "@/lib/queries";
  * auto-downloads — a file that saves itself while someone is reading is a
  * surprise, and a browser blocks it half the time anyway.
  */
-const FORMATS: ExportFormat[] = ["pdf", "docx", "md", "json", "csv"];
+const FORMATS = ["pdf", "docx", "md", "json", "csv"] as const satisfies readonly ExportFormat[];
 const POLL_MS = 1500;
 const GIVE_UP_AFTER_MS = 5 * 60 * 1000;
 
-export function ExportButton({ runId }: { runId: string }) {
-  const queryClient = useQueryClient();
-  const [busy, setBusy] = useState<ExportFormat | null>(null);
+/**
+ * The Stage 03 rulebook's formats (`export.jobs.CONTENT_GUIDELINE_FORMATS`).
+ *
+ * Not the same set as a report's: there is no keyword CSV, and there are two
+ * the report has no use for — a spreadsheet of the specs, and the compiled
+ * ruleset as JSON, which is what somebody hands to a tool rather than reads.
+ */
+export type GuidelineExportFormat = "pdf" | "docx" | "md" | "json" | "xlsx" | "ruleset_json";
 
-  async function run(format: ExportFormat) {
+export const GUIDELINE_FORMAT_LABEL: Record<GuidelineExportFormat, string> = {
+  pdf: "PDF",
+  docx: "Word",
+  md: "Markdown",
+  json: "JSON",
+  xlsx: "Spreadsheet",
+  ruleset_json: "Compiled ruleset (JSON)",
+};
+
+export function ExportButton({ runId }: { runId: string }) {
+  return (
+    <ExportControl
+      formats={FORMATS}
+      label={(format) => FORMAT_LABEL[format]}
+      request={(format) => requestExport(runId, format).then((accepted) => accepted.job_id)}
+      invalidate={keys.report(runId)}
+    />
+  );
+}
+
+/**
+ * The generic half: request, wait, offer the file.
+ *
+ * Split out of `ExportButton` when Stage 03 arrived with a different format
+ * list and a different endpoint but the identical wait. Everything that
+ * differs is a prop; everything that is the same — the toast that stays up,
+ * the poll, the five-minute give-up, the deliberate absence of an
+ * auto-download — is here once.
+ */
+export function ExportControl<F extends string>({
+  formats,
+  label,
+  request,
+  invalidate,
+  primary,
+}: {
+  /** Non-empty by type, so the split button's main half always has a format. */
+  formats: readonly [F, ...F[]];
+  label: (format: F) => string;
+  /** Kick off the job; resolve with its id. */
+  request: (format: F) => Promise<string>;
+  /** The read key the finished job may have changed. */
+  invalidate: readonly unknown[];
+  /** The format the main half of the split button runs. Defaults to the first. */
+  primary?: F;
+}) {
+  const queryClient = useQueryClient();
+  const [busy, setBusy] = useState<F | null>(null);
+  const main = primary ?? formats[0];
+
+  async function run(format: F) {
     setBusy(format);
-    const toastId = toast.loading(`Building the ${FORMAT_LABEL[format]}`, {
+    const toastId = toast.loading(`Building the ${label(format)}`, {
       description: "This runs in the worker; it takes a few seconds.",
       duration: Number.POSITIVE_INFINITY,
     });
     try {
-      const accepted = await requestExport(runId, format);
-      const finished = await waitForExport(accepted.job_id);
+      const jobId = await request(format);
+      const finished = await waitForExport(jobId);
 
       if (finished.status === "ready") {
-        toast.success(`${FORMAT_LABEL[format]} ready`, {
+        toast.success(`${label(format)} ready`, {
           id: toastId,
           description: finished.filename ?? undefined,
           duration: 30_000,
@@ -61,15 +116,15 @@ export function ExportButton({ runId }: { runId: string }) {
           },
         });
       } else {
-        toast.error(`The ${FORMAT_LABEL[format]} could not be generated`, {
+        toast.error(`The ${label(format)} could not be generated`, {
           id: toastId,
           description: finished.error ?? "The worker reported a failure.",
           duration: 20_000,
         });
       }
-      await queryClient.invalidateQueries({ queryKey: keys.report(runId) });
+      await queryClient.invalidateQueries({ queryKey: invalidate });
     } catch (error) {
-      toast.error(`The ${FORMAT_LABEL[format]} could not be requested`, {
+      toast.error(`The ${label(format)} could not be requested`, {
         id: toastId,
         description: error instanceof ApiError ? error.detail : "Try again in a moment.",
         duration: 20_000,
@@ -82,12 +137,12 @@ export function ExportButton({ runId }: { runId: string }) {
   return (
     <div className="flex">
       <Button
-        onClick={() => void run("pdf")}
+        onClick={() => void run(main)}
         disabled={busy !== null}
         className="rounded-r-none"
-        title="Export as PDF"
+        title={`Export as ${label(main)}`}
       >
-        {busy === "pdf" ? <Spinner label="Building" /> : <Download aria-hidden />}
+        {busy === main ? <Spinner label="Building" /> : <Download aria-hidden />}
         Export
       </Button>
       <DropdownMenu>
@@ -101,9 +156,9 @@ export function ExportButton({ runId }: { runId: string }) {
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          {FORMATS.map((format) => (
+          {formats.map((format) => (
             <DropdownMenuItem key={format} onSelect={() => void run(format)}>
-              {FORMAT_LABEL[format]}
+              {label(format)}
             </DropdownMenuItem>
           ))}
         </DropdownMenuContent>
