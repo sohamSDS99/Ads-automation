@@ -212,3 +212,132 @@ class TestSpec:
         assert spec.gate_conditional is True
         assert spec.gate_key == "G6"
         assert spec.required_role.value == "approver"
+
+
+# ---------------------------------------------------------------------------
+# 3.5.2 legal_review_triggers — the node §21 assigns to no phase
+# ---------------------------------------------------------------------------
+
+
+def triggers_answer(**overrides):
+    answer = {
+        "triggers": [
+            {
+                "id": "t1",
+                "pattern_kind": "term",
+                "pattern": "clinically proven",
+                "why": "A health claim a regulator reads differently.",
+                "reviewer_role": "approver",
+                "severity": "blocking",
+            }
+        ],
+        "always_review": ["Anything naming a competitor"],
+    }
+    answer.update(overrides)
+    return answer
+
+
+def substantiated():
+    return {
+        "claims": [
+            {"claim_text": "Clinically proven", "claim_type": "certification", "risk_tier": "high"}
+        ]
+    }
+
+
+def applicable():
+    return {"applicable": [{"area": "healthcare", "obligations": ["No implied outcome"]}]}
+
+
+class TestLegalReviewTriggers:
+    """3.5.2 routes copy to a role. It never routes to a person.
+
+    Routing to an identity is `SignOffMatrix`'s job and it is non-delegable;
+    a trigger that named one would be a second, weaker path to the same
+    decision — and the weaker one is the path an operator can edit.
+    """
+
+    async def test_it_drafts_triggers_from_claims_and_policy(self) -> None:
+        from agent.nodes.content.stage_3_5 import legal_review_triggers
+
+        h = harness(
+            "3.5.2",
+            answers={"ReviewTriggersDraft": triggers_answer()},
+            outputs={"3.2.2": substantiated(), "3.3.1": applicable()},
+        )
+        out = await legal_review_triggers.reason(h.ctx, [])
+        assert out.triggers[0].pattern == "clinically proven"
+        assert out.always_review == ["Anything naming a competitor"]
+
+    async def test_a_trigger_naming_a_person_is_dropped(self) -> None:
+        """A UUID in `reviewer_role` is an identity. Law 23 keeps identity
+        routing in `SignOffMatrix` and nowhere else."""
+        from agent.nodes.content.stage_3_5 import legal_review_triggers
+
+        answer = triggers_answer()
+        answer["triggers"][0]["reviewer_role"] = str(uuid.uuid4())
+        h = harness(
+            "3.5.2",
+            answers={"ReviewTriggersDraft": answer},
+            outputs={"3.2.2": substantiated(), "3.3.1": applicable()},
+        )
+        out = await legal_review_triggers.reason(h.ctx, [])
+        assert out.triggers == []
+
+    async def test_a_pattern_that_does_not_compile_is_dropped(self) -> None:
+        """A trigger that reached `guardrails/` uncompilable would read as
+        enforced and match nothing — the worst of both."""
+        from agent.nodes.content.stage_3_5 import legal_review_triggers
+
+        answer = triggers_answer()
+        answer["triggers"][0]["pattern"] = "([unclosed"
+        h = harness(
+            "3.5.2",
+            answers={"ReviewTriggersDraft": answer},
+            outputs={"3.2.2": substantiated(), "3.3.1": applicable()},
+        )
+        out = await legal_review_triggers.reason(h.ctx, [])
+        assert out.triggers == []
+
+    async def test_one_bad_trigger_does_not_lose_the_good_ones(self) -> None:
+        """Dropped rather than raised: failing the node would throw away the
+        other triggers along with the hour of run that produced them."""
+        from agent.nodes.content.stage_3_5 import legal_review_triggers
+
+        answer = triggers_answer()
+        answer["triggers"].append(
+            {
+                "id": "t2",
+                "pattern_kind": "term",
+                "pattern": "guaranteed results",
+                "why": "A guarantee",
+                "reviewer_role": "not-a-role",
+                "severity": "warning",
+            }
+        )
+        h = harness(
+            "3.5.2",
+            answers={"ReviewTriggersDraft": answer},
+            outputs={"3.2.2": substantiated(), "3.3.1": applicable()},
+        )
+        out = await legal_review_triggers.reason(h.ctx, [])
+        assert [t.id for t in out.triggers] == ["t1"]
+
+    async def test_nothing_risky_means_no_model_call_at_all(self) -> None:
+        """§4.3. A project with nothing risky to say has nothing to route, and
+        that is a finding rather than a failure."""
+        from agent.nodes.content.stage_3_5 import legal_review_triggers
+
+        h = harness("3.5.2", answers={}, outputs={"3.2.2": {"claims": []}, "3.3.1": {}})
+        out = await legal_review_triggers.reason(h.ctx, [])
+        assert out.triggers == []
+        assert "nothing that needs a second read" in out.reason
+        assert h.llm.prompts == []
+
+    def test_it_is_registered_and_depends_on_the_right_two(self) -> None:
+        from agent.orchestrator.registry import get_registry
+
+        spec = get_registry().spec("3.5.2")
+        assert spec.depends_on == ("3.2.2", "3.3.1")
+        assert spec.gate is False
+        assert spec.human_task_key is None

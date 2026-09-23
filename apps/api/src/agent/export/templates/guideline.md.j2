@@ -1,0 +1,335 @@
+{#
+  The source of truth for every guideline export (Stage 03 PRD §12.1, §14).
+
+  Rules for editing this file — the same four `plan.md.j2` carries, because it
+  is the same job one stage later:
+  - Never put a judgement in here. The template arranges what 3.6.1 and 3.6.2
+    already decided; a conditional that changes a status is a node change
+    wearing a template's clothes.
+  - Every long table states its own cap in the document. A claims table
+    silently cut to 50 rows reads as a complete register, and a complete
+    register is what somebody signs.
+  - `guideline.md.j2` and `guideline.html.j2` render the same sections in the
+    same order. §14's acceptance compares them.
+  - The draft watermark is not decoration. §14: "a draft claims register must
+    not be able to circulate as a legal sign-off record."
+  - A line that ends in `{% endif %}` or `{% endfor %}` must be followed by
+    `{{ "" }}`. `trim_blocks` eats the newline after a block tag, so without it
+    the next line joins this one — and when the next line is `---`, markdown
+    reads the pair as a setext heading and the separator silently becomes a
+    title. An empty expression tag is not a block tag, so the newline survives.
+#}
+{% if watermark %}
+> # ⚠ {{ watermark }}
+>
+> This is a **{{ status_label|lower }}** content rulebook. Nobody has published it, the claims in it are not a legal sign-off record, and the rules in it are not what Stage 04 enforces.
+
+{% endif %}
+# Content Guidelines — {{ project_name|text }}
+
+**Status:** {{ status_label }} · **Version:** {{ version }}
+**Guideline run:** `{{ guideline.guideline_run_id }}`
+**Generated:** {{ guideline.generated_at|datetime }}
+**Mode:** {{ mode_label }}
+**Constants:** {{ guideline.constants_version|text }} · **Schema:** {{ guideline.schema_version }} · **Cost:** {{ guideline.cost_usd|money("USD") }}
+{% if published %}
+**Published** {{ guideline.generated_at|datetime }}{% if published_by_name %} by {{ published_by_name }}{% endif %}{% if ruleset_version %} · **Ruleset** `{{ ruleset_version }}`{% endif %}.
+{% endif %}
+{{ "" }}
+{% if unbound %}
+> **Built without {{ unbound|join(", ") }}.** Those inputs were not bound to this run, so the rules below were inferred from what was available. A rulebook built without legal guardrails is not as authoritative as one built with them.
+
+{% endif %}
+{% if degraded %}
+> **Degraded sources:** {{ degraded|join(", ") }}. Some inputs could not be read in full.
+
+{% endif %}
+## Executive summary
+
+{{ guideline.executive_summary|text }}
+
+{% if blocking_issues %}
+## ⚠ Blocking issues
+
+This rulebook cannot be published until these are resolved.
+
+| Section | Finding | Fix |
+|---|---|---|
+{% for issue in blocking_issues %}
+| {{ issue.section|cell }} | {{ issue.finding|cell }} | {{ issue.fix|cell }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+---
+
+## 1. Brand voice
+
+{% if brand.voice.voice_words %}
+**This brand sounds:** {{ brand.voice.voice_words|join(", ") }}
+{% for word, definition in brand.voice.definition_per_word.items() %}
+- **{{ word }}** — {{ definition|text }}
+{% endfor %}
+{{ "" }}
+{% else %}
+*No voice profile was produced for this project.*
+
+{% endif %}
+{% if brand.voice.readability_targets %}
+**Readability:** {% for key, value in brand.voice.readability_targets.items() %}{{ key|replace("_", " ") }} {{ value }}{% if not loop.last %} · {% endif %}{% endfor %}
+
+{% endif %}
+{% if brand.voice.do_examples %}
+### Do — quoted from real copy
+
+{% for example in brand.voice.do_examples %}
+- “{{ example.text|text }}”{% if example.why %} — {{ example.why|text }}{% endif %}{% if example.source_ref %} (`{{ example.source_ref }}`){% endif %}
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if brand.voice.dont_examples %}
+### Don't
+
+{% for example in brand.voice.dont_examples %}
+- “{{ example.text|text }}”{% if example.rewritten_as %} → “{{ example.rewritten_as }}”{% endif %}{% if example.why %} — {{ example.why|text }}{% endif %}
+{% endfor %}
+{{ "" }}
+{% endif %}
+## 2. Words we use, and words we don't
+
+{% if brand.lexicon.never %}
+### Never
+
+| Term | Why | Use instead | Severity |
+|---|---|---|---|
+{% for entry in brand.lexicon.never %}
+| {{ entry.term|cell }} | {{ entry.reason|cell }} | {{ entry.suggested_replacement|cell }} | {{ entry.severity }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if brand.lexicon.always %}
+### Always
+
+| Term | Where | Severity |
+|---|---|---|
+{% for entry in brand.lexicon.always %}
+| {{ entry.term|cell }} | {{ entry.context|cell }} | {{ entry.severity }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if brand.lexicon.conflicts %}
+> **{{ brand.lexicon.conflicts|length }} unresolved conflict(s)** in this lexicon. A term that is both required and banned cannot be satisfied.
+
+{% endif %}
+## 3. Visual identity
+
+{% if brand.visual_identity.logo %}
+**Logo:** {% for key, value in brand.visual_identity.logo.items() %}{{ key|replace("_", " ") }}: {{ value|text }}{% if not loop.last %} · {% endif %}{% endfor %}
+
+{% endif %}
+{% if brand.visual_identity.colour %}
+**Colour:** {% for key, value in brand.visual_identity.colour.items() %}{{ key|replace("_", " ") }}: {{ value|text }}{% if not loop.last %} · {% endif %}{% endfor %}
+
+{% endif %}
+{% if brand.visual_identity.imagery %}
+**Imagery:** {% for key, value in brand.visual_identity.imagery.items() %}{{ key|replace("_", " ") }}: {{ value|text }}{% if not loop.last %} · {% endif %}{% endfor %}
+
+{% endif %}
+{% if brand.visual_identity.extraction_confidence is not none %}
+*Extraction confidence: {{ brand.visual_identity.extraction_confidence }}.*
+
+{% endif %}
+---
+
+## 4. The claims register
+
+{{ register.claims|length }} claim(s){% if register.unsupported_count %}, of which **{{ register.unsupported_count }} are unsupported**{% endif %}.
+{% if register.expiry_basis %}
+Expiry basis: {{ register.expiry_basis|text }}.
+{% endif %}
+{{ "" }}
+{% if register.claims %}
+| Claim | Type | Status | Risk | Expires | Markets |
+|---|---|---|---|---|---|
+{% for claim in register.claims[:500] %}
+| {{ claim.claim_text|cell }} | {{ claim.claim_type|cell }} | {{ claim.status|cell }} | {{ claim.risk_tier|cell }} | {{ claim.expires_at|date }} | {{ claim.market_scope|commalist }} |
+{% endfor %}
+{{ "" }}
+{% if register.claims|length > 500 %}
+*This table shows the first 500 of {{ register.claims|length }} claims. The full register is in the JSON and XLSX exports.*
+
+{% endif %}
+{% else %}
+*No claims are registered for this project.*
+
+{% endif %}
+{% if expiring_soon %}
+### Expiring within 30 days
+
+{% for claim in expiring_soon %}
+- **{{ claim.claim_text|text }}** — {{ claim.expires_at|date }}
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if register.offer_rules %}
+### Offer integrity
+
+| Construction | Requirement | Severity |
+|---|---|---|
+{% for rule in register.offer_rules %}
+| {{ rule.construction|cell }} | {{ rule.requirement|cell }} | {{ rule.severity }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if register.live_violations %}
+> **{{ register.live_violations|length }} live offer violation(s)** were found against current offer data when this rulebook was built.
+
+{% endif %}
+---
+
+## 5. Google policy
+
+{% if policy.applicable %}
+### Applies to us
+
+| Area | Why | Markets | Obligations |
+|---|---|---|---|
+{% for area in policy.applicable %}
+| {{ area.area|cell }} | {{ area.why_applicable|cell }} | {{ area.markets|commalist }} | {{ area.obligations|commalist }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if policy.not_applicable %}
+### Checked, and does not apply
+
+The record that we looked is worth as much as the record of what we found.
+
+| Area | Why not |
+|---|---|
+{% for area in policy.not_applicable %}
+| {{ area.area|cell }} | {{ area.why_not|cell }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if policy.disclosure_rules %}
+### AI disclosure
+
+| Surfaces | Markets | Required text | Placement |
+|---|---|---|---|
+{% for rule in policy.disclosure_rules %}
+| {{ rule.surfaces|commalist or "every surface" }} | {{ rule.markets|commalist or "every market" }} | {{ rule.required_text|cell }} | {{ rule.placement }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if policy.internal_policy_addendum %}
+{{ policy.internal_policy_addendum|text }}
+
+{% endif %}
+---
+
+## 6. Asset specifications
+
+Scope: **{{ specs.scope }}**{% if specs.scope == "unscoped" %} — no campaign plan was bound, so specs are given for every campaign type{% endif %}.
+
+{% for campaign_type, by_asset in specs.sheet.specs.items() %}
+### {{ campaign_type }}
+
+| Asset | Max chars | Count | Ratio | Max bytes | Source |
+|---|---|---|---|---|---|
+{% for asset_type, spec in by_asset.items() %}
+| {{ asset_type|cell }} | {{ spec.max_chars if spec.max_chars else "—" }} | {{ spec.min_count if spec.min_count is not none else "—" }}–{{ spec.max_count if spec.max_count is not none else "—" }} | {{ spec.ratio|cell }} | {{ spec.max_bytes if spec.max_bytes else "—" }} | {{ spec.source|cell }} |
+{% endfor %}
+{{ "" }}
+{% endfor %}
+{% if specs.launch_minimums %}
+### The launch minimum
+
+| Campaign type | Required | Blocks launch |
+|---|---|---|
+{% for entry in specs.launch_minimums %}
+| {{ entry.campaign_type|cell }} | {{ entry.required_assets|length }} asset type(s) | {{ entry.blocking_for_launch|yesno }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+---
+
+## 7. Governance
+
+**Brand owner:** `{{ governance.owners.brand_owner_id or "unassigned" }}`
+**Legal owner:** `{{ governance.owners.legal_owner_id or "unassigned" }}`
+**Performance owner:** `{{ governance.owners.performance_owner_id or "unassigned" }}`
+{% if governance.owners_rationale %}
+
+{{ governance.owners_rationale|text }}
+{% endif %}
+{{ "" }}
+{% if governance.review_triggers %}
+### Route to a human before it ships
+
+| Trigger | Kind | Reviewer | Severity |
+|---|---|---|---|
+{% for trigger in governance.review_triggers %}
+| {{ trigger.pattern|cell }} | {{ trigger.pattern_kind }} | {{ trigger.reviewer_role|cell }} | {{ trigger.severity }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if guideline.decisions %}
+### Gate decisions
+
+| Gate | Status | Decided | Note |
+|---|---|---|---|
+{% for decision in guideline.decisions %}
+| {{ decision.gate_key }} | {{ decision.status }} | {{ decision.decided_at|datetime }} | {{ decision.note|cell }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if guideline.signatures %}
+### Signatures
+
+| Signature | Claims | Signed | Expires |
+|---|---|---|---|
+{% for signature in guideline.signatures %}
+| `{{ signature.signature_id }}` | {{ signature.claim_count }} | {{ signature.signed_at|datetime }} | {{ signature.expires_at|datetime }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+{% if guideline.open_dependencies %}
+### Still outstanding
+
+| What | Owner | Blocks |
+|---|---|---|
+{% for dependency in guideline.open_dependencies %}
+| {{ dependency.task|cell }} | {{ dependency.owner|cell }} | {{ dependency.blocking_for|cell }} |
+{% endfor %}
+{{ "" }}
+{% endif %}
+---
+
+## 8. Every rule
+
+{{ rule_count }} rule(s), compiled into the ruleset Stage 04 enforces.
+
+{% for category, rules in rules_by_category %}
+### {{ category|replace("_", " ")|title }} ({{ rules|length }})
+
+| Rule | Severity | What it says | Authority |
+|---|---|---|---|
+{% for rule in rules[:300] %}
+| `{{ rule.rule_id }}` | {{ rule.severity }} | {{ rule.message|cell }} | {{ rule.authority.source }}: {{ rule.authority.reference|cell }} |
+{% endfor %}
+{% if rules|length > 300 %}
+*Showing the first 300 of {{ rules|length }}. The full set is in the ruleset JSON export.*
+{% endif %}
+{{ "" }}
+{% endfor %}
+{% if other_issues %}
+---
+
+## Review notes
+
+| Severity | Section | Finding |
+|---|---|---|
+{% for issue in other_issues %}
+| {{ issue.severity }} | {{ issue.section|cell }} | {{ issue.finding|cell }} |
+{% endfor %}
+{{ "" }}
+{% endif %}

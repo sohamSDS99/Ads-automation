@@ -44,12 +44,18 @@ from agent.export.budget_xlsx import render_budget_xlsx
 from agent.export.contract import ResearchReport
 from agent.export.docx import render_docx
 from agent.export.editor_csv import render_editor_csv
+from agent.export.guideline_contract import ContentGuideline as GuidelineContract
+from agent.export.guideline_docx import render_guideline_docx
+from agent.export.guideline_markdown import render_guideline_markdown
+from agent.export.guideline_pdf import render_guideline_pdf
+from agent.export.guideline_xlsx import render_guideline_xlsx
 from agent.export.markdown import render_markdown
 from agent.export.pdf import render_pdf
 from agent.export.plan_contract import CampaignPlan
 from agent.export.plan_docx import render_plan_docx
 from agent.export.plan_markdown import render_plan_markdown
 from agent.export.plan_pdf import render_plan_pdf
+from agent.export.ruleset_json import render_ruleset_json
 from agent.export.tabular import render_csv, render_json_from_payload
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.redis_client import get_redis
@@ -116,12 +122,28 @@ CAMPAIGN_PLAN_FORMATS: frozenset[ExportFormat] = frozenset(
     }
 )
 
+#: The formats a *content guideline* can be rendered as (Stage 03 PRD §14). Six,
+#: and the sixth is the one no other artifact has: `ruleset_json`, the compiled
+#: handoff Stage 04 reads. No `csv` and no `editor_csv` — a rulebook is not a
+#: table, and the tabular deliverable it does have is the XLSX.
+CONTENT_GUIDELINE_FORMATS: frozenset[ExportFormat] = frozenset(
+    {
+        ExportFormat.PDF,
+        ExportFormat.DOCX,
+        ExportFormat.MD,
+        ExportFormat.JSON,
+        ExportFormat.XLSX,
+        ExportFormat.RULESET_JSON,
+    }
+)
+
 #: Which formats each artifact supports, so a route can answer "not that one"
 #: from one place. A queued job that can never succeed is a worse answer than
 #: a 422 naming the formats that work.
 FORMATS_FOR: dict[ExportArtifactType, frozenset[ExportFormat]] = {
     ExportArtifactType.RESEARCH_REPORT: RESEARCH_REPORT_FORMATS,
     ExportArtifactType.CAMPAIGN_PLAN: CAMPAIGN_PLAN_FORMATS,
+    ExportArtifactType.CONTENT_GUIDELINE: CONTENT_GUIDELINE_FORMATS,
 }
 
 _UNSAFE = re.compile(r"[^a-z0-9]+")
@@ -174,6 +196,24 @@ def plan_filename_for(
     if project_name:
         parts.append(slugify(project_name, fallback="plan"))
     parts.append(f"v{version}" if version > 0 else "draft")
+    parts.append(generated_at.date().isoformat())
+    return "-".join(parts) + f".{EXTENSIONS[fmt]}"
+
+
+def guideline_filename_for(
+    fmt: ExportFormat, *, project_name: str | None, version: str, generated_at: datetime
+) -> str:
+    """`content-guidelines-northwind-safety-v2.0-2026-09-23.pdf`.
+
+    The version is in the name for the same reason it is in a plan's: the point
+    of a published rulebook is that there are several, and two files called
+    `content-guidelines-acme.pdf` in one downloads folder is how a legal owner
+    signs the wrong one.
+    """
+    parts = ["content-guidelines"]
+    if project_name:
+        parts.append(slugify(project_name, fallback="guidelines"))
+    parts.append(f"v{version}")
     parts.append(generated_at.date().isoformat())
     return "-".join(parts) + f".{EXTENSIONS[fmt]}"
 
@@ -276,6 +316,83 @@ def render_plan(
     return RenderedExport(filename=filename, media_type=MEDIA_TYPES[fmt], payload=payload)
 
 
+def render_guideline(
+    fmt: ExportFormat,
+    guideline: GuidelineContract,
+    *,
+    project_name: str | None,
+    stored_markdown: str | None = None,
+    stored_payload: dict[str, Any] | None = None,
+    published_by_name: str = "",
+    ruleset_version: str = "",
+    compiled_ruleset: dict[str, Any] | None = None,
+    ruleset_hash: str = "",
+) -> RenderedExport:
+    """Produce one guideline format's bytes (Stage 03 PRD §14).
+
+    `stored_markdown` and `stored_payload` are preferred over re-rendering for
+    the same reason they are in the other two stages: the run wrote them, and
+    serving anything else would let a later template edit quietly change a
+    rulebook a legal owner has already signed. On a **published** guideline that
+    is not a preference but a guarantee — migration 0016's trigger refuses to
+    rewrite either column (law 26), so the stored bytes are the published ones.
+
+    `RULESET_JSON` is the exception and deliberately so: it does not render the
+    document at all, it serialises the `rule_set` row. See `export/ruleset_json`
+    for why recompiling would be the wrong implementation.
+    """
+    filename = guideline_filename_for(
+        fmt,
+        project_name=project_name,
+        version=guideline.version,
+        generated_at=guideline.generated_at,
+    )
+
+    if fmt is ExportFormat.MD:
+        markdown = stored_markdown or render_guideline_markdown(
+            guideline,
+            project_name=project_name,
+            published_by_name=published_by_name,
+            ruleset_version=ruleset_version,
+        )
+        payload = markdown.encode("utf-8")
+    elif fmt is ExportFormat.JSON:
+        payload = render_json_from_payload(
+            stored_payload if stored_payload is not None else guideline.model_dump(mode="json")
+        )
+    elif fmt is ExportFormat.RULESET_JSON:
+        if compiled_ruleset is None:
+            raise ExportError(
+                "This guideline has no compiled ruleset, so there is nothing to hand "
+                "Stage 04. A ruleset is minted at publish; export it once the rulebook "
+                "is published."
+            )
+        payload = render_ruleset_json(compiled_ruleset, stored_hash=ruleset_hash)
+    elif fmt is ExportFormat.XLSX:
+        payload = render_guideline_xlsx(guideline, project_name=project_name)
+    elif fmt is ExportFormat.DOCX:
+        payload = render_guideline_docx(
+            guideline,
+            project_name=project_name,
+            published_by_name=published_by_name,
+            ruleset_version=ruleset_version,
+        )
+    elif fmt is ExportFormat.PDF:
+        payload = render_guideline_pdf(
+            guideline,
+            project_name=project_name,
+            published_by_name=published_by_name,
+            ruleset_version=ruleset_version,
+        )
+    else:
+        raise ExportError(
+            f"A content guideline cannot be exported as {fmt.value}. "
+            f"Available: {', '.join(sorted(item.value for item in CONTENT_GUIDELINE_FORMATS))}."
+        )
+
+    return RenderedExport(filename=filename, media_type=MEDIA_TYPES[fmt], payload=payload)
+
+
 def _image_loader(storage: StorageBackend | None) -> Any:
     """Adapt the storage backend to the PDF renderer's loader contract."""
     if storage is None:
@@ -329,6 +446,9 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
 
         if export.artifact_type is ExportArtifactType.CAMPAIGN_PLAN:
             return await _generate_plan_export(session, export, storage=storage)
+
+        if export.artifact_type is ExportArtifactType.CONTENT_GUIDELINE:
+            return await _generate_guideline_export(session, export, storage=storage)
 
         report = await session.get(Report, export.artifact_id)
         if report is None:
@@ -481,6 +601,115 @@ async def _generate_plan_export(
             EventType.EXPORT_READY,
             export_id=str(export.id),
             plan_id=str(plan_row.id),
+            format=export.format.value,
+            bytes=len(rendered.payload),
+            filename=rendered.filename,
+        )
+    except Exception as exc:  # noqa: BLE001 — never fail a finished export on a notification
+        log.warning("export.event_failed", export_id=str(export.id), error=str(exc))
+
+    return {
+        "export_id": str(export.id),
+        "status": ExportStatus.READY.value,
+        "path": key,
+        "bytes": len(rendered.payload),
+    }
+
+
+async def _generate_guideline_export(
+    session: AsyncSession, export: Export, *, storage: StorageBackend
+) -> dict[str, Any]:
+    """Render one content-guideline export (Stage 03 PRD §14).
+
+    Split from `generate_export` for the reason `_generate_plan_export` is: the
+    three artifacts resolve differently — a report through `Report.run_id`, a
+    plan through `CampaignPlan.plan_run_id`, a rulebook through
+    `ContentGuideline.guideline_run_id` — and one function branching on every
+    line would be readable to nobody. The failure handling is identical and
+    deliberately so: every failure is recorded on the row, never swallowed.
+    """
+    from agent.db.models import ContentGuideline as GuidelineRow
+    from agent.guidelines import versions as guideline_versions
+
+    row = await session.get(GuidelineRow, export.artifact_id)
+    if row is None:
+        await _finish(
+            session,
+            export,
+            status=ExportStatus.FAILED,
+            error="The content guideline this export belongs to no longer exists.",
+        )
+        return {"export_id": str(export.id), "status": ExportStatus.FAILED.value}
+
+    if not row.payload:
+        await _finish(
+            session,
+            export,
+            status=ExportStatus.FAILED,
+            error=(
+                "This guideline has no rulebook yet — node 3.6.1 has not produced one for "
+                "this run, so there is nothing to export."
+            ),
+        )
+        return {"export_id": str(export.id), "status": ExportStatus.FAILED.value}
+
+    project = await session.get(Project, row.project_id)
+    published_by = (
+        await session.get(User, row.published_by) if row.published_by is not None else None
+    )
+    # The *governing* ruleset, not `row.ruleset_id` — an amendment mints a new
+    # one and leaves the guideline pointing at the version it was published
+    # with. Stage 04 is handed the governing one, so the export must be too.
+    ruleset = await guideline_versions.current_ruleset(session, row)
+
+    export.status = ExportStatus.RUNNING
+    await session.commit()
+
+    try:
+        parsed = GuidelineContract.model_validate(row.payload)
+        rendered = render_guideline(
+            export.format,
+            parsed,
+            project_name=project.name if project else None,
+            stored_markdown=row.markdown,
+            stored_payload=row.payload,
+            published_by_name=published_by.name if published_by else "",
+            ruleset_version=ruleset.ruleset_version if ruleset else "",
+            compiled_ruleset=ruleset.compiled if ruleset else None,
+            ruleset_hash=ruleset.hash if ruleset else "",
+        )
+        key = storage_key(row.guideline_run_id, rendered.filename)
+        storage.put(key, rendered.payload, content_type=rendered.media_type)
+    except Exception as exc:  # noqa: BLE001 — every failure is recorded, then reported
+        log.exception(
+            "export.guideline_failed",
+            export_id=str(export.id),
+            format=export.format.value,
+            error=str(exc),
+        )
+        await _finish(
+            session, export, status=ExportStatus.FAILED, error=f"{type(exc).__name__}: {exc}"
+        )
+        return {
+            "export_id": str(export.id),
+            "status": ExportStatus.FAILED.value,
+            "error": str(exc),
+        }
+
+    await _finish(session, export, status=ExportStatus.READY, path=key, size=len(rendered.payload))
+    log.info(
+        "export.guideline_ready",
+        export_id=str(export.id),
+        format=export.format.value,
+        bytes=len(rendered.payload),
+        key=key,
+    )
+
+    try:
+        await RunEventStream(get_redis(), row.guideline_run_id).publish(
+            EventType.EXPORT_READY,
+            export_id=str(export.id),
+            guideline_id=str(row.id),
             format=export.format.value,
             bytes=len(rendered.payload),
             filename=rendered.filename,

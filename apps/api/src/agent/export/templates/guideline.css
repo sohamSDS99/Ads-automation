@@ -1,0 +1,239 @@
+/* Print stylesheet for the content guidelines PDF (Stage 03 PRD §14).
+ *
+ * The Stage 03 sibling of `plan.css`, and it reuses that file's two mechanisms
+ * unchanged: `target-counter()` so the TOC asks the printer for its own page
+ * numbers, and `string-set` so the running header carries the current section.
+ * Nothing about pagination is computed in Python.
+ *
+ * What is new here is the watermark, and it is not decoration. §14: "Every
+ * export of a non-published guideline is watermarked DRAFT — NOT APPROVED on
+ * every page... A draft claims register must not be able to circulate as a
+ * legal sign-off record." So
+ * the mark is a fixed-position element inside `@page`, which WeasyPrint paints
+ * on every sheet including the cover — rather than a block in the flow, which
+ * would appear once and scroll away.
+ *
+ * Fonts are the generic families for the same reason as Stage 01: the worker
+ * image is not guaranteed to carry a specific face, and a PDF that falls back
+ * differently on one deploy is a document that does not reproduce.
+ */
+
+@page {
+  size: A4;
+  margin: 20mm 16mm 18mm 16mm;
+
+  @top-left {
+    content: "Content Guidelines — Stage 03";
+    font-size: 8pt;
+    color: #8c9196;
+  }
+  @top-right {
+    content: string(section-title);
+    font-size: 8pt;
+    color: #8c9196;
+  }
+  @bottom-left {
+    content: "Guideline run " string(run-id);
+    font-size: 7.5pt;
+    color: #b6bbbf;
+    font-family: "DejaVu Sans Mono", monospace;
+  }
+  @bottom-center {
+    content: string(doc-status);
+    font-size: 7.5pt;
+    color: #b6bbbf;
+    letter-spacing: 0.04em;
+  }
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    font-size: 8pt;
+    color: #8c9196;
+  }
+}
+
+@page cover {
+  margin: 0;
+  @top-left { content: none; }
+  @top-right { content: none; }
+  @bottom-left { content: none; }
+  @bottom-center { content: none; }
+  @bottom-right { content: none; }
+}
+
+html {
+  font-family: "DejaVu Sans", "Liberation Sans", sans-serif;
+  font-size: 9.5pt;
+  line-height: 1.45;
+  color: #1f2933;
+}
+
+body { margin: 0; }
+
+h2 { string-set: section-title content(); }
+.cover-run { string-set: run-id content(); }
+.cover-status { string-set: doc-status content(); }
+
+/* --- the draft watermark ------------------------------------------------- */
+
+/* `position: fixed` inside a paged context repeats the element on every page,
+ * which is precisely §14's requirement and the reason this is not a block in
+ * the flow. `z-index` keeps it behind the text: a watermark that obscures a
+ * budget figure has made the document unreadable rather than unusable, and
+ * those are different problems. */
+.watermark {
+  position: fixed;
+  top: 44%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  transform: rotate(-24deg);
+  font-size: 46pt;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: rgba(185, 28, 28, 0.13);
+  z-index: -1;
+}
+
+/* A second, legible statement of the same fact at the top of every page. The
+ * rotated mark reads as a texture at a glance; this one reads as a sentence. */
+.draft-banner {
+  position: fixed;
+  top: 4mm;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 8pt;
+  font-weight: 700;
+  color: #b91c1c;
+  letter-spacing: 0.06em;
+}
+
+/* --- cover --------------------------------------------------------------- */
+
+.cover {
+  page: cover;
+  height: 297mm;
+  padding: 34mm 22mm 20mm 22mm;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  break-after: page;
+}
+
+.cover h1 {
+  font-size: 30pt;
+  line-height: 1.12;
+  margin: 0 0 6mm 0;
+  color: #0f172a;
+}
+
+.cover .project { font-size: 14pt; color: #475569; margin: 0 0 14mm 0; }
+
+.cover .status {
+  display: inline-block;
+  padding: 2mm 5mm;
+  border-radius: 2mm;
+  font-size: 11pt;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.status-draft            { background: #fef3c7; color: #92400e; }
+.status-blocked          { background: #fee2e2; color: #991b1b; }
+.status-ready_to_freeze  { background: #dbeafe; color: #1e40af; }
+.status-frozen           { background: #d1fae5; color: #065f46; }
+
+.cover dl { margin: 12mm 0 0 0; font-size: 9.5pt; }
+.cover dt { color: #64748b; margin-top: 3mm; }
+.cover dd { margin: 0.5mm 0 0 0; color: #0f172a; }
+.cover .mono { font-family: "DejaVu Sans Mono", monospace; font-size: 8.5pt; }
+.cover footer { font-size: 8pt; color: #94a3b8; }
+
+/* --- table of contents ---------------------------------------------------- */
+
+nav.toc { break-after: page; }
+nav.toc h2 { border: 0; }
+nav.toc ol { list-style: none; padding: 0; margin: 0; counter-reset: toc; }
+nav.toc li { margin: 1.6mm 0; }
+nav.toc a {
+  text-decoration: none;
+  color: #1f2933;
+  display: flex;
+  align-items: baseline;
+}
+nav.toc a::before {
+  content: "";
+  flex: 1;
+  order: 1;
+  margin: 0 2mm;
+  border-bottom: 0.3mm dotted #cbd5e1;
+  transform: translateY(-1mm);
+}
+/* The printer supplies the page number. Nothing here counts pages. */
+nav.toc a::after {
+  content: target-counter(attr(href), page);
+  order: 2;
+  color: #64748b;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- body ---------------------------------------------------------------- */
+
+section { break-before: page; }
+section:first-of-type { break-before: auto; }
+
+h2 {
+  font-size: 15pt;
+  color: #0f172a;
+  margin: 0 0 4mm 0;
+  padding-bottom: 2mm;
+  border-bottom: 0.4mm solid #e2e8f0;
+}
+h3 { font-size: 11pt; color: #1e293b; margin: 6mm 0 2mm 0; }
+h4 { font-size: 9.5pt; color: #334155; margin: 4mm 0 1.5mm 0; }
+
+p { margin: 0 0 2.5mm 0; }
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 8pt;
+  margin: 2mm 0 4mm 0;
+}
+th {
+  background: #1f2937;
+  color: #fff;
+  text-align: left;
+  padding: 1.4mm 2mm;
+  font-weight: 600;
+}
+td { padding: 1.2mm 2mm; border-bottom: 0.2mm solid #eef2f7; vertical-align: top; }
+tbody tr:nth-child(even) td { background: #f8fafc; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* A table may break across pages — a 40-campaign plan has to — but its header
+ * repeats, and a row never splits down the middle. */
+thead { display: table-header-group; }
+tr { break-inside: avoid; }
+
+.callout {
+  border-left: 1mm solid #cbd5e1;
+  background: #f8fafc;
+  padding: 2.5mm 3mm;
+  margin: 3mm 0;
+  break-inside: avoid;
+}
+.callout.blocking { border-left-color: #dc2626; background: #fef2f2; }
+.callout.warning  { border-left-color: #d97706; background: #fffbeb; }
+.callout h4 { margin-top: 0; }
+
+.muted { color: #64748b; }
+.small { font-size: 8pt; }
+.truncation { font-style: italic; color: #64748b; font-size: 8pt; }
+
+.figure { break-inside: avoid; margin: 3mm 0 5mm 0; }
+.figure svg { max-width: 100%; height: auto; }
+.figure figcaption { font-size: 8pt; color: #64748b; margin-top: 1.5mm; }
+
+ol.claims { padding-left: 5mm; }
+ol.claims li { margin-bottom: 1.6mm; break-inside: avoid; }

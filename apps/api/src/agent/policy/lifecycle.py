@@ -64,7 +64,7 @@ from agent.db.models import (
     SignOffMatrix,
 )
 from agent.guardrails import compiler
-from agent.guidelines import claims_index
+from agent.guidelines import claims_index, versions
 from agent.guidelines.constants import ContentConstants, get_content_constants
 from agent.policy.classifier import Classification
 
@@ -513,24 +513,13 @@ async def _published_guideline(db: AsyncSession, project_id: uuid.UUID) -> Conte
     )
 
 
-async def _claims_with_signatures(
-    db: AsyncSession, project_id: uuid.UUID
-) -> list[tuple[ClaimRecord, ClaimSignature | None]]:
-    """Every claim in the project with its current signature, if it has one.
-
-    An outer join, and it has to be: a rejected or expired claim carries no
-    signature and still belongs in the index — `ref_status` turns it into the
-    blocking entry that stops copy asserting it. An inner join here would make
-    a rejected claim invisible to the linter, which reads as "never mentioned"
-    rather than "explicitly forbidden".
-    """
-    result = await db.execute(
-        sa.select(ClaimRecord, ClaimSignature)
-        .outerjoin(ClaimSignature, ClaimSignature.id == ClaimRecord.current_signature_id)
-        .where(ClaimRecord.project_id == project_id)
-        .order_by(ClaimRecord.id)
-    )
-    return [(row[0], row[1]) for row in result.all()]
+#: Every current claim with its signature. One definition, in `guidelines/
+#: versions`: publish and an amendment both compile a `claims_index`, and if the
+#: two read the register differently then a published ruleset and its own MINOR
+#: would licence different text. This copy also omitted the `superseded_by IS
+#: NULL` filter, so an amendment's index carried stale rows whose replacements
+#: may have been rejected.
+_claims_with_signatures = versions.claims_with_signatures
 
 
 async def _notify_targets(db: AsyncSession, project_id: uuid.UUID) -> tuple[uuid.UUID, ...]:

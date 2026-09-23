@@ -219,3 +219,77 @@ class ImageLintResult(BaseModel):
     #: to (§7.3), so the verdict can be re-derived later without re-running OCR.
     evidence_id: uuid.UUID | None = None
     evaluated_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# publish and the Stage 04 contract — PRD §12.4, §14, §16
+# ---------------------------------------------------------------------------
+
+
+class PublishRequest(BaseModel):
+    """`{confirm_version}`, and nothing else (§16).
+
+    The version is confirmed rather than chosen. A caller who could *name* the
+    version could mint one out of sequence; a caller who confirms one is saying
+    "this is the number the screen showed me", which is what makes a stale
+    dialog a 409 instead of a silent overwrite.
+    """
+
+    confirm_version: int = Field(ge=1, description="The MAJOR the caller expects to mint.")
+
+
+class PublishBlocker(BaseModel):
+    """One reason a rulebook may not be published (§16 rule 1)."""
+
+    code: str
+    detail: str
+    fix_url: str
+
+
+class PublishResponse(BaseModel):
+    """What the publish minted."""
+
+    guideline_id: uuid.UUID
+    version: str
+    version_major: int
+    version_minor: int
+    status: GuidelineStatus
+    ruleset_version: str | None = None
+    ruleset_id: uuid.UUID | None = None
+    rule_count: int = 0
+    published_at: datetime | None = None
+    published_by: uuid.UUID | None = None
+    superseded: list[uuid.UUID] = Field(default_factory=list)
+    #: True when the rulebook was already published at this version. §16 rule 2's
+    #: idempotency: a double-submitted dialog must not see an error for
+    #: something that has already succeeded.
+    already_published: bool = False
+
+
+class PublishedRuleSet(BaseModel):
+    """*** THE STAGE 04 CONTRACT. ***
+
+    Stage 04 reads exactly this and nothing else: a compiled `RuleSet` whose
+    owning guideline is `published`, pinned by `ruleset_version` on every
+    creative run. It never reads a draft, never reads
+    `ContentGuideline.payload`, and never re-implements a matcher.
+
+    `stale` is surfaced rather than hidden. A published version whose legal
+    owner was reassigned, or whose signature an amendment voided, keeps serving
+    — the linter un-licenses the affected claims through `claims_index` — and a
+    caller that wants to warn a writer needs to know.
+    """
+
+    ruleset_version: str
+    ruleset_id: uuid.UUID
+    guideline_id: uuid.UUID
+    project_id: uuid.UUID
+    compiler_version: str
+    constants_version: str
+    rule_count: int
+    hash: str
+    compiled: dict[str, Any]
+    guideline_status: GuidelineStatus
+    published_at: datetime | None = None
+    stale: bool = False
+    created_at: datetime

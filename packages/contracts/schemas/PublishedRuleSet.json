@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "GuidelineStatus": {
+      "description": "PRD \u00a712.4. `succeeded` on the run never means `published`.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_publish",
+        "published",
+        "superseded"
+      ],
+      "title": "GuidelineStatus",
+      "type": "string"
+    }
+  },
+  "description": "*** THE STAGE 04 CONTRACT. ***\n\nStage 04 reads exactly this and nothing else: a compiled `RuleSet` whose\nowning guideline is `published`, pinned by `ruleset_version` on every\ncreative run. It never reads a draft, never reads\n`ContentGuideline.payload`, and never re-implements a matcher.\n\n`stale` is surfaced rather than hidden. A published version whose legal\nowner was reassigned, or whose signature an amendment voided, keeps serving\n\u2014 the linter un-licenses the affected claims through `claims_index` \u2014 and a\ncaller that wants to warn a writer needs to know.",
+  "properties": {
+    "ruleset_version": {
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "ruleset_id": {
+      "format": "uuid",
+      "title": "Ruleset Id",
+      "type": "string"
+    },
+    "guideline_id": {
+      "format": "uuid",
+      "title": "Guideline Id",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "compiler_version": {
+      "title": "Compiler Version",
+      "type": "string"
+    },
+    "constants_version": {
+      "title": "Constants Version",
+      "type": "string"
+    },
+    "rule_count": {
+      "title": "Rule Count",
+      "type": "integer"
+    },
+    "hash": {
+      "title": "Hash",
+      "type": "string"
+    },
+    "compiled": {
+      "additionalProperties": true,
+      "title": "Compiled",
+      "type": "object"
+    },
+    "guideline_status": {
+      "$ref": "#/$defs/GuidelineStatus"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published At"
+    },
+    "stale": {
+      "default": false,
+      "title": "Stale",
+      "type": "boolean"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ruleset_version",
+    "ruleset_id",
+    "guideline_id",
+    "project_id",
+    "compiler_version",
+    "constants_version",
+    "rule_count",
+    "hash",
+    "compiled",
+    "guideline_status",
+    "created_at"
+  ],
+  "title": "PublishedRuleSet",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

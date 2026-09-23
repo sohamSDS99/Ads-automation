@@ -5,7 +5,7 @@
 .DEFAULT_GOAL := help
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
-        verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 eval coverage coverage-calc \
+        verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
         browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
@@ -108,6 +108,9 @@ verify-s3p3: ## Run S3-P3's exit criteria (§21: H1, the two 403s, the 409, the 
 
 verify-s3p5: ## Run S3-P5's exit criteria (§21: scoped specs, the ratio, determinism, law 31)
 	./scripts/verify-s3p5.sh
+
+verify-s3p6: ## Run S3-P6's exit criteria (§21: the DAG, publish, the six exports, the pin)
+	./scripts/verify-s3p6.sh
 
 verify-s2p7: ## Run S2-P7's exit criteria (§21: eval, coverage, the §17 index, staleness)
 	./scripts/verify-s2p7.sh

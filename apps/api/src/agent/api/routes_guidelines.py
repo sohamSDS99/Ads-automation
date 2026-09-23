@@ -26,7 +26,7 @@ from typing import Annotated, Any, Literal, get_args
 
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -45,12 +45,18 @@ from agent.api.schemas_guidelines import (
     ImageLintResult,
     ImageMetrics,
     PlanBinding,
+    PublishBlocker,
+    PublishedRuleSet,
+    PublishRequest,
+    PublishResponse,
     ResearchBinding,
     StartGuidelineRequest,
 )
+from agent.api.schemas_report import ExportAccepted, ExportJob
 from agent.api.throttle import throttle
+from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
-from agent.auth.ratelimit import RUN_QUOTA
+from agent.auth.ratelimit import EXPORT_QUOTA, RUN_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
@@ -61,6 +67,8 @@ from agent.db.models import (
     ContentGuideline,
     CredentialKind,
     EvidenceSource,
+    ExportArtifactType,
+    ExportFormat,
     GuidelineStatus,
     Membership,
     NodeRun,
@@ -75,16 +83,20 @@ from agent.db.models import (
     UserRole,
     UserStatus,
 )
-from agent.db.repos import ProjectRepo
+from agent.db.repos import ExportRepo, ProjectRepo
 from agent.db.session import get_session
 from agent.evidence.normalize import EvidenceDraft
 from agent.evidence.store import EvidenceScopeError, EvidenceStore
+from agent.export.jobs import CONTENT_GUIDELINE_FORMATS, guideline_filename_for
 from agent.guardrails.compiler import compiler_version, ruleset_hash
 from agent.guardrails.linter import lint
+from agent.guidelines import publish as publishing
+from agent.guidelines import versions
 from agent.guidelines.constants import get_content_constants
 from agent.orchestrator.guideline_input import build_guideline_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.state import RunLock
+from agent.queue import enqueue_export
 from agent.redis_client import get_redis
 from agent.schemas.guardrails import LintResult, LintTarget, LogoTemplate, Rule, Surface
 from agent.schemas.guardrails import RuleSet as RuleSetContract
@@ -97,6 +109,9 @@ router = APIRouter(tags=["guidelines"])
 Db = Annotated[AsyncSession, Depends(get_session)]
 AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
 GuidelineOperator = Annotated[Principal, Depends(require(Permission.GUIDELINE_EXECUTE))]
+#: §5.3. `GUIDELINE_PUBLISH` is held by `admin` and `approver` and by nobody
+#: else — an operator may run the stage and may not seal it.
+GuidelinePublisher = Annotated[Principal, Depends(require(Permission.GUIDELINE_PUBLISH))]
 
 
 # ---------------------------------------------------------------------------
@@ -339,6 +354,32 @@ async def start_guideline_run(
             detail="The guideline run was recorded but could not be queued. "
             "Retry it once Redis is back.",
         ) from unavailable
+
+    # The artifact exists from the moment the run does. It has to: 3.2.3
+    # registers claims a dozen nodes before 3.6.1 synthesises anything, and
+    # `ClaimRecord.first_seen_guideline_id` is NOT NULL. `payload` and
+    # `markdown` are nullable for exactly this window — see
+    # `guidelines/versions.ensure_draft`.
+    #
+    # **Not atomic with the run, and it cannot be.** `launch` commits the `Run`
+    # and only then enqueues (a job that starts against an uncommitted run
+    # cannot find it), so by the time this line executes the run is already
+    # queued. The window is milliseconds and the worker is several nodes away
+    # from needing the row — and `ensure_draft` is idempotent precisely so the
+    # node that does need it can create it if this never ran. What this buys is
+    # not correctness but reach: the Rulebook Viewer, the claims register and
+    # the linter playground can address the guideline from the first second of
+    # the run rather than only after the last node lands.
+    await versions.ensure_draft(
+        db,
+        workspace_id=me.workspace_id,
+        project_id=project_id,
+        run_id=run.id,
+        mode=built.mode,
+        bindings=_json_bindings(built),
+        unbound_inputs=list(built.unbound_inputs),
+    )
+    await db.commit()
 
     return GuidelineRunAccepted(
         run_id=run.id,
@@ -873,3 +914,311 @@ async def _record_measurement(
         log.warning("imaging.evidence_scope", error=str(exc))
         return None
     return written.evidence_ids[0] if written.evidence_ids else None
+
+
+# ---------------------------------------------------------------------------
+# publish and the Stage 04 contract — PRD §12.4, §16
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/guidelines/{guideline_id}/publish",
+    response_model=PublishResponse,
+    summary="Publish a rulebook and mint its immutable ruleset",
+)
+async def publish(
+    guideline_id: uuid.UUID,
+    body: PublishRequest,
+    me: GuidelinePublisher,
+    request: Request,
+    db: Db,
+) -> PublishResponse:
+    """§12.4. One transaction: assert, compile, mint, supersede, audit.
+
+    A refusal is a `409` carrying **every** blocker, not the first one. §21 asks
+    for that explicitly and the reason is arithmetic: a dialog that reports one
+    blocker at a time turns a five-minute fix into five round trips through a
+    legal owner's inbox.
+    """
+    try:
+        result = await publishing.publish_guideline(
+            db,
+            workspace_id=me.workspace_id,
+            guideline_id=guideline_id,
+            confirm_version=body.confirm_version,
+            actor_id=me.user.id,
+            ip=client_ip(request),
+        )
+    except publishing.PublishRefused as refused:
+        first = refused.blockers[0]
+        raise problems.conflict(
+            first.detail,
+            title="This rulebook cannot be published yet",
+            code=first.code,
+            blockers=[
+                PublishBlocker(
+                    code=item.code, detail=item.detail, fix_url=item.fix_url
+                ).model_dump()
+                for item in refused.blockers
+            ],
+        ) from refused
+    except publishing.PublishConflict as conflict:
+        raise problems.conflict(
+            str(conflict),
+            title="Version conflict",
+            code="version_conflict",
+            expected=conflict.expected,
+            submitted=conflict.submitted,
+        ) from conflict
+
+    if result.guideline.id != guideline_id:  # pragma: no cover — defensive
+        raise problems.not_found(f"No guideline {guideline_id}.")
+
+    ruleset = result.ruleset or await versions.current_ruleset(db, result.guideline)
+    return PublishResponse(
+        guideline_id=result.guideline.id,
+        version=result.version,
+        version_major=result.version_major,
+        version_minor=result.version_minor,
+        status=result.guideline.status,
+        ruleset_version=ruleset.ruleset_version if ruleset else None,
+        ruleset_id=ruleset.id if ruleset else None,
+        rule_count=ruleset.rule_count if ruleset else 0,
+        published_at=result.guideline.published_at,
+        published_by=result.guideline.published_by,
+        superseded=result.superseded,
+        already_published=result.already_published,
+    )
+
+
+@router.get(
+    "/guidelines/published/ruleset",
+    response_model=PublishedRuleSet,
+    summary="*** THE STAGE 04 CONTRACT *** — the ruleset governing this project",
+)
+async def published_ruleset(
+    project_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    pin: str | None = None,
+) -> PublishedRuleSet:
+    """§12.2 and §16 rule 4. `404` when nothing is published — never an empty set.
+
+    **The absence is the contract.** §16 rule 4: "Stage 04 must handle that
+    rather than falling back to 'no rules'." An empty ruleset *is* "no rules",
+    so returning one with a 200 would let a creative run lint every asset
+    against nothing and report a clean pass.
+
+    **What "governing" means is not `guideline.ruleset_id`.** That column
+    records what the rulebook was published *with* and never moves again — the
+    trigger forbids it. An amendment mints `v{major}.{minor+1}` as a new
+    `rule_set` row and leaves the guideline untouched, so after one mechanical
+    amendment the governing ruleset and the published one are different rows.
+    `versions.current_ruleset` resolves the governing one; `pin` overrides it
+    with an exact historical version, which is how an asset made six months ago
+    is re-audited against the rules that actually applied.
+    """
+    if await ProjectRepo(db, me.workspace_id).get(project_id) is None:
+        raise problems.not_found(f"No project {project_id}.")
+
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline)
+            .where(
+                ContentGuideline.workspace_id == me.workspace_id,
+                ContentGuideline.project_id == project_id,
+                ContentGuideline.status == GuidelineStatus.PUBLISHED,
+            )
+            .order_by(ContentGuideline.version_major.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if guideline is None:
+        raise problems.not_found(
+            "No content guidelines have been published for this project. Stage 04 must "
+            "treat this as 'no rulebook exists yet' and stop — not as 'there are no "
+            "rules'.",
+            title="Nothing published",
+        )
+
+    row = (
+        await _ruleset_by_pin(db, me.workspace_id, pin)
+        if pin
+        else await versions.current_ruleset(db, guideline)
+    )
+    if row is None:
+        raise problems.not_found(
+            f"No ruleset {pin!r} for this project."
+            if pin
+            else "The published guideline has no compiled ruleset, which should be "
+            "impossible — publish mints one in the same transaction.",
+            title="Nothing published",
+        )
+    return _as_ruleset(row, guideline)
+
+
+@router.get(
+    "/rulesets/{ruleset_version}",
+    response_model=PublishedRuleSet,
+    summary="Any historical ruleset, by pin — superseded or not",
+)
+async def ruleset_by_pin(ruleset_version: str, me: AnyMember, db: Db) -> PublishedRuleSet:
+    """§16 rule 5. A superseded pin still resolves, and returns exactly what it did.
+
+    This is the whole reason a creative run records `ruleset_version` rather
+    than resolving the current one: an asset produced under v1 can be re-audited
+    against v1's rules a year later, after v2 and v3 have both replaced it.
+    """
+    row = await _ruleset_by_pin(db, me.workspace_id, ruleset_version)
+    if row is None:
+        raise problems.not_found(f"No ruleset {ruleset_version!r}.")
+    guideline = (
+        await db.execute(sa.select(ContentGuideline).where(ContentGuideline.id == row.guideline_id))
+    ).scalar_one_or_none()
+    if guideline is None:  # pragma: no cover — FK is ON DELETE CASCADE
+        raise problems.not_found(f"No ruleset {ruleset_version!r}.")
+    return _as_ruleset(row, guideline)
+
+
+async def _ruleset_by_pin(db: AsyncSession, workspace_id: uuid.UUID, pin: str) -> RuleSet | None:
+    return (
+        await db.execute(
+            sa.select(RuleSet).where(
+                RuleSet.workspace_id == workspace_id, RuleSet.ruleset_version == pin
+            )
+        )
+    ).scalar_one_or_none()
+
+
+def _as_ruleset(row: RuleSet, guideline: ContentGuideline) -> PublishedRuleSet:
+    return PublishedRuleSet(
+        ruleset_version=row.ruleset_version,
+        ruleset_id=row.id,
+        guideline_id=row.guideline_id,
+        project_id=row.project_id,
+        compiler_version=row.compiler_version,
+        constants_version=row.constants_version,
+        rule_count=row.rule_count,
+        hash=row.hash,
+        compiled=row.compiled,
+        guideline_status=guideline.status,
+        published_at=guideline.published_at,
+        stale=bool(guideline.signature_stale or guideline.binding_superseded),
+        created_at=row.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# exporting a rulebook (Stage 03 PRD §14)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/guidelines/{guideline_id}/export",
+    response_model=ExportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate an export of a content rulebook",
+    dependencies=[Depends(throttle(EXPORT_QUOTA))],
+)
+async def request_guideline_export(
+    guideline_id: uuid.UUID,
+    me: AnyMember,
+    request: Request,
+    db: Db,
+    export_format: Annotated[
+        ExportFormat,
+        Query(alias="format", description="pdf | docx | md | json | xlsx | ruleset_json"),
+    ],
+) -> ExportAccepted:
+    """Queue one rulebook export.
+
+    `READ`, not a write permission, for the reason the plan route gives: §14
+    gives every role the export, and the write-shaped verb is about where the
+    work happens — a job row and a file on the worker's volume — not about
+    privilege. A `viewer` may export a rulebook and may not publish one.
+
+    Every format of a non-published guideline is watermarked, which is enforced
+    in `guideline_view.build_context` rather than here: a route that decided it
+    would be a second place the rule lived, and §14's requirement is that a
+    draft claims register cannot circulate as a legal sign-off record *in any
+    format*.
+    """
+    if export_format not in CONTENT_GUIDELINE_FORMATS:
+        raise problems.unprocessable(
+            f"A content guideline cannot be exported as {export_format.value}. Choose one "
+            f"of: {', '.join(sorted(item.value for item in CONTENT_GUIDELINE_FORMATS))}.",
+            title="Unsupported export format",
+        )
+
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline).where(
+                ContentGuideline.id == guideline_id,
+                ContentGuideline.workspace_id == me.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if guideline is None:
+        raise problems.not_found(f"No guideline {guideline_id}.")
+
+    if export_format is ExportFormat.RULESET_JSON and guideline.ruleset_id is None:
+        # Refused here rather than in the worker: a queued job that can never
+        # succeed is a worse answer than a 422 that says what to do. A ruleset
+        # exists only once a rulebook has been published.
+        raise problems.unprocessable(
+            "This rulebook has no compiled ruleset, so there is nothing to hand Stage 04. "
+            "Publish it first — a ruleset is minted in the publish transaction.",
+            title="Nothing to export",
+            code="no_ruleset",
+        )
+
+    project = await ProjectRepo(db, me.workspace_id).get(guideline.project_id)
+    export = ExportRepo(db, me.workspace_id).add(
+        guideline.id,
+        export_format,
+        artifact_type=ExportArtifactType.CONTENT_GUIDELINE,
+        requested_by=me.user.id,
+    )
+    await db.flush()
+
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.EXPORT_REQUESTED,
+        target_type=AuditTarget.EXPORT,
+        target_id=export.id,
+        meta={
+            "guideline_id": str(guideline.id),
+            "guideline_run_id": str(guideline.guideline_run_id),
+            "format": export_format.value,
+            "guideline_status": guideline.status.value,
+            "version": f"{guideline.version_major}.{guideline.version_minor}",
+        },
+        ip=client_ip(request),
+    )
+    # Committed before the job is queued: the worker looks this row up by id,
+    # so enqueueing first is a race it can lose.
+    await db.commit()
+    await enqueue_export(export.id)
+
+    return ExportAccepted(
+        job_id=export.id,
+        export=ExportJob(
+            id=export.id,
+            report_id=export.artifact_id,
+            run_id=guideline.guideline_run_id,
+            format=export.format,
+            status=export.status,
+            bytes=export.bytes,
+            filename=guideline_filename_for(
+                export.format,
+                project_name=project.name if project else None,
+                version=f"{guideline.version_major}.{guideline.version_minor}",
+                generated_at=export.created_at,
+            ),
+            error=export.error,
+            created_at=export.created_at,
+            ready_at=export.ready_at,
+        ),
+    )

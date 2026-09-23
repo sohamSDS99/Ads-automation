@@ -83,6 +83,15 @@ class AuditAction(StrEnum):
     CLAIM_SIGNED = "claim.signed"
     CLAIM_SIGNATURE_REVOKED = "claim.signature_revoked"
     CLAIM_EDITED = "claim.edited"
+    #: The seal, Stage 03's twin of PLAN_FROZEN. §12.4 requires publish to write
+    #: an audit row in the same transaction as the change, which is what makes
+    #: "who published this rulebook, over which signature, on what date"
+    #: answerable a year later without a thread.
+    GUIDELINE_PUBLISHED = "guideline.published"
+    #: A previously published rulebook displaced by a newer MAJOR. Written per
+    #: superseded version rather than once for the publish: a reader asking why
+    #: v2 stopped governing wants a row about v2.
+    GUIDELINE_SUPERSEDED = "guideline.superseded"
     HUMAN_TASK_OPENED = "human_task.opened"
     HUMAN_TASK_SUBMITTED = "human_task.submitted"
     #: A previously frozen plan displaced by a newer version. Written per
@@ -159,6 +168,7 @@ class AuditTarget(StrEnum):
     CLAIM = "claim"
     CLAIM_SIGNATURE = "claim_signature"
     HUMAN_TASK = "human_task"
+    CONTENT_GUIDELINE = "content_guideline"
 
 
 def write_audit(

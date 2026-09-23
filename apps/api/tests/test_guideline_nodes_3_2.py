@@ -236,6 +236,13 @@ def matrix(legal_id: uuid.UUID):
     )
 
 
+#: The three queries 3.2.3 runs after the matrix, to write the register H1 is a
+#: signature over: find this run's guideline, read the project's highest MAJOR
+#: to number a new draft, and read the claims already registered. All three
+#: answer "nothing yet", which is the cold-start path.
+REGISTER_QUERIES: list[list] = [[], [], []]
+
+
 def substantiated_output() -> dict:
     return {
         "claims": [
@@ -269,7 +276,7 @@ class TestLegalClaimSignoff:
         legal = uuid.uuid4()
         h = harness(
             "3.2.3",
-            queries=[[matrix(legal)]],
+            queries=[[matrix(legal)], *REGISTER_QUERIES],
             outputs={"3.2.2": substantiated_output()},
         )
         await legal_claim_signoff.reason(h.ctx, [])
@@ -281,7 +288,7 @@ class TestLegalClaimSignoff:
         legal = uuid.uuid4()
         h = harness(
             "3.2.3",
-            queries=[[matrix(legal)]],
+            queries=[[matrix(legal)], *REGISTER_QUERIES],
             outputs={"3.2.2": substantiated_output()},
         )
         out = await legal_claim_signoff.reason(h.ctx, [])
@@ -293,7 +300,7 @@ class TestLegalClaimSignoff:
 
         h = harness(
             "3.2.3",
-            queries=[[matrix(uuid.uuid4())]],
+            queries=[[matrix(uuid.uuid4())], *REGISTER_QUERIES],
             outputs={"3.2.2": substantiated_output()},
         )
         out = await legal_claim_signoff.reason(h.ctx, [])
@@ -316,7 +323,7 @@ class TestLegalClaimSignoff:
 
         h = harness(
             "3.2.3",
-            queries=[[matrix(uuid.uuid4())]],
+            queries=[[matrix(uuid.uuid4())], *REGISTER_QUERIES],
             outputs={"3.2.2": substantiated_output()},
         )
         out = await legal_claim_signoff.reason(h.ctx, [])
@@ -419,3 +426,73 @@ class TestOfferIntegrityRules:
         out = await offer_integrity_rules.reason(h.ctx, rows)
         assert out.live_violations == []
         assert out.offer_data_available is False
+
+
+class TestTheRegisterH1IsASignatureOver:
+    """3.2.3 writes `claim_record` rows before opening the task against them.
+
+    Before S3-P6 nothing in the repository wrote one. The sign route, the claims
+    index and every compiled ruleset read them; only S3-P3's fixtures created
+    them. The consequence surfaces at publish, where "an unexpired signature
+    covering every claim in the register" holds vacuously over an empty
+    register — a rulebook publishing with forty unsigned claims in its payload
+    and a PDF that reads as a legal record.
+    """
+
+    async def test_it_writes_a_claim_record_per_verdict(self) -> None:
+        from agent.db.models import ClaimRecord
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(uuid.uuid4())], *REGISTER_QUERIES],
+            outputs={"3.2.1": harvest_answer(), "3.2.2": substantiated_output()},
+        )
+        out = await legal_claim_signoff.reason(h.ctx, [])
+
+        claims = [row for row in h.ctx.db.added if isinstance(row, ClaimRecord)]
+        assert len(claims) == 1
+        assert claims[0].normalized_text == "the best sds software"
+        # The task names the rows, not positions into a node output.
+        assert out.claim_ids == [claims[0].id]
+
+    async def test_the_registered_claim_carries_its_harvested_scope(self) -> None:
+        """Market and language come from 3.2.1, status and risk from 3.2.2.
+
+        `matchers/claims.licences()` scopes by market and language and matches
+        against surface forms. A row written from 3.2.2 alone would licence the
+        claim in every market, in every language, and match nothing but its
+        exact normalised text.
+        """
+        from agent.db.models import ClaimRecord
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(uuid.uuid4())], *REGISTER_QUERIES],
+            outputs={"3.2.1": harvest_answer(), "3.2.2": substantiated_output()},
+        )
+        await legal_claim_signoff.reason(h.ctx, [])
+
+        row = next(r for r in h.ctx.db.added if isinstance(r, ClaimRecord))
+        assert row.market_scope == ["DE"]
+        assert row.languages == ["en"]
+        assert row.surface_forms == ["the best SDS software"]
+        assert row.status is ClaimStatus.PENDING_SIGNOFF
+
+    async def test_a_reharvest_never_writes_approved(self) -> None:
+        """Law 24. `approved` is reachable only through a named human's signature."""
+        from agent.db.models import ClaimRecord
+        from agent.nodes.content.stage_3_2 import legal_claim_signoff
+
+        verdicts = substantiated_output()
+        verdicts["claims"][0]["status"] = "approved"
+        h = harness(
+            "3.2.3",
+            queries=[[matrix(uuid.uuid4())], *REGISTER_QUERIES],
+            outputs={"3.2.1": harvest_answer(), "3.2.2": verdicts},
+        )
+        await legal_claim_signoff.reason(h.ctx, [])
+
+        row = next(r for r in h.ctx.db.added if isinstance(r, ClaimRecord))
+        assert row.status is ClaimStatus.UNSUPPORTED

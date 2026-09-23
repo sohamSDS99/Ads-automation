@@ -1,0 +1,299 @@
+{#
+  The print document (Stage 03 PRD §14). Same sections, same order and the same
+  context object as `guideline.md.j2` — §14's acceptance compares the two, and
+  `tests/test_guideline_parity.py` enforces it.
+
+  Everything about pages lives in `guideline.css`. This file says what the
+  document contains; that one says what a page is.
+#}
+{% if watermark %}
+<div class="watermark">{{ watermark }}</div>
+<div class="draft-banner">{{ watermark }} — not a legal sign-off record</div>
+{% endif %}
+
+<div class="cover">
+  <div>
+    <p class="project">{{ project_name }}</p>
+    <h1>Content Guidelines</h1>
+    <p><span class="status status-{{ status }}">{{ status_label }}</span>
+       <span class="cover-status" style="display:none">{{ status_label }}</span></p>
+    <dl>
+      <dt>Guideline run</dt>
+      <dd class="mono cover-run">{{ guideline.guideline_run_id }}</dd>
+      <dt>Version</dt>
+      <dd>{{ version }}</dd>
+      <dt>Generated</dt>
+      <dd>{{ guideline.generated_at|datetime }}</dd>
+      <dt>Mode</dt>
+      <dd>{{ mode_label }}</dd>
+      {% if published %}
+      <dt>Published</dt>
+      <dd>{{ guideline.generated_at|datetime }}{% if published_by_name %} by {{ published_by_name }}{% endif %}</dd>
+      {% endif %}
+      {% if ruleset_version %}
+      <dt>Ruleset</dt>
+      <dd class="mono">{{ ruleset_version }}</dd>
+      {% endif %}
+      <dt>Constants</dt>
+      <dd>{{ guideline.constants_version|text }} · schema {{ guideline.schema_version }}</dd>
+    </dl>
+    {% if unbound %}
+    <div class="callout warning">
+      <h4>Built without {{ unbound|commalist }}</h4>
+      <p>Those inputs were not bound to this run, so the rules below were inferred from what was available. A rulebook built without legal guardrails is not as authoritative as one built with them.</p>
+    </div>
+    {% endif %}
+    {% if degraded %}
+    <div class="callout warning">
+      <h4>Degraded sources</h4>
+      <p>{{ degraded|commalist }} could not be read in full when this rulebook was built.</p>
+    </div>
+    {% endif %}
+  </div>
+  <footer>
+    {{ rule_count }} rules · {{ register.claims|length }} claims · {{ policy.applicable|length }} policy areas ·
+    cost {{ guideline.cost_usd|money("USD") }}
+  </footer>
+</div>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#s1">1. Executive summary</a></li>
+    <li><a href="#s2">2. Brand voice</a></li>
+    <li><a href="#s3">3. Words we use, and words we don't</a></li>
+    <li><a href="#s4">4. Visual identity</a></li>
+    <li><a href="#s5">5. The claims register</a></li>
+    <li><a href="#s6">6. Google policy</a></li>
+    <li><a href="#s7">7. Asset specifications</a></li>
+    <li><a href="#s8">8. Governance and sign-off</a></li>
+    <li><a href="#s9">9. Every rule</a></li>
+  </ol>
+</nav>
+
+<section id="s1">
+  <h2>Executive summary</h2>
+  <p>{{ guideline.executive_summary|text }}</p>
+  {% if blocking_issues %}
+  <div class="callout warning">
+    <h4>{{ blocking_issues|length }} blocking issue(s)</h4>
+    <ul>
+      {% for issue in blocking_issues %}
+      <li><strong>{{ issue.section }}</strong> — {{ issue.finding }} <em>{{ issue.fix }}</em></li>
+      {% endfor %}
+    </ul>
+  </div>
+  {% endif %}
+</section>
+
+<section id="s2">
+  <h2>Brand voice</h2>
+  {% if brand.voice.voice_words %}
+  <p><strong>This brand sounds:</strong> {{ brand.voice.voice_words|commalist }}</p>
+  <dl>
+    {% for word, definition in brand.voice.definition_per_word.items() %}
+    <dt>{{ word }}</dt><dd>{{ definition|text }}</dd>
+    {% endfor %}
+  </dl>
+  {% else %}
+  <p class="muted">No voice profile was produced for this project.</p>
+  {% endif %}
+  {% if brand.voice.do_examples %}
+  <h3>Do — quoted from real copy</h3>
+  <ul>
+    {% for example in brand.voice.do_examples %}
+    <li>“{{ example.text|text }}”{% if example.why %} — {{ example.why|text }}{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% if brand.voice.dont_examples %}
+  <h3>Don't</h3>
+  <ul>
+    {% for example in brand.voice.dont_examples %}
+    <li>“{{ example.text|text }}”{% if example.rewritten_as %} → “{{ example.rewritten_as }}”{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+</section>
+
+<section id="s3">
+  <h2>Words we use, and words we don't</h2>
+  {% if brand.lexicon.never %}
+  <h3>Never</h3>
+  <table>
+    <thead><tr><th>Term</th><th>Why</th><th>Use instead</th><th>Severity</th></tr></thead>
+    <tbody>
+      {% for entry in brand.lexicon.never %}
+      <tr><td>{{ entry.term }}</td><td>{{ entry.reason }}</td><td>{{ entry.suggested_replacement|text }}</td><td>{{ entry.severity }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+  {% if brand.lexicon.always %}
+  <h3>Always</h3>
+  <table>
+    <thead><tr><th>Term</th><th>Where</th><th>Severity</th></tr></thead>
+    <tbody>
+      {% for entry in brand.lexicon.always %}
+      <tr><td>{{ entry.term }}</td><td>{{ entry.context }}</td><td>{{ entry.severity }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section id="s4">
+  <h2>Visual identity</h2>
+  {% if brand.visual_identity.logo %}
+  <h3>Logo</h3>
+  <dl>{% for key, value in brand.visual_identity.logo.items() %}<dt>{{ key|replace("_", " ") }}</dt><dd>{{ value|text }}</dd>{% endfor %}</dl>
+  {% endif %}
+  {% if brand.visual_identity.colour %}
+  <h3>Colour</h3>
+  <dl>{% for key, value in brand.visual_identity.colour.items() %}<dt>{{ key|replace("_", " ") }}</dt><dd>{{ value|text }}</dd>{% endfor %}</dl>
+  {% endif %}
+  {% if brand.visual_identity.imagery %}
+  <h3>Imagery</h3>
+  <dl>{% for key, value in brand.visual_identity.imagery.items() %}<dt>{{ key|replace("_", " ") }}</dt><dd>{{ value|text }}</dd>{% endfor %}</dl>
+  {% endif %}
+</section>
+
+<section id="s5">
+  <h2>The claims register</h2>
+  <p>{{ register.claims|length }} claim(s){% if register.unsupported_count %}, of which <strong>{{ register.unsupported_count }} are unsupported</strong>{% endif %}.</p>
+  {% if register.claims %}
+  <table>
+    <thead><tr><th>Claim</th><th>Type</th><th>Status</th><th>Risk</th><th>Expires</th><th>Markets</th></tr></thead>
+    <tbody>
+      {% for claim in register.claims[:500] %}
+      <tr><td>{{ claim.claim_text }}</td><td>{{ claim.claim_type }}</td><td>{{ claim.status }}</td><td>{{ claim.risk_tier }}</td><td>{{ claim.expires_at|date }}</td><td>{{ claim.market_scope|commalist }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if register.claims|length > 500 %}
+  <p class="muted">Showing the first 500 of {{ register.claims|length }} claims. The full register is in the JSON and XLSX exports.</p>
+  {% endif %}
+  {% else %}
+  <p class="muted">No claims are registered for this project.</p>
+  {% endif %}
+  {% if expiring_soon %}
+  <div class="callout warning">
+    <h4>Expiring within 30 days</h4>
+    <ul>{% for claim in expiring_soon %}<li>{{ claim.claim_text }} — {{ claim.expires_at|date }}</li>{% endfor %}</ul>
+  </div>
+  {% endif %}
+  {% if register.offer_rules %}
+  <h3>Offer integrity</h3>
+  <table>
+    <thead><tr><th>Construction</th><th>Requirement</th><th>Severity</th></tr></thead>
+    <tbody>{% for rule in register.offer_rules %}<tr><td>{{ rule.construction }}</td><td>{{ rule.requirement }}</td><td>{{ rule.severity }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section id="s6">
+  <h2>Google policy</h2>
+  {% if policy.applicable %}
+  <h3>Applies to us</h3>
+  <table>
+    <thead><tr><th>Area</th><th>Why</th><th>Markets</th><th>Obligations</th></tr></thead>
+    <tbody>{% for area in policy.applicable %}<tr><td>{{ area.area }}</td><td>{{ area.why_applicable }}</td><td>{{ area.markets|commalist }}</td><td>{{ area.obligations|commalist }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if policy.not_applicable %}
+  <h3>Checked, and does not apply</h3>
+  <p class="muted">The record that we looked is worth as much as the record of what we found.</p>
+  <table>
+    <thead><tr><th>Area</th><th>Why not</th></tr></thead>
+    <tbody>{% for area in policy.not_applicable %}<tr><td>{{ area.area }}</td><td>{{ area.why_not }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  {% if policy.disclosure_rules %}
+  <h3>AI disclosure</h3>
+  <table>
+    <thead><tr><th>Surfaces</th><th>Markets</th><th>Required text</th><th>Placement</th></tr></thead>
+    <tbody>{% for rule in policy.disclosure_rules %}<tr><td>{{ rule.surfaces|commalist or "every surface" }}</td><td>{{ rule.markets|commalist or "every market" }}</td><td>{{ rule.required_text }}</td><td>{{ rule.placement }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section id="s7">
+  <h2>Asset specifications</h2>
+  <p>Scope: <strong>{{ specs.scope }}</strong>{% if specs.scope == "unscoped" %} — no campaign plan was bound, so specs are given for every campaign type{% endif %}.</p>
+  {% for campaign_type, by_asset in specs.sheet.specs.items() %}
+  <h3>{{ campaign_type }}</h3>
+  <table>
+    <thead><tr><th>Asset</th><th>Max chars</th><th>Count</th><th>Ratio</th><th>Max bytes</th><th>Source</th></tr></thead>
+    <tbody>
+      {% for asset_type, spec in by_asset.items() %}
+      <tr><td>{{ asset_type }}</td><td>{{ spec.max_chars if spec.max_chars else "—" }}</td><td>{{ spec.min_count if spec.min_count is not none else "—" }}–{{ spec.max_count if spec.max_count is not none else "—" }}</td><td>{{ spec.ratio|text }}</td><td>{{ spec.max_bytes if spec.max_bytes else "—" }}</td><td>{{ spec.source }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% endfor %}
+  {% if specs.launch_minimums %}
+  <h3>The launch minimum</h3>
+  <table>
+    <thead><tr><th>Campaign type</th><th>Required</th><th>Blocks launch</th></tr></thead>
+    <tbody>{% for entry in specs.launch_minimums %}<tr><td>{{ entry.campaign_type }}</td><td>{{ entry.required_assets|length }} asset type(s)</td><td>{{ entry.blocking_for_launch|yesno }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section id="s8">
+  <h2>Governance and sign-off</h2>
+  <dl>
+    <dt>Brand owner</dt><dd class="mono">{{ governance.owners.brand_owner_id or "unassigned" }}</dd>
+    <dt>Legal owner</dt><dd class="mono">{{ governance.owners.legal_owner_id or "unassigned" }}</dd>
+    <dt>Performance owner</dt><dd class="mono">{{ governance.owners.performance_owner_id or "unassigned" }}</dd>
+  </dl>
+  {% if governance.owners_rationale %}<p>{{ governance.owners_rationale }}</p>{% endif %}
+  {% if governance.review_triggers %}
+  <h3>Route to a human before it ships</h3>
+  <table>
+    <thead><tr><th>Trigger</th><th>Kind</th><th>Reviewer</th><th>Severity</th></tr></thead>
+    <tbody>{% for trigger in governance.review_triggers %}<tr><td>{{ trigger.pattern }}</td><td>{{ trigger.pattern_kind }}</td><td>{{ trigger.reviewer_role }}</td><td>{{ trigger.severity }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+  <h3>The sign-off page</h3>
+  <table>
+    <thead><tr><th>Decision</th><th>Status</th><th>Decided</th><th>Note</th></tr></thead>
+    <tbody>
+      {% for decision in guideline.decisions %}
+      <tr><td>{{ decision.gate_key }} — {{ decision.name or decision.node_id }}</td><td>{{ decision.status }}</td><td>{{ decision.decided_at|datetime }}</td><td>{{ decision.note }}</td></tr>
+      {% endfor %}
+      {% for signature in guideline.signatures %}
+      <tr><td>H1 — claims signature</td><td>{{ signature.claim_count }} claims{% if signature.voided_at %}, voided{% endif %}</td><td>{{ signature.signed_at|datetime }}</td><td>expires {{ signature.expires_at|datetime }}</td></tr>
+      {% endfor %}
+      {% for task in guideline.human_tasks %}
+      <tr><td>{{ task.task_key }} — person task</td><td>{{ task.status }}</td><td>—</td><td>blocks {{ task.blocking_for }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if guideline.open_dependencies %}
+  <h3>Still outstanding</h3>
+  <table>
+    <thead><tr><th>What</th><th>Owner</th><th>Blocks</th></tr></thead>
+    <tbody>{% for dependency in guideline.open_dependencies %}<tr><td>{{ dependency.task }}</td><td>{{ dependency.owner }}</td><td>{{ dependency.blocking_for }}</td></tr>{% endfor %}</tbody>
+  </table>
+  {% endif %}
+</section>
+
+<section id="s9">
+  <h2>Every rule</h2>
+  <p>{{ rule_count }} rule(s), compiled into the ruleset Stage 04 enforces.</p>
+  {% for category, rules in rules_by_category %}
+  <h3>{{ category|replace("_", " ")|title }} ({{ rules|length }})</h3>
+  <table>
+    <thead><tr><th>Rule</th><th>Severity</th><th>What it says</th><th>Authority</th></tr></thead>
+    <tbody>
+      {% for rule in rules[:300] %}
+      <tr><td class="mono">{{ rule.rule_id }}</td><td>{{ rule.severity }}</td><td>{{ rule.message }}</td><td>{{ rule.authority.source }}: {{ rule.authority.reference }}</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% if rules|length > 300 %}
+  <p class="muted">Showing the first 300 of {{ rules|length }}. The full set is in the ruleset JSON export.</p>
+  {% endif %}
+  {% endfor %}
+</section>

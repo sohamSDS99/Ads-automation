@@ -91,19 +91,31 @@ async def seed_register(
         )
     )
 
-    guideline = ContentGuideline(
-        workspace_id=run.workspace_id,
-        project_id=project_id,
-        guideline_run_id=run_id,
-        schema_version="1.0",
-        version_major=1,
-        version_minor=0,
-        status=GuidelineStatus.DRAFT,
-        mode=GuidelineMode.STANDALONE,
-        bindings={},
-        unbound_inputs=[],
-    )
-    db.add(guideline)
+    # The entry route creates the draft row now (S3-P6): `ClaimRecord.
+    # first_seen_guideline_id` is NOT NULL and 3.2.3 registers claims a dozen
+    # nodes before 3.6.1 exists to write a payload. `guideline_run_id` is
+    # UNIQUE, so adding a second row here would abort the transaction — this
+    # helper reads the one the route made, which is also what the sign route
+    # will resolve.
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline).where(ContentGuideline.guideline_run_id == run_id)
+        )
+    ).scalar_one_or_none()
+    if guideline is None:  # pragma: no cover — the route creates it
+        guideline = ContentGuideline(
+            workspace_id=run.workspace_id,
+            project_id=project_id,
+            guideline_run_id=run_id,
+            schema_version="1.0",
+            version_major=1,
+            version_minor=0,
+            status=GuidelineStatus.DRAFT,
+            mode=GuidelineMode.STANDALONE,
+            bindings={},
+            unbound_inputs=[],
+        )
+        db.add(guideline)
     await db.flush()
 
     claims = [

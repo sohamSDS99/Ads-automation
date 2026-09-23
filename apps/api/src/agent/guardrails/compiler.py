@@ -49,6 +49,7 @@ from agent.guardrails.registry import (
 )
 from agent.guidelines.constants import ContentConstants
 from agent.schemas.guardrails import (
+    AssetSpecSheet,
     ClaimRef,
     DisclosureRule,
     LogoTemplate,
@@ -175,6 +176,33 @@ def _models[ModelT: BaseModel](
     return tuple(item if isinstance(item, model) else model.model_validate(item) for item in raw)
 
 
+def _asset_sheet(payload: Mapping[str, Any], constants: ContentConstants) -> AssetSpecSheet:
+    """The spec sheet this ruleset enforces: the run's, falling back to the constants'.
+
+    **The run's sheet has to win.** §11 gives 3.4.1 a `scope`: an unbound run
+    emits specs for every campaign type, a plan-bound run emits only the
+    slate's. Compiling `constants.asset_sheet()` regardless threw that away —
+    a scoped run's ruleset carried every campaign type, so Stage 04 linting a
+    Search-only account would enforce Performance Max asset counts against it
+    and report missing assets for campaigns the plan never intended to run.
+
+    The constants sheet remains the fallback, and it is the right one: it is
+    where 3.4.1's numbers come from, so a payload written before this key
+    existed compiles to exactly what it compiled to before.
+    """
+    section = payload.get("asset_specs")
+    if isinstance(section, Mapping):
+        raw = section.get("sheet", section)
+        if isinstance(raw, AssetSpecSheet):
+            return raw
+        if isinstance(raw, Mapping) and raw.get("specs"):
+            try:
+                return AssetSpecSheet.model_validate(raw)
+            except Exception as exc:  # noqa: BLE001 - re-raised with the key that failed
+                raise CompileError(f"`asset_specs` is not a valid AssetSpecSheet: {exc}") from exc
+    return constants.asset_sheet()
+
+
 def compile(  # noqa: A001 - `compiler.compile` is the name the PRD gives it
     guideline_payload: Mapping[str, Any],
     constants: ContentConstants,
@@ -215,6 +243,7 @@ def compile(  # noqa: A001 - `compiler.compile` is the name the PRD gives it
     major = _int(guideline_payload, "version_major", 1)
     minor = _int(guideline_payload, "version_minor", 0)
     version = compiler_version()
+    specs = _asset_sheet(guideline_payload, constants)
 
     material = {
         "schema_version": "1.0",
@@ -227,7 +256,7 @@ def compile(  # noqa: A001 - `compiler.compile` is the name the PRD gives it
         "rules": [rule.model_dump(mode="json") for rule in ordered],
         "claims_index": [claim.model_dump(mode="json") for claim in claims],
         "detectors": [spec.model_dump(mode="json") for spec in detectors],
-        "asset_specs": constants.asset_sheet().model_dump(mode="json"),
+        "asset_specs": specs.model_dump(mode="json"),
         "disclosure_requirements": [item.model_dump(mode="json") for item in disclosures],
         "logo_templates": [item.model_dump(mode="json") for item in logos],
     }
@@ -243,7 +272,7 @@ def compile(  # noqa: A001 - `compiler.compile` is the name the PRD gives it
         rules=ordered,
         claims_index=claims,
         detectors=detectors,
-        asset_specs=constants.asset_sheet(),
+        asset_specs=specs,
         disclosure_requirements=disclosures,
         logo_templates=logos,
         hash=digest,
