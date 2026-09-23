@@ -26,7 +26,7 @@ from typing import Annotated, Any, Literal, get_args
 
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -52,9 +52,11 @@ from agent.api.schemas_guidelines import (
     ResearchBinding,
     StartGuidelineRequest,
 )
+from agent.api.schemas_report import ExportAccepted, ExportJob
 from agent.api.throttle import throttle
+from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
-from agent.auth.ratelimit import RUN_QUOTA
+from agent.auth.ratelimit import EXPORT_QUOTA, RUN_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
@@ -65,6 +67,8 @@ from agent.db.models import (
     ContentGuideline,
     CredentialKind,
     EvidenceSource,
+    ExportArtifactType,
+    ExportFormat,
     GuidelineStatus,
     Membership,
     NodeRun,
@@ -79,10 +83,11 @@ from agent.db.models import (
     UserRole,
     UserStatus,
 )
-from agent.db.repos import ProjectRepo
+from agent.db.repos import ExportRepo, ProjectRepo
 from agent.db.session import get_session
 from agent.evidence.normalize import EvidenceDraft
 from agent.evidence.store import EvidenceScopeError, EvidenceStore
+from agent.export.jobs import CONTENT_GUIDELINE_FORMATS, guideline_filename_for
 from agent.guardrails.compiler import compiler_version, ruleset_hash
 from agent.guardrails.linter import lint
 from agent.guidelines import publish as publishing
@@ -91,6 +96,7 @@ from agent.guidelines.constants import get_content_constants
 from agent.orchestrator.guideline_input import build_guideline_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.state import RunLock
+from agent.queue import enqueue_export
 from agent.redis_client import get_redis
 from agent.schemas.guardrails import LintResult, LintTarget, LogoTemplate, Rule, Surface
 from agent.schemas.guardrails import RuleSet as RuleSetContract
@@ -1089,4 +1095,120 @@ def _as_ruleset(row: RuleSet, guideline: ContentGuideline) -> PublishedRuleSet:
         published_at=guideline.published_at,
         stale=bool(guideline.signature_stale or guideline.binding_superseded),
         created_at=row.created_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# exporting a rulebook (Stage 03 PRD §14)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/guidelines/{guideline_id}/export",
+    response_model=ExportAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Generate an export of a content rulebook",
+    dependencies=[Depends(throttle(EXPORT_QUOTA))],
+)
+async def request_guideline_export(
+    guideline_id: uuid.UUID,
+    me: AnyMember,
+    request: Request,
+    db: Db,
+    export_format: Annotated[
+        ExportFormat,
+        Query(alias="format", description="pdf | docx | md | json | xlsx | ruleset_json"),
+    ],
+) -> ExportAccepted:
+    """Queue one rulebook export.
+
+    `READ`, not a write permission, for the reason the plan route gives: §14
+    gives every role the export, and the write-shaped verb is about where the
+    work happens — a job row and a file on the worker's volume — not about
+    privilege. A `viewer` may export a rulebook and may not publish one.
+
+    Every format of a non-published guideline is watermarked, which is enforced
+    in `guideline_view.build_context` rather than here: a route that decided it
+    would be a second place the rule lived, and §14's requirement is that a
+    draft claims register cannot circulate as a legal sign-off record *in any
+    format*.
+    """
+    if export_format not in CONTENT_GUIDELINE_FORMATS:
+        raise problems.unprocessable(
+            f"A content guideline cannot be exported as {export_format.value}. Choose one "
+            f"of: {', '.join(sorted(item.value for item in CONTENT_GUIDELINE_FORMATS))}.",
+            title="Unsupported export format",
+        )
+
+    guideline = (
+        await db.execute(
+            sa.select(ContentGuideline).where(
+                ContentGuideline.id == guideline_id,
+                ContentGuideline.workspace_id == me.workspace_id,
+            )
+        )
+    ).scalar_one_or_none()
+    if guideline is None:
+        raise problems.not_found(f"No guideline {guideline_id}.")
+
+    if export_format is ExportFormat.RULESET_JSON and guideline.ruleset_id is None:
+        # Refused here rather than in the worker: a queued job that can never
+        # succeed is a worse answer than a 422 that says what to do. A ruleset
+        # exists only once a rulebook has been published.
+        raise problems.unprocessable(
+            "This rulebook has no compiled ruleset, so there is nothing to hand Stage 04. "
+            "Publish it first — a ruleset is minted in the publish transaction.",
+            title="Nothing to export",
+            code="no_ruleset",
+        )
+
+    project = await ProjectRepo(db, me.workspace_id).get(guideline.project_id)
+    export = ExportRepo(db, me.workspace_id).add(
+        guideline.id,
+        export_format,
+        artifact_type=ExportArtifactType.CONTENT_GUIDELINE,
+        requested_by=me.user.id,
+    )
+    await db.flush()
+
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.EXPORT_REQUESTED,
+        target_type=AuditTarget.EXPORT,
+        target_id=export.id,
+        meta={
+            "guideline_id": str(guideline.id),
+            "guideline_run_id": str(guideline.guideline_run_id),
+            "format": export_format.value,
+            "guideline_status": guideline.status.value,
+            "version": f"{guideline.version_major}.{guideline.version_minor}",
+        },
+        ip=client_ip(request),
+    )
+    # Committed before the job is queued: the worker looks this row up by id,
+    # so enqueueing first is a race it can lose.
+    await db.commit()
+    await enqueue_export(export.id)
+
+    return ExportAccepted(
+        job_id=export.id,
+        export=ExportJob(
+            id=export.id,
+            report_id=export.artifact_id,
+            run_id=guideline.guideline_run_id,
+            format=export.format,
+            status=export.status,
+            bytes=export.bytes,
+            filename=guideline_filename_for(
+                export.format,
+                project_name=project.name if project else None,
+                version=f"{guideline.version_major}.{guideline.version_minor}",
+                generated_at=export.created_at,
+            ),
+            error=export.error,
+            created_at=export.created_at,
+            ready_at=export.ready_at,
+        ),
     )
