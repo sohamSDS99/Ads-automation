@@ -250,6 +250,33 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # Signing in to Google is `read`, deliberately. What it hands over is the
+    # caller's own Google account, and the developer token it joins is the
+    # deployment's — so the alternative is one administrator minting refresh
+    # tokens on a laptop for everybody else, which is the arrangement that left
+    # this source unconnected. Deleting the workspace's connection still needs
+    # `credential_write`, because that one stops everybody's runs.
+    (
+        "POST",
+        "/connections/google/authorize",
+        "/connections/google/authorize",
+        Permission.READ,
+        {"return_to": "/settings/connections"},
+    ),
+    (
+        "GET",
+        "/connections/google/callback",
+        "/connections/google/callback",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/connections/{kind}/account",
+        "/connections/google_ads/account",
+        Permission.READ,
+        {"customer_id": "4445556660"},
+    ),
     ("GET", "/models", "/models", Permission.SETTINGS_WRITE, None),
     # P8. Schedules are written by settings holders rather than by run
     # operators: a schedule is a standing instruction to spend unattended, which

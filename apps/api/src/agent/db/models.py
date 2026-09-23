@@ -542,8 +542,9 @@ class Credential(Base):
     """Retired: the vault that used to hold a per-workspace copy of every key.
 
     Nothing reads or writes this table any more. Secrets are read from the
-    deployment's environment (`credential_kinds.KindSpec.from_env`) and a
-    workspace's only say is `SourceConnection` below.
+    deployment's environment (`credential_kinds.KindSpec.from_env`), a workspace's
+    say is `SourceConnection` below, and the one value neither of those can hold
+    — a Google refresh token — is sealed onto that row's `grant_ciphertext`.
 
     It is still declared, and still on disk, because the rows are AES-256-GCM
     ciphertext that no endpoint could ever read back: dropping the table would
@@ -652,6 +653,28 @@ class SourceConnection(Base):
     #: raised `TypeError` on the merge until this existed.
     meta: Mapped[dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default=sa.text("'{}'::jsonb")
+    )
+
+    #: The half of an OAuth source's credential the deployment cannot hold: the
+    #: refresh token a person's consent minted, AES-256-GCM sealed exactly as
+    #: the retired vault sealed everything, with this row's id as the AAD so a
+    #: ciphertext moved to another workspace's row fails to open rather than
+    #: quietly authorising as somebody else.
+    #:
+    #: Null for every source whose credential is entirely the deployment's,
+    #: which is all of them but Google Ads. The non-secret half of a grant — the
+    #: customer id, the manager it is reached through, the accounts it can see —
+    #: is in `meta`, because it is showable and the refresh token never is.
+    grant_ciphertext: Mapped[bytes | None] = mapped_column(sa.LargeBinary)
+    grant_nonce: Mapped[bytes | None] = mapped_column(sa.LargeBinary)
+    granted_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    #: Who signed in. Not `connected_by`: the person who switched a source on
+    #: and the person whose Google account it now reads are often not the same,
+    #: and when a grant stops working it is the second one who has to fix it.
+    #: `SET NULL` rather than `RESTRICT` — a grant outlives the person who gave
+    #: it, and deleting a colleague must not be blocked by a connection.
+    granted_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL")
     )
 
 

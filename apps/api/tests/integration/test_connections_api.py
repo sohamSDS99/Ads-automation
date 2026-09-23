@@ -27,12 +27,14 @@ from tests.integration.conftest import ApiClient
 #: that can be connected and every other one a "not configured" case.
 OPENROUTER_KEY = "sk-or-test-key"
 
+#: The three Google Ads values an operator can actually set. The refresh token
+#: and the customer id are a person's, minted by consent — see
+#: `test_google_oauth_api.py` — so they are deliberately not here and are never
+#: reported as missing variables.
 GOOGLE_ADS_ENV = {
     "GOOGLE_ADS_DEVELOPER_TOKEN": "dev-token-not-real",
     "GOOGLE_ADS_CLIENT_ID": "client-id",
     "GOOGLE_ADS_CLIENT_SECRET": "client-secret",
-    "GOOGLE_ADS_REFRESH_TOKEN": "refresh-token",
-    "GOOGLE_ADS_CUSTOMER_ID": "123-456-7890",
 }
 
 
@@ -95,10 +97,12 @@ async def test_an_unconfigured_source_names_exactly_what_to_set(admin: ApiClient
 
     assert google["configured"] is False
     assert set(google["missing_env_vars"]) == set(GOOGLE_ADS_ENV)
-    # The manager id is the one value that may stay unset, so it is offered but
-    # never demanded.
-    assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" in google["env_vars"]
-    assert "GOOGLE_ADS_LOGIN_CUSTOMER_ID" not in google["missing_env_vars"]
+    # The card names only what an operator can set. A refresh token is minted by
+    # signing in, so listing its variable here would be an instruction nobody
+    # reading this screen can carry out.
+    assert set(google["env_vars"]) == set(GOOGLE_ADS_ENV)
+    assert google["oauth"]["provider"] == "google"
+    assert google["oauth"]["granted"] is False
 
 
 # --- connect ----------------------------------------------------------------
@@ -153,6 +157,27 @@ async def test_an_unconfigured_source_cannot_be_connected(admin: ApiClient) -> N
     body = response.json()
     assert set(body["missing_env_vars"]) == set(GOOGLE_ADS_ENV)
     assert "GOOGLE_ADS_DEVELOPER_TOKEN" in body["detail"]
+
+
+async def test_a_configured_source_nobody_has_signed_in_to_cannot_be_connected(
+    admin: ApiClient, monkeypatch: Any
+) -> None:
+    """The deployment's half alone is not a credential, and the fix is a button.
+
+    Listing variables here would be the wrong instruction: all three are set.
+    What is missing is a person, and the message says so.
+    """
+    from agent.config import get_settings
+
+    for name, value in GOOGLE_ADS_ENV.items():
+        monkeypatch.setenv(name, value)
+    get_settings.cache_clear()
+
+    response = await admin.post("/connections/google_ads/connect")
+
+    assert response.status_code == 422, response.text
+    assert "Connect with Google" in response.json()["detail"]
+    assert response.json()["oauth_required"] == "google"
 
 
 async def test_connecting_twice_keeps_the_first_decision(

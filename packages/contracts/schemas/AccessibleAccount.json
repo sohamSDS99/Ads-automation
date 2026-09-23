@@ -1,0 +1,57 @@
+{
+  "description": "One Google Ads account a consent reaches.",
+  "properties": {
+    "customer_id": {
+      "title": "Customer Id",
+      "type": "string"
+    },
+    "name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "manager": {
+      "default": false,
+      "description": "A manager (MCC) account. It holds no campaigns, so it is never the default.",
+      "title": "Manager",
+      "type": "boolean"
+    },
+    "via_manager": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Via Manager"
+    },
+    "currency": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Currency"
+    }
+  },
+  "required": [
+    "customer_id"
+  ],
+  "title": "AccessibleAccount",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

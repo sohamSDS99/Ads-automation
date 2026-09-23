@@ -1,0 +1,15 @@
+{
+  "description": "The consent URL to send the browser to. Valid for fifteen minutes.",
+  "properties": {
+    "url": {
+      "title": "Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "url"
+  ],
+  "title": "GoogleAuthorizeResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
