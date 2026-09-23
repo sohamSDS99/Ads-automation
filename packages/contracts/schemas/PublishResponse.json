@@ -1,0 +1,118 @@
+{
+  "$defs": {
+    "GuidelineStatus": {
+      "description": "PRD \u00a712.4. `succeeded` on the run never means `published`.",
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_publish",
+        "published",
+        "superseded"
+      ],
+      "title": "GuidelineStatus",
+      "type": "string"
+    }
+  },
+  "description": "What the publish minted.",
+  "properties": {
+    "guideline_id": {
+      "format": "uuid",
+      "title": "Guideline Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    },
+    "version_major": {
+      "title": "Version Major",
+      "type": "integer"
+    },
+    "version_minor": {
+      "title": "Version Minor",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/GuidelineStatus"
+    },
+    "ruleset_version": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ruleset Version"
+    },
+    "ruleset_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ruleset Id"
+    },
+    "rule_count": {
+      "default": 0,
+      "title": "Rule Count",
+      "type": "integer"
+    },
+    "published_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published At"
+    },
+    "published_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Published By"
+    },
+    "superseded": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Superseded",
+      "type": "array"
+    },
+    "already_published": {
+      "default": false,
+      "title": "Already Published",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "guideline_id",
+    "version",
+    "version_major",
+    "version_minor",
+    "status"
+  ],
+  "title": "PublishResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

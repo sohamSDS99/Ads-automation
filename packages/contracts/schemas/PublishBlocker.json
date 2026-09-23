@@ -1,0 +1,25 @@
+{
+  "description": "One reason a rulebook may not be published (\u00a716 rule 1).",
+  "properties": {
+    "code": {
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "fix_url": {
+      "title": "Fix Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "fix_url"
+  ],
+  "title": "PublishBlocker",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

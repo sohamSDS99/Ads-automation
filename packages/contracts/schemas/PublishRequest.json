@@ -1,0 +1,17 @@
+{
+  "description": "`{confirm_version}`, and nothing else (\u00a716).\n\nThe version is confirmed rather than chosen. A caller who could *name* the\nversion could mint one out of sequence; a caller who confirms one is saying\n\"this is the number the screen showed me\", which is what makes a stale\ndialog a 409 instead of a silent overwrite.",
+  "properties": {
+    "confirm_version": {
+      "description": "The MAJOR the caller expects to mint.",
+      "minimum": 1,
+      "title": "Confirm Version",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "confirm_version"
+  ],
+  "title": "PublishRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -51,12 +51,14 @@ from agent.db.models import (
     Approval,
     ApprovalStatus,
     ClaimSignature,
-    ContentGuideline as GuidelineRow,
     Evidence,
     GuidelineStatus,
     HumanTask,
     HumanTaskStatus,
     RunStage,
+)
+from agent.db.models import (
+    ContentGuideline as GuidelineRow,
 )
 from agent.export.contract import Claim, Confidence
 from agent.export.guideline_contract import (
@@ -64,11 +66,16 @@ from agent.export.guideline_contract import (
     CritiqueIssue,
     GateDecision,
     HumanTaskRef,
+    IssueSeverity,
     RegisteredClaim,
     SignatureRef,
 )
+from agent.export.guideline_contract import (
+    GuidelineStatus as GuidelineContractStatus,
+)
 from agent.export.guideline_markdown import render_guideline_markdown
-from agent.guidelines import claims_index, critique as checks, versions
+from agent.guidelines import claims_index, versions
+from agent.guidelines import critique as checks
 from agent.guidelines.constants import load_content_constants
 from agent.guidelines.synthesis import (
     ALL_GUIDELINE_NODES,
@@ -226,14 +233,12 @@ async def synthesise(
         degraded_sources=_degraded(ctx),
         constants_version=constants.version,
         generated_at=datetime.now(UTC),
-        cost_usd=float(ctx.ledger.spent),
+        cost_usd=float(ctx.ledger.spent_usd),
     )
 
     narrative = await _write(ctx, facts, critique=critique)
     known = {item.id: (item.content_text or "") for item in evidence}
-    dropped_claims, written = _claims(
-        [*narrative.assumptions, *narrative.risks], known
-    )
+    dropped_claims, written = _claims([*narrative.assumptions, *narrative.risks], known)
 
     built = assemble(
         ctx.outputs,
@@ -307,7 +312,14 @@ async def _write(
                     "review_triggers": len((outputs.get("3.5.2") or {}).get("triggers") or []),
                 },
             ),
-            prompts.evidence_block(ctx.scratch.get("3.6.1") or []),
+            prompts.computed_block(
+                "evidence you may cite by id (copy the id exactly; a citation that does "
+                "not resolve fails this node)",
+                [
+                    {"id": str(row.id), "kind": row.kind, "text": (row.content_text or "")[:400]}
+                    for row in (ctx.scratch.get("3.6.1") or [])[:60]
+                ],
+            ),
             correction,
             "The summary is at most 250 words. Anything longer is the document written twice.",
         ),
@@ -517,7 +529,7 @@ async def _registered_claims(ctx: RunContext) -> list[RegisteredClaim]:
             expires_at=claim.expires_at,
             signature_id=(
                 signature.id
-                if claims_index.signature_is_live(signature, now=now)
+                if signature is not None and claims_index.signature_is_live(signature, now=now)
                 else None
             ),
             evidence_ids=list(claim.evidence_ids or []),
@@ -545,7 +557,7 @@ async def _gate_decisions(ctx: RunContext) -> list[GateDecision]:
         if key not in {"G5", "G6"}:
             continue
         found[key] = GateDecision(
-            gate_key=key,  # type: ignore[arg-type]  # filtered above
+            gate_key=key,
             node_id=approval.node_id,
             status=_approval_status(approval.status),
             decided_by=approval.decided_by,
@@ -586,7 +598,7 @@ async def _human_tasks(ctx: RunContext) -> list[HumanTaskRef]:
     return [
         HumanTaskRef(
             task_id=task.id,
-            task_key=task.task_key,  # type: ignore[arg-type]  # 'H1' | 'H2'
+            task_key=task.task_key,
             status=task.status.value,
             blocking_for=task.blocking_for.value,
             assignee_id=task.assignee_id,
@@ -626,15 +638,12 @@ async def _signatures(ctx: RunContext) -> list[SignatureRef]:
 async def _signature_hashes(ctx: RunContext) -> dict[uuid.UUID, str]:
     """What each signature was actually taken over, for §11 assertion 3."""
     rows = (
-        (
-            await ctx.db.execute(
-                sa.select(ClaimSignature.id, ClaimSignature.set_hash).where(
-                    ClaimSignature.project_id == ctx.project.id
-                )
+        await ctx.db.execute(
+            sa.select(ClaimSignature.id, ClaimSignature.set_hash).where(
+                ClaimSignature.project_id == ctx.project.id
             )
         )
-        .all()
-    )
+    ).all()
     return {row[0]: row[1] for row in rows}
 
 
@@ -698,7 +707,7 @@ async def _store(ctx: RunContext, guideline: ContentGuideline, markdown: str) ->
 async def _finalise(
     ctx: RunContext,
     guideline: ContentGuideline,
-    status: str,
+    status: GuidelineContractStatus,
     issues: list[CritiqueIssue],
 ) -> None:
     """Write the critique's verdict onto the stored rulebook.
@@ -707,14 +716,14 @@ async def _finalise(
     document that says `ready_to_publish` while the critique that said otherwise
     lives somewhere else is how a blocked rulebook circulates as an approved one.
     """
-    guideline.status = status  # type: ignore[assignment]  # from `status_for`
+    guideline.status = status
     guideline.critique_issues = list(issues)
     await _store(
         ctx, guideline, render_guideline_markdown(guideline, project_name=ctx.project.name)
     )
 
 
-def _row_status(status: str) -> GuidelineStatus:
+def _row_status(status: GuidelineContractStatus) -> GuidelineStatus:
     return {
         "draft": GuidelineStatus.DRAFT,
         "blocked": GuidelineStatus.BLOCKED,
@@ -734,10 +743,10 @@ def _as_issues(reading: GuidelineReading) -> list[CritiqueIssue]:
     for row in reading.issues:
         if not row.finding.strip():
             continue
-        severity = row.severity if row.severity in {"warning", "note"} else "warning"
+        severity: IssueSeverity = "note" if row.severity == "note" else "warning"
         found.append(
             CritiqueIssue(
-                severity=severity,  # type: ignore[arg-type]  # narrowed above
+                severity=severity,
                 section=row.section or "rulebook",
                 finding=row.finding,
                 fix=row.fix,
@@ -747,9 +756,7 @@ def _as_issues(reading: GuidelineReading) -> list[CritiqueIssue]:
     return found
 
 
-def _claims(
-    written: list[WrittenClaim], known: dict[uuid.UUID, str]
-) -> tuple[int, list[Claim]]:
+def _claims(written: list[WrittenClaim], known: dict[uuid.UUID, str]) -> tuple[int, list[Claim]]:
     """Validate the model's citations. Returns (dropped, claims).
 
     A claim citing an id that does not exist is not repaired into one citing a
@@ -763,9 +770,7 @@ def _claims(
         if not valid:
             dropped += 1
             continue
-        kept.append(
-            Claim(statement=item.statement, evidence_ids=valid, confidence=item.confidence)
-        )
+        kept.append(Claim(statement=item.statement, evidence_ids=valid, confidence=item.confidence))
     return dropped, kept
 
 

@@ -77,6 +77,7 @@ from agent.guidelines.constants import ContentConstants
 from agent.schemas.guardrails import (
     AssetSpecSheet,
     Authority,
+    AuthoritySource,
     ClaimLicenceMatcher,
     CountMatcher,
     DisclosureMatcher,
@@ -87,7 +88,6 @@ from agent.schemas.guardrails import (
     Rule,
     RuleScope,
     Severity,
-    Surface,
     TermSetMatcher,
 )
 from agent.schemas.guardrails import RegexMatcher as Regex
@@ -239,7 +239,7 @@ def assemble(
         version_major=facts.version_major,
         version_minor=facts.version_minor,
         generated_at=facts.generated_at,
-        mode=facts.mode,  # type: ignore[arg-type]  # validated by the contract
+        mode=facts.mode,
         bindings=dict(facts.bindings),
         unbound_inputs=list(facts.unbound_inputs),
         executive_summary=executive_summary,
@@ -580,8 +580,7 @@ def _voice_rules(brand: BrandRules, drop: Drop) -> list[Rule]:
             "voice.sentence_length.v1",
             matcher=LengthMatcher(max=max_words, unit="words"),
             message=(
-                f"Sentences run to {max_words} words in this brand's voice; this one is "
-                "longer."
+                f"Sentences run to {max_words} words in this brand's voice; this one is longer."
             ),
             fix_hint="Split it, or cut the qualifier.",
             authority=_authority("brand", "voice_profile.readability_targets"),
@@ -633,9 +632,7 @@ def _lexicon_rules(brand: BrandRules, drop: Drop) -> list[Rule]:
     return rules
 
 
-def _claim_rules(
-    register: ClaimsRegister, constants: ContentConstants, drop: Drop
-) -> list[Rule]:
+def _claim_rules(register: ClaimsRegister, constants: ContentConstants, drop: Drop) -> list[Rule]:
     """One licence rule over every detector, plus one refusal per dead claim.
 
     The licence rule is singular on purpose: `ClaimLicenceMatcher` runs the
@@ -664,8 +661,7 @@ def _claim_rules(
                     match_threshold=constants.claims.match_threshold.value,
                 ),
                 message=(
-                    "This reads as a factual claim. Only claims the legal owner has "
-                    "signed may run."
+                    "This reads as a factual claim. Only claims the legal owner has signed may run."
                 ),
                 fix_hint="Soften it, or get the claim added to the register and signed.",
                 authority=_authority("legal_signature", "claims_index"),
@@ -732,13 +728,15 @@ def _offer_rules(register: ClaimsRegister, drop: Drop) -> list[Rule]:
             _rule(
                 f"offer.{entry.construction}.v1",
                 matcher=OfferBindingMatcher(
-                    construction=entry.construction,  # type: ignore[arg-type]  # checked above
+                    construction=entry.construction,
                     field=field_name,
                     source="offer_record",
                     tolerance=_float(binding.get("tolerance")) or 0.0,
                     product_set=_optional_text(binding.get("product_set")),
                 ),
-                message=entry.requirement or f"A {entry.construction} claim must match live offer data.",
+                message=(
+                    entry.requirement or f"A {entry.construction} claim must match live offer data."
+                ),
                 fix_hint="Update the copy, or update the offer feed.",
                 authority=_authority("internal", f"offer_integrity.{entry.construction}"),
             )
@@ -785,9 +783,7 @@ def _policy_rules(policy: PolicyProfile, drop: Drop) -> list[Rule]:
             _rule(
                 "policy.restricted_phrase.v1",
                 matcher=Regex(pattern=_alternation((text,)), flags=("i",)),
-                message=(
-                    "An ad may not imply we know something personal about the viewer."
-                ),
+                message=("An ad may not imply we know something personal about the viewer."),
                 fix_hint="Rewrite it to describe the product, not the reader.",
                 authority=_authority("google_policy", "personalized_advertising"),
             )
@@ -873,9 +869,7 @@ def _disclosure_rules(policy: PolicyProfile, drop: Drop) -> list[Rule]:
                     required_text=item.required_text,
                     placement=item.placement,
                 ),
-                message=(
-                    "Generated creative has to carry the disclosure on this surface."
-                ),
+                message=("Generated creative has to carry the disclosure on this surface."),
                 fix_hint=f"Add “{item.required_text}”.",
                 authority=_authority("google_policy", item.disclosure_id),
                 scope=RuleScope(surfaces=item.surfaces, markets=item.markets),
@@ -913,9 +907,11 @@ def _governance_rules(governance: Governance, drop: Drop) -> list[Rule]:
 # ---------------------------------------------------------------------------
 
 
-def _authority(source: str, reference: str, *, reviewed_at: date | None = None) -> Authority:
+def _authority(
+    source: AuthoritySource, reference: str, *, reviewed_at: date | None = None
+) -> Authority:
     return Authority(
-        source=source,  # type: ignore[arg-type]  # callers pass literals
+        source=source,
         reference=reference or "unspecified",
         reviewed_at=reviewed_at or datetime.now(UTC).date(),
     )

@@ -30,6 +30,7 @@ fail on the unique index — a 409 for a reason nobody could act on.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Mapping
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -77,7 +78,7 @@ async def ensure_draft(
     project_id: uuid.UUID,
     run_id: uuid.UUID,
     mode: GuidelineMode,
-    bindings: dict[str, object] | None = None,
+    bindings: Mapping[str, object] | None = None,
     unbound_inputs: list[str] | None = None,
 ) -> ContentGuideline:
     """The draft row for this run, created if it does not exist yet.

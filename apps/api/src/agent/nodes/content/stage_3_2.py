@@ -554,7 +554,9 @@ class LegalClaimSignoffNode:
             workspace_id=ctx.run.workspace_id,
             project_id=ctx.project.id,
             guideline_id=guideline.id,
-            candidates=[dict(item) for item in ((ctx.outputs.get("3.2.1") or {}).get("candidates") or [])],
+            candidates=[
+                dict(item) for item in ((ctx.outputs.get("3.2.1") or {}).get("candidates") or [])
+            ],
             verdicts=[dict(item) for item in claims],
         )
 

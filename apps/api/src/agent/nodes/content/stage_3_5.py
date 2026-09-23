@@ -395,9 +395,7 @@ class LegalReviewTriggersNode:
             try:
                 re.compile(trigger.pattern)
             except re.error as exc:
-                log.warning(
-                    "3.5.2.trigger_dropped", why=f"pattern does not compile: {exc}"
-                )
+                log.warning("3.5.2.trigger_dropped", why=f"pattern does not compile: {exc}")
                 return False
         return True
 

@@ -37,8 +37,9 @@ from typing import Any
 import structlog
 
 from agent.evidence.redact import redact_pii
-from agent.export.guideline_contract import ContentGuideline, CritiqueIssue
+from agent.export.guideline_contract import ContentGuideline, CritiqueIssue, IssueSeverity
 from agent.guardrails.registry import RULES
+from agent.schemas.guardrails import RegexMatcher
 
 log = structlog.get_logger(__name__)
 
@@ -49,6 +50,12 @@ MAX_NAMED = 8
 #: Statuses that licence nothing. Four values, one behaviour — `claims_index`
 #: narrows them to the linter's three, and this is the register's own view.
 UNLICENSED = frozenset({"unsupported", "rejected", "expired", "revoked"})
+
+#: Authority sources that point at something outside this payload, and so must
+#: carry a reference to it. `internal` is the deliberate exception — its
+#: citation is a `content_constants.yaml` key, checked separately.
+_EXTERNAL_SOURCES = frozenset({"brand", "google_policy", "legal_signature", "learned_disapproval"})
+
 
 def run_checks(
     guideline: ContentGuideline,
@@ -96,12 +103,11 @@ def check_authorities_resolve(guideline: ContentGuideline) -> list[CritiqueIssue
         if source == "internal":
             if not rule.authority.reference or rule.authority.reference == "unspecified":
                 unkeyed.append(rule.rule_id)
-        elif source in {"brand", "google_policy", "legal_signature", "learned_disapproval"}:
-            # `legal_signature` cites a signature id in `reference`; the others
-            # cite gathered evidence. Both are references to something outside
-            # this payload, which is what the assertion is really about.
-            if not rule.evidence_ids and not rule.authority.reference:
-                uncited.append(rule.rule_id)
+        # `legal_signature` cites a signature id in `reference`; the others cite
+        # gathered evidence. Both are references to something outside this
+        # payload, which is what the assertion is really about.
+        elif source in _EXTERNAL_SOURCES and not (rule.evidence_ids or rule.authority.reference):
+            uncited.append(rule.rule_id)
 
     issues: list[CritiqueIssue] = []
     if uncited:
@@ -290,13 +296,11 @@ def check_dead_claims_are_refused(guideline: ContentGuideline) -> list[CritiqueI
     second is actionable and the first invites a second attempt at the same
     sentence.
     """
-    dead = [
-        claim for claim in guideline.claims_register.claims if claim.status in UNLICENSED
-    ]
+    dead = [claim for claim in guideline.claims_register.claims if claim.status in UNLICENSED]
     if not dead:
         return []
 
-    named = " ".join(rule.matcher.pattern for rule in guideline.rules if _is_regex(rule)).lower()
+    named = " ".join(_patterns(guideline)).lower()
     missing = [
         claim.claim_text or str(claim.claim_id)
         for claim in dead
@@ -308,8 +312,7 @@ def check_dead_claims_are_refused(guideline: ContentGuideline) -> list[CritiqueI
         _issue(
             "blocking",
             "claims_register",
-            f"{len(missing)} unlicensed claim(s) produce no rule naming them: "
-            f"{_names(missing)}.",
+            f"{len(missing)} unlicensed claim(s) produce no rule naming them: {_names(missing)}.",
             "Each one needs a blocking rule, or a writer who uses the phrase is told "
             "only that it is unlicensed and not that it was refused.",
             "dead_claims_refused",
@@ -337,8 +340,7 @@ def check_lexicon_has_no_conflicts(guideline: ContentGuideline) -> list[Critique
                 "blocking",
                 "brand_rules",
                 f"The lexicon declares {len(lexicon.conflicts)} unresolved conflict(s).",
-                "Decide each term: required, banned, or scoped so the two rules cannot "
-                "both apply.",
+                "Decide each term: required, banned, or scoped so the two rules cannot both apply.",
                 "lexicon_conflicts",
             )
         )
@@ -494,8 +496,7 @@ def check_open_tasks_are_declared(guideline: ContentGuideline) -> list[CritiqueI
             _issue(
                 "blocking",
                 "governance",
-                f"{len(unassigned)} open person-task(s) have no assignee: "
-                f"{_names(unassigned)}.",
+                f"{len(unassigned)} open person-task(s) have no assignee: {_names(unassigned)}.",
                 "A non-delegable task with no named person cannot be completed by anyone. "
                 "Re-run the node, or fix the sign-off matrix it reads.",
                 "open_tasks_declared",
@@ -535,9 +536,7 @@ def check_disclosure_covers_generated_surfaces(
 
     covered = {surface for rule in rules for surface in rule.surfaces}
     in_scope = {
-        asset
-        for by_asset in guideline.asset_specs.sheet.specs.values()
-        for asset in by_asset
+        asset for by_asset in guideline.asset_specs.sheet.specs.values() for asset in by_asset
     }
     # Only asset types that are also surfaces can carry text a disclosure could
     # go on; an `image` asset type is not a surface and must not be reported as
@@ -550,8 +549,7 @@ def check_disclosure_covers_generated_surfaces(
         _issue(
             "warning",
             "policy_profile",
-            f"{len(missing)} text surface(s) have specs but no disclosure rule: "
-            f"{_names(missing)}.",
+            f"{len(missing)} text surface(s) have specs but no disclosure rule: {_names(missing)}.",
             "Extend 3.3.4's rules to cover them, or scope the specs to the surfaces "
             "generated copy actually runs on.",
             "disclosure_coverage",
@@ -643,10 +641,10 @@ def check_no_personal_data(guideline: ContentGuideline) -> list[CritiqueIssue]:
 
 
 def _issue(
-    severity: str, section: str, finding: str, fix: str, check: str
+    severity: IssueSeverity, section: str, finding: str, fix: str, check: str
 ) -> CritiqueIssue:
     return CritiqueIssue(
-        severity=severity,  # type: ignore[arg-type]  # callers pass literals
+        severity=severity,
         section=section,
         finding=finding,
         fix=fix,
@@ -654,8 +652,17 @@ def _issue(
     )
 
 
-def _is_regex(rule: Any) -> bool:
-    return getattr(rule.matcher, "kind", "") == "regex"
+def _patterns(guideline: ContentGuideline) -> list[str]:
+    """Every regex pattern in the rulebook.
+
+    `isinstance` rather than a `kind` string check: the matcher union is
+    discriminated, and mypy narrows on the class but not on the tag — so a
+    string check would need a `type: ignore` that would go on silently
+    ignoring a genuinely wrong attribute later.
+    """
+    return [
+        rule.matcher.pattern for rule in guideline.rules if isinstance(rule.matcher, RegexMatcher)
+    ]
 
 
 def _names(values: Sequence[str], *, limit: int = MAX_NAMED) -> str:
