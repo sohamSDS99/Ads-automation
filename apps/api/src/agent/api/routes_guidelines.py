@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any, Literal, get_args
 
 import sqlalchemy as sa
@@ -29,6 +29,7 @@ import structlog
 from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from agent import queue
 from agent.api import problems
@@ -36,6 +37,7 @@ from agent.api.middleware import client_ip
 from agent.api.schemas_guidelines import (
     AvailableBindings,
     EligibilityNote,
+    GuidelineAttention,
     GuidelineDetail,
     GuidelineEligibility,
     GuidelineRunAccepted,
@@ -44,6 +46,7 @@ from agent.api.schemas_guidelines import (
     ImageLintFinding,
     ImageLintResult,
     ImageMetrics,
+    OpenTaskRef,
     PlanBinding,
     PublishBlocker,
     PublishedRuleSet,
@@ -61,15 +64,20 @@ from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
+    AmendmentChangeKind,
     AmendmentStatus,
     CampaignPlan,
     CampaignPlanStatus,
+    ClaimRecord,
+    ClaimStatus,
     ContentGuideline,
     CredentialKind,
     EvidenceSource,
     ExportArtifactType,
     ExportFormat,
     GuidelineStatus,
+    HumanTask,
+    HumanTaskStatus,
     Membership,
     NodeRun,
     NodeRunStatus,
@@ -80,6 +88,7 @@ from agent.db.models import (
     RunStage,
     RunTrigger,
     SignOffMatrix,
+    User,
     UserRole,
     UserStatus,
 )
@@ -178,10 +187,10 @@ async def _eligibility(
                     f"{holder.user_name or 'Someone'} is already building content guidelines "
                     f"for this project (run {str(holder.run_id)[:8]})."
                 ),
-                # The existing run console, not `/guidelines/runs/...`: the
-                # Guideline Console arrives in S3-P7 and a fix_url that 404s
-                # is worse than no link.
-                fix_url=f"{home}/runs/{holder.run_id}",
+                # The Guideline Console, which S3-P7 built. S3-P0 pointed
+                # this at the Stage 01 route because a fix_url that 404s is
+                # worse than no link; that reason has expired.
+                fix_url=f"{home}/guidelines/runs/{holder.run_id}",
             )
         )
 
@@ -419,26 +428,240 @@ def _json_bindings(built: object) -> dict[str, str | int | None]:
 async def guideline_versions(project_id: uuid.UUID, me: AnyMember, db: Db) -> GuidelineVersionList:
     if await ProjectRepo(db, me.workspace_id).get(project_id) is None:
         raise problems.not_found(f"No project {project_id}.")
+
+    # Counted in the database. `payload` is the whole rulebook and this list
+    # renders every version of it, so selecting the column to call `len()` on
+    # two of its keys would move megabytes to count tens.
+    #
+    # `jsonb_array_length` raises on a non-array, so each count is guarded by
+    # the type check as well as the NULL check: a draft written before 3.6.1
+    # has no payload at all, and one halted mid-synthesis can have the key
+    # without the list.
+    def _count(*path: str) -> sa.ColumnElement[int]:
+        member: Any = ContentGuideline.payload
+        for step in path:
+            member = member[step]
+        return sa.case(
+            (
+                sa.and_(
+                    ContentGuideline.payload.is_not(None),
+                    sa.func.jsonb_typeof(member) == "array",
+                ),
+                sa.func.jsonb_array_length(member),
+            ),
+            else_=0,
+        )
+
+    publisher = aliased(User)
     rows = (
-        (
-            await db.execute(
-                sa.select(ContentGuideline)
-                .where(
-                    ContentGuideline.workspace_id == me.workspace_id,
-                    ContentGuideline.project_id == project_id,
-                )
-                .order_by(
-                    ContentGuideline.version_major.desc(),
-                    ContentGuideline.version_minor.desc(),
-                    ContentGuideline.created_at.desc(),
-                )
+        await db.execute(
+            sa.select(
+                ContentGuideline,
+                sa.func.coalesce(publisher.name, "").label("published_by_name"),
+                _count("rules").label("rule_count"),
+                _count("claims_register", "claims").label("claim_count"),
+            )
+            .outerjoin(publisher, publisher.id == ContentGuideline.published_by)
+            .where(
+                ContentGuideline.workspace_id == me.workspace_id,
+                ContentGuideline.project_id == project_id,
+            )
+            # `version DESC` alone stops being an order the moment a project
+            # holds two drafts: every unpublished version is 0.0. The
+            # `created_at` tiebreak is what keeps the newest draft on top.
+            .order_by(
+                ContentGuideline.version_major.desc(),
+                ContentGuideline.version_minor.desc(),
+                ContentGuideline.created_at.desc(),
             )
         )
-        .scalars()
-        .all()
-    )
+    ).all()
     return GuidelineVersionList(
-        versions=[GuidelineVersion.model_validate(row, from_attributes=True) for row in rows]
+        versions=[
+            GuidelineVersion.model_validate(row.ContentGuideline, from_attributes=True).model_copy(
+                update={
+                    "published_by_name": row.published_by_name,
+                    "rule_count": row.rule_count,
+                    "claim_count": row.claim_count,
+                }
+            )
+            for row in rows
+        ]
+    )
+
+
+@router.get(
+    "/projects/{project_id}/guidelines/attention",
+    response_model=GuidelineAttention,
+    summary="What on this project is waiting for a person",
+)
+async def guideline_attention(project_id: uuid.UUID, me: AnyMember, db: Db) -> GuidelineAttention:
+    """§15.1 rule 3 and §15.3 A block 3, in one request.
+
+    Two surfaces read this and neither wants a list: the stage rail wants two
+    dots, the landing wants a handful of rows. So it returns counts plus the
+    first few tasks, and `open_tasks_total` stays the truth when the list is
+    shorter than the count.
+
+    It reads three tables that have no HTTP route of their own yet — S3-P8 owns
+    the person-task card, the claims register and the amendment inbox. That is
+    the reason this is a *summary* and not `GET /human-tasks`: shipping the
+    list endpoints here would build S3-P8's data layer a phase early, and §22
+    rules that out. Answering "is anything waiting on a human" is this phase's
+    own question, because this phase's rail asks it.
+
+    `READ` for everybody, `viewer` included: it is a count of work, not the
+    work, and it carries no instructions, no artifacts and no claim text.
+    """
+    if await ProjectRepo(db, me.workspace_id).get(project_id) is None:
+        raise problems.not_found(f"No project {project_id}.")
+
+    now = datetime.now(UTC)
+    window_days = 30
+    horizon = now + timedelta(days=window_days)
+
+    # --- person-tasks -----------------------------------------------------
+    #
+    # `not_required` is a finding, not an omission (see `HumanTaskStatus`), so
+    # it is not open. `expired` is not open either — it has stopped waiting for
+    # anyone and re-opening it is the lifecycle's job, not a badge's.
+    open_states = (HumanTaskStatus.PENDING, HumanTaskStatus.IN_PROGRESS, HumanTaskStatus.BLOCKED)
+    task_rows = (
+        await db.execute(
+            sa.select(HumanTask, User.name)
+            .join(User, User.id == HumanTask.assignee_id)
+            .where(
+                HumanTask.workspace_id == me.workspace_id,
+                HumanTask.project_id == project_id,
+                HumanTask.status.in_(open_states),
+            )
+            # Soonest due first, and undated tasks after dated ones rather than
+            # before them: `NULLS LAST` because "no deadline" is not "overdue".
+            .order_by(HumanTask.due_at.asc().nullslast(), HumanTask.created_at.asc())
+            .limit(10)
+        )
+    ).all()
+    open_tasks_total = (
+        await db.execute(
+            sa.select(sa.func.count())
+            .select_from(HumanTask)
+            .where(
+                HumanTask.workspace_id == me.workspace_id,
+                HumanTask.project_id == project_id,
+                HumanTask.status.in_(open_states),
+            )
+        )
+    ).scalar_one()
+    my_open_tasks = (
+        await db.execute(
+            sa.select(sa.func.count())
+            .select_from(HumanTask)
+            .where(
+                HumanTask.workspace_id == me.workspace_id,
+                HumanTask.project_id == project_id,
+                HumanTask.status.in_(open_states),
+                HumanTask.assignee_id == me.user.id,
+            )
+        )
+    ).scalar_one()
+
+    # --- claims about to lapse -------------------------------------------
+    #
+    # Only `approved` claims can expire into anything: an unsupported or
+    # rejected claim licenses nothing today, so its expiry date changes
+    # nothing. `ix_claim_record_project_status_expiry` is this query.
+    expiring = sa.select(ClaimRecord).where(
+        ClaimRecord.workspace_id == me.workspace_id,
+        ClaimRecord.project_id == project_id,
+        ClaimRecord.superseded_by.is_(None),
+        ClaimRecord.status == ClaimStatus.APPROVED,
+        ClaimRecord.expires_at.is_not(None),
+        ClaimRecord.expires_at <= horizon,
+        ClaimRecord.expires_at > now,
+    )
+    expiring_claims = (
+        await db.execute(sa.select(sa.func.count()).select_from(expiring.subquery()))
+    ).scalar_one()
+    earliest_expiry = (
+        await db.execute(
+            sa.select(sa.func.min(ClaimRecord.expires_at)).where(
+                ClaimRecord.workspace_id == me.workspace_id,
+                ClaimRecord.project_id == project_id,
+                ClaimRecord.superseded_by.is_(None),
+                ClaimRecord.status == ClaimStatus.APPROVED,
+                ClaimRecord.expires_at.is_not(None),
+                ClaimRecord.expires_at > now,
+            )
+        )
+    ).scalar_one_or_none()
+
+    # --- amendments nobody has ruled on -----------------------------------
+    #
+    # `auto_applied` is reviewed by construction: a mechanical change applied
+    # itself and minted its MINOR, and law 29 says that is the correct end of
+    # its life. Counting it here would put an amber dot on every project that
+    # is working exactly as designed.
+    unreviewed_states = (AmendmentStatus.OPEN, AmendmentStatus.NEEDS_REVIEW)
+    unreviewed_amendments = (
+        await db.execute(
+            sa.select(sa.func.count())
+            .select_from(PolicyAmendment)
+            .where(
+                PolicyAmendment.workspace_id == me.workspace_id,
+                PolicyAmendment.project_id == project_id,
+                PolicyAmendment.status.in_(unreviewed_states),
+            )
+        )
+    ).scalar_one()
+    signature_affecting = (
+        await db.execute(
+            sa.select(sa.func.count())
+            .select_from(PolicyAmendment)
+            .where(
+                PolicyAmendment.workspace_id == me.workspace_id,
+                PolicyAmendment.project_id == project_id,
+                PolicyAmendment.status.in_(unreviewed_states),
+                PolicyAmendment.change_kind == AmendmentChangeKind.SIGNATURE_AFFECTING,
+            )
+        )
+    ).scalar_one()
+
+    # --- the published version's signature --------------------------------
+    signature_stale = bool(
+        (
+            await db.execute(
+                sa.select(ContentGuideline.signature_stale).where(
+                    ContentGuideline.workspace_id == me.workspace_id,
+                    ContentGuideline.project_id == project_id,
+                    ContentGuideline.status == GuidelineStatus.PUBLISHED,
+                )
+            )
+        ).scalar_one_or_none()
+    )
+
+    return GuidelineAttention(
+        open_tasks=[
+            OpenTaskRef(
+                task_id=task.id,
+                task_key=task.task_key,
+                title=task.title,
+                status=str(task.status),
+                blocking_for=str(task.blocking_for),
+                assignee_id=task.assignee_id,
+                assignee_name=name or "",
+                mine=task.assignee_id == me.user.id,
+                due_at=task.due_at,
+            )
+            for task, name in task_rows
+        ],
+        open_tasks_total=open_tasks_total,
+        my_open_tasks=my_open_tasks,
+        expiring_claims=expiring_claims,
+        earliest_expiry=earliest_expiry,
+        expiry_window_days=window_days,
+        unreviewed_amendments=unreviewed_amendments,
+        signature_affecting_amendments=signature_affecting,
+        signature_stale=signature_stale,
     )
 
 

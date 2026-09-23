@@ -17,6 +17,7 @@ import {
   type GuidelineBindings,
 } from "@/lib/api/guidelines";
 import { keys } from "@/lib/queries";
+import { Can } from "@/lib/session";
 
 /**
  * Start a content guidelines run (Stage 03 PRD §15.3 A, §23 deliverable 12).
@@ -27,12 +28,18 @@ import { keys } from "@/lib/queries";
  * person may decline — so the primary action is enabled from the moment the
  * dialog opens, with every box clear.
  *
- * A started run goes to the **existing** run console at
- * `/projects/{id}/runs/{runId}`, not to `/guidelines/runs/{runId}`. The
- * Guideline Console is S3-P7; routing to it now would land a person who
- * pressed Start on a 404, which is what the browser check caught and no API
- * test could. `/runs/{runId}` is stage-agnostic and renders the guideline DAG
- * today.
+ * A started run goes to the Guideline Console at
+ * `/projects/{id}/guidelines/runs/{runId}`. S3-P0 routed to the stage-agnostic
+ * `/projects/{id}/runs/{runId}` because the Guideline Console did not exist
+ * yet and routing to it would have landed a person who pressed Start on a 404.
+ * S3-P7 built it, so that reason has expired — and the guideline route is the
+ * one with the Rules tab and the link to the draft rulebook.
+ *
+ * The button is wrapped in `GUIDELINE_EXECUTE`, so a `viewer` and an
+ * `approver` see the landing's four blocks without it (§15.3 A). Absent, not
+ * disabled: a greyed button invites a person to work out what would enable it,
+ * and on this stage the answer is "a different role", which is not something
+ * they can fix.
  *
  * `mode` is never sent. What the caller asks to bind and what actually
  * resolves are different things, and the server derives the second (§4.5 rule
@@ -70,7 +77,7 @@ export function StartGuidelineDialog({
           ? "The bindings could not be resolved, so the run is unscoped and covers every campaign type."
           : "The guideline console shows it as it runs.",
       });
-      router.push(`/projects/${projectId}/runs/${run.run_id}`);
+      router.push(`/projects/${projectId}/guidelines/runs/${run.run_id}`);
     },
     onError: (error) => {
       if (error instanceof ApiError && error.status === 409) {
@@ -82,7 +89,7 @@ export function StartGuidelineDialog({
             ? {
                 label: "Open it",
                 onClick: () =>
-                  router.push(`/projects/${projectId}/runs/${holder.run_id}`),
+                  router.push(`/projects/${projectId}/guidelines/runs/${holder.run_id}`),
               }
             : undefined,
         });
@@ -97,10 +104,12 @@ export function StartGuidelineDialog({
 
   return (
     <>
-      <Button onClick={() => setOpen(true)} disabled={disabled}>
-        <Play className="size-4" aria-hidden />
-        Start content guidelines
-      </Button>
+      <Can permission="guideline_execute">
+        <Button onClick={() => setOpen(true)} disabled={disabled}>
+          <Play className="size-4" aria-hidden />
+          Start content guidelines
+        </Button>
+      </Can>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent title="Start content guidelines">

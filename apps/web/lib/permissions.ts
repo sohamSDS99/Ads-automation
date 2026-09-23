@@ -18,6 +18,18 @@ export const PERMISSIONS = [
   // signs it off and does not run it.
   "plan_execute",
   "plan_freeze",
+  // Stage 03. `guideline_publish` is held by `admin` and `approver`; an
+  // operator may run the stage and may not seal it.
+  "guideline_execute",
+  "guideline_publish",
+  // The two non-delegable ones (law 23). They are held by `approver` and NOT
+  // by `admin`, and are narrowed further to one named identity — the sign-off
+  // matrix's legal owner, or the task's assignee. Holding the permission is
+  // necessary and not sufficient, so a `<Can>` on either of these is only ever
+  // half the check: the surfaces that use them (S3-P8) also compare the
+  // identity, and the API refuses regardless.
+  "claim_sign",
+  "attest_submit",
   // Held by no role. It comes from `user.is_superadmin` and nothing else,
   // which is what keeps one company's workspace admin out of another's.
   "platform_admin",

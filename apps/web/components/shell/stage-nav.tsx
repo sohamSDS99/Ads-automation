@@ -5,8 +5,8 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Skeleton } from "@/components/ui/skeleton";
-import { stageChip } from "@/lib/api/guidelines";
-import { useGuidelines, useProject } from "@/lib/queries";
+import { stageBadges, stageChip, type StageBadge } from "@/lib/api/guidelines";
+import { useGuidelineAttention, useGuidelines, useProject } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 /**
@@ -45,7 +45,7 @@ const STAGES = [
 
 /** One geometry for all three rows, so they line up whatever they are made of. */
 const ROW =
-  "flex items-center gap-3 rounded-[var(--radius)] py-2 text-sm justify-center px-0 md:justify-start md:px-3";
+  "flex items-start gap-3 rounded-[var(--radius)] py-2 text-sm justify-center px-0 md:justify-start md:px-3";
 
 /**
  * The label: the row's accessible name on the rail, its visible text above it.
@@ -58,6 +58,36 @@ const ROW =
  */
 const LABEL = "sr-only md:not-sr-only md:min-w-0 md:flex-1 md:truncate";
 
+/**
+ * The two dots of §15.1 rule 3, stacked on the stage icon.
+ *
+ * Each dot's sentence is `sr-only` text inside the link, so the link's
+ * accessible name carries it — "03 Content guidelines, 1 task is waiting for
+ * your signature" — rather than a `title` a screen reader may or may not
+ * announce. The ring is the row background, so a dot on the active row reads
+ * against the accent tint as cleanly as on a plain one.
+ */
+function StageBadges({ badges }: { badges: StageBadge[] }) {
+  return (
+    <span className="absolute -top-0.5 -right-1 flex items-center gap-0.5">
+      {badges.map((badge) => (
+        <span key={badge.tone} className="flex items-center">
+          <span
+            aria-hidden
+            className={cn(
+              "size-1.5 rounded-full ring-2 ring-[var(--bg)]",
+              badge.tone === "danger"
+                ? "bg-[var(--status-failed)]"
+                : "bg-[var(--status-gate)]",
+            )}
+          />
+          <span className="sr-only">{badge.label}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function StageNav({ projectId }: { projectId: string }) {
   const pathname = usePathname();
   const project = useProject(projectId);
@@ -65,6 +95,7 @@ export function StageNav({ projectId }: { projectId: string }) {
   // Anything under `/plan` is stage 02; everything else under the project —
   // the overview, a run console, a report, evidence — is stage 01.
   const guidelines = useGuidelines(projectId);
+  const attention = useGuidelineAttention(projectId);
   // Longest-prefix first would matter if one route were a prefix of another;
   // these three are disjoint, so the order is only about reading order.
   const active = pathname.startsWith(`${base}/guidelines`)
@@ -75,7 +106,10 @@ export function StageNav({ projectId }: { projectId: string }) {
   // Rendered only once the list has loaded, and only when there is something
   // to say — see `stageChip`. A chip shown while the answer is still in flight
   // is a chip a person would act on before it is true.
-  const chip = guidelines.data ? stageChip(guidelines.data.versions) : null;
+  const chip = guidelines.data ? stageChip(guidelines.data.versions, attention.data) : null;
+  // Same rule as the chip: rendered only once the answer has arrived. A dot
+  // that appears a second late is a dot somebody has already decided is absent.
+  const badges = attention.data ? stageBadges(attention.data) : [];
 
   return (
     <nav aria-label="Pipeline stage" className="shrink-0 p-2">
@@ -131,14 +165,32 @@ export function StageNav({ projectId }: { projectId: string }) {
                     : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                 )}
               >
-                <Icon className="size-4 shrink-0" aria-hidden />
-                <span className={LABEL}>{stage.label}</span>
+                {/* The badges ride the icon rather than the far edge, so they
+                    survive the narrow rail — where the row *is* the icon and
+                    the chip has already been dropped for want of room. */}
+                {stage.id === "guidelines" && badges.length > 0 ? (
+                  <span className="relative shrink-0">
+                    <Icon className="size-4" aria-hidden />
+                    <StageBadges badges={badges} />
+                  </span>
+                ) : (
+                  <Icon className="size-4 shrink-0" aria-hidden />
+                )}
                 {/* Stage 03 carries its own status, independent of the other
-                    two rows. Hidden on the narrow rail, where the row is an
-                    icon and there is nowhere to put it. */}
+                    two rows — and it carries it on a second line rather than
+                    beside the label. A chip and a label competing for 240px
+                    is a fight the label loses: "Amendments pending" truncated
+                    `03 Content guidelines` to `03…`, which is a row that has
+                    stopped naming anything. Hidden on the narrow rail, where
+                    the row is an icon and there is nowhere to put either. */}
                 {stage.id === "guidelines" && chip ? (
-                  <span className="hidden shrink-0 text-xs text-fg-subtle md:inline">{chip}</span>
-                ) : null}
+                  <span className={cn(LABEL, "flex flex-col gap-0.5")}>
+                    <span className="truncate">{stage.label}</span>
+                    <span className="truncate text-xs font-normal text-fg-subtle">{chip}</span>
+                  </span>
+                ) : (
+                  <span className={LABEL}>{stage.label}</span>
+                )}
               </Link>
             </li>
           );

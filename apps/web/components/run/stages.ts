@@ -27,6 +27,17 @@ export const STAGE_TITLE: Record<string, string> = {
   "2.4": "Decide how the account is organised",
   "2.5": "Decide how we measure and what we test",
   "2.6": "Write the plan",
+
+  // Stage 03, the content-guidelines DAG (Stage 03 PRD §11). Same voice: what
+  // the stage decides, said the way somebody would say it out loud. This one
+  // is the first DAG that can run with nothing upstream of it, and the titles
+  // avoid implying otherwise — nothing here says "from the research".
+  "3.1": "Work out how we sound",
+  "3.2": "Decide what we are allowed to claim",
+  "3.3": "Map the policies that apply to us",
+  "3.4": "Pin down the asset specs",
+  "3.5": "Decide who signs off on what",
+  "3.6": "Write the rulebook",
 };
 
 export function stageTitle(stage: string): string {
