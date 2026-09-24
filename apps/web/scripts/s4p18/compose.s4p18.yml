@@ -1,0 +1,61 @@
+# S4-P18's isolated stack: the REAL api and worker (Postgres, Redis, S4-P0…P4
+# routes plus this phase's reads) with OpenRouter replaced by S4-P1's
+# recordings and a schema-answering text model (`openrouter_server.py`).
+#
+#   docker compose -p s4p18 -f docker-compose.yml -f apps/web/scripts/s4p18/compose.s4p18.yml \
+#     up -d postgres redis openrouter api
+#
+# Subnet 172.31.218.0/24 and ports 8218 (api) / 8219 (openrouter) / 3218 (web)
+# are this phase's alone (`!override`: compose merges lists otherwise). The
+# web tier is a production `next start` on the host, so `web` is profiled
+# out. The worker is started by `run.sh` only after the seed has taken the
+# run to G7, so it re-parks that run instead of racing the seed for it; from
+# then on it is what resumes an approved brief and what "Check again" queues.
+services:
+  api:
+    image: s4p18-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p18-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3218
+      CORS_ORIGINS: http://localhost:3218
+    ports: !override
+      - "127.0.0.1:8218:8000"
+    volumes:
+      - ./apps/web/scripts/s4p18:/app/s4p18
+    depends_on:
+      openrouter:
+        condition: service_started
+
+  worker:
+    image: s4p18-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p18-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3218
+
+  openrouter:
+    image: s4p18-api:latest
+    command: ["python", "/app/s4p18/openrouter_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p18:/app/s4p18
+    ports:
+      - "127.0.0.1:8219:8099"
+    networks: [internal]
+
+  test:
+    image: s4p18-test:latest
+
+  web:
+    profiles: ["s4p18-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.218.0/24
+        - subnet: fd00:ada:18::/64
