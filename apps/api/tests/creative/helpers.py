@@ -6,8 +6,10 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from agent.guardrails.matchers.claims import claim_licence
+from agent.guidelines.constants import load_content_constants
 from agent.schemas.creative_input import CreativeInput
-from agent.schemas.guardrails import ClaimRef, RuleSet
+from agent.schemas.guardrails import Authority, ClaimRef, Rule, RuleSet
 
 RUN_ID = uuid.UUID(int=41)
 EVIDENCE_ICP = uuid.UUID(int=101)
@@ -144,6 +146,32 @@ def ruleset() -> RuleSet:
             ),
         ),
         hash="aa",
+    )
+
+
+LEGAL = Authority(source="legal_signature", reference="sig-7f3a", reviewed_at=NOW.date())
+
+
+def claims_ruleset(*, rules: tuple[Rule, ...] = (), claims: tuple[ClaimRef, ...] = ()) -> RuleSet:
+    """`ruleset()` with Stage 03's real claim-licence rule and the shipped detectors.
+
+    The detectors are `content_constants.yaml`'s, not invented ones: a family
+    that stopped matching real copy must fail here, not in production.
+    """
+    constants = load_content_constants()
+    detectors = constants.detectors()
+    licence = claim_licence(
+        tuple(d.detector_id for d in detectors if d.locale == "en"),
+        authority=LEGAL,
+        match_threshold=float(constants.value("claims.match_threshold")),
+    )
+    base = ruleset()
+    return base.model_copy(
+        update={
+            "rules": (licence, *rules),
+            "detectors": tuple(detectors),
+            "claims_index": (*base.claims_index, *claims),
+        }
     )
 
 
