@@ -456,3 +456,84 @@ Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`
     (`image_landscape`/`image_square`/`image_portrait`, by ratio), and an
     unmapped surface keeps every asset-typed rule applying. The 4.4.2 tests
     now pin rules `guidelines/synthesis.py` itself compiles from the spec sheet.
+
+## S4-P18
+
+1. **The console and the brief page had no reads to render.** §16 lists
+   `GET /creative-runs/{id}/brief`, `…/assets`, `…/generation-jobs` and
+   `POST /generation-jobs/{id}/check`, but no phase in §21.3 names them, and
+   S4-P18's screens are their first consumer — S4-P4 wrote the brief and G7
+   behind the approvals surface only. Added exactly those four, with §16's
+   paths and permissions, in their own `routes_creative_runs.py`. Ruling
+   owed: that they belong here rather than to a backend phase.
+2. **The two spend meters ride `GET /runs/{id}`.** §16 says "reuse the Stage
+   01 run surface unchanged", and no route reads law 43's reservations.
+   Added `RunResponse.creative_spend` (null on every other stage): per cap,
+   spent + reserved + cap — the numbers `budget.py`'s reserve script
+   compares — rather than a new route. Null, and the meters withheld, when
+   Redis cannot say what is reserved.
+3. **What G7 authorises is computed server-side** (`creative/g7.authorises`):
+   2 RSAs per ad group of a campaign whose `type` is `search` (4.2.3 writes A,
+   4.2.4 writes B), image and video *jobs* and `media_usd` from the brief's
+   hashed media plan. An untyped campaign counts no RSAs. §15.4 D's "up to
+   $38.40" is read as the media plan's estimate, not `max_media_cost_usd`.
+4. **Admins keep the G7 override** (Soham, 2026-09-25). The prompt said decide
+   controls are absent "for everyone except the performance owner"; the
+   approvals surface's `can_decide` also admits an admin (Stage 01 §6.1
+   Authorization 3), and the UI follows `can_decide` — no role logic in
+   TypeScript. Only H3 excludes admins.
+5. **G7 is decided on the brief page only.** The console's node panel and the
+   approvals inbox now show a G7 item as a hand-off to the brief page
+   (`BriefGateSummary`) instead of the generic `ApprovalCard`, which offered
+   Approve on a JSON proposal with none of the numbers §15.2 rule 8 asks for.
+6. **`Check again` runs in the worker.** Re-polling waits out a video's poll
+   window (minutes), so the route queues `check_generation_job`, which builds
+   `MediaJobs` from the workspace's OpenRouter connection (`media/runtime.py`)
+   — the first production wiring of S4-P1's job layer. S4-P9 will need the
+   same factory for 4.4.2; whichever lands second should reuse it. The arq id
+   carries the job's state so a later timeout can be checked again (arq keeps
+   a finished id for an hour).
+7. **`checkable` is narrower than §16's wording.** "Re-poll a timed_out or
+   unknown_submit_state job": a video in `unknown_submit_state` is never
+   re-POSTed (law 37) and has no provider id to poll, so it is refused (409)
+   and not offered; an image is offered only with its run's own pinned choice
+   and no references (their bytes are S4-P9's). Also fixed on the way: the
+   predicate reads `request.input_references` off the stored dict, because
+   the redacted request holds references without bytes and
+   `ImageRequest.model_validate` would reject it — `MediaJobs.check()` still
+   validates first and has that latent failure for referenced images.
+8. **The offer's `live` tag and end date wait on S4-P8.** `CreativeBrief.offer`
+   is always null until then (S4-P4 item 6), and nothing serves an
+   `OfferRecord`'s state. The brief renders a binding's resolved fields as
+   bound; the tag needs S4-P8 to put that state on the brief view.
+9. **No character counters on the Assets tab yet.** A counter's limit is the
+   pinned spec's per surface, and no route serves it to the browser;
+   `POST /creative-runs/{id}/lint-preview` (§16) is the Ad Studio's.
+10. **The word count is the server's while editing.** It is the count on
+    record, labelled "recounted when you approve"; a client-side count of the
+    Jinja-rendered brief would be a second implementation of the validator.
+11. **Visual baselines cover this phase's screens**, not §15.5's twelve
+    (most of the twelve do not exist yet): the console, its Jobs tab, the
+    brief as the decider sees it and once approved, each × light/dark ×
+    1280/390, plus the inline edit at light/1280 — 17 PNGs under
+    `apps/web/tests/visual/s4p18`, recorded by `make browser-s4p18` when
+    absent and compared on every later run. Clocks, ids, hashes, presence
+    and toasts are masked. Not in CI — the repo has none (S4-P24 wires it).
+12. **Pre-existing: no run console fits the screen.** `app/(app)/projects/[id]
+    /layout.tsx` wraps every project page in `flex flex-col gap-6` with no
+    height, so a console page's `h-full` resolves to auto: the console grows
+    to its rail's full length, the rail's sticky stage headings never stick,
+    and the canvas's fitted graph lands below the fold (a 24-node creative
+    rail made the canvas 2,636 px tall at 1280×900). S4-P18 sizes only its own
+    console, `xl:h-main` (a token for `<main>`'s content box: `100dvh − 6.5rem`),
+    and leaves the layout alone because the evidence page also reads
+    `h-full` and would start scrolling internally. Proposed: `xl:h-full` on
+    the project layout once the evidence page is checked, then drop the token.
+13. **The harness's resumed run now stops at 4.2.3.** Since S4-P5 (#63) the
+    real 4.2.1 writes headlines after G7 — so the harness seeds Stage 03's
+    real asset sheet and rules, as S4-P5's suite does (4.2.1 refuses to guess
+    a headline limit), and answers 4.2.1's model calls with S4-P5's own
+    scripted pool — and 4.2.3 then refuses the 4.2.2 stub, so the run fails
+    there until S4-P6. The console baselines show that state. When a later
+    phase moves the run further, re-record them: `UPDATE_BASELINES=1 make
+    browser-s4p18`.

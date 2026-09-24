@@ -45,6 +45,7 @@ SOURCE_MODULES: tuple[str, ...] = (
     "agent.api.schemas_creative",
     "agent.schemas.creative_input",
     "agent.api.schemas_media",
+    "agent.api.schemas_creative_runs",
 )
 
 

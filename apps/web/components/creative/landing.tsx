@@ -92,7 +92,12 @@ export function CreativeLanding({ projectId }: { projectId: string }) {
         </p>
       </header>
 
-      <StatusBlock overview={overview.data} chip={status.chip} pending={overview.isPending} />
+      <StatusBlock
+        projectId={projectId}
+        overview={overview.data}
+        chip={status.chip}
+        pending={overview.isPending}
+      />
 
       <ActionBlock
         projectId={projectId}
@@ -168,10 +173,12 @@ function costOf(overview: CreativeOverview, pkg: CreativePackageSummary): string
 /* 1. Status ---------------------------------------------------------------- */
 
 function StatusBlock({
+  projectId,
   overview,
   chip,
   pending,
 }: {
+  projectId: string;
   overview?: CreativeOverview;
   chip: string | null;
   pending: boolean;
@@ -202,6 +209,12 @@ function StatusBlock({
                 {" · "}
                 <span className="tabular-nums">{usd(latestRun.cost_usd)}</span> spent
               </span>
+              <Link
+                href={`/projects/${projectId}/creative/runs/${latestRun.run_id}`}
+                className="text-accent hover:underline"
+              >
+                Open the console
+              </Link>
             </p>
           ) : null}
 

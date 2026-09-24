@@ -26,9 +26,12 @@ import { cn } from "@/lib/utils";
  */
 export function RunControls({
   run,
+  showSpend = true,
   className,
 }: {
   run: RunDetail;
+  /** Off on a creative run, whose two meters are in the console header. */
+  showSpend?: boolean;
   className?: string;
 }) {
   const { user } = useSession();
@@ -94,7 +97,7 @@ export function RunControls({
       <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
         <Progress done={done} total={run.nodes.length} />
         <Elapsed run={run} />
-        <Spend spent={spent} cap={cap} ratio={ratio} />
+        {showSpend ? <Spend spent={spent} cap={cap} ratio={ratio} /> : null}
       </div>
 
       <Can permission="run_execute">

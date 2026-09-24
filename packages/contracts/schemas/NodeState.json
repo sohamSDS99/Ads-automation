@@ -20,7 +20,11 @@
         "extract",
         "classify",
         "synthesize",
-        "critique"
+        "critique",
+        "copywrite",
+        "vision",
+        "image_gen",
+        "video_gen"
       ],
       "title": "TaskClass",
       "type": "string"

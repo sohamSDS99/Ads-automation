@@ -25,6 +25,7 @@ from agent.api.routes_auth import router as auth_router
 from agent.api.routes_claims import router as claims_router
 from agent.api.routes_connections import router as connections_router
 from agent.api.routes_creative import router as creative_router
+from agent.api.routes_creative_runs import router as creative_runs_router
 from agent.api.routes_documents import router as documents_router
 from agent.api.routes_evidence import router as evidence_router
 from agent.api.routes_governance import router as governance_router
@@ -148,6 +149,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         plan_router,
         guidelines_router,
         creative_router,
+        creative_runs_router,
         media_router,
         claims_router,
         tasks_router,

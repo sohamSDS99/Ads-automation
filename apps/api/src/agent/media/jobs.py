@@ -63,7 +63,7 @@ from agent.db.models import (
 )
 from agent.llm.ledger import RunLedger
 from agent.media import references
-from agent.media.budget import MediaBudget, resolve_media_caps
+from agent.media.budget import MediaBudget, resolve_media_caps, text_spend
 from agent.media.capability import CapabilityUnsupported, validate
 from agent.media.constants import MediaConstants
 from agent.media.http import JobNotFound, ProviderRejected, ProviderUnavailable
@@ -177,6 +177,32 @@ def _utcnow() -> datetime:
 
 def _noop(_name: str) -> None:
     return None
+
+
+def checkable(row: GenerationJob, choice: MediaModelChoice | None) -> bool:
+    """Whether "Check again" (§16 `POST /generation-jobs/{id}/check`) can do
+    anything for this job: the two cases `MediaJobs.check()` acts on.
+
+    A timed-out video re-polls its known `openrouter_job_id`. An image in
+    `unknown_submit_state` is POSTed again under the same key, which needs the
+    run's own `choice` for that model; its references, stored by hash, are
+    re-read and judged again by `media/references.py` (Law 44) when it is
+    checked, and one that may no longer go leaves the job as it is. A video in
+    `unknown_submit_state` is never re-POSTed (Law 37), so it is not
+    checkable — a control that cannot change anything is not offered.
+    """
+    if row.status == GenerationStatus.TIMED_OUT:
+        return row.openrouter_job_id is not None
+    if (
+        row.status == GenerationStatus.UNKNOWN_SUBMIT_STATE
+        and row.modality == GenerationModality.IMAGE
+    ):
+        return (
+            choice is not None
+            and choice.model_id == row.model_id
+            and choice.capability_hash == row.capability_hash
+        )
+    return False
 
 
 class MediaJobs:
@@ -612,10 +638,7 @@ class MediaJobs:
             workspace_settings=workspace.settings if workspace else None,
             defaults=self._defaults or _settings(),
         )
-        # `Run.cost_usd` is the run's ledger; media already counted there is
-        # not counted twice.
-        text_spent = max(Decimal(0), Decimal(run.cost_usd or 0) - media_spent)
-        return caps, text_spent, media_spent
+        return caps, text_spend(run.cost_usd, media_spent), media_spent
 
     async def _finish(
         self, job_id: uuid.UUID, status: GenerationStatus, **fields: Any

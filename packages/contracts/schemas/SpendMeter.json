@@ -1,0 +1,50 @@
+{
+  "description": "One cap as the Creative Console draws it: spent and reserved, two segments.",
+  "properties": {
+    "spent_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Spent Usd"
+    },
+    "reserved_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "description": "Held for media jobs submitted but not yet reconciled to `usage.cost` (law 43).",
+      "title": "Reserved Usd"
+    },
+    "cap_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Cap Usd"
+    }
+  },
+  "required": [
+    "spent_usd",
+    "reserved_usd",
+    "cap_usd"
+  ],
+  "title": "SpendMeter",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

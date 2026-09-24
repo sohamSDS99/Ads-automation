@@ -21,6 +21,7 @@ EXECUTE_RUN = "execute_run"
 GENERATE_EXPORT = "generate_export"
 MEASURE_IMAGE = "measure_image"
 STORE_REFERENCE = "store_reference"
+CHECK_GENERATION_JOB = "check_generation_job"
 
 #: How long `POST /lint/image` waits for the worker before giving up. §17 CF5
 #: budgets the measurement itself at 3 s p95; the rest is queue time behind
@@ -88,6 +89,25 @@ async def enqueue_export(export_id: uuid.UUID) -> str | None:
         log.info("export.enqueue_deduped", export_id=str(export_id), job_id=job_id)
         return None
     log.info("export.enqueued", export_id=str(export_id), job_id=job.job_id)
+    return str(job.job_id)
+
+
+async def enqueue_generation_check(job_id: uuid.UUID, *, state: str) -> str | None:
+    """Queue "Check again" on one generation job (Stage 04 PRD §16, §18).
+
+    Re-polling a video waits out its whole poll window, which is minutes, so
+    it runs in the worker. The job id is derived from the row **and its
+    state**: a double-click enqueues once, but a job that times out again an
+    hour later can be checked again — arq keeps a finished job's id for an
+    hour and would otherwise drop the second enqueue without a word.
+    """
+    pool = await get_arq_pool()
+    arq_id = f"generation-check:{job_id}:{state}"
+    job = await pool.enqueue_job(CHECK_GENERATION_JOB, str(job_id), _job_id=arq_id)
+    if job is None:
+        log.info("generation_check.enqueue_deduped", generation_job_id=str(job_id), job_id=arq_id)
+        return None
+    log.info("generation_check.enqueued", generation_job_id=str(job_id), job_id=job.job_id)
     return str(job.job_id)
 
 

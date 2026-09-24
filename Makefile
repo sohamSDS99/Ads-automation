@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-s4p18 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -181,6 +181,9 @@ browser-s4p2: ## Drive the 04 rail entry, the Stage 04 landing and Media generat
 
 browser-s4p3: ## Drive the Start creative dialog against the REAL api on the isolated s4p3 stack (recorded catalogue), at 1280 and 390, light and dark, with axe
 	cd $(WEB) && scripts/s4p3/run.sh
+
+browser-s4p18: ## Drive the Creative Console, the brief and G7 against the REAL api + worker on the isolated s4p18 stack, four roles, axe, visual baselines at 1280/390 light/dark
+	cd $(WEB) && scripts/s4p18/run.sh
 
 browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py

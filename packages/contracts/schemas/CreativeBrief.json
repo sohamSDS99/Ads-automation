@@ -1,0 +1,566 @@
+{
+  "$defs": {
+    "AdGroupBrief": {
+      "additionalProperties": false,
+      "properties": {
+        "campaign_ref": {
+          "minLength": 1,
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "ad_group_ref": {
+          "minLength": 1,
+          "title": "Ad Group Ref",
+          "type": "string"
+        },
+        "theme": {
+          "minLength": 1,
+          "title": "Theme",
+          "type": "string"
+        },
+        "primary_message": {
+          "$ref": "#/$defs/BriefLine"
+        },
+        "top_keywords": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Top Keywords",
+          "type": "array"
+        },
+        "landing_url": {
+          "format": "uri",
+          "maxLength": 2083,
+          "minLength": 1,
+          "title": "Landing Url",
+          "type": "string"
+        },
+        "kpi": {
+          "minLength": 1,
+          "title": "Kpi",
+          "type": "string"
+        },
+        "angle_b": {
+          "$ref": "#/$defs/BriefLine"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "ad_group_ref",
+        "theme",
+        "primary_message",
+        "landing_url",
+        "kpi",
+        "angle_b"
+      ],
+      "title": "AdGroupBrief",
+      "type": "object"
+    },
+    "BriefLine": {
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "sources": {
+          "items": {
+            "$ref": "#/$defs/SourceRef"
+          },
+          "minItems": 1,
+          "title": "Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "text",
+        "sources"
+      ],
+      "title": "BriefLine",
+      "type": "object"
+    },
+    "ClaimRef": {
+      "additionalProperties": false,
+      "description": "A registered claim and the surface forms its signature licenses.\n\n`expires_at` is compared against the `now` passed into `lint()`. A claim\nthat has lapsed stops licensing its forms on the next lint \u2014 no sweep\nrequired, no stale cache to invalidate.",
+      "properties": {
+        "claim_id": {
+          "format": "uuid",
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "normalized_text": {
+          "minLength": 1,
+          "title": "Normalized Text",
+          "type": "string"
+        },
+        "surface_forms": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Surface Forms",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "draft",
+            "approved",
+            "rejected",
+            "expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "market_scope": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Market Scope",
+          "type": "array"
+        },
+        "languages": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Languages",
+          "type": "array"
+        },
+        "expires_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expires At"
+        },
+        "signature_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signature Id"
+        }
+      },
+      "required": [
+        "claim_id",
+        "normalized_text",
+        "status"
+      ],
+      "title": "ClaimRef",
+      "type": "object"
+    },
+    "MediaPlanSummary": {
+      "additionalProperties": false,
+      "description": "What the approver is authorising spend on (G7: \"and the estimated spend\").\n\nEvery figure is copied from the `media.cost_estimate_v1` and\n`media.ratio_plan_v1` results the node computed in `calc/`; the field is\n`calc_evidence_ids` so the executor checks that both are `derived` rows\nthis node produced (Stage 02 \u00a79.1 item 4).",
+      "properties": {
+        "images": {
+          "title": "Images",
+          "type": "boolean"
+        },
+        "video": {
+          "title": "Video",
+          "type": "boolean"
+        },
+        "jobs": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Jobs",
+          "type": "object"
+        },
+        "ratios": {
+          "additionalProperties": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Ratios",
+          "type": "object"
+        },
+        "media_usd": {
+          "title": "Media Usd",
+          "type": "string"
+        },
+        "total_usd": {
+          "title": "Total Usd",
+          "type": "string"
+        },
+        "confidence": {
+          "title": "Confidence",
+          "type": "string"
+        },
+        "fits": {
+          "title": "Fits",
+          "type": "boolean"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "images",
+        "video",
+        "jobs",
+        "media_usd",
+        "total_usd",
+        "confidence",
+        "fits",
+        "calc_evidence_ids"
+      ],
+      "title": "MediaPlanSummary",
+      "type": "object"
+    },
+    "NonNegotiables": {
+      "additionalProperties": false,
+      "description": "From the pinned `CreativeContext`, copied in code \u2014 never model-written.",
+      "properties": {
+        "voice_words": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Voice Words",
+          "type": "array"
+        },
+        "never_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Never Terms",
+          "type": "array"
+        },
+        "required_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Terms",
+          "type": "array"
+        },
+        "disclosures": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disclosures",
+          "type": "array"
+        }
+      },
+      "title": "NonNegotiables",
+      "type": "object"
+    },
+    "OfferBinding": {
+      "additionalProperties": false,
+      "description": "\u00a712.2. References only \u2014 no number or date is model-written (law 35).",
+      "properties": {
+        "offer_record_id": {
+          "format": "uuid",
+          "title": "Offer Record Id",
+          "type": "string"
+        },
+        "sku_or_set": {
+          "minLength": 1,
+          "title": "Sku Or Set",
+          "type": "string"
+        },
+        "fields": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Fields",
+          "type": "object"
+        },
+        "resolved": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Resolved",
+          "type": "object"
+        }
+      },
+      "required": [
+        "offer_record_id",
+        "sku_or_set"
+      ],
+      "title": "OfferBinding",
+      "type": "object"
+    },
+    "PlanRef": {
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "plan_run_id": {
+          "format": "uuid",
+          "title": "Plan Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id",
+        "version",
+        "schema_version",
+        "plan_run_id"
+      ],
+      "title": "PlanRef",
+      "type": "object"
+    },
+    "RuleSetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "guideline_id": {
+          "format": "uuid",
+          "title": "Guideline Id",
+          "type": "string"
+        },
+        "ruleset_version": {
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "hash": {
+          "title": "Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "guideline_id",
+        "ruleset_version",
+        "hash"
+      ],
+      "title": "RuleSetRef",
+      "type": "object"
+    },
+    "SourceRef": {
+      "additionalProperties": false,
+      "description": "Where a brief line comes from: a stage, a node, and what in it.",
+      "properties": {
+        "stage": {
+          "enum": [
+            "S1",
+            "S2",
+            "S3"
+          ],
+          "title": "Stage",
+          "type": "string"
+        },
+        "node_id": {
+          "minLength": 1,
+          "title": "Node Id",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "rule_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rule Id"
+        },
+        "field": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Field"
+        }
+      },
+      "required": [
+        "stage",
+        "node_id"
+      ],
+      "title": "SourceRef",
+      "type": "object"
+    },
+    "VisualConstraints": {
+      "additionalProperties": false,
+      "properties": {
+        "permitted_subjects": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Permitted Subjects",
+          "type": "array"
+        },
+        "forbidden_subjects": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Subjects",
+          "type": "array"
+        },
+        "palette_tokens": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Palette Tokens",
+          "type": "array"
+        },
+        "product_depiction": {
+          "enum": [
+            "reference_guided",
+            "composited_real",
+            "none"
+          ],
+          "title": "Product Depiction",
+          "type": "string"
+        }
+      },
+      "required": [
+        "product_depiction"
+      ],
+      "title": "VisualConstraints",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "creative_run_id": {
+      "format": "uuid",
+      "title": "Creative Run Id",
+      "type": "string"
+    },
+    "plan_ref": {
+      "$ref": "#/$defs/PlanRef"
+    },
+    "ruleset_ref": {
+      "$ref": "#/$defs/RuleSetRef"
+    },
+    "objective": {
+      "$ref": "#/$defs/BriefLine"
+    },
+    "audience": {
+      "items": {
+        "$ref": "#/$defs/BriefLine"
+      },
+      "title": "Audience",
+      "type": "array"
+    },
+    "exclusions": {
+      "items": {
+        "$ref": "#/$defs/BriefLine"
+      },
+      "title": "Exclusions",
+      "type": "array"
+    },
+    "angle": {
+      "$ref": "#/$defs/BriefLine"
+    },
+    "proof_points": {
+      "items": {
+        "$ref": "#/$defs/ClaimRef"
+      },
+      "title": "Proof Points",
+      "type": "array"
+    },
+    "offer": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OfferBinding"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "non_negotiables": {
+      "$ref": "#/$defs/NonNegotiables"
+    },
+    "ad_groups": {
+      "items": {
+        "$ref": "#/$defs/AdGroupBrief"
+      },
+      "title": "Ad Groups",
+      "type": "array"
+    },
+    "visual_constraints": {
+      "$ref": "#/$defs/VisualConstraints"
+    },
+    "media_plan": {
+      "$ref": "#/$defs/MediaPlanSummary"
+    },
+    "rendered_word_count": {
+      "maximum": 600,
+      "minimum": 1,
+      "title": "Rendered Word Count",
+      "type": "integer"
+    },
+    "brief_hash": {
+      "maxLength": 64,
+      "minLength": 64,
+      "title": "Brief Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "creative_run_id",
+    "plan_ref",
+    "ruleset_ref",
+    "objective",
+    "audience",
+    "exclusions",
+    "angle",
+    "proof_points",
+    "offer",
+    "non_negotiables",
+    "ad_groups",
+    "visual_constraints",
+    "media_plan",
+    "rendered_word_count",
+    "brief_hash"
+  ],
+  "title": "CreativeBrief",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
