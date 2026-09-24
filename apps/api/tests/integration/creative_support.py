@@ -319,16 +319,23 @@ def compiled_ruleset(
         for category in categories
     ]
     if image_rule:
-        # S4-P9: Stage 03's own text-coverage rule, so a candidate image can fail.
+        # S4-P9: Stage 03's own text-coverage rule, so a candidate image can fail —
+        # scoped exactly as `stage_3_4._image_rules` scopes it for a search
+        # `image_square` spec row. Not EVERYWHERE: once `RuleScope.matches`
+        # honours `asset_types`, an image surface missing from that mapping must
+        # fail these tests, not pass every candidate unchecked.
         from agent.guardrails.matchers.image import text_coverage
+        from agent.schemas.guardrails import RuleScope
 
         rules.append(
             Rule(
                 rule_id="image.text_coverage.v1",
                 category="image",
-                **text_coverage(authority=authority, maximum=0.20).model_dump(
-                    exclude={"rule_id", "category"}
-                ),
+                **text_coverage(
+                    authority=authority,
+                    maximum=0.20,
+                    scope=RuleScope(campaign_types=("search",), asset_types=("image_square",)),
+                ).model_dump(exclude={"rule_id", "category"}),
             )
         )
     claims = [
