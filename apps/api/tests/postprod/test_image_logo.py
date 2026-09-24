@@ -21,6 +21,7 @@ from agent.postprod.image import (
     composite_logo,
     fit_by_padding,
     load_logo,
+    logo_canvas,
     place_logo,
     relative_luminance,
     required_labels,
@@ -142,6 +143,20 @@ def test_a_logo_is_fitted_by_padding_never_stretched() -> None:
     ys, xs = np.nonzero(alpha > 128)
     assert (int(xs.max() - xs.min() + 1), int(ys.max() - ys.min() + 1)) == (256, 64)
     assert alpha[:90, :].max() == 0 and alpha[166:, :].max() == 0  # padding, top and bottom
+
+
+@pytest.mark.parametrize(
+    ("logo", "ratio", "min_px", "want"),
+    [
+        ((400, 100), "1:1", "128x128", (400, 400)),  # holds the logo at its own size
+        ((400, 100), "4:1", "512x128", (512, 128)),  # min_px wins over a smaller logo
+        ((60, 20), "1:1", "128x128", (128, 128)),
+    ],
+)
+def test_a_logo_slot_canvas_holds_the_logo_and_meets_min_px(
+    logo: tuple[int, int], ratio: str, min_px: str, want: tuple[int, int]
+) -> None:
+    assert logo_canvas(*logo, ratio, min_px, tolerance=0.005) == want
 
 
 # -- the visible disclosure label (§9.4 item 5) ----------------------------------

@@ -32,6 +32,14 @@ from agent.schemas.creative_media import Concept
 from agent.schemas.guardrails import RuleSet
 from agent.schemas.imaging import ImageMeasurement
 
+#: Request fields a model choice's defaults may set on a generation request. The
+#: rest — model, prompt, n, seed, references, provider — are the node's or the
+#: gateway's. Shared by 4.4.2's candidates and 4.4.3's relays.
+REQUEST_DEFAULT_FIELDS = frozenset(
+    {"aspect_ratio", "resolution", "size", "quality", "output_format", "background",
+     "output_compression"}
+)  # fmt: skip
+
 #: What VISION may flag on a candidate (§13): each is for a reviewer's eyes.
 VISION_FLAGS: tuple[str, ...] = (
     "product_like_object",

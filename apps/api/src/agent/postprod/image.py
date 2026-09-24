@@ -407,11 +407,31 @@ def _corner_origin(
     }[corner]
 
 
+def padding_scale(logo_w: int, logo_h: int, width: int, height: int) -> Fraction:
+    """The one factor that fits a `logo_w × logo_h` logo inside `width × height`."""
+    return min(Fraction(width, logo_w), Fraction(height, logo_h))
+
+
+def logo_canvas(
+    logo_w: int, logo_h: int, ratio: str, min_px: str | None, *, tolerance: float
+) -> tuple[int, int]:
+    """The smallest canvas of `ratio` (within `tolerance`), at least `min_px`,
+    that holds the logo at its own size — the frame a logo slot is padded to."""
+    wanted = parse_ratio(ratio)
+    min_w, min_h = parse_px(min_px)
+    height = max(logo_h, min_h, math.ceil(logo_w / wanted), math.ceil(min_w / wanted))
+    while True:
+        width = max(logo_w, min_w, round(height * wanted))
+        if abs(width / height / wanted - 1) <= tolerance:
+            return width, height
+        height += 1
+
+
 def fit_by_padding(logo: Image.Image, width: int, height: int) -> Image.Image:
     """`logo` scaled by ONE factor to fit `width × height`, centred on a
     transparent canvas of exactly that size — padded, never stretched. The
     source box has the target's exact shape, so both axes scale identically."""
-    scale = min(Fraction(width, logo.width), Fraction(height, logo.height))
+    scale = padding_scale(logo.width, logo.height, width, height)
     fit_w = max(1, math.floor(logo.width * scale))
     fit_h = max(1, math.floor(logo.height * scale))
     scaled = logo.convert("RGBA").resize(

@@ -178,8 +178,13 @@ async def seed_plan(
     return plan
 
 
-def guideline_payload(guideline: ContentGuideline) -> dict[str, Any]:
-    """A published rulebook with the sections the projection reads filled in."""
+def guideline_payload(
+    guideline: ContentGuideline, *, logo_rules: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """A published rulebook with the sections the projection reads filled in.
+
+    `logo_rules` is 3.1.3's `logo` block (clear space, minimum width) — what
+    4.4.3 composites a registered logo by."""
     return {
         "schema_version": "1.0",
         "project_id": str(guideline.project_id),
@@ -200,7 +205,11 @@ def guideline_payload(guideline: ContentGuideline) -> dict[str, Any]:
                 "always": [{"term": "safety data sheet"}],
                 "never": [{"term": "guaranteed compliance", "reason": "unprovable"}],
             },
-            "visual_identity": {"colour": {"primary": "brand-orange"}, "imagery": {"stock": "no"}},
+            "visual_identity": {
+                "colour": {"primary": "brand-orange"},
+                "imagery": {"stock": "no"},
+                **({"logo": logo_rules} if logo_rules is not None else {}),
+            },
         },
         "policy_profile": {
             "competitor_mentions": {"allowed": False, "zeta": 1, "alpha": 2},
@@ -224,6 +233,8 @@ async def seed_published(
     signature_stale: bool = False,
     asset_specs: dict[str, Any] | None = None,
     extra_rules: tuple[Any, ...] = (),
+    logo_templates: tuple[dict[str, Any], ...] = (),
+    logo_rules: dict[str, Any] | None = None,
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -250,7 +261,7 @@ async def seed_published(
     )
     db.add(guideline)
     await db.flush()
-    guideline.payload = guideline_payload(guideline)
+    guideline.payload = guideline_payload(guideline, logo_rules=logo_rules)
     await db.flush()
     digest = hashlib.sha256(f"{guideline.id}".encode()).hexdigest()
     ruleset = RuleSet(
@@ -267,6 +278,7 @@ async def seed_published(
             asset_specs=asset_specs,
             schema_version=ruleset_schema,
             extra_rules=extra_rules,
+            logo_templates=logo_templates,
         ),
         compiler_version="test",
         constants_version="test",
@@ -298,6 +310,7 @@ def compiled_ruleset(
     asset_specs: dict[str, Any] | None = None,
     schema_version: str = "1.0",
     extra_rules: tuple[Any, ...] = (),
+    logo_templates: tuple[dict[str, Any], ...] = (),
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -340,6 +353,7 @@ def compiled_ruleset(
         rules=(*rules, *extra_rules),
         claims_index=tuple(claims),
         **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),  # type: ignore[arg-type]
+        logo_templates=logo_templates,  # type: ignore[arg-type]
         hash=digest,
     ).model_dump(mode="json")
     compiled["schema_version"] = schema_version

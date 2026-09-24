@@ -1,4 +1,5 @@
-"""The outputs of 4.4.1 `creative_concepts` and 4.4.2 `image_masters` (PRD §11).
+"""The outputs of 4.4.1 `creative_concepts`, 4.4.2 `image_masters` and 4.4.3
+`image_renditions` (PRD §11).
 
 What a model wrote and what code decided are kept apart on purpose: `name`,
 `rationale`, `subject`, `setting`, the composition notes and the scene are the
@@ -9,9 +10,9 @@ code adds are not, and nothing here lets a model set them (Law 38).
 from __future__ import annotations
 
 import uuid
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 Depiction = Literal["reference_guided", "composited_real", "none"]
 ImageSurface = Literal["search_image", "pmax_image", "display_image", "demand_gen_image"]
@@ -116,3 +117,77 @@ class ConceptMasters(_Frozen):
 
 class ImageMasters(_Frozen):
     concepts: list[ConceptMasters] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 4.4.3 image_renditions
+# ---------------------------------------------------------------------------
+
+RenditionDerivation = Literal["native", "relaid", "crop"]
+
+
+class Scale(_Frozen):
+    """Law 39: one factor on both axes. A pair that differs is refused here as
+    well as by `ck_media_artifact_uniform_scale`."""
+
+    sx: float = Field(gt=0)
+    sy: float = Field(gt=0)
+
+    @model_validator(mode="after")
+    def _uniform(self) -> Scale:
+        if self.sx != self.sy:
+            raise ValueError(f"sx {self.sx} != sy {self.sy}: relay out, never stretch (Law 39)")
+        return self
+
+
+class Rendition(_Frozen):
+    concept_id: str = Field(min_length=1)
+    campaign_ref: str = Field(min_length=1)
+    #: The concept's image asset (4.4.2's); the file is a `rendition` artifact on it.
+    asset_id: uuid.UUID
+    media_id: uuid.UUID
+    #: The generation job that painted the source — None for a crop of the master.
+    job_id: uuid.UUID | None = None
+    surface: ImageSurface
+    ratio: str = Field(min_length=1)
+    px: str = Field(min_length=3)
+    derivation: RenditionDerivation
+    scale: Scale
+    retained_saliency: float = Field(ge=0.0, le=1.0)
+    logo_composited: bool
+    #: Why no logo was composited, when none was — recorded, never silent.
+    logo_note: str | None = None
+    bytes: int = Field(ge=1)
+    lint: CandidateLint
+    #: `{xmp_digital_source_type, visible_labels[]}` — read back from the file.
+    disclosure: dict[str, Any]
+
+
+class FittedLogo(_Frozen):
+    """A registered logo fitted to a spec-sheet logo slot by padding (§11 `logos[]`)."""
+
+    campaign_ref: str = Field(min_length=1)
+    asset_type: str = Field(min_length=1)
+    ratio: str = Field(min_length=1)
+    px: str = Field(min_length=3)
+    registered_logo_id: uuid.UUID
+    asset_id: uuid.UUID
+    media_id: uuid.UUID
+    scale: Scale
+    bytes: int = Field(ge=1)
+    lint: CandidateLint
+
+
+class RenditionGap(_Frozen):
+    campaign_ref: str = Field(min_length=1)
+    #: None for a logo slot, which belongs to the campaign rather than a concept.
+    concept_id: str | None = None
+    surface: str = Field(min_length=1)
+    ratio: str = Field(min_length=1)
+    why: str = Field(min_length=1)
+
+
+class ImageRenditions(_Frozen):
+    renditions: list[Rendition] = Field(default_factory=list)
+    logos: list[FittedLogo] = Field(default_factory=list)
+    gaps: list[RenditionGap] = Field(default_factory=list)
