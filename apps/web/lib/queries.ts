@@ -23,6 +23,15 @@ import { listApprovals, type ApprovalFilters } from "@/lib/api/approvals";
 import { listClaims } from "@/lib/api/claims";
 import { listHumanTasks, type TaskFilters } from "@/lib/api/tasks";
 import { listConnections } from "@/lib/api/connections";
+import {
+  creativeBadges,
+  creativeChip,
+  getCreativeEligibility,
+  getCreativeOverview,
+  isLegalExceptionTask,
+  isLiveCreativeRun,
+  lockSentence,
+} from "@/lib/api/creative";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
   getGuideline,
@@ -98,6 +107,11 @@ export const keys = {
     ["projects", projectId, "signoff-matrix", "preview", legalOwnerId] as const,
   amendments: (filters: { status?: string; project_id?: string }) =>
     ["policy-amendments", filters] as const,
+  // Stage 04. `creative` is a prefix of `creativeEligibility` on purpose: a
+  // write that invalidates the stage invalidates whether it can start.
+  creative: (projectId: string) => ["projects", projectId, "creative"] as const,
+  creativeEligibility: (projectId: string) =>
+    ["projects", projectId, "creative", "eligibility"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -232,6 +246,87 @@ export function usePublishGuideline(guidelineId: string, projectId: string) {
       void client.invalidateQueries({ queryKey: keys.guidelineEligibility(projectId) });
     },
   });
+}
+
+/**
+ * Stage 04 eligibility — the lock on the 04 entry and the landing's Action
+ * block (PRD §15.1 rule 1). Never computed here: this is the only source of
+ * "can creative start", and the rail and the landing read the same key.
+ *
+ * Polled only while a creative run holds the stage, as Stage 03 does; nothing
+ * else on the blocker list resolves without somebody doing something, and
+ * each of those somethings invalidates this key.
+ */
+export function useCreativeEligibility(projectId: string) {
+  return useQuery({
+    queryKey: keys.creativeEligibility(projectId),
+    queryFn: () => getCreativeEligibility(projectId),
+    enabled: Boolean(projectId),
+    refetchInterval: (query) =>
+      query.state.data?.blockers.some((item) => item.code === "creative_in_flight")
+        ? PLAN_POLL_MS
+        : false,
+  });
+}
+
+/** Runs and package history (`GET /projects/{id}/creative`), polled while a run is live. */
+export function useCreativeOverview(projectId: string) {
+  return useQuery({
+    queryKey: keys.creative(projectId),
+    queryFn: () => getCreativeOverview(projectId),
+    enabled: Boolean(projectId),
+    refetchInterval: (query) => (isLiveCreativeRun(query.state.data?.runs[0]) ? PLAN_POLL_MS : false),
+  });
+}
+
+/**
+ * Everything the 04 entry and the landing say about the stage, composed from
+ * the routes that already exist rather than a new one: eligibility and the
+ * overview (§16), the latest run's nodes while it runs (for `14/24`), the
+ * pending approvals on it while it is halted (G7, G8, G8b), and the project's
+ * open H3 tasks (§16 rule 4 keeps H3 on the person-task surface).
+ *
+ * Each follow-up request is enabled only in the state that needs it, so an
+ * idle project costs three reads, not five.
+ */
+export function useCreativeStatus(projectId: string, userId: string) {
+  const eligibility = useCreativeEligibility(projectId);
+  const overview = useCreativeOverview(projectId);
+  const latest = overview.data?.runs[0];
+  const live = isLiveCreativeRun(latest);
+  const halted = latest?.status === "awaiting_approval";
+
+  const run = useQuery({
+    queryKey: keys.run(latest?.run_id ?? ""),
+    queryFn: () => getRun(latest?.run_id as string),
+    enabled: live && !halted && Boolean(latest?.run_id),
+    refetchInterval: live && !halted ? PLAN_POLL_MS : false,
+  });
+  const gates = useApprovals(
+    { run_id: latest?.run_id, status: "pending" },
+    { enabled: halted && Boolean(latest?.run_id) },
+  );
+  const tasks = useHumanTasks({ project_id: projectId, status: "open" }, { enabled: Boolean(projectId) });
+
+  return useMemo(() => {
+    const legal = tasks.data?.items.filter(isLegalExceptionTask);
+    const input = {
+      overview: overview.data,
+      run: run.data,
+      gates: halted ? gates.data?.items : [],
+      legal,
+    };
+    return {
+      eligibility,
+      overview,
+      gates: input.gates ?? [],
+      legal: legal ?? [],
+      tasksLoaded: tasks.isSuccess,
+      chip: creativeChip(input),
+      badges: overview.data ? creativeBadges(input, userId) : [],
+      lock: lockSentence(eligibility.data),
+    };
+  }, [eligibility, overview, run.data, gates.data, halted, tasks.data, tasks.isSuccess, userId]);
 }
 
 export function usePlanEligibility(projectId: string) {
