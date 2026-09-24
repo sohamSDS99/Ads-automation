@@ -49,14 +49,26 @@ EXPECTED_TABLES = {
     "policy_source",
     "policy_amendment",
     "disapproval_event",
+    # Stage 04 (migration 0020).
+    "creative_brief",
+    "media_reference",
+    "creative_asset",
+    "generation_job",
+    "media_artifact",
+    "asset_decision",
+    "creative_exception",
+    "landing_page_audit",
+    "render_preview",
+    "creative_package",
 }
 
 
-def test_twenty_nine_tables() -> None:
+def test_thirty_nine_tables() -> None:
     """Thirteen from PRD §6, plus `project_document`, `membership` and
-    `source_connection`, plus Stage 02's three, plus Stage 03's ten."""
+    `source_connection`, plus Stage 02's three, Stage 03's ten and Stage
+    04's ten."""
     assert set(Base.metadata.tables) == EXPECTED_TABLES
-    assert len(EXPECTED_TABLES) == 29
+    assert len(EXPECTED_TABLES) == 39
     assert set(ALL_TABLES) == EXPECTED_TABLES
 
 
