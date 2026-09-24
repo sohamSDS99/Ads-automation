@@ -172,3 +172,49 @@ beyond what is described.
 6. **The design laws apply to `components/creative/**` and the creative
    route directory** — the route is a Stage 04 screen too. `components/ui/`
    predates the law (e.g. `rounded-[var(--radius)]`) and is not rewritten.
+
+## S4-P3
+
+1. **The one-click reduction needed a server answer the PRD did not name.**
+   §15.4 B offers "the smallest fitting *scope* reduction", but
+   `cost_estimate_v1`'s `reduction` walks the whole degrade ladder and leads
+   with `candidates` (one candidate per concept) — which no `CreativeScope`
+   field can carry, and the start route re-checks CR-E9 against the full
+   scope. Offering it would be a button that changes nothing. Added
+   `calc.media.scope_reduction` (the ladder's scope rungs only:
+   `third_concept` → two concepts, `video` → off, in ladder order, each
+   re-priced by `cost_estimate_v1`) and `EstimateResponse.scope_reduction`.
+   `cost_estimate_v1` is unchanged, so no formula version moved. Ruling
+   wanted on whether `candidates` / `video_square` should become start-time
+   scope fields instead (that would change `CreativeInput`, S4-P0's contract).
+2. **Three supported parameters are not offered as run defaults:**
+   `aspect_ratio` and `size` fix the frame's shape, which the ratio plan
+   decides per rendition (a run-wide 16:9 would contradict a 9:16 rendition);
+   `seed` is catalogued as a *may-send* boolean for an integer value, so
+   §15.4 B's "boolean → switch" cannot represent it, and a run-wide seed
+   repeats itself across every candidate. The server still accepts all three
+   in `defaults`. A parameter with one possible value (`n` 1–1 on flux) is
+   not drawn: it offers no choice.
+3. **No estimate-accuracy history in the model rows.** §15.4 B asks for the
+   price line "with its estimate-accuracy history"; `MediaModelRow` has no
+   such field, no route serves per-model accuracy (§9.3 "shown in
+   Settings"), and no media job has run to measure one. Nothing is drawn
+   rather than an empty or invented figure. Needs a field once S4-P9+ write
+   `GenerationJob` actuals.
+4. **A new recorded fixture:** `openai/gpt-image-1`'s endpoints (free
+   public GET, 2026-09-24), because none of the four recorded priceable
+   image models takes `quality` — the "no quality control without quality"
+   check needs a model that has one.
+5. **Dark `--accent-fg` changed from white to `#09090b`.** White on the dark
+   accent is 3.7:1 and fails AA for every primary button in dark mode; the
+   Start dialog is the first Stage 04 screen with one, so axe caught it here.
+   Every `accent-fg` use is text on an accent fill.
+6. **The Start trigger shows whenever both pins resolve**, for
+   `creative_execute` holders. The landing's blockers are for the *default*
+   scope (the project's default models); the dialog prices the scope actually
+   chosen, and the start's 409 renders any project-level blocker verbatim.
+   Choosing which blockers the dialog "can fix" would be eligibility logic in
+   TypeScript.
+7. **The project's saved default models and params are not prefilled** —
+   there is no read for `Project.settings.media_models` (only `PATCH`). The
+   dialog starts with no model chosen, which is also what law 36 asks.
