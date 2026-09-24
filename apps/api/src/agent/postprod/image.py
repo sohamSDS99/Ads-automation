@@ -8,21 +8,33 @@ A model paints a master; everything after that is code, and deterministic:
    the source with exactly the frame's shape, in rational arithmetic, so
    `sx == sy` is a fact that can be asserted — and is, at construction — and
    is persisted as one number in both keys (the DB CHECK compares their text).
+3. **Logos** — Stage 03's registered ones only, on `logo.permitted_surfaces`
+   only, never on `search_image`. The variant is the one whose measured
+   luminance reaches ≥ 3:1 against the background it would sit on; it keeps
+   `clear_space_ratio × logo height` from every edge, is at least
+   `min_width_px` wide, and is fitted by padding, never stretched.
+5. **Labels** — any visible disclosure label a pinned Stage 03 rule requires
+   for this surface and market, drawn at its placement.
 
 No I/O here: bytes and pixels in, pixels out. The node stores and records.
 """
 
 from __future__ import annotations
 
+import io
 import math
+import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from fractions import Fraction
-from typing import Any
+from typing import Any, Literal
 
-from PIL import Image
+import numpy as np
+from PIL import Image, ImageDraw, ImageFont
 
 from agent.media.capability import Coverage, parse_ratio, ratio_coverage, supported_ratios
 from agent.media.types import CapabilityRecord
+from agent.schemas.guardrails import DisclosureRule
 
 
 class StretchError(ValueError):
@@ -212,3 +224,291 @@ def flatten(image: Image.Image) -> Image.Image:
         white = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
         return Image.alpha_composite(white, rgba).convert("RGB")
     return image.convert("RGB")
+
+
+# ---------------------------------------------------------------------------
+# 3. logos
+# ---------------------------------------------------------------------------
+
+#: §9.4 item 3: "≥ 3:1 contrast" — WCAG 2.2's floor for a graphical object.
+MIN_LOGO_CONTRAST = 3.0
+#: Never on a Search image (Law 38; Google disapproves any added logo there),
+#: whatever `logo.permitted_surfaces` says.
+NO_LOGO_SURFACE = "search_image"
+
+Corner = Literal["bottom_right", "bottom_left", "top_right", "top_left"]
+#: The tie-break when corners are equally salient: where a logo conventionally sits.
+CORNERS: tuple[Corner, ...] = ("bottom_right", "bottom_left", "top_right", "top_left")
+
+
+@dataclass(frozen=True, slots=True)
+class LogoArt:
+    """One registered logo, trimmed to its visible pixels, with their luminance."""
+
+    asset_id: uuid.UUID
+    label: str
+    image: Image.Image
+    luminance: float
+
+
+@dataclass(frozen=True, slots=True)
+class LogoPlacement:
+    logo: LogoArt
+    corner: Corner
+    #: `(x0, y0, x1, y1)` in frame px — the logo itself, clear space outside it.
+    box: tuple[int, int, int, int]
+    clear_space_px: int
+    background_luminance: float
+    contrast: float
+
+    @property
+    def label(self) -> str:
+        return self.logo.label
+
+    def record(self) -> dict[str, Any]:
+        return {
+            "asset_id": str(self.logo.asset_id),
+            "label": self.logo.label,
+            "corner": self.corner,
+            "box": list(self.box),
+            "clear_space_px": self.clear_space_px,
+            "contrast": round(self.contrast, 2),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class LogoOutcome:
+    placement: LogoPlacement | None
+    #: Why there is no logo — recorded, never silent.
+    reason: str | None = None
+
+
+def relative_luminance(rgb: tuple[int, int, int]) -> float:
+    """WCAG 2.2 relative luminance of one sRGB colour."""
+    return float(_luminance(np.asarray([rgb], dtype=np.float64)).mean())
+
+
+def _luminance(pixels: np.ndarray) -> np.ndarray:
+    channel = pixels[..., :3] / 255.0
+    linear = np.where(channel <= 0.04045, channel / 12.92, ((channel + 0.055) / 1.055) ** 2.4)
+    weights: np.ndarray = linear @ np.asarray([0.2126, 0.7152, 0.0722])
+    return weights
+
+
+def contrast_ratio(a: float, b: float) -> float:
+    high, low = max(a, b), min(a, b)
+    return (high + 0.05) / (low + 0.05)
+
+
+def load_logo(content: bytes, *, asset_id: uuid.UUID, label: str) -> LogoArt:
+    """Decode a registered logo and trim it to its visible pixels — clear space
+    is measured from the mark, not from the margin the file happened to carry."""
+    with Image.open(io.BytesIO(content)) as opened:
+        image = opened.convert("RGBA")
+    visible = image.getchannel("A").point(lambda a: 255 if a > 0 else 0).getbbox()
+    if visible is None:
+        raise ValueError(f"registered logo {asset_id} has no visible pixels")
+    image = image.crop(visible)
+    pixels = np.asarray(image, dtype=np.float64)
+    alpha = pixels[..., 3] / 255.0
+    luminance = float((_luminance(pixels) * alpha).sum() / alpha.sum())
+    return LogoArt(asset_id=asset_id, label=label, image=image, luminance=luminance)
+
+
+def place_logo(
+    frame: Image.Image,
+    logos: Sequence[LogoArt],
+    *,
+    surface: str,
+    permitted_surfaces: Sequence[str],
+    clear_space_ratio: float | None,
+    min_width_px: int | None,
+    width_ratio: float,
+    saliency: np.ndarray | None,
+) -> LogoOutcome:
+    """Where the logo goes and which variant, or why none does.
+
+    Corners are ranked by the saliency their footprint would cover (least
+    first — the logo never sits on the subject), then in `CORNERS` order. In
+    the first corner where any variant reaches 3:1 against the measured
+    background, the variant with the highest contrast is placed.
+    """
+    if surface == NO_LOGO_SURFACE:
+        return LogoOutcome(None, "never on search_image (Law 38)")
+    if surface not in permitted_surfaces:
+        return LogoOutcome(None, f"{surface} is not in logo.permitted_surfaces")
+    if not logos:
+        return LogoOutcome(None, "no registered logo could be read")
+    if clear_space_ratio is None:
+        return LogoOutcome(
+            None, "the brand rules state no clear space, so a logo's clear space cannot be kept"
+        )
+    width, height = frame.size
+    logo_w = max(math.ceil(width_ratio * width), min_width_px or 0)
+    sized = []
+    for logo in logos:
+        logo_h = math.ceil(logo_w * logo.image.height / logo.image.width)
+        clear = math.ceil(clear_space_ratio * logo_h)
+        if logo_w + 2 * clear <= width and logo_h + 2 * clear <= height:
+            sized.append((logo, logo_h, clear))
+    if not sized:
+        return LogoOutcome(
+            None,
+            f"a {width}x{height} frame cannot hold a {logo_w} px wide logo and its clear space",
+        )
+    pixels = np.asarray(flatten(frame), dtype=np.float64)
+    luminance = _luminance(pixels)
+    footprint_h = max(logo_h + 2 * clear for _, logo_h, clear in sized)
+    footprint_w = max(logo_w + 2 * clear for _, _, clear in sized)
+
+    def corner_mass(corner: Corner) -> float:
+        if saliency is None:
+            return 0.0
+        x0, y0 = _corner_origin(corner, width, height, footprint_w, footprint_h, 0)
+        return float(saliency[y0 : y0 + footprint_h, x0 : x0 + footprint_w].sum())
+
+    best = 0.0
+    for corner in sorted(CORNERS, key=lambda c: (corner_mass(c), CORNERS.index(c))):
+        candidates = []
+        for logo, logo_h, clear in sized:
+            x0, y0 = _corner_origin(corner, width, height, logo_w, logo_h, clear)
+            zone = luminance[
+                max(0, y0 - clear) : y0 + logo_h + clear, max(0, x0 - clear) : x0 + logo_w + clear
+            ]
+            background = float(zone.mean())
+            ratio = contrast_ratio(logo.luminance, background)
+            best = max(best, ratio)
+            candidates.append((ratio, logo, (x0, y0, x0 + logo_w, y0 + logo_h), clear, background))
+        ratio, logo, box, clear, background = max(candidates, key=lambda item: item[0])
+        if ratio >= MIN_LOGO_CONTRAST:
+            return LogoOutcome(LogoPlacement(logo, corner, box, clear, background, ratio))
+    return LogoOutcome(
+        None,
+        f"no registered logo reaches 3:1 contrast in any corner (best {best:.2f}:1)",
+    )
+
+
+def _corner_origin(
+    corner: Corner, width: int, height: int, box_w: int, box_h: int, clear: int
+) -> tuple[int, int]:
+    right, bottom = width - clear - box_w, height - clear - box_h
+    return {
+        "bottom_right": (right, bottom),
+        "bottom_left": (clear, bottom),
+        "top_right": (right, clear),
+        "top_left": (clear, clear),
+    }[corner]
+
+
+def fit_by_padding(logo: Image.Image, width: int, height: int) -> Image.Image:
+    """`logo` scaled by ONE factor to fit `width × height`, centred on a
+    transparent canvas of exactly that size — padded, never stretched. The
+    source box has the target's exact shape, so both axes scale identically."""
+    scale = min(Fraction(width, logo.width), Fraction(height, logo.height))
+    fit_w = max(1, math.floor(logo.width * scale))
+    fit_h = max(1, math.floor(logo.height * scale))
+    scaled = logo.convert("RGBA").resize(
+        (fit_w, fit_h),
+        Image.Resampling.LANCZOS,
+        box=(0.0, 0.0, float(fit_w / scale), float(fit_h / scale)),
+    )
+    canvas = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    canvas.alpha_composite(scaled, dest=((width - fit_w) // 2, (height - fit_h) // 2))
+    return canvas
+
+
+def composite_logo(frame: Image.Image, placement: LogoPlacement) -> Image.Image:
+    x0, y0, x1, y1 = placement.box
+    fitted = fit_by_padding(placement.logo.image, x1 - x0, y1 - y0)
+    canvas = flatten(frame).convert("RGBA")
+    canvas.alpha_composite(fitted, dest=(x0, y0))
+    return canvas.convert("RGB")
+
+
+# ---------------------------------------------------------------------------
+# 5. visible disclosure labels
+# ---------------------------------------------------------------------------
+
+#: `fonts-inter` in the worker image (PRD §22): the face captions use.
+LABEL_FONTS = (
+    "/usr/share/fonts/opentype/inter/Inter-SemiBold.otf",
+    "/usr/share/fonts/opentype/inter/Inter-Medium.otf",
+)
+#: The box behind the label, as §9.4's captions: 60% opacity, so contrast holds on any frame.
+LABEL_BOX_ALPHA = 153
+
+
+class LabelError(RuntimeError):
+    """A required label could not be drawn — the rendition cannot ship without it."""
+
+
+def required_labels(
+    rules: Sequence[DisclosureRule], *, surface: str, market: str
+) -> list[DisclosureRule]:
+    """The pinned rules that name this image surface, for this market (a rule
+    with no markets applies in every market). A rule that names no image
+    surface is a copy rule — the linter enforces it on text."""
+    return [
+        rule
+        for rule in rules
+        if surface in rule.surfaces and (not rule.markets or market in rule.markets)
+    ]
+
+
+def apply_labels(
+    frame: Image.Image, rules: Sequence[DisclosureRule], *, height_pct: float
+) -> tuple[Image.Image, list[dict[str, Any]]]:
+    """Each rule's `required_text`, drawn white on a 60%-opacity box, its text
+    `height_pct` of the frame tall: `prefix` top-left, `suffix` bottom-right,
+    `anywhere` bottom-left. Raises `LabelError` when it cannot be drawn whole."""
+    if not rules:
+        return frame, []
+    width, height = frame.size
+    size = max(1, round(height_pct * height))
+    font = _label_font(size)
+    canvas = flatten(frame).convert("RGBA")
+    overlay = Image.new("RGBA", canvas.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    drawn: list[dict[str, Any]] = []
+    stacked: dict[str, int] = {}
+    pad = max(1, size // 3)
+    for rule in rules:
+        bounds = draw.textbbox((0, 0), rule.required_text, font=font)
+        left, top = math.floor(bounds[0]), math.floor(bounds[1])
+        right, bottom = math.ceil(bounds[2]), math.ceil(bounds[3])
+        box_w = right - left + 2 * pad
+        box_h = max(size, bottom - top) + 2 * pad
+        if box_w > width - 2 * pad:
+            raise LabelError(f"label {rule.required_text!r} is wider than a {width} px frame")
+        offset = stacked.get(rule.placement, 0)
+        x0 = pad if rule.placement in ("prefix", "anywhere") else width - pad - box_w
+        y0 = pad + offset if rule.placement == "prefix" else height - pad - box_h - offset
+        if y0 < 0 or y0 + box_h > height:
+            raise LabelError(f"labels for placement {rule.placement!r} do not fit the frame")
+        stacked[rule.placement] = offset + box_h + pad
+        draw.rectangle((x0, y0, x0 + box_w - 1, y0 + box_h - 1), fill=(0, 0, 0, LABEL_BOX_ALPHA))
+        draw.text(
+            (x0 + pad - left, y0 + (box_h - (bottom - top)) // 2 - top),
+            rule.required_text,
+            font=font,
+            fill=(255, 255, 255, 255),
+        )
+        drawn.append(
+            {
+                "disclosure_id": rule.disclosure_id,
+                "text": rule.required_text,
+                "placement": rule.placement,
+                "box": [x0, y0, x0 + box_w, y0 + box_h],
+            }
+        )
+    canvas.alpha_composite(overlay)
+    return canvas.convert("RGB"), drawn
+
+
+def _label_font(size: int) -> ImageFont.FreeTypeFont:
+    for path in LABEL_FONTS:
+        try:
+            return ImageFont.truetype(path, size)
+        except OSError:
+            continue
+    raise LabelError(f"no label face is installed (looked for {', '.join(LABEL_FONTS)})")
