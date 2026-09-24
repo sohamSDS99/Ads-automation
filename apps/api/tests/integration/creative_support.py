@@ -73,6 +73,7 @@ async def seed_plan(
     schema_version: str = "1.0",
     source_superseded: bool = False,
     campaign_type: str | None = None,
+    keywords: list[dict[str, Any]] | None = None,
 ) -> CampaignPlan:
     """Accepted research → a plan run → a plan in `status`, with a real payload."""
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
@@ -158,6 +159,7 @@ async def seed_plan(
                                 "theme": "SDS management",
                                 "landing_url": "https://example.com/sds",
                                 "primary_message": "Keep every SDS current",
+                                **({"keywords": keywords} if keywords else {}),
                             }
                         ],
                     },
@@ -221,6 +223,7 @@ async def seed_published(
     ruleset_schema: str = "1.0",
     signature_stale: bool = False,
     asset_specs: dict[str, Any] | None = None,
+    extra_rules: tuple[Any, ...] = (),
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -263,10 +266,11 @@ async def seed_published(
             categories=categories,
             asset_specs=asset_specs,
             schema_version=ruleset_schema,
+            extra_rules=extra_rules,
         ),
         compiler_version="test",
         constants_version="test",
-        rule_count=len(categories),
+        rule_count=len(categories) + len(extra_rules),
         hash=digest,
     )
     db.add(ruleset)
@@ -293,6 +297,7 @@ def compiled_ruleset(
     categories: tuple[str, ...] = ALL_CATEGORIES,
     asset_specs: dict[str, Any] | None = None,
     schema_version: str = "1.0",
+    extra_rules: tuple[Any, ...] = (),
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -332,7 +337,7 @@ def compiled_ruleset(
         compiler_version="test",
         constants_version="test",
         compiled_at=_now(),
-        rules=tuple(rules),
+        rules=(*rules, *extra_rules),
         claims_index=tuple(claims),
         **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),  # type: ignore[arg-type]
         hash=digest,
