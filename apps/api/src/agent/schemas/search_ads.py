@@ -1,4 +1,4 @@
-"""Search-ad contracts — nodes 4.2.1, 4.2.2 and 4.2.3 (Stage 04 PRD §11 4.2, §12.2).
+"""Search-ad contracts — nodes 4.2.1 to 4.2.4 (Stage 04 PRD §11 4.2, §12.2).
 
 * `HeadlineSpreadOutput` — 4.2.1: per ad group, the pool the model wrote
   (`copy.headline_pool_size` candidates, each linted at creation), the ≤ 15
@@ -10,6 +10,10 @@
   refuses to validate without them, so the check cannot be skipped by omission.
 * `CombinationCoherenceOutput` — 4.2.3: per ad, every pair it could serve, the
   swaps of its one repair round, and pins only for `order_dependent` pairs.
+* `VariantBOutput` — 4.2.4: per ad group, a second RSA written through the
+  4.2.1–4.2.3 path from the brief's `angle_b`. **A B that paraphrases A fails
+  validation**: `distinctness_vs_a` under `variant_min_distance` is a schema
+  error. `ResponsiveSearchAd` is §12.2's, and B's is the first built.
 
 Dynamic keyword insertion is part of the contract because the PRD makes it one:
 "DKI `{KeyWord:default}` validated on the **default text's** length". A
@@ -28,6 +32,7 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
+    HttpUrl,
     ValidationInfo,
     field_validator,
     model_validator,
@@ -378,3 +383,107 @@ class PairReport(_Frozen):
 class CombinationCoherenceOutput(_Frozen):
     schema_version: Literal["1.0"] = SEARCH_ADS_SCHEMA_VERSION
     ads: list[PairReport] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 4.2.4 variant_b — and §12.2's ResponsiveSearchAd
+# ---------------------------------------------------------------------------
+
+
+class ResponsiveSearchAd(_Frozen):
+    """§12.2. One RSA, carrying exactly the combination 4.2.3's path judged."""
+
+    ad_ref: str = Field(min_length=1)
+    campaign_ref: str = Field(min_length=1)
+    ad_group_ref: str = Field(min_length=1)
+    variant: Variant
+    angle: str = Field(min_length=1)
+    #: Required when variant='B'.
+    hypothesis: str | None = None
+    #: Bounds from asset_specs, enforced where the ad is written and counted.
+    headlines: list[UUID] = Field(min_length=1)
+    descriptions: list[UUID] = Field(min_length=1)
+    paths: tuple[str | None, str | None] = (None, None)
+    final_url: HttpUrl
+    pair_report: PairReport
+    #: `copy.distinctness_v1` from variant A — a B's, and only a B's.
+    distinctness_vs_a: float | None = Field(default=None, ge=0.0, le=1.0)
+
+    @model_validator(mode="after")
+    def _consistent(self) -> ResponsiveSearchAd:
+        if self.variant == "B":
+            if self.hypothesis is None or not self.hypothesis.strip():
+                raise ValueError("a variant B ad states the hypothesis it tests")
+            if self.distinctness_vs_a is None:
+                raise ValueError("a variant B ad carries its distinctness_vs_a")
+        elif self.distinctness_vs_a is not None:
+            raise ValueError("variant A has no distinctness_vs_a: it is what B is measured from")
+        report = self.pair_report
+        if (report.campaign_ref, report.ad_group_ref, report.variant) != (
+            self.campaign_ref,
+            self.ad_group_ref,
+            self.variant,
+        ):
+            raise ValueError("the pair_report judged another ad")
+        if report.headlines != self.headlines or report.descriptions != self.descriptions:
+            raise ValueError(
+                "the ad must carry exactly the combination its pair_report judged, in order"
+            )
+        return self
+
+
+class VariantBGroup(_Frozen):
+    """One ad group's variant B: its copy, its ad, and why it is a test (§11 4.2.4)."""
+
+    campaign_ref: str = Field(min_length=1)
+    ad_group_ref: str = Field(min_length=1)
+    #: B's headline pool, through 4.2.1's path.
+    headlines: HeadlineGroup
+    #: B's descriptions, paths and exception candidates, through 4.2.2's path.
+    descriptions: DescriptionGroup
+    #: B's ad, as 4.2.3's path left it.
+    ad_b: ResponsiveSearchAd
+    distinctness_vs_a: float = Field(ge=0.0, le=1.0)
+    #: `copy.variant_min_distance` ("1 − similarity") the distance was held to.
+    variant_min_distance: float = Field(gt=0.0, le=1.0)
+    distinctness_metric: Literal["copy.distinctness_v1"] = "copy.distinctness_v1"
+    hypothesis: str = Field(min_length=1)
+    primary_metric: str = Field(min_length=1)
+
+    @field_validator("hypothesis", "primary_metric")
+    @classmethod
+    def _not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("must say something")
+        return value
+
+    @model_validator(mode="after")
+    def _a_second_message(self) -> VariantBGroup:
+        where = (self.campaign_ref, self.ad_group_ref)
+        for part in (self.headlines, self.descriptions, self.ad_b):
+            if (part.campaign_ref, part.ad_group_ref) != where:
+                raise ValueError(f"variant B for {where} carries another ad group's copy")
+            if part.variant != "B":
+                raise ValueError("variant B is written as variant B, all of it")
+        if self.distinctness_vs_a < self.variant_min_distance:
+            raise ValueError(
+                f"B paraphrases A: copy.distinctness_v1 is {self.distinctness_vs_a:.2f}, under "
+                f"copy.variant_min_distance {self.variant_min_distance:.2f}"
+            )
+        if self.ad_b.distinctness_vs_a != self.distinctness_vs_a:
+            raise ValueError("ad_b reports another distinctness_vs_a than its group")
+        if self.ad_b.hypothesis != self.hypothesis:
+            raise ValueError("ad_b states another hypothesis than its group")
+        own = {candidate.asset_id for candidate in self.headlines.candidates} | {
+            item.asset_id for item in (*self.descriptions.descriptions, *self.descriptions.reserve)
+        }
+        borrowed = [str(a) for a in (*self.ad_b.headlines, *self.ad_b.descriptions) if a not in own]
+        if borrowed:
+            raise ValueError(f"ad_b carries asset(s) that are not B's own: {', '.join(borrowed)}")
+        return self
+
+
+class VariantBOutput(_Frozen):
+    schema_version: Literal["1.0"] = SEARCH_ADS_SCHEMA_VERSION
+    #: One per Search ad group in scope; empty when the slate has none.
+    ad_groups: list[VariantBGroup] = Field(default_factory=list)

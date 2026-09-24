@@ -55,6 +55,12 @@ from tests.integration.creative_support import (
 )
 from tests.integration.runs_support import execute
 from tests.integration.test_s4p4_brief_g7 import _g7, _instance
+from tests.integration.variant_b_support import (
+    DESCRIPTIONS_B,
+    POOL_B,
+    TEXTS_B,
+    is_variant_b,
+)
 from tests.openrouter_fake import FakeOpenRouter, completion
 
 pytestmark = pytest.mark.asyncio
@@ -169,13 +175,18 @@ REDUNDANT_AFTER_SWAP = frozenset({"SDS Updates Within 24 Hours", RESERVE_DESCRIP
 
 
 class _Script:
-    """A scripted OpenRouter that answers each node by the schema it sends."""
+    """A scripted OpenRouter that answers each node by the schema it sends.
+
+    4.2.4 writes variant B through the same schemas; it is answered from
+    `variant_b_support` and kept out of what this test counts, which is A's.
+    """
 
     def __init__(self) -> None:
         self.fake = FakeOpenRouter()
         self.pools: list[dict[str, Any]] = []
         self.description_pools: list[dict[str, Any]] = []
         self.label_batches: list[dict[str, dict[str, str]]] = []
+        self.variant_b: list[str] = []
         self.fake.dispatch(self._respond)
 
     def _respond(self, request: httpx.Request) -> httpx.Response:
@@ -184,6 +195,10 @@ class _Script:
         name, schema = schema_spec["name"], schema_spec["schema"]
         if name == "CreativeBriefDraft":
             return completion(_instance(schema, schema), model=body["model"])
+        if name in ("HeadlinePoolDraft", "DescriptionPoolDraft") and is_variant_b(body):
+            self.variant_b.append(name)
+            answer = {"candidates": POOL_B} if name == "HeadlinePoolDraft" else DESCRIPTIONS_B
+            return completion(answer, model=body["model"])
         if name == "HeadlinePoolDraft":
             self.pools.append(body)
             return completion({"candidates": POOL}, model=body["model"])
@@ -193,6 +208,9 @@ class _Script:
         if name == "PairLabelsDraft":
             user = next(m["content"] for m in body["messages"] if m["role"] == "user")
             pairs = json.loads(user.split("PAIRS:\n", 1)[1])
+            if any({pair["a"], pair["b"]} & TEXTS_B for pair in pairs.values()):
+                self.variant_b.append(name)
+                return completion({key: "reads_well" for key in pairs})
             self.label_batches.append(pairs)
             return completion({key: self._label(pair) for key, pair in pairs.items()})
         raise AssertionError(f"no scripted answer for {name}")
@@ -322,6 +340,7 @@ async def test_headlines_are_spread_selected_paired_repaired_and_pinned(
     by_id = {uuid.UUID(c["asset_id"]): c for c in group["candidates"]}
     selected = [uuid.UUID(ref) for ref in group["selected"]]
     assert len(group["candidates"]) == 25 and len(script.pools) == 1
+    assert script.variant_b[:2] == ["HeadlinePoolDraft", "DescriptionPoolDraft"], "B ran too"
 
     # --- every RSA has 15 headlines meeting quotas -------------------------
     assert len(selected) == 15
@@ -329,7 +348,9 @@ async def test_headlines_are_spread_selected_paired_repaired_and_pinned(
     quotas = {"keyword": 3, "benefit": 3, "offer": 2, "proof": 2, "objection": 2, "cta": 2}
     categories = [by_id[asset_id]["category"] for asset_id in selected]
     assert all(categories.count(c) >= n for c, n in quotas.items()), categories
-    headline_rows = [a for a in assets.values() if a.kind is CreativeAssetKind.HEADLINE]
+    headline_rows = [  # A's: 4.2.4 writes B's headlines beside them
+        a for a in assets.values() if a.kind is CreativeAssetKind.HEADLINE and a.node_id == "4.2.1"
+    ]
     assert sorted(a.id for a in headline_rows if a.status is CreativeAssetStatus.LINTED) == sorted(
         selected
     )

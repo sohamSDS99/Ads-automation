@@ -1,8 +1,8 @@
-"""S4-P6 exit criteria — 4.2.2 `claim_bound_descriptions`, end to end.
+"""S4-P6 exit criteria — 4.2.2 `claim_bound_descriptions` and 4.2.4 `variant_b`, end to end.
 
 A creative run is started through the API, halts on G7, is approved, and runs
-on through the real 4.2.1, 4.2.2 and 4.2.3 (scripted COPYWRITE and CLASSIFY
-answers), then the rest of the DAG.
+on through the real 4.2.1, 4.2.2, 4.2.3 and 4.2.4 (scripted COPYWRITE and
+CLASSIFY answers), then the rest of the DAG.
 
 **The pin carries Stage 03's real claim-licence rule and the shipped
 detectors**, beside the spec-sheet rules synthesis emits. So "#1" is found by
@@ -23,10 +23,18 @@ from typing import Any
 
 import httpx
 import pytest
+import sqlalchemy as sa
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import CreativeAssetKind, CreativeAssetStatus, RunStage, RunStatus
+from agent.db.models import (
+    CreativeAssetKind,
+    CreativeAssetStatus,
+    NodeRun,
+    NodeRunStatus,
+    RunStage,
+    RunStatus,
+)
 from agent.export.guideline_contract import AssetSpecs
 from agent.guardrails.matchers.claims import claim_licence
 from agent.guidelines.constants import get_content_constants, load_content_constants
@@ -47,6 +55,12 @@ from tests.integration.creative_support import (
 from tests.integration.runs_support import execute
 from tests.integration.test_s4p4_brief_g7 import _g7, _instance
 from tests.integration.test_s4p5_headlines_combinations import _assets, _output
+from tests.integration.variant_b_support import (
+    DESCRIPTIONS_B,
+    POOL_B,
+    SELECTED_B,
+    is_variant_b,
+)
 from tests.openrouter_fake import FakeOpenRouter, completion
 
 pytestmark = pytest.mark.asyncio
@@ -136,12 +150,33 @@ DESCRIPTIONS_A: dict[str, Any] = {
 assert len(DESCRIPTIONS_A["descriptions"]) == 8
 
 
-class _Script:
-    """A scripted OpenRouter that answers each node by the schema it sends."""
+def _paraphrase(text: str) -> str:
+    """A's copy said again in other words — the B 4.2.4 must refuse."""
+    for old, new in (("Your", "The"), ("Every", "Each"), ("every", "each"), ("stays", "is kept")):
+        text = text.replace(old, new)
+    return text
 
-    def __init__(self) -> None:
+
+#: B's pools as a paraphrase of A's: every line reworded, none rethought.
+PARAPHRASED_POOL = [{**h, "text": _paraphrase(h["text"])} for h in POOL_A]
+PARAPHRASED_DESCRIPTIONS = {
+    "descriptions": [
+        {**item, "text": _paraphrase(item["text"])} for item in DESCRIPTIONS_A["descriptions"]
+    ],
+    "paths": ["sds", "software"],
+}
+
+
+class _Script:
+    """A scripted OpenRouter that answers each node by the schema it sends.
+
+    `paraphrase` answers 4.2.4's B requests with A's copy reworded.
+    """
+
+    def __init__(self, *, paraphrase: bool = False) -> None:
         self.fake = FakeOpenRouter()
         self.requests: dict[str, list[dict[str, Any]]] = {}
+        self.paraphrase = paraphrase
         self.fake.dispatch(self._respond)
 
     def _respond(self, request: httpx.Request) -> httpx.Response:
@@ -151,6 +186,13 @@ class _Script:
         self.requests.setdefault(name, []).append(body)
         if name == "CreativeBriefDraft":
             return completion(_instance(schema, schema), model=body["model"])
+        if name in ("HeadlinePoolDraft", "DescriptionPoolDraft") and is_variant_b(body):
+            self.requests.setdefault(f"{name}:B", []).append(body)
+            if name == "HeadlinePoolDraft":
+                pool = PARAPHRASED_POOL if self.paraphrase else POOL_B
+                return completion({"candidates": pool}, model=body["model"])
+            answer = PARAPHRASED_DESCRIPTIONS if self.paraphrase else DESCRIPTIONS_B
+            return completion(answer, model=body["model"])
         if name == "HeadlinePoolDraft":
             return completion({"candidates": POOL_A}, model=body["model"])
         if name == "DescriptionPoolDraft":
@@ -193,7 +235,13 @@ async def _seed(db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: u
 
 
 async def _run(
-    admin: ApiClient, db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID
+    admin: ApiClient,
+    db: AsyncSession,
+    ws: uuid.UUID,
+    project_id: uuid.UUID,
+    actor: uuid.UUID,
+    *,
+    paraphrase: bool = False,
 ) -> tuple[uuid.UUID, _Script, RunStatus]:
     """A creative run started, halted on G7, approved, and run to its end."""
     await _seed(db, ws, project_id, actor)
@@ -202,7 +250,7 @@ async def _run(
     )
     assert started.status_code == 202, started.text
     run_id = uuid.UUID(started.json()["run_id"])
-    script = _Script()
+    script = _Script(paraphrase=paraphrase)
     registry = _registry()
     halted = await execute(run_id, script.fake, registry=registry, dag=Dag.from_registry(registry))
     assert halted.status is RunStatus.AWAITING_APPROVAL, halted.error
@@ -226,7 +274,7 @@ async def test_every_description_stands_on_a_licensed_claim_and_no_unlicensed_sp
     assert status is RunStatus.SUCCEEDED
 
     # --- the model could cite only what the pin licenses ---------------------
-    (request,) = script.requests["DescriptionPoolDraft"]
+    (request,) = [r for r in script.requests["DescriptionPoolDraft"] if not is_variant_b(r)]
     item = request["response_format"]["json_schema"]["schema"]["$defs"]["DescriptionDraft"]
     claim_ids = item["properties"]["claim_ids"]
     # One licensed claim renders as `const`, several as `enum`: either way the
@@ -259,7 +307,9 @@ async def test_every_description_stands_on_a_licensed_claim_and_no_unlicensed_sp
     assert group["exception_candidates"] == [{"span": "#1", "occurrences": 2}]
     assets = await _assets(db, run_id)
     assert not [a for a in assets.values() if a.text and "#1" in a.text]
-    descriptions = {a.text: a for a in assets.values() if a.kind is CreativeAssetKind.DESCRIPTION}
+    # A's rows: 4.2.4 writes B's beside them in the same run.
+    a_rows = [a for a in assets.values() if a.node_id == "4.2.2"]
+    descriptions = {a.text: a for a in a_rows if a.kind is CreativeAssetKind.DESCRIPTION}
     assert set(descriptions) == {*SELECTED_A, RESERVE_A, TOO_LONG}
     assert {descriptions[text].status for text in SELECTED_A} == {CreativeAssetStatus.LINTED}
     assert descriptions[RESERVE_A].status is CreativeAssetStatus.RESERVE
@@ -267,9 +317,102 @@ async def test_every_description_stands_on_a_licensed_claim_and_no_unlicensed_sp
     assert too_long.status is CreativeAssetStatus.DRAFT, "a lint failure never leaves draft"
     assert [f["rule_id"] for f in too_long.lint["findings"]] == ["asset_spec.length.v1"]  # type: ignore[index]
     assert all(a.node_id == "4.2.2" and a.variant.value == "A" for a in descriptions.values())  # type: ignore[union-attr]
-    paths = {a.text: a.status for a in assets.values() if a.kind is CreativeAssetKind.PATH}
+    paths = {a.text: a.status for a in a_rows if a.kind is CreativeAssetKind.PATH}
     assert paths == {"sds": CreativeAssetStatus.LINTED, "software": CreativeAssetStatus.LINTED}
 
     # --- 4.2.3 consumed the real 4.2.2 ----------------------------------------
     (ad,) = (await _output(db, run_id, "4.2.3"))["ads"]
     assert ad["descriptions"] == [d["asset_id"] for d in group["descriptions"]]
+
+
+async def test_variant_b_is_a_second_message_with_a_hypothesis_and_a_primary_metric(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+) -> None:
+    run_id, script, status = await _run(admin, db, workspace_id, project_id, admin_user.id)
+    assert status is RunStatus.SUCCEEDED
+
+    # --- B went through the 4.2.1–4.2.3 path, led by angle_b, shown A --------
+    (b_pool,) = script.requests["HeadlinePoolDraft:B"]
+    (b_descriptions,) = script.requests["DescriptionPoolDraft:B"]
+    brief = await _output(db, run_id, "4.1.1")
+    (group_brief,) = brief["ad_groups"]
+    for request in (b_pool, b_descriptions):
+        user = next(m["content"] for m in request["messages"] if m["role"] == "user")
+        assert json.dumps(group_brief["angle_b"]["text"], ensure_ascii=False) in user
+        assert "VARIANT A:" in user and SELECTED_A[0] in user
+
+    (b,) = (await _output(db, run_id, "4.2.4"))["ad_groups"]
+    (a,) = (await _output(db, run_id, "4.2.3"))["ads"]
+    ad = b["ad_b"]
+    assert ad["variant"] == "B" and ad["angle"] == group_brief["angle_b"]["text"]
+    assert ad["pair_report"]["variant"] == "B"
+    assert len(ad["headlines"]) == 15 and len(ad["descriptions"]) == 4
+    assert ad["paths"] == DESCRIPTIONS_B["paths"]
+    assert ad["final_url"] == group_brief["landing_url"]
+
+    # --- distinct from A, by copy.distinctness_v1, at least the minimum ------
+    assert b["distinctness_metric"] == "copy.distinctness_v1"
+    assert b["variant_min_distance"] == 0.65
+    assert b["distinctness_vs_a"] == ad["distinctness_vs_a"] >= 0.65
+
+    # --- a hypothesis and a primary metric, both stated by code --------------
+    assert b["hypothesis"] == ad["hypothesis"]
+    assert group_brief["angle_b"]["text"] in b["hypothesis"]
+    assert group_brief["primary_message"]["text"] in b["hypothesis"]
+    assert b["primary_metric"] == group_brief["kpi"] == "cost per qualified lead"
+    assert group_brief["kpi"] in b["hypothesis"]
+
+    # --- B is B's own copy: rows of 4.2.4, variant B; A's untouched ----------
+    assets = await _assets(db, run_id)
+    b_rows = {a_.id: a_ for a_ in assets.values() if a_.node_id == "4.2.4"}
+    carried = [uuid.UUID(x) for x in (*ad["headlines"], *ad["descriptions"])]
+    assert set(carried) <= set(b_rows)
+    assert {b_rows[x].status for x in carried} == {CreativeAssetStatus.LINTED}
+    assert {row.variant.value for row in b_rows.values()} == {"B"}  # type: ignore[union-attr]
+    a_carried = {uuid.UUID(x) for x in (*a["headlines"], *a["descriptions"])}
+    assert not a_carried & set(b_rows)
+    assert {assets[x].status for x in a_carried} == {CreativeAssetStatus.LINTED}
+    assert {assets[x].variant.value for x in a_carried} == {"A"}  # type: ignore[union-attr]
+    b_descriptions_rows = [
+        row for row in b_rows.values() if row.kind is CreativeAssetKind.DESCRIPTION
+    ]
+    assert {row.text for row in b_descriptions_rows} == {
+        item["text"] for item in DESCRIPTIONS_B["descriptions"]
+    }
+    assert [d["text"] for d in b["descriptions"]["descriptions"]] == SELECTED_B
+    assert all(d["claim_ids"] == [CLAIM] for d in b["descriptions"]["descriptions"])
+    assert b["descriptions"]["exception_candidates"] == []
+    assert len(b["headlines"]["candidates"]) == len(POOL_B)
+
+
+async def test_a_b_that_paraphrases_a_fails_validation(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+) -> None:
+    run_id, script, status = await _run(
+        admin, db, workspace_id, project_id, admin_user.id, paraphrase=True
+    )
+    assert status is RunStatus.FAILED
+    node = (
+        await db.execute(
+            sa.select(NodeRun).where(NodeRun.run_id == run_id, NodeRun.node_id == "4.2.4")
+        )
+    ).scalar_one()
+    assert node.status is NodeRunStatus.FAILED
+    error = json.dumps(node.error)
+    assert "B paraphrases A" in error and "copy.variant_min_distance 0.65" in error
+    assert len(script.requests["HeadlinePoolDraft:B"]) == 1, "one attempt, bounded"
+
+    # Nothing of the refused B was written; A stands as 4.2.3 left it.
+    assets = await _assets(db, run_id)
+    assert not [row for row in assets.values() if row.node_id == "4.2.4"]
+    assert not [row for row in assets.values() if row.variant and row.variant.value == "B"]
+    (a,) = (await _output(db, run_id, "4.2.3"))["ads"]
+    assert {assets[uuid.UUID(x)].status for x in a["headlines"]} == {CreativeAssetStatus.LINTED}
