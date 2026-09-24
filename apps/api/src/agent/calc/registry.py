@@ -52,6 +52,9 @@ CALC_KINDS = frozenset(
         "calc_structure",
         "calc_power",
         "calc_measurement",
+        # Stage 04 (PRD §7.3): the media estimate and the ratio plan.
+        "calc_media_cost",
+        "calc_ratio_plan",
     }
 )
 

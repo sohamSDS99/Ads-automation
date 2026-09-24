@@ -156,6 +156,17 @@ class MediaModelChoice(_Frozen):
     defaults: dict[str, Any] = Field(default_factory=dict)
 
 
+class MediaModelSelection(_Frozen):
+    """What a client may say about a media model: which one, and its default
+    params. The server turns it into a `MediaModelChoice` by snapshotting the
+    capability record from the live catalogue — a request never carries one."""
+
+    modality: Literal["image", "video"]
+    model_id: str = Field(min_length=1)
+    provider_tag: str | None = None
+    defaults: dict[str, Any] = Field(default_factory=dict)
+
+
 class CreativeScope(_Frozen):
     #: ⊆ plan.account_structure.campaigns[].campaign_ref. Empty = all of them;
     #: the builder expands it, so a stored input always names what it covered.

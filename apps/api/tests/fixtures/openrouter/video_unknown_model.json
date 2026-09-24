@@ -1,0 +1,9 @@
+{
+  "body": {
+    "error": {
+      "code": 400,
+      "message": "Model acme/no-such-model does not exist"
+    }
+  },
+  "status": 400
+}

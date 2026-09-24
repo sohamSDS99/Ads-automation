@@ -46,13 +46,11 @@ def emitted_fix_urls() -> list[tuple[int, str]]:
     `{home}` is the project's home, `/projects/{pid}`; any other interpolation
     is one path parameter.
     """
-    found = []
-    for node in ast.walk(ast.parse(ROUTES.read_text(encoding="utf-8"))):
-        if not isinstance(node, ast.keyword) or node.arg != "fix_url":
-            continue
-        value = node.value
+    found: list[tuple[int, str]] = []
+
+    def collect(value: ast.expr) -> None:
         if isinstance(value, ast.Constant) and isinstance(value.value, str):
-            found.append((node.value.lineno, value.value))
+            found.append((value.lineno, value.value))
         elif isinstance(value, ast.JoinedStr):
             rendered = ""
             for piece in value.values:
@@ -61,7 +59,20 @@ def emitted_fix_urls() -> list[tuple[int, str]]:
                 elif isinstance(piece, ast.FormattedValue):
                     is_home = isinstance(piece.value, ast.Name) and piece.value.id == "home"
                     rendered += "/projects/PROJECT" if is_home else "PARAM"
-            found.append((node.value.lineno, rendered))
+            found.append((value.lineno, rendered))
+        elif isinstance(value, ast.Name) and value.id == "home":
+            found.append((value.lineno, "/projects/PROJECT"))
+        elif isinstance(value, ast.IfExp):
+            # `a if cond else b`: both branches can be emitted.
+            collect(value.body)
+            collect(value.orelse)
+        else:
+            # A computed URL this test cannot read is a URL it cannot vouch for.
+            found.append((value.lineno, f"<unreadable {type(value).__name__}>"))
+
+    for node in ast.walk(ast.parse(ROUTES.read_text(encoding="utf-8"))):
+        if isinstance(node, ast.keyword) and node.arg == "fix_url":
+            collect(node.value)
     return found
 
 

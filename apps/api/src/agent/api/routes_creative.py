@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.middleware import client_ip
+from agent.api.routes_media import Catalogue
 from agent.api.schemas_creative import (
     CreativeBlocker,
     CreativeEligibility,
@@ -40,6 +41,9 @@ from agent.api.throttle import throttle
 from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
+from agent.calc.media import cost_estimate_v1
+from agent.calc.registry import CalcError
+from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     AmendmentStatus,
@@ -55,14 +59,18 @@ from agent.db.models import (
 )
 from agent.db.repos import ProjectRepo
 from agent.db.session import get_session
+from agent.export.plan_contract import CampaignPlan as PlanContract
 from agent.guidelines.constants import get_content_constants
 from agent.guidelines.projection import project as project_context
+from agent.media.budget import resolve_media_caps
+from agent.media.catalogue import MediaCatalogue
+from agent.media.constants import media_constants
 from agent.orchestrator import creative_input as inputs
 from agent.orchestrator.creative_input import CreativeInputError, build_creative_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.state import RunLock
 from agent.redis_client import get_redis
-from agent.schemas.creative_input import CreativeScope
+from agent.schemas.creative_input import CreativeScope, MediaModelChoice, MediaModelSelection
 
 log = structlog.get_logger(__name__)
 
@@ -95,11 +103,20 @@ ZDR_SETTING = "zdr_enforced"
     response_model=CreativeEligibility,
     summary="Can a creative run start on this project",
 )
-async def creative_eligibility(project_id: uuid.UUID, me: AnyMember, db: Db) -> CreativeEligibility:
+async def creative_eligibility(
+    project_id: uuid.UUID, me: AnyMember, db: Db, catalogue: Catalogue
+) -> CreativeEligibility:
     project = await ProjectRepo(db, me.workspace_id).get(project_id)
     if project is None:
         raise problems.not_found(f"No project {project_id}.")
-    return await _eligibility(db, me, project, default_scope(project))
+    return await _eligibility(
+        db,
+        me,
+        project,
+        default_scope(project),
+        inputs.default_selections(project),
+        catalogue=catalogue,
+    )
 
 
 def default_scope(project: Project) -> CreativeScope:
@@ -137,11 +154,9 @@ def storage_blocker(*, free_bytes: int, footprint_bytes: int) -> CreativeBlocker
 def media_footprint_bytes(scope: CreativeScope) -> int | None:
     """The media a run of this scope would write, in bytes.
 
-    A text-only run writes none. A media run's footprint is priced from its
-    shot plan, which arrives with the media gateway in S4-P1 — and until then
-    CR-E8 blocks every media scope as `media_not_configured`, so no run that
-    would need the number can start. `None` means "not estimable yet", never
-    "zero".
+    A text-only run writes none. A media run's footprint follows from its
+    shot plan (`media.shot_plan_v1`, S4-P11), so until then it is `None` —
+    "not estimable yet", never "zero" (docs/stage-04-questions.md, S4-P1).
     """
     if not (scope.images or scope.video):
         return 0
@@ -149,7 +164,13 @@ def media_footprint_bytes(scope: CreativeScope) -> int | None:
 
 
 async def _eligibility(
-    db: AsyncSession, me: Principal, project: Project, scope: CreativeScope
+    db: AsyncSession,
+    me: Principal,
+    project: Project,
+    scope: CreativeScope,
+    selections: list[MediaModelSelection],
+    *,
+    catalogue: MediaCatalogue,
 ) -> CreativeEligibility:
     """PRD §4.2, CR-E1…CR-E15. Pure read: no writes, no locks taken.
 
@@ -297,21 +318,77 @@ async def _eligibility(
             )
         )
 
-    # CR-E8/E9 — S4-P0 has no media gateway, so any enabled modality blocks.
-    # S4-P1 replaces this with model selection, allowlist, catalogue and the
-    # pre-flight estimate against both caps.
-    for modality, enabled in (("image", scope.images), ("video", scope.video)):
-        if enabled:
+    # CR-E8 — each enabled modality has a model that is selected, on the
+    # allowlist, in the live catalogue, with defaults its record accepts.
+    # One blocker per modality, naming it.
+    choices: list[MediaModelChoice] = []
+    media_resolved = True
+    for modality in inputs.enabled_modalities(scope):
+        one = CreativeScope(
+            images=modality == "image",
+            video=modality == "video",
+            concepts_per_campaign=scope.concepts_per_campaign,
+        )
+        try:
+            choices += await inputs.resolve_media_models(
+                db, ws, one, [s for s in selections if s.modality == modality], catalogue=catalogue
+            )
+        except CreativeInputError as refused:
+            media_resolved = False
             blockers.append(
                 CreativeBlocker(
-                    code="media_not_configured",
-                    detail=(
-                        f"{modality.capitalize()} generation is enabled for this project but "
-                        "no media model can be selected yet. Turn it off to run text-only."
-                    ),
+                    code=refused.code,
+                    detail=refused.detail,
+                    # Every CR-E8 refusal is fixed on /settings/models: the
+                    # allowlist, and the project's media defaults and caps in
+                    # its project-scoped section. There is no
+                    # `/projects/{id}/settings` page for a link to land on.
+                    fix_url="/settings/models",
+                    modality=modality,
+                )
+            )
+
+    # CR-E9 — the pre-flight estimate against both caps. Computed (never
+    # persisted: eligibility writes nothing) once every modality resolved.
+    estimate: dict[str, Any] | None = None
+    if media_resolved and plan is not None and pin is not None and "context_hash" in pins:
+        workspace_row = await db.get(Workspace, ws)
+        caps = resolve_media_caps(
+            project_settings=project.settings,
+            workspace_settings=workspace_row.settings if workspace_row else None,
+            defaults=get_settings(),
+        )
+        try:
+            priced = cost_estimate_v1(
+                **inputs.estimate_inputs(
+                    PlanContract.model_validate(plan.payload), pin, scope, choices, caps
+                ),
+                constants=media_constants(),
+            ).result
+        except CalcError as unpriced:
+            blockers.append(
+                CreativeBlocker(
+                    code="estimate_unavailable",
+                    detail=f"{unpriced} Choose a model whose price the catalogue states per "
+                    "image or per second, so its spend can be reserved before it happens.",
                     fix_url="/settings/models",
                 )
             )
+        else:
+            estimate = {
+                key: priced[key]
+                for key in (
+                    "text_usd",
+                    "image_usd",
+                    "video_usd",
+                    "media_usd",
+                    "total_usd",
+                    "confidence",
+                    "jobs",
+                )
+            }
+            if not priced["fits"]:
+                blockers.append(_over_cap(priced, home))
 
     # CR-E10 — OpenRouter does not route video under ZDR.
     if scope.video:
@@ -328,13 +405,10 @@ async def _eligibility(
                 )
             )
 
-    # CR-E11 — satisfied by every scope S4-P0 can start: a text-only run
-    # writes no media, and every media scope is already blocked by CR-E8
-    # above. Measuring free space is S4-P1's, together with the footprint:
-    # it needs a `StorageBackend` probe, because the api service does not
-    # mount the worker's volume and `tests/test_filesystem_boundary.py`
-    # forbids reading it directly. `storage_blocker` is the rule it will apply
-    # to `media_footprint_bytes(scope)`; `test_e11_*` pins both.
+    # CR-E11 — not yet measured for a media scope: the footprint needs the
+    # shot plan (S4-P11) and the free space a probe of the worker's volume,
+    # which the api does not mount. `storage_blocker` is the tested rule both
+    # numbers will go through (docs/stage-04-questions.md, S4-P1).
 
     # CR-E12 — guideline flags. Warnings, never blockers.
     if pin is not None:
@@ -445,7 +519,40 @@ async def _eligibility(
         )
 
     return CreativeEligibility(
-        eligible=not blockers, blockers=blockers, warnings=warnings, pins=pins
+        eligible=not blockers, blockers=blockers, warnings=warnings, pins=pins, estimate=estimate
+    )
+
+
+def _over_cap(priced: dict[str, Any], home: str) -> CreativeBlocker:
+    """CR-E9: the estimate, the cap it breaches, and the smallest reduction
+    on the degrade ladder that would fit."""
+    caps = priced["caps"]
+    reduction = priced["reduction"]
+    if reduction and reduction["fits"]:
+        fix = (
+            f"Reducing the scope ({', '.join(reduction['steps'])}) brings it to "
+            f"${reduction['total_usd']:.2f} total, ${reduction['media_usd']:.2f} media, which fits."
+        )
+    else:
+        fix = (
+            "No step on the degrade ladder brings it under both caps; raise a cap or "
+            "narrow the scope."
+        )
+    return CreativeBlocker(
+        code="estimate_exceeds_cap",
+        detail=(
+            f"This run is estimated at ${priced['total_usd']:.2f} "
+            f"(media ${priced['media_usd']:.2f}); "
+            f"the caps are ${caps['max_creative_cost_usd']:.2f} total and "
+            f"${caps['max_media_cost_usd']:.2f} media. {fix}"
+        ),
+        fix_url="/settings/models",
+        estimate={
+            key: priced[key]
+            for key in ("text_usd", "image_usd", "video_usd", "media_usd", "total_usd", "jobs")
+        },
+        cap=caps,
+        reduction=reduction,
     )
 
 
@@ -467,21 +574,28 @@ async def start_creative_run(
     request: Request,
     body: StartCreativeRequest,
     db: Db,
+    catalogue: Catalogue,
 ) -> CreativeRunAccepted:
     project = await ProjectRepo(db, me.workspace_id).get(project_id)
     if project is None:
         raise problems.not_found(f"No project {project_id}.")
 
-    # Before eligibility: a media request is refused as what it is — an
-    # unsupported request, 422 — rather than as a project that is not ready.
+    # Before eligibility: a media request the chosen model cannot serve is
+    # refused as what it is — an unsupported request, 422, naming the field
+    # and the supported values (Law 36) — rather than as a project that is
+    # not ready.
     try:
-        inputs.reject_media(body.scope, body.media_models)
+        choices = await inputs.resolve_media_models(
+            db, me.workspace_id, body.scope, body.media_models, catalogue=catalogue
+        )
     except CreativeInputError as refused:
         raise _unprocessable(refused) from refused
 
     # Re-checked server-side, for the run's own scope. The Start button is a
     # cache of this answer; this is the answer.
-    eligibility = await _eligibility(db, me, project, body.scope)
+    eligibility = await _eligibility(
+        db, me, project, body.scope, body.media_models, catalogue=catalogue
+    )
     if not eligibility.eligible:
         skew = next((b for b in eligibility.blockers if b.code == "schema_unsupported"), None)
         if skew is not None:
@@ -510,7 +624,7 @@ async def start_creative_run(
             db,
             project_id,
             body.scope,
-            body.media_models,
+            choices,
             workspace_id=me.workspace_id,
             creative_run_id=run_id,
         )

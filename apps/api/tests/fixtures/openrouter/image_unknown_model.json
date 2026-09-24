@@ -1,0 +1,9 @@
+{
+  "body": {
+    "error": {
+      "code": 404,
+      "message": "No model found for \"acme/no-such-model\""
+    }
+  },
+  "status": 404
+}

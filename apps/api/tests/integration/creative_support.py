@@ -72,6 +72,7 @@ async def seed_plan(
     version: int = 1,
     schema_version: str = "1.0",
     source_superseded: bool = False,
+    campaign_type: str | None = None,
 ) -> CampaignPlan:
     """Accepted research → a plan run → a plan in `status`, with a real payload."""
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
@@ -140,6 +141,7 @@ async def seed_plan(
                     {
                         "name": "Search - SDS - US",
                         "campaign_ref": "c-sds-us",
+                        **({"type": campaign_type} if campaign_type else {}),
                         "ad_groups": [
                             {
                                 "name": "sds software",
@@ -149,7 +151,11 @@ async def seed_plan(
                             }
                         ],
                     },
-                    {"name": "Search - Brand", "campaign_ref": "c-brand"},
+                    {
+                        "name": "Search - Brand",
+                        "campaign_ref": "c-brand",
+                        **({"type": campaign_type} if campaign_type else {}),
+                    },
                 ]
             },
             "open_dependencies": [{"task": "Install the conversion tag", "blocking": True}],
@@ -204,6 +210,7 @@ async def seed_published(
     categories: tuple[str, ...] = ALL_CATEGORIES,
     ruleset_schema: str = "1.0",
     signature_stale: bool = False,
+    asset_specs: dict[str, Any] | None = None,
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -243,6 +250,7 @@ async def seed_published(
             "rules": [
                 {"rule_id": f"{category}.one.v1", "category": category} for category in categories
             ],
+            **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),
         },
         compiler_version="test",
         constants_version="test",
