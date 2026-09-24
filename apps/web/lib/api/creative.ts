@@ -464,16 +464,23 @@ export function problemCode(error: unknown): string | null {
   return typeof code === "string" ? code : null;
 }
 
-/** What each scope rung gives up, said as the change a person makes. */
-export const SCOPE_STEP_LABEL: Record<string, string> = {
-  third_concept: "two concepts per campaign",
-  video: "no video",
+/** Each scope rung, as the action that takes it (a button) and as the state it leaves (a sentence). */
+const SCOPE_STEP: Record<string, { action: string; state: string }> = {
+  third_concept: { action: "use two concepts per campaign", state: "two concepts per campaign" },
+  video: { action: "turn video off", state: "video off" },
 };
 
-/** `["third_concept", "video"]` → "Use two concepts per campaign and no video". */
+function joined(words: string[]): string {
+  return words.length <= 1 ? (words[0] ?? "") : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+}
+
+/** `["third_concept", "video"]` → "Use two concepts per campaign and turn video off". */
 export function reductionLabel(steps: string[]): string {
-  const words = steps.map((step) => SCOPE_STEP_LABEL[step] ?? step.replaceAll("_", " "));
-  if (words.length === 0) return "Reduce the scope";
-  const sentence = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
-  return `Use ${sentence}`;
+  const sentence = joined(steps.map((step) => SCOPE_STEP[step]?.action ?? step.replaceAll("_", " ")));
+  return sentence ? sentence.charAt(0).toUpperCase() + sentence.slice(1) : "Reduce the scope";
+}
+
+/** `["video"]` → "video off" — for "even with video off, it is $9.10". */
+export function reductionState(steps: string[]): string {
+  return joined(steps.map((step) => SCOPE_STEP[step]?.state ?? step.replaceAll("_", " ")));
 }

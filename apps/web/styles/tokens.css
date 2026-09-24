@@ -90,7 +90,9 @@
 
   --accent: #3b82f6;
   --accent-hover: #60a5fa;
-  --accent-fg: #ffffff;
+  /* Ink, not white, on the dark accent: white on #3b82f6 is 3.7:1 and fails
+     AA for a button label; #09090b is 5.3:1 on it and 7.4:1 on the hover. */
+  --accent-fg: #09090b;
   --accent-soft: #172554;
   --accent-soft-fg: #60a5fa;
 

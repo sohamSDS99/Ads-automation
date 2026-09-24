@@ -281,8 +281,11 @@ function ParamControl({
             max={param.max ?? undefined}
             step={1}
             value={current ?? param.min ?? 0}
+            aria-valuetext={current === null ? "Default" : String(current)}
             onChange={(event) => onChange(Number(event.target.value))}
-            className="min-w-0 flex-1 accent-accent"
+            // Unset, the thumb has to sit somewhere; dimmed, it does not read
+            // as a choice of the minimum.
+            className={current === null ? "min-w-0 flex-1 accent-accent opacity-40" : "min-w-0 flex-1 accent-accent"}
           />
         ) : null}
         <Input

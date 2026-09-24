@@ -36,7 +36,9 @@ export function SegmentedControl<T extends string>({
       role="radiogroup"
       aria-label={label}
       aria-describedby={describedBy}
-      className={cn("inline-flex max-w-full flex-wrap gap-0.5 rounded-token border bg-surface p-0.5", className)}
+      // `w-fit`: as a flex-column child it would otherwise stretch to the
+      // column and draw an empty track beside the last segment.
+      className={cn("inline-flex w-fit max-w-full flex-wrap gap-0.5 rounded-token border bg-surface p-0.5", className)}
     >
       {options.map((option) => (
         <label key={option.value} className="relative" title={option.hint}>

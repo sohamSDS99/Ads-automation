@@ -15,11 +15,18 @@ function MediaSwitch({
   description,
   checked,
   onChange,
+  ready,
 }: {
   label: string;
   description: string;
   checked: boolean;
   onChange: (checked: boolean) => void;
+  /**
+   * False until this modality's model list has answered. The switch's
+   * default is read off that list, so a flip before it arrives would act on
+   * a guess and then change under the person's hand.
+   */
+  ready: boolean;
 }) {
   const id = useId();
   return (
@@ -29,10 +36,16 @@ function MediaSwitch({
           {label}
         </label>
         <p id={`${id}-hint`} className="text-xs text-fg-muted">
-          {description}
+          {ready ? description : `Checking which ${label.toLowerCase()} models are allowlisted…`}
         </p>
       </div>
-      <Switch id={id} checked={checked} onCheckedChange={onChange} aria-describedby={`${id}-hint`} />
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onChange}
+        disabled={!ready}
+        aria-describedby={`${id}-hint`}
+      />
     </div>
   );
 }
@@ -53,6 +66,7 @@ export function ScopePicker({
   onImages,
   video,
   onVideo,
+  ready,
   concepts,
   onConcepts,
 }: {
@@ -65,6 +79,8 @@ export function ScopePicker({
   onImages: (on: boolean) => void;
   video: boolean;
   onVideo: (on: boolean) => void;
+  /** Whether each modality's model list has answered (see `MediaSwitch`). */
+  ready: { image: boolean; video: boolean };
   concepts: 2 | 3;
   onConcepts: (concepts: 2 | 3) => void;
 }) {
@@ -141,12 +157,14 @@ export function ScopePicker({
           description="Concept masters and a rendition for every image ratio the spec sheet requires."
           checked={images}
           onChange={onImages}
+          ready={ready.image}
         />
         <MediaSwitch
           label="Video"
           description="A clip for every video ratio the spec sheet requires."
           checked={video}
           onChange={onVideo}
+          ready={ready.video}
         />
       </div>
 

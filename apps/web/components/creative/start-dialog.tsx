@@ -21,6 +21,7 @@ import {
   capabilityRefusal,
   destinationLabel,
   reductionLabel,
+  reductionState,
   type CreativeEligibility,
   type CreativeRequest,
   type MediaModelSelection,
@@ -264,8 +265,8 @@ function StartSheet({
               {`Estimated ${usd(answer.total_usd)} is over a cap (${usd(answer.caps.max_creative_cost_usd)} total, ${usd(answer.caps.max_media_cost_usd)} media).`}{" "}
               {reduction?.fits
                 ? `${reductionLabel(reduction.steps)} to bring it to ${usd(reduction.total_usd)}.`
-                : reduction
-                  ? `Even with ${reductionLabel(reduction.steps).replace(/^Use /, "")} it is ${usd(reduction.total_usd)}.`
+                : reduction && reduction.steps.length > 0
+                  ? `Even with ${reductionState(reduction.steps)}, it is ${usd(reduction.total_usd)}.`
                   : null}
             </span>
           </p>
@@ -318,6 +319,7 @@ function StartSheet({
           onImages={(value) => setSwitches((current) => ({ ...current, image: value }))}
           video={on("video")}
           onVideo={(value) => setSwitches((current) => ({ ...current, video: value }))}
+          ready={{ image: !models.image.isPending, video: !models.video.isPending }}
           concepts={concepts}
           onConcepts={setConcepts}
         />
@@ -368,6 +370,10 @@ function StartSheet({
             <RatioCoverageTable plan={estimate.data.ratio_plan} />
           ) : missing ? (
             <p className="text-sm text-fg-muted">Choose the models to see how each required ratio gets made.</p>
+          ) : estimate.error ? (
+            <p className="text-sm text-fg-muted">
+              The ratio plan comes with the estimate, so it appears once the scope can be priced.
+            </p>
           ) : (
             <Skeleton className="h-24 w-full" />
           )}
