@@ -249,4 +249,19 @@ def every_formula_result() -> list[Any]:
             video=_MEDIA_VIDEO,
             constants=media_constants(),
         ),
+        media.crop_window_v1(image=_crop_frame(), ratio="1:1", constants=media_constants()),
     ]
+
+
+def _crop_frame() -> bytes:
+    """A small grained frame with one subject — `media.crop_window_v1`'s sample."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    gray = np.clip(180 + np.random.default_rng(3).normal(0, 6, (90, 160)), 0, 255)
+    gray[30:60, 70:100] = 20
+    buffer = io.BytesIO()
+    Image.fromarray(gray.astype(np.uint8), mode="L").save(buffer, format="PNG")
+    return buffer.getvalue()
