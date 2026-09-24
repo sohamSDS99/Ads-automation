@@ -21,6 +21,7 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-fg: var(--accent-fg);
   --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-fg: var(--accent-soft-fg);
 
   --color-status-running: var(--status-running);
   --color-status-success: var(--status-success);

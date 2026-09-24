@@ -22,6 +22,10 @@ export const PERMISSIONS = [
   // operator may run the stage and may not seal it.
   "guideline_execute",
   "guideline_publish",
+  // Stage 04. `creative_execute` runs the stage (operator, admin);
+  // `creative_release` mints a package version (approver, admin).
+  "creative_execute",
+  "creative_release",
   // The two non-delegable ones (law 23). They are held by `approver` and NOT
   // by `admin` — `permissions_for()` subtracts them even on the superadmin
   // branch — and are narrowed further to one named identity: the sign-off

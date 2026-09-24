@@ -182,8 +182,10 @@ export function StageNav({ projectId }: { projectId: string }) {
                 className={cn(
                   ROW,
                   "transition-colors",
+                  // `accent-soft-fg`, not `accent`: on the tint, dark
+                  // `--accent` measures 4.0:1, under AA for 14px text.
                   current
-                    ? "bg-accent-soft font-medium text-accent"
+                    ? "bg-accent-soft font-medium text-accent-soft-fg"
                     : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                 )}
               >
@@ -217,8 +219,18 @@ export function StageNav({ projectId }: { projectId: string }) {
                       <span className="truncate">{stage.label}</span>
                       {lock ? <Lock className="size-3.5 shrink-0 text-fg-subtle" aria-hidden /> : null}
                     </span>
+                    {/* `fg-subtle` clears AA on the panel but not on the
+                        current row's accent tint (4.4:1 light, 4.35:1 dark),
+                        so the current row's chip is `fg-muted` (7.1, 5.7). */}
                     {row?.chip ? (
-                      <span className="truncate text-xs font-normal text-fg-subtle">{row.chip}</span>
+                      <span
+                        className={cn(
+                          "truncate text-xs font-normal",
+                          current ? "text-fg-muted" : "text-fg-subtle",
+                        )}
+                      >
+                        {row.chip}
+                      </span>
                     ) : null}
                   </span>
                 ) : (

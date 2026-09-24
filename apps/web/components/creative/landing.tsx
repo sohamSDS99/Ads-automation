@@ -93,7 +93,11 @@ export function CreativeLanding({ projectId }: { projectId: string }) {
 
       <StatusBlock overview={overview.data} chip={status.chip} pending={overview.isPending} />
 
-      <ActionBlock eligibility={eligibility.data} pending={eligibility.isPending} />
+      <ActionBlock
+        eligibility={eligibility.data}
+        pending={eligibility.isPending}
+        here={`/projects/${projectId}/creative`}
+      />
 
       <AttentionBlock
         overview={overview.data}
@@ -269,9 +273,12 @@ function StatusBlock({
 function ActionBlock({
   eligibility,
   pending,
+  here,
 }: {
   eligibility?: CreativeEligibility;
   pending: boolean;
+  /** This page's own path: a note whose fix is "here" gets no link to itself. */
+  here: string;
 }) {
   return (
     <Card>
@@ -296,7 +303,7 @@ function ActionBlock({
                       tone="blocker"
                       label={BLOCKER_LABEL[note.code] ?? note.code}
                       detail={note.detail}
-                      href={note.fix_url}
+                      href={note.fix_url === here ? null : note.fix_url}
                     />
                   ))}
                 </ul>
@@ -320,7 +327,7 @@ function ActionBlock({
                     tone="warning"
                     label={WARNING_LABEL[note.code] ?? note.code}
                     detail={note.detail}
-                    href={note.fix_url}
+                    href={note.fix_url === here ? null : note.fix_url}
                   />
                 ))}
               </ul>
@@ -370,7 +377,7 @@ function NoteRow({
   tone: "blocker" | "warning";
   label: string;
   detail: string;
-  href: string;
+  href: string | null;
 }) {
   return (
     <li className="flex items-start gap-2 px-4 py-2 text-sm">
@@ -387,12 +394,14 @@ function NoteRow({
           <span className="font-medium">{label}</span>
           <span className="text-fg-muted"> · {detail}</span>
         </p>
-        <Link
-          href={href}
-          className="mt-1 inline-block font-medium text-accent underline-offset-2 hover:underline"
-        >
-          {destinationLabel(href)}
-        </Link>
+        {href ? (
+          <Link
+            href={href}
+            className="mt-1 inline-block font-medium text-accent underline-offset-2 hover:underline"
+          >
+            {destinationLabel(href)}
+          </Link>
+        ) : null}
       </div>
     </li>
   );
@@ -614,7 +623,7 @@ function HistoryBlock({
                 <Th>Status</Th>
                 <Th className="hidden sm:table-cell">Plan</Th>
                 <Th className="hidden sm:table-cell">Ruleset</Th>
-                <Th className="text-right">Cost</Th>
+                <Th className="hidden text-right sm:table-cell">Cost</Th>
                 <Th className="hidden sm:table-cell">Released</Th>
                 <Th>Compare</Th>
               </Tr>
@@ -622,7 +631,15 @@ function HistoryBlock({
             <tbody>
               {packages.map((pkg) => (
                 <Tr key={pkg.package_id}>
-                  <Td className="font-medium tabular-nums">v{pkg.version}</Td>
+                  <Td className="font-medium tabular-nums">
+                    v{pkg.version}
+                    {/* Below `sm` the cost rides under the version, as Stage
+                        03's history carries its date: four columns clipped
+                        the compare tick at 390px. */}
+                    <span className="block text-xs font-normal text-fg-subtle sm:hidden">
+                      {costOf(overview, pkg)}
+                    </span>
+                  </Td>
                   <Td>
                     <Badge tone={PACKAGE_STATUS[pkg.status].tone}>
                       {PACKAGE_STATUS[pkg.status].label}
@@ -635,7 +652,7 @@ function HistoryBlock({
                   <Td className="hidden font-mono text-xs text-fg-muted sm:table-cell">
                     {pkg.ruleset_version}
                   </Td>
-                  <Td className="text-right tabular-nums">{costOf(overview, pkg)}</Td>
+                  <Td className="hidden text-right tabular-nums sm:table-cell">{costOf(overview, pkg)}</Td>
                   <Td className="hidden text-fg-muted sm:table-cell">
                     {pkg.released_at ? (
                       <time dateTime={pkg.released_at} title={absoluteTime(pkg.released_at)}>

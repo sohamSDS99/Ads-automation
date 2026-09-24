@@ -114,21 +114,29 @@ export function capabilityChips(record: CapabilityRecord): string[] {
 const UNIT: Record<string, string> = {
   image: "image",
   megapixel: "megapixel",
-  token: "token",
   second: "s",
 };
 
-function money(value: string | number): string {
-  const amount = typeof value === "number" ? value : Number(value);
-  if (Number.isNaN(amount)) return String(value);
-  // Media prices live in cents and fractions of cents; two places would round
-  // a $0.004 token price to "$0.00", which is a claim that it is free.
-  const places = amount !== 0 && Math.abs(amount) < 0.01 ? 4 : 2;
-  return `$${amount.toFixed(places)}`;
+function money(amount: number): string {
+  // Media prices live in cents and fractions of cents. Fixed places would
+  // round $0.0004 to "$0.00" — a claim that it is free — so anything under a
+  // cent keeps its first two significant figures instead.
+  if (amount !== 0 && Math.abs(amount) < 0.01) {
+    return `$${amount.toLocaleString("en-US", { maximumSignificantDigits: 2, useGrouping: false })}`;
+  }
+  return `$${amount.toFixed(2)}`;
 }
 
-/** `$0.04 / image at 1K`, `$0.10 / s at 720p`. */
+/**
+ * `$0.04 / image at 1K`, `$0.10 / s at 720p`, `$40.00 / 1M tokens`.
+ *
+ * A per-token price is quoted per million, as the text-model table quotes
+ * it: "$0.00004 / token" is a number nobody can compare with anything.
+ */
 export function priceLabel(line: PriceLine): string {
-  const unit = UNIT[line.unit] ?? line.unit;
-  return `${money(line.usd)} / ${unit}${line.variant ? ` at ${line.variant}` : ""}`;
+  const amount = typeof line.usd === "number" ? line.usd : Number(line.usd);
+  const variant = line.variant ? ` at ${line.variant}` : "";
+  if (Number.isNaN(amount)) return `${line.usd} / ${UNIT[line.unit] ?? line.unit}${variant}`;
+  if (line.unit === "token") return `${money(amount * 1_000_000)} / 1M tokens${variant}`;
+  return `${money(amount)} / ${UNIT[line.unit] ?? line.unit}${variant}`;
 }

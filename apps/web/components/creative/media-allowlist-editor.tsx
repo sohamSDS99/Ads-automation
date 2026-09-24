@@ -301,7 +301,7 @@ function ModalityTable({
                 <Th className="w-0">Allow</Th>
                 <Th>Model</Th>
                 <Th className="hidden sm:table-cell">Price</Th>
-                <Th>Provider</Th>
+                <Th className="hidden sm:table-cell">Provider</Th>
               </Tr>
             </thead>
             <tbody>
@@ -322,7 +322,10 @@ function ModalityTable({
                       </label>
                     </Td>
                     <Td>
-                      <p className="break-all font-mono text-xs text-fg">{row.modelId}</p>
+                      {/* `break-words`, not `break-all`: an id wraps at its own
+                          `/` and `-`, so a phone reads `black-forest-labs/`
+                          and not `black-fo` `rest-lab`. */}
+                      <p className="break-words font-mono text-xs text-fg">{row.modelId}</p>
                       {row.record ? (
                         <p className="mt-1 flex flex-wrap gap-1">
                           {capabilityChips(row.record).map((chip) => (
@@ -336,6 +339,19 @@ function ModalityTable({
                           <Badge tone="warning">Not in the live catalogue</Badge>
                         </p>
                       )}
+                      {row.record?.pricing[0] ? (
+                        <p className="mt-1 text-xs tabular-nums text-fg-muted sm:hidden">
+                          {priceLabel(row.record.pricing[0])}
+                        </p>
+                      ) : null}
+                      {/* Below `sm` the price and the provider ride under the
+                          model: four columns in ~240px squeezed the picker to
+                          one letter. */}
+                      {on ? (
+                        <div className="mt-2 sm:hidden">
+                          <ProviderControl row={row} entry={entry} onPin={onPin} />
+                        </div>
+                      ) : null}
                     </Td>
                     <Td className="hidden tabular-nums text-fg-muted sm:table-cell">
                       {row.record?.pricing[0] ? (
@@ -349,22 +365,11 @@ function ModalityTable({
                         "—"
                       )}
                     </Td>
-                    <Td>
-                      {on && row.providers.length > 0 ? (
-                        <Select
-                          aria-label={`Provider for ${row.modelId}`}
-                          value={entry?.provider_tag ?? ""}
-                          onChange={(event) => onPin(row.modelId, event.target.value || null)}
-                        >
-                          <option value="">Any provider</option>
-                          {row.providers.map((tag) => (
-                            <option key={tag} value={tag}>
-                              {tag}
-                            </option>
-                          ))}
-                        </Select>
+                    <Td className="hidden sm:table-cell">
+                      {on ? (
+                        <ProviderControl row={row} entry={entry} onPin={onPin} />
                       ) : (
-                        <span className="text-sm text-fg-subtle">{on ? "Any provider" : "—"}</span>
+                        <span className="text-sm text-fg-subtle">—</span>
                       )}
                     </Td>
                   </Tr>
@@ -375,5 +380,38 @@ function ModalityTable({
         </div>
       )}
     </section>
+  );
+}
+
+/**
+ * The optional provider pin (§9.2): offered only for a model the catalogue
+ * lists under more than one provider tag. Pinning one sets
+ * `allow_fallbacks=false` on every request for it (§9.1 rule 6).
+ */
+function ProviderControl({
+  row,
+  entry,
+  onPin,
+}: {
+  row: ModelRow;
+  entry: MediaAllowlistEntry | undefined;
+  onPin: (modelId: string, providerTag: string | null) => void;
+}) {
+  if (row.providers.length === 0) {
+    return <span className="text-sm text-fg-subtle">Any provider</span>;
+  }
+  return (
+    <Select
+      aria-label={`Provider for ${row.modelId}`}
+      value={entry?.provider_tag ?? ""}
+      onChange={(event) => onPin(row.modelId, event.target.value || null)}
+    >
+      <option value="">Any provider</option>
+      {row.providers.map((tag) => (
+        <option key={tag} value={tag}>
+          {tag}
+        </option>
+      ))}
+    </Select>
   );
 }
