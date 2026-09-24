@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "CreativeScope": {
+      "additionalProperties": false,
+      "properties": {
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "images": {
+          "title": "Images",
+          "type": "boolean"
+        },
+        "video": {
+          "title": "Video",
+          "type": "boolean"
+        },
+        "concepts_per_campaign": {
+          "enum": [
+            2,
+            3
+          ],
+          "title": "Concepts Per Campaign",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "images",
+        "video",
+        "concepts_per_campaign"
+      ],
+      "title": "CreativeScope",
+      "type": "object"
+    }
+  },
+  "description": "The smallest change to the request's own scope that fits both caps \u2014\nwhat the Start dialog offers as one click (PRD \u00a715.4 B). Only the rungs\nof the degrade ladder a start request can say (`calc.media.SCOPE_RUNGS`);\n`fits` is False when none of them is enough.",
+  "properties": {
+    "scope": {
+      "$ref": "#/$defs/CreativeScope"
+    },
+    "steps": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Steps",
+      "type": "array"
+    },
+    "fits": {
+      "title": "Fits",
+      "type": "boolean"
+    },
+    "jobs": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Jobs",
+      "type": "object"
+    },
+    "text_usd": {
+      "title": "Text Usd",
+      "type": "number"
+    },
+    "image_usd": {
+      "title": "Image Usd",
+      "type": "number"
+    },
+    "video_usd": {
+      "title": "Video Usd",
+      "type": "number"
+    },
+    "media_usd": {
+      "title": "Media Usd",
+      "type": "number"
+    },
+    "total_usd": {
+      "title": "Total Usd",
+      "type": "number"
+    }
+  },
+  "required": [
+    "scope",
+    "steps",
+    "fits",
+    "jobs",
+    "text_usd",
+    "image_usd",
+    "video_usd",
+    "media_usd",
+    "total_usd"
+  ],
+  "title": "ScopeReduction",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

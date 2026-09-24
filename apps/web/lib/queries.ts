@@ -7,6 +7,7 @@
 "use client";
 
 import {
+  keepPreviousData,
   useInfiniteQuery,
   useMutation,
   useQuery,
@@ -26,11 +27,14 @@ import { listConnections } from "@/lib/api/connections";
 import {
   creativeBadges,
   creativeChip,
+  estimateCreative,
   getCreativeEligibility,
   getCreativeOverview,
   isLegalExceptionTask,
   isLiveCreativeRun,
   lockSentence,
+  startCreativeRun,
+  type CreativeRequest,
 } from "@/lib/api/creative";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
@@ -41,7 +45,12 @@ import {
   listGuidelines,
   publishGuideline,
 } from "@/lib/api/guidelines";
-import { getMediaCatalogue, getMediaSettings, type MediaModality } from "@/lib/api/media";
+import {
+  getMediaCatalogue,
+  getMediaModels,
+  getMediaSettings,
+  type MediaModality,
+} from "@/lib/api/media";
 import { getModels } from "@/lib/api/models";
 import {
   freezePlan,
@@ -115,6 +124,12 @@ export const keys = {
     ["projects", projectId, "creative", "eligibility"] as const,
   mediaSettings: ["settings", "media"] as const,
   mediaCatalogue: (modality: MediaModality) => ["media", "catalogue", modality] as const,
+  mediaModels: (modality: MediaModality, projectId: string) =>
+    ["media", "models", modality, projectId] as const,
+  // Under `creative(projectId)`, so a started run invalidates it with the rest.
+  creativeEstimate: (projectId: string, request: string) =>
+    ["projects", projectId, "creative", "estimate", request] as const,
+  planCampaigns: (planRunId: string) => ["plans", planRunId, "campaigns"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -511,6 +526,84 @@ export function useMediaCatalogue(modality: MediaModality, enabled: boolean) {
     queryFn: () => getMediaCatalogue(modality),
     enabled,
     retry: false,
+  });
+}
+
+/**
+ * The models the Start dialog may offer for one modality (`GET /media/models`,
+ * READ): the allowlist ∩ the live catalogue, each with its capability record
+ * and its ratio coverage against this project's spec sheet.
+ */
+export function useMediaModels(modality: MediaModality, projectId: string, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.mediaModels(modality, projectId),
+    queryFn: () => getMediaModels(modality, projectId),
+    enabled,
+    retry: false,
+  });
+}
+
+/**
+ * Every campaign of a frozen plan, for the Start dialog's checklist.
+ *
+ * All pages in one query, unlike `usePlanStructure`: a checklist that showed
+ * the first page would scope a run to it without saying so.
+ */
+export function usePlanCampaigns(planRunId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.planCampaigns(planRunId ?? ""),
+    queryFn: async () => {
+      const campaigns: { campaign_ref: string; name: string; type: string | null }[] = [];
+      let cursor: string | null = null;
+      do {
+        const page = await getPlanStructure(planRunId as string, cursor);
+        for (const campaign of page.campaigns) {
+          campaigns.push({ campaign_ref: campaign.campaign_ref, name: campaign.name, type: campaign.type });
+        }
+        cursor = page.next_cursor;
+      } while (cursor);
+      return campaigns;
+    },
+    enabled: enabled && Boolean(planRunId),
+    staleTime: Infinity, // a frozen plan does not change
+  });
+}
+
+/**
+ * The pre-flight estimate for exactly `request` (`POST /creative/estimate`).
+ *
+ * Keyed by the request itself, so the answer on screen is always the answer
+ * *for* what is on screen — and toggling back to a scope already priced does
+ * not ask again. `null` means the request is not complete yet (a modality is
+ * on with no model), which is not a question worth sending. `retry: false`:
+ * a 422 names a field and does not change on a second ask.
+ */
+export function useCreativeEstimate(projectId: string, request: CreativeRequest | null) {
+  const serialised = request ? JSON.stringify(request) : "";
+  return useQuery({
+    queryKey: keys.creativeEstimate(projectId, serialised),
+    queryFn: () => estimateCreative(projectId, request as CreativeRequest),
+    enabled: request !== null,
+    retry: false,
+    staleTime: 60_000,
+    // The last answer stays on screen, marked as updating, while the next is
+    // priced — a bar that blanked on every toggle would read as $0.
+    placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Start a creative run. A `409` carries the server's blockers and a `422`
+ * names the field, so the dialog handles both; on success everything under
+ * the stage's key — overview, eligibility, the rail — is asked again.
+ */
+export function useStartCreativeRun(projectId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (request: CreativeRequest) => startCreativeRun(projectId, request),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.creative(projectId) });
+    },
   });
 }
 

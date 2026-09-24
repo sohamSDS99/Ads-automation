@@ -134,6 +134,23 @@ class EstimateRequest(_Strict):
     media_models: list[MediaModelSelection] = Field(default_factory=list)
 
 
+class ScopeReduction(BaseModel):
+    """The smallest change to the request's own scope that fits both caps —
+    what the Start dialog offers as one click (PRD §15.4 B). Only the rungs
+    of the degrade ladder a start request can say (`calc.media.SCOPE_RUNGS`);
+    `fits` is False when none of them is enough."""
+
+    scope: CreativeScope
+    steps: list[str]
+    fits: bool
+    jobs: dict[str, int]
+    text_usd: float
+    image_usd: float
+    video_usd: float
+    media_usd: float
+    total_usd: float
+
+
 class EstimateResponse(BaseModel):
     """`POST /projects/{id}/creative/estimate`. No spend, no job rows."""
 
@@ -149,5 +166,8 @@ class EstimateResponse(BaseModel):
     #: The smallest degrade-ladder reduction that fits both caps, when the
     #: full scope does not.
     reduction: dict[str, Any] | None = None
+    #: The same answer restricted to what a start request can carry: `None`
+    #: when the scope fits as it is.
+    scope_reduction: ScopeReduction | None = None
     ratio_plan: dict[str, Any]
     ratio_plan_evidence_id: uuid.UUID

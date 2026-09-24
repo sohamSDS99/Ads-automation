@@ -1,0 +1,58 @@
+# S4-P3's isolated stack: the REAL api (S4-P0/P1 routes, Postgres, Redis) with
+# the recorded OpenRouter catalogue in place of the live one.
+#
+#   docker compose -p s4p3 -f docker-compose.yml -f apps/web/scripts/s4p3/compose.s4p3.yml \
+#     up -d postgres redis catalogue api
+#
+# The base file pins subnet 172.31.240.0/24 and host port 3000; both are
+# overridden (`!override`: compose merges lists otherwise) so this stack runs
+# beside the others. The web tier is NOT the compose `pnpm dev` server: the
+# browser check drives a production `next start` on the host against api's
+# published port, so `web` and `worker` are profiled out. Without a worker a
+# started run stays `queued` — the dialog's job ends at the 202.
+services:
+  api:
+    image: s4p3-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack calls OpenRouter
+      # with it (the catalogue reads are public and served by `catalogue`).
+      OPENROUTER_API_KEY: sk-or-s4p3-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3133
+      CORS_ORIGINS: http://localhost:3133
+    ports: !override
+      - "127.0.0.1:8133:8000"
+    volumes:
+      # Added to the base file's mounts: the seed script.
+      - ./apps/web/scripts/s4p3:/app/s4p3
+    depends_on:
+      catalogue:
+        condition: service_started
+
+  catalogue:
+    image: s4p3-api:latest
+    command: ["python", "/app/s4p3/catalogue_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p3:/app/s4p3
+    ports:
+      - "127.0.0.1:8134:8099"
+    networks: [internal]
+
+  test:
+    image: s4p3-test:latest
+
+  worker:
+    profiles: ["s4p3-off"]
+
+  web:
+    profiles: ["s4p3-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.233.0/24
+        - subnet: fd00:ada:33::/64

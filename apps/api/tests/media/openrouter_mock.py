@@ -25,10 +25,11 @@ FLUX = "black-forest-labs/flux.2-klein-4b"
 SEEDREAM = "bytedance-seed/seedream-4.5"
 GEMINI = "google/gemini-2.5-flash-image"
 QWEN = "qwen/qwen-image-3-pro"
+GPT_IMAGE = "openai/gpt-image-1"
 VEO = "google/veo-3.1-lite"
 GROK_VIDEO = "x-ai/grok-imagine-video"
 WAN = "alibaba/wan-3.0"
-ENDPOINT_MODELS = (FLUX, SEEDREAM, GEMINI, QWEN)
+ENDPOINT_MODELS = (FLUX, SEEDREAM, GEMINI, QWEN, GPT_IMAGE)
 
 
 @cache

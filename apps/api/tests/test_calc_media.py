@@ -15,10 +15,12 @@ from typing import Any
 import pytest
 
 from agent.calc.media import (
+    SCOPE_RUNGS,
     TEXT_ESTIMATE_USD,
     cost_estimate_v1,
     image_job_price,
     ratio_plan_v1,
+    scope_reduction,
     video_job_price,
 )
 from agent.calc.registry import FORMULAS, CalcError
@@ -262,6 +264,72 @@ def test_when_nothing_on_the_ladder_fits_the_reduction_says_so() -> None:
     result = estimate(caps={"max_creative_cost_usd": "5.00", "max_media_cost_usd": "40.00"})
 
     assert result["reduction"]["fits"] is False
+
+
+def reduce(**overrides: Any) -> dict[str, Any] | None:
+    arguments: dict[str, Any] = {
+        "campaigns": CAMPAIGNS,
+        "scope": {"images": True, "video": True, "concepts_per_campaign": 2},
+        "image": {
+            "capability": endpoint(FLUX, "black-forest-labs").model_dump(mode="json"),
+            "params": {},
+        },
+        "video": {
+            "capability": video(VEO).model_dump(mode="json"),
+            "params": {"duration": 4, "resolution": "720p", "generate_audio": False},
+        },
+        "text_usd": TEXT_ESTIMATE_USD,
+        "caps": CAPS,
+        "constants": K,
+    }
+    arguments.update(overrides)
+    return scope_reduction(**arguments)
+
+
+def test_a_scope_that_fits_needs_no_scope_reduction() -> None:
+    assert reduce() is None
+
+
+def test_the_scope_reduction_takes_only_the_rungs_a_start_request_can_say() -> None:
+    reduction = reduce(caps={"max_creative_cost_usd": "50.00", "max_media_cost_usd": "0.40"})
+
+    # The full ladder answers ["candidates", "video"]; a request cannot say
+    # "one candidate", so the scope keeps 2 candidates × 2 concepts × 2
+    # campaigns = 8 images at $0.01468 = $0.1174 and drops video. Fits.
+    assert reduction is not None
+    assert reduction["steps"] == ["video"]
+    assert reduction["scope"] == {"images": True, "video": False, "concepts_per_campaign": 2}
+    assert reduction["jobs"] == {"image": 8, "video": 0}
+    assert dollars(reduction["media_usd"]) == Decimal("0.1174")
+    assert reduction["fits"] is True
+
+
+def test_the_scope_reduction_stops_at_the_first_rung_that_fits() -> None:
+    reduction = reduce(
+        scope={"images": True, "video": True, "concepts_per_campaign": 3},
+        caps={"max_creative_cost_usd": "50.00", "max_media_cost_usd": "0.60"},
+    )
+
+    # 3 concepts: 12 images ($0.1762) + 4 clips ($0.48) = $0.6562 > $0.60.
+    # Dropping the third concept: $0.1174 + $0.48 = $0.5974. Video stays.
+    assert reduction is not None
+    assert reduction["steps"] == ["third_concept"]
+    assert reduction["scope"] == {"images": True, "video": True, "concepts_per_campaign": 2}
+    assert dollars(reduction["total_usd"]) == Decimal("6.5974")
+    assert reduction["fits"] is True
+
+
+def test_when_no_scope_rung_fits_the_scope_reduction_says_so() -> None:
+    reduction = reduce(caps={"max_creative_cost_usd": "5.00", "max_media_cost_usd": "40.00"})
+
+    # Text alone is $6 > $5: every rung is taken and none is enough.
+    assert reduction is not None
+    assert reduction["steps"] == ["video"]
+    assert reduction["fits"] is False
+
+
+def test_every_scope_rung_is_on_the_degrade_ladder() -> None:
+    assert set(SCOPE_RUNGS) <= set(K.degrade_ladder)
 
 
 def test_a_text_only_scope_prices_no_media() -> None:

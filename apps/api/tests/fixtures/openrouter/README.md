@@ -10,7 +10,7 @@ body verbatim, nothing of the request (the key never reached a file).
 |---|---|---|
 | `images_models.json` | `GET /api/v1/images/models` (55 models) | free |
 | `videos_models.json` | `GET /api/v1/videos/models` (29 models) | free |
-| `image_endpoints__<model>.json` | `GET /api/v1/images/models/{id}/endpoints` for one model per pricing unit: flux.2-klein-4b (`megapixel`), seedream-4.5 (`image`), gemini-2.5-flash-image (`token`, four provider tags), qwen-image-3-pro (`image` with `1k`/`2k` variants) | free |
+| `image_endpoints__<model>.json` | `GET /api/v1/images/models/{id}/endpoints` for one model per pricing unit: flux.2-klein-4b (`megapixel`), seedream-4.5 (`image`), gemini-2.5-flash-image (`token`, four provider tags), qwen-image-3-pro (`image` with `1k`/`2k` variants), gpt-image-1 (`token`; the one recorded endpoint taking `quality`, `background` and `output_compression`, added for S4-P3 on 2026-09-24) | free |
 | `image_generate.json` | `POST /api/v1/images`, flux.2-klein-4b, 16:9, jpeg: one 1824x1024 image, `usage.cost` 0.015 | $0.015 |
 | `image_unsupported_aspect_ratio.json` | the same request with `aspect_ratio: "7:3"` — OpenRouter's own 400 | free |
 | `image_unknown_model.json` | `POST /api/v1/images` with `acme/no-such-model` — 404 | free |
