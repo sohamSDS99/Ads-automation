@@ -465,6 +465,28 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # Stage 04 (S4-P1): the media gateway's settings, catalogue and estimate.
+    # Reading models and settings is every role's; editing them and reading
+    # the full catalogue (the allowlist editor) is SETTINGS_WRITE. The
+    # estimate spends nothing and is READ.
+    ("GET", "/media/models", "/media/models?modality=image", Permission.READ, None),
+    ("GET", "/media/catalogue", "/media/catalogue?modality=image", Permission.SETTINGS_WRITE, None),
+    ("GET", "/settings/media", "/settings/media", Permission.READ, None),
+    ("PUT", "/settings/media", "/settings/media", Permission.SETTINGS_WRITE, {}),
+    (
+        "PATCH",
+        "/projects/{project_id}/settings/media",
+        "/projects/{project}/settings/media",
+        Permission.SETTINGS_WRITE,
+        {},
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/creative/estimate",
+        "/projects/{project}/creative/estimate",
+        Permission.READ,
+        {"scope": {"images": False, "video": False, "concepts_per_campaign": 2}},
+    ),
     (
         "GET",
         "/guidelines/published/creative-context",

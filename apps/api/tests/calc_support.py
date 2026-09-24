@@ -67,6 +67,26 @@ DEMAND: list[dict[str, Any]] = [
 ]
 
 
+#: Minimal capability records for the two Stage 04 formulas' samples.
+_MEDIA_IMAGE: dict[str, Any] = {
+    "modality": "image",
+    "model_id": "acme/image",
+    "params": {
+        "aspect_ratio": {"kind": "enum", "values": ["1:1", "16:9"]},
+        "input_references": {"kind": "range", "min": 0, "max": 4},
+    },
+    "pricing": [{"billable": "output_image", "unit": "image", "usd": "0.04"}],
+    "input_modalities": ["text", "image"],
+}
+_MEDIA_VIDEO: dict[str, Any] = {
+    "modality": "video",
+    "model_id": "acme/video",
+    "video": {"durations": [4, 8], "resolutions": ["720p"], "aspect_ratios": ["16:9"]},
+    "pricing": [{"billable": "output_video", "unit": "second", "usd": "0.10", "variant": "720p"}],
+    "input_modalities": ["text"],
+}
+
+
 def every_formula_result() -> list[Any]:
     """One `CalcResult` from every registered formula.
 
@@ -80,10 +100,13 @@ def every_formula_result() -> list[Any]:
         experiments,
         forecast,
         measurement,
+        media,
         power,
         scenarios,
         structure,
     )
+    from agent.calc.media import TEXT_ESTIMATE_USD
+    from agent.media.constants import MediaConstants
     from agent.planning.tracking import upload_options_frame
 
     ceiling = economics.max_cpa_v1(frame(SEGMENTS), constants=CONSTANTS)
@@ -209,5 +232,21 @@ def every_formula_result() -> list[Any]:
                 ]
             ),
             constants=CONSTANTS,
+        ),
+        media.cost_estimate_v1(
+            campaigns=[{"campaign_ref": "c1", "image_ratios": ["1:1"], "video_ratios": ["16:9"]}],
+            scope={"images": True, "video": True, "concepts_per_campaign": 2},
+            image={"capability": _MEDIA_IMAGE, "params": {}},
+            video={"capability": _MEDIA_VIDEO, "params": {"duration": 4, "resolution": "720p"}},
+            text_usd=TEXT_ESTIMATE_USD,
+            caps={"max_creative_cost_usd": "50", "max_media_cost_usd": "40"},
+            constants=MediaConstants(version="test"),
+        ),
+        media.ratio_plan_v1(
+            image_ratios=["1:1", "1.91:1"],
+            video_ratios=["16:9", "1:1"],
+            image=_MEDIA_IMAGE,
+            video=_MEDIA_VIDEO,
+            constants=MediaConstants(version="test"),
         ),
     ]

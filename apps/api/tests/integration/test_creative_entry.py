@@ -249,18 +249,19 @@ async def test_e7_no_credential_blocks(
     assert _codes(await _eligibility(admin, project_id), "blockers") == {"missing_credential"}
 
 
-async def test_e8_a_media_default_blocks_as_not_configured(
+async def test_e8_a_media_default_off_the_allowlist_blocks_naming_its_modality(
     admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project: Any, admin_user: Any
 ) -> None:
     await seed_both(db, workspace_id, project.id, admin_user.id)
     project.settings = {**(project.settings or {}), "media_models": {"image": {"model_id": "x"}}}
     await db.commit()
     body = await _eligibility(admin, project.id)
-    assert _codes(body, "blockers") == {"media_not_configured"}
-    assert "Image" in body["blockers"][0]["detail"]
+    assert _codes(body, "blockers") == {"media_model_not_allowlisted"}
+    assert body["blockers"][0]["modality"] == "image"
+    assert "image" in body["blockers"][0]["detail"]
 
 
-async def test_e8_a_media_request_is_a_422(
+async def test_e8_a_media_request_the_allowlist_lacks_is_a_422(
     admin: ApiClient,
     db: AsyncSession,
     workspace_id: uuid.UUID,
@@ -268,19 +269,18 @@ async def test_e8_a_media_request_is_a_422(
     admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
-    model = {
-        "modality": "image",
-        "model_id": "some/image-model",
-        "capability": {},
-        "capability_hash": "c",
-    }
-    for body in (
-        {"media_models": [model]},
-        {"scope": {**TEXT_ONLY, "images": True}},
+    model = {"modality": "image", "model_id": "some/image-model"}
+    for body, code in (
+        (
+            {"scope": {**TEXT_ONLY, "images": True}, "media_models": [model]},
+            "media_model_not_allowlisted",
+        ),
+        ({"scope": {**TEXT_ONLY, "images": True}}, "media_model_unselected"),
+        ({"media_models": [model]}, "media_model_out_of_scope"),
     ):
         response = await _start(admin, project_id, **body)
         assert response.status_code == 422, response.text
-        assert response.json()["code"] == "media_not_configured"
+        assert response.json()["code"] == code
     assert await _creative_runs(db, project_id) == 0
 
 
@@ -294,7 +294,7 @@ async def test_e10_zdr_blocks_video(
     workspace.settings = {**(workspace.settings or {}), "zdr_enforced": True}
     await db.commit()
     assert _codes(await _eligibility(admin, project.id), "blockers") == {
-        "media_not_configured",
+        "media_model_not_allowlisted",
         "zdr_blocks_video",
     }
 

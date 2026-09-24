@@ -162,6 +162,9 @@ async def clean_state(stack_environment: None) -> AsyncIterator[None]:
         )
         await session.commit()
     await get_redis().flushdb()
+    from tests.media.replay import REPLAY
+
+    REPLAY.reset()
     yield
 
 
@@ -224,12 +227,18 @@ class ApiClient:
 
 
 def build_client(overrides: dict[Any, Any] | None = None) -> ApiClient:
+    from agent.api.routes_media import get_media_catalogue
     from agent.main import create_app
+    from tests.media.replay import replay_catalogue
 
     app = create_app()
     # FastAPI resolves a dependency when the route is declared, so patching the
     # module attribute afterwards changes nothing. `dependency_overrides` is the
     # only hook that actually swaps one out.
+    #
+    # The media catalogue is always the recorded one (Stage 04 §23.1: no test
+    # calls live OpenRouter), applied first so a module can still replace it.
+    app.dependency_overrides[get_media_catalogue] = replay_catalogue
     for dependency, replacement in (overrides or {}).items():
         app.dependency_overrides[dependency] = replacement
     transport = ASGITransport(app=app)

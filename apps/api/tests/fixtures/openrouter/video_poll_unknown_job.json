@@ -1,0 +1,9 @@
+{
+  "body": {
+    "error": {
+      "code": 404,
+      "message": "Job gen-vid-1790000000-AAAAAAAAAAAAAAAAAAAA not found"
+    }
+  },
+  "status": 404
+}

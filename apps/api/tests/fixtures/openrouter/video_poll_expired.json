@@ -1,0 +1,10 @@
+{
+  "body": {
+    "error": "Job exceeded maximum time to live",
+    "generation_id": "gen-vid-1790266636-L3q1fEnbfeSTBIg5wD56",
+    "id": "gen-vid-1790266636-L3q1fEnbfeSTBIg5wD56",
+    "polling_url": "https://openrouter.ai/api/v1/videos/gen-vid-1790266636-L3q1fEnbfeSTBIg5wD56",
+    "status": "expired"
+  },
+  "status": 200
+}
