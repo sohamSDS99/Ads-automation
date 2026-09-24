@@ -39,6 +39,10 @@
 
   --radius-token: var(--radius);
 
+  /* A document's line length (Stage 04 PRD §15.4 D, §15.2 rule 15): the brief
+     reads at 72 characters, 16 px — prose, not a tool panel. `max-w-measure`. */
+  --container-measure: 72ch;
+
   /* The height <main> gives a page: the viewport less the shell's h-14 top bar
      and main's p-6 above and below (components/shell/app-shell.tsx, topbar.tsx).
      A console sized to it fits the screen and scrolls inside its own rail and
