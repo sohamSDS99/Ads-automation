@@ -9,8 +9,13 @@
   to the smallest reduction that fits both caps, which is CR-E9's answer.
 * `media.ratio_plan_v1` — per required ratio: native | relaid | crop | gap,
   and for a crop, which supported ratio it comes from and how much it keeps.
+* `media.crop_window_v1` — on a real frame, the crop window of a ratio that
+  keeps the most OpenCV spectral-residual saliency, and whether what it keeps
+  clears `crop_min_saliency_retained` (§9.4 item 1): below it the rendition is
+  a recorded gap, never a bad crop (Law 39). It re-decides on pixels what the
+  ratio plan could only bound by frame area.
 
-Pure, like every formula here: records and numbers in, a `CalcDraft` out.
+Pure, like every formula here: records, numbers and bytes in, a `CalcDraft` out.
 
 Four readings the catalogue does not settle, each labelled where it is used:
 
@@ -33,9 +38,13 @@ number nobody can compute (Law 43).
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
+
+import cv2
+import numpy as np
 
 from agent.calc.registry import CalcDraft, CalcError, formula
 from agent.media.capability import (
@@ -403,6 +412,135 @@ def ratio_plan_v1(
         or "No media ratios required.",
         constants_version=constants.version,
     )
+
+
+#: The frame spectral residual is computed on (Hou & Zhang, CVPR 2007: 64 px),
+#: as OpenCV's `saliency.StaticSaliencySpectralResidual` computes it.
+SALIENCY_WORKING_PX = 64
+
+CropDecision = Literal["crop", "gap"]
+
+
+@formula("media.crop_window_v1", kind="calc_crop_window")
+def crop_window_v1(*, image: bytes, ratio: str, constants: MediaConstants) -> CalcDraft:
+    """The crop window of `ratio` that keeps the most saliency in `image`, and
+    whether what it keeps clears `crop_min_saliency_retained` (§9.4 item 1).
+
+    The window is the largest one of that ratio the frame holds — any smaller
+    window of the ratio sits inside one of these, so it cannot keep more — slid
+    along the free axis to the position holding the most saliency mass. The
+    image is recorded by sha256: the pixels decide, and the hash is what tells
+    a re-run that they changed.
+    """
+    pixels = np.frombuffer(image, dtype=np.uint8)
+    gray = cv2.imdecode(pixels, cv2.IMREAD_GRAYSCALE | cv2.IMREAD_IGNORE_ORIENTATION)
+    if gray is None:
+        raise CalcError("crop_window_v1: the image could not be decoded")
+    height, width = (int(side) for side in gray.shape[:2])
+    try:
+        wanted = parse_ratio(ratio)
+    except ValueError as exc:
+        raise CalcError(f"crop_window_v1: {exc}") from exc
+    if width / height >= wanted:
+        window_w, window_h = height * wanted, float(height)
+    else:
+        window_w, window_h = float(width), width / wanted
+    x0, y0, retained = best_window(spectral_residual(gray), window_w, window_h)
+    minimum = constants.crop_min_saliency_retained
+    decision = crop_decision(retained, minimum)
+    return CalcDraft(
+        inputs={
+            "image_sha256": hashlib.sha256(image).hexdigest(),
+            "width": width,
+            "height": height,
+            "ratio": ratio,
+            "min_retained": minimum,
+        },
+        result={
+            "box": [x0, y0, x0 + window_w, y0 + window_h],
+            "retained": retained,
+            "decision": decision,
+            "saliency": "spectral_residual",
+        },
+        summary=f"{ratio} window: keeps {retained:.0%} of the saliency (floor "
+        f"{minimum:.0%}) — {decision}",
+        constants_version=constants.version,
+    )
+
+
+def crop_decision(retained: float, minimum: float) -> CropDecision:
+    """Below the floor is a gap (§9.4: "if retained saliency < 0.85"); the floor crops."""
+    return "crop" if retained >= minimum else "gap"
+
+
+def spectral_residual(gray: np.ndarray) -> np.ndarray:
+    """OpenCV spectral-residual saliency of a grayscale frame, at the frame's
+    size, scaled so its peak is 1.
+
+    The steps of OpenCV contrib's `StaticSaliencySpectralResidual`, in OpenCV's
+    own primitives: the base `opencv-python-headless` wheel this repo ships
+    has no `cv2.saliency` module. Resize to 64×64, DFT, subtract the 3×3 mean
+    of the log amplitude from itself (the spectral residual), invert with the
+    original phase, blur (5×5, σ 8), square, normalise, resize back.
+
+    A frame with no structure at all has no residual to speak of — the method
+    would turn its all-zero spectrum into a spike at the origin — so it has no
+    saliency, and `best_window` then keeps saliency in proportion to area.
+    """
+    height, width = gray.shape[:2]
+    if float(gray.std()) == 0.0:
+        return np.zeros((height, width), dtype=np.float32)
+    side = SALIENCY_WORKING_PX
+    small = cv2.resize(gray, (side, side), interpolation=cv2.INTER_LINEAR_EXACT)
+    planes = cv2.merge([small.astype(np.float32), np.zeros((side, side), dtype=np.float32)])
+    real, imaginary = cv2.split(cv2.dft(planes))
+    magnitude, angle = cv2.cartToPolar(real, imaginary)
+    log_amplitude = np.log(magnitude + np.float32(1e-12))
+    residual = log_amplitude - cv2.blur(log_amplitude, (3, 3))
+    real, imaginary = cv2.polarToCart(np.exp(residual), angle)
+    real, imaginary = cv2.split(cv2.idft(cv2.merge([real, imaginary])))
+    magnitude, _ = cv2.cartToPolar(real, imaginary)
+    magnitude = cv2.GaussianBlur(magnitude, (5, 5), 8)
+    magnitude = magnitude * magnitude
+    peak = float(magnitude.max())
+    if peak > 0.0:
+        magnitude = magnitude / peak
+    return cv2.resize(magnitude, (width, height), interpolation=cv2.INTER_LINEAR_EXACT)
+
+
+def best_window(
+    saliency: np.ndarray, window_w: float, window_h: float
+) -> tuple[float, float, float]:
+    """`(x0, y0, retained)` for the `window_w × window_h` window holding the
+    most saliency mass. Mass is summed over whole pixels (an integral image,
+    every position at once); ties go to the position nearest the centre, then
+    the top-left-most, so the answer never depends on scan order. With no
+    saliency anywhere, a window keeps its share of the area.
+    """
+    height, width = saliency.shape[:2]
+    w_px = min(width, max(1, round(window_w)))
+    h_px = min(height, max(1, round(window_h)))
+    integral = cv2.integral(saliency.astype(np.float64))
+    mass = (
+        integral[h_px:, w_px:]
+        - integral[: height - h_px + 1, w_px:]
+        - integral[h_px:, : width - w_px + 1]
+        + integral[: height - h_px + 1, : width - w_px + 1]
+    )
+    total = float(integral[-1, -1])
+    if total <= 0.0:
+        area = (window_w * window_h) / (width * height)
+        return (width - window_w) / 2, (height - window_h) / 2, min(1.0, area)
+    best = float(mass.max())
+    ys, xs = np.nonzero(mass >= best - 1e-9 * best)
+    centre_x, centre_y = (width - w_px) / 2, (height - h_px) / 2
+    y, x = min(
+        zip(ys.tolist(), xs.tolist(), strict=True),
+        key=lambda yx: ((yx[1] - centre_x) ** 2 + (yx[0] - centre_y) ** 2, yx[0], yx[1]),
+    )
+    x0 = min(float(x), max(0.0, width - window_w))
+    y0 = min(float(y), max(0.0, height - window_h))
+    return x0, y0, min(1.0, best / total)
 
 
 # ---------------------------------------------------------------------------

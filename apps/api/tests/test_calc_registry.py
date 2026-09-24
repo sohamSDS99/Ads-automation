@@ -63,9 +63,11 @@ BEYOND_THE_PRD = {
     ),
 }
 
-#: The Stage 04 PRD names its own two (§9.2 ratio coverage, §9.3 the
-#: estimate, §23.1 item 8).
-STAGE04_FORMULAS = frozenset({"media.cost_estimate_v1", "media.ratio_plan_v1"})
+#: The Stage 04 PRD names its own three (§9.2 ratio coverage, §9.3 the
+#: estimate, §23.1 item 8; §9.4 the saliency crop window).
+STAGE04_FORMULAS = frozenset(
+    {"media.cost_estimate_v1", "media.ratio_plan_v1", "media.crop_window_v1"}
+)
 
 EXPECTED_FORMULAS = PRD_FORMULAS | set(BEYOND_THE_PRD) | STAGE04_FORMULAS
 

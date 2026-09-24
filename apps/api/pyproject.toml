@@ -71,6 +71,7 @@ dev = [
     "types-openpyxl>=3.1.5", # the workbook builder writes cell formulas as strings; strict mode has to see the Cell API
     "pytest-cov>=6.0.0",  # PRD §15 NF9 sets a coverage floor; `make coverage` is what measures it
     "respx>=0.22.0",  # the media gateway replays recorded OpenRouter fixtures (Stage 04 §23.1)
+    "hypothesis>=6.100",  # S4-P10: the property test that keeps sx == sy over 1,000 inputs (Law 39)
 ]
 
 [build-system]
