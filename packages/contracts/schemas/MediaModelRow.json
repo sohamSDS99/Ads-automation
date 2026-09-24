@@ -1,0 +1,102 @@
+{
+  "description": "One allowlisted model, and what the live catalogue says about it.",
+  "properties": {
+    "modality": {
+      "enum": [
+        "image",
+        "video"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "model_id": {
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_tag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Provider Tag"
+    },
+    "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+    },
+    "available": {
+      "title": "Available",
+      "type": "boolean"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "enum": [
+            "media_model_unavailable",
+            "disabled"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "capability": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Capability"
+    },
+    "capability_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Capability Hash"
+    },
+    "ratio_coverage": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ratio Coverage"
+    }
+  },
+  "required": [
+    "modality",
+    "model_id",
+    "provider_tag",
+    "enabled",
+    "available"
+  ],
+  "title": "MediaModelRow",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

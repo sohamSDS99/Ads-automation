@@ -1,0 +1,29 @@
+{
+  "properties": {
+    "media_models": {
+      "additionalProperties": true,
+      "title": "Media Models",
+      "type": "object"
+    },
+    "media_references_allowed": {
+      "default": false,
+      "title": "Media References Allowed",
+      "type": "boolean"
+    },
+    "max_creative_cost_usd": {
+      "title": "Max Creative Cost Usd",
+      "type": "string"
+    },
+    "max_media_cost_usd": {
+      "title": "Max Media Cost Usd",
+      "type": "string"
+    }
+  },
+  "required": [
+    "max_creative_cost_usd",
+    "max_media_cost_usd"
+  ],
+  "title": "ProjectMediaSettings",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

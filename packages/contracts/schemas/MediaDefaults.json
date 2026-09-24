@@ -1,0 +1,19 @@
+{
+  "additionalProperties": false,
+  "description": "Workspace default params per modality, applied under a project's own.",
+  "properties": {
+    "image": {
+      "additionalProperties": true,
+      "title": "Image",
+      "type": "object"
+    },
+    "video": {
+      "additionalProperties": true,
+      "title": "Video",
+      "type": "object"
+    }
+  },
+  "title": "MediaDefaults",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

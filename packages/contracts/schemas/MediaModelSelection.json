@@ -1,0 +1,43 @@
+{
+  "additionalProperties": false,
+  "description": "What a client may say about a media model: which one, and its default\nparams. The server turns it into a `MediaModelChoice` by snapshotting the\ncapability record from the live catalogue \u2014 a request never carries one.",
+  "properties": {
+    "modality": {
+      "enum": [
+        "image",
+        "video"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_tag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Tag"
+    },
+    "defaults": {
+      "additionalProperties": true,
+      "title": "Defaults",
+      "type": "object"
+    }
+  },
+  "required": [
+    "modality",
+    "model_id"
+  ],
+  "title": "MediaModelSelection",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

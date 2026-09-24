@@ -4,8 +4,11 @@
  *     STUB_PORT=18410 node scripts/s4p2/stub-api.mjs
  *
  * Serves the shapes the web reads for the Stage 04 rail, landing and media
- * settings, from fixtures in this file. The media routes are S4-P1's and are
- * mocked to the envelopes recorded in docs/stage-04-questions.md (S4-P2 §1).
+ * settings. The media routes follow S4-P1's `schemas_media`; the catalogue
+ * records are S4-P1's recorded OpenRouter bodies run through the api's own
+ * normalisers (`fixtures/*-catalogue.json`, built by
+ * `make_catalogue_fixtures.py`), so they are what `GET /media/catalogue`
+ * really returns — 55 image and 29 video models, image records unpriced.
  *
  * Two cookies choose what it answers, so one server drives every case:
  * `s4p2_role` (admin | operator | viewer) and `s4p2_scenario`:
@@ -19,6 +22,7 @@
  * the body the page actually sent. Any route not listed here is logged as
  * `STUB MISS` and answered 404, so a page reading something new is visible.
  */
+import { readFileSync } from "node:fs";
 import { createServer } from "node:http";
 
 const PORT = Number(process.env.STUB_PORT ?? 18410);
@@ -264,77 +268,31 @@ function humanTasks(scenario, role) {
 
 /* ---- Media (S4-P1's routes, mocked) ------------------------------------- */
 
-const IMAGE_CATALOGUE = {
-  modality: "image",
-  catalogue_hash: "img-7a1c",
-  warning: null,
-  models: [
-    {
-      modality: "image",
-      model_id: "google/gemini-2.5-flash-image",
-      provider_tag: "google-vertex",
-      params: { aspect_ratio: { kind: "enum", values: ["1:1", "4:5", "16:9", "9:16"] }, resolution: { kind: "enum", values: ["1K", "2K"] }, seed: { kind: "range", min: 0, max: 2147483647 } },
-      video: null,
-      pricing: [{ unit: "image", variant: "1K", usd: "0.039" }, { unit: "image", variant: "2K", usd: "0.078" }],
-      input_modalities: ["text", "image"],
-    },
-    {
-      modality: "image",
-      model_id: "google/gemini-2.5-flash-image",
-      provider_tag: "google-ai-studio",
-      params: { aspect_ratio: { kind: "enum", values: ["1:1", "4:5", "16:9", "9:16"] }, resolution: { kind: "enum", values: ["1K", "2K"] } },
-      video: null,
-      pricing: [{ unit: "image", variant: "1K", usd: "0.039" }],
-      input_modalities: ["text", "image"],
-    },
-    {
-      modality: "image",
-      model_id: "openai/gpt-image-1",
-      provider_tag: null,
-      params: { size: { kind: "enum", values: ["1024x1024", "1024x1536", "1536x1024"] }, quality: { kind: "enum", values: ["low", "medium", "high"] }, background: { kind: "enum", values: ["opaque", "transparent"] } },
-      video: null,
-      pricing: [{ unit: "token", variant: null, usd: "0.00004" }],
-      input_modalities: ["text", "image"],
-    },
-    {
-      modality: "image",
-      model_id: "black-forest-labs/flux-1.1-pro-ultra",
-      provider_tag: null,
-      params: { aspect_ratio: { kind: "enum", values: ["1:1", "4:5", "16:9", "9:16", "21:9"] }, resolution: { kind: "enum", values: ["1K", "2K", "4K"] } },
-      video: null,
-      pricing: [{ unit: "megapixel", variant: null, usd: "0.06" }],
-      input_modalities: ["text"],
-    },
-  ],
+const fixture = (name) => JSON.parse(readFileSync(new URL(`./fixtures/${name}`, import.meta.url), "utf8"));
+const CATALOGUE = {
+  image: { modality: "image", models: fixture("image-catalogue.json"), catalogue_hash: "img-7a1c", fetched_at: ago(4), warning: null },
+  video: { modality: "video", models: fixture("video-catalogue.json"), catalogue_hash: "vid-3b9e", fetched_at: ago(4), warning: null },
 };
 
-const VIDEO_CATALOGUE = {
-  modality: "video",
-  catalogue_hash: "vid-3b9e",
-  warning: null,
-  models: [
-    {
-      modality: "video",
-      model_id: "google/veo-3.1-fast",
-      provider_tag: null,
-      params: { generate_audio: { kind: "boolean" }, seed: { kind: "range", min: 0, max: 4294967295 } },
-      video: { durations: [4, 6, 8], resolutions: ["720p", "1080p"], aspect_ratios: ["16:9", "9:16"], sizes: [] },
-      pricing: [{ unit: "second", variant: "720p", usd: "0.10" }, { unit: "second", variant: "1080p", usd: "0.15" }],
-      input_modalities: ["text", "image"],
-    },
-    {
-      modality: "video",
-      model_id: "kwaivgi/kling-v2.1-master",
-      provider_tag: null,
-      params: {},
-      video: { durations: [5, 10], resolutions: ["1080p"], aspect_ratios: ["16:9", "9:16", "1:1"], sizes: [] },
-      pricing: [{ unit: "second", variant: "1080p", usd: "0.28" }],
-      input_modalities: ["text", "image"],
-    },
-  ],
-};
+const EMPTY_SETTINGS = () => ({ media_allowlist: { image: [], video: [] }, media_defaults: { image: {}, video: {} } });
 
-let mediaSettings = { media_allowlist: { image: [], video: [] } };
+/** `PUT /settings/media`'s refusals, as `routes_media.put_media_settings` makes them. */
+function refuseEntry(modality, entry) {
+  const known = CATALOGUE[modality].models.some((record) => record.model_id === entry.model_id);
+  if (known && !(modality === "video" && entry.provider_tag)) return null;
+  return {
+    ...problem(
+      422,
+      "Cannot allowlist this model",
+      `${entry.model_id}${entry.provider_tag ? ` on ${entry.provider_tag}` : ""} is not a ${modality} model in OpenRouter's live catalogue${modality === "video" && entry.provider_tag ? " (a video model cannot pin a provider)." : "."}`,
+    ),
+    code: "media_model_unavailable",
+    modality,
+    model_id: entry.model_id,
+  };
+}
+
+let mediaSettings = EMPTY_SETTINGS();
 let lastPut = null;
 
 /* ---- Server ------------------------------------------------------------- */
@@ -370,7 +328,7 @@ createServer(async (req, res) => {
 
   if (path === "/__stub/media") return send(res, 200, { saved: mediaSettings, last_put: lastPut });
   if (path === "/__stub/reset") {
-    mediaSettings = { media_allowlist: { image: [], video: [] } };
+    mediaSettings = EMPTY_SETTINGS();
     lastPut = null;
     return send(res, 200, { ok: true });
   }
@@ -412,12 +370,22 @@ createServer(async (req, res) => {
     "PUT /settings/media": () => {
       if (!can("settings_write")) return [403, problem(403, "Forbidden", "Needs settings_write.")];
       lastPut = JSON.parse(body);
-      mediaSettings = lastPut;
+      // A section left out is left as it is (`MediaSettingsUpdate`).
+      if (lastPut.media_allowlist) {
+        for (const modality of ["image", "video"]) {
+          for (const entry of lastPut.media_allowlist[modality] ?? []) {
+            const refused = refuseEntry(modality, entry);
+            if (refused) return [422, refused];
+          }
+        }
+        mediaSettings = { ...mediaSettings, media_allowlist: lastPut.media_allowlist };
+      }
+      if (lastPut.media_defaults) mediaSettings = { ...mediaSettings, media_defaults: lastPut.media_defaults };
       return mediaSettings;
     },
     "GET /media/catalogue": () => {
       if (!can("settings_write")) return [403, problem(403, "Forbidden", "Needs settings_write.")];
-      return url.searchParams.get("modality") === "video" ? VIDEO_CATALOGUE : IMAGE_CATALOGUE;
+      return CATALOGUE[url.searchParams.get("modality") === "video" ? "video" : "image"];
     },
   };
 

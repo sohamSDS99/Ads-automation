@@ -138,25 +138,20 @@ beyond what is described.
 
 ## S4-P2
 
-1. **Media API envelopes assumed by the web (S4-P1 to confirm or correct).**
-   S4-P1 builds the routes in parallel, so S4-P2 codes against PRD §16's
-   routes and the shapes §7 and the S4-P1 brief name, and fixes the two
-   envelopes they leave implicit (`apps/web/lib/api/media.ts`):
-   - `GET /media/catalogue?modality=` →
-     `{modality, models: CapabilityRecord[], catalogue_hash, warning?}`,
-     one record per model *per provider endpoint* (a model with three
-     `provider_tag`s is three records; the editor groups them and offers
-     the tags as the provider pin). `warning` carries §9.1 rule 1's
-     "last-good snapshot" sentence. A missing OpenRouter key is read as
-     `409`, as `GET /models` does today.
-   - `GET /settings/media` → `{media_allowlist: {image: [...], video: [...]}}`;
-     `PUT /settings/media` takes the same body and returns the saved value.
-   - `CapabilityRecord.pricing[].unit` for video is read as `second`.
-2. **Workspace default params and estimate accuracy are not built.**
-   §15.3 lists both under Media generation and §9.2 names "workspace default
-   params", but `Workspace.settings` (§7) stores only `media_allowlist`, and
-   no §16 route returns estimate accuracy. The params editor would also be
-   S4-P3's `CapabilityParams`. Needs a storage key and a read before a UI.
+1. **The allowlist editor cannot offer §9.2's provider pin.** S4-P1 landed
+   while S4-P2 was open and the web now codes against its `schemas_media`.
+   `GET /media/catalogue?modality=image` returns OpenRouter's
+   `/images/models` summaries — one record per model, **no `provider_tag` and
+   no pricing** (both live on `/images/models/{id}/endpoints`, which no route
+   exposes). Video cannot pin at all (S4-P1 §10). So the editor shows image
+   prices as "Priced per provider", offers no pin, and shows and keeps a pin
+   an entry already has. Proposed: `GET /media/catalogue/{model_id}/endpoints`
+   (SETTINGS_WRITE) returning the endpoint records, for a per-row picker.
+2. **Workspace default params (`media_defaults`) have storage and a route
+   now (S4-P1) but no editor.** It needs S4-P3's `CapabilityParams` — one
+   control per descriptor — and building a second set here would fork it.
+   `PUT /settings/media` sends only `media_allowlist`, so defaults set by API
+   survive every allowlist save. Estimate accuracy (§15.3) still has no route.
 3. **Three §15.4 A landing fields are not on the wire.**
    `CreativePackageSummary` has no released-by name, no per-campaign launch
    readiness (`ready` / `blocked: youtube_upload`) and no bound-offer end
@@ -171,8 +166,9 @@ beyond what is described.
    have** (`/settings/sources`, `/projects/{id}/settings`, `/tasks`,
    `/projects/{id}/documents` → connections, model settings, approvals,
    business context). `tests/test_creative_fix_urls.py` now derives the real
-   route list from `apps/web/app`. S4-P1's CR-E8/E9 rewrite should keep
-   `media_*` blockers on `/settings/models`, which is where they are fixed.
+   route list from `apps/web/app`. S4-P1's CR-E8/E9 rewrite, merged in, sent
+   three more to `{home}/settings`; those now go to `/settings/models`, where
+   the allowlist and the project-scoped media settings live.
 6. **The design laws apply to `components/creative/**` and the creative
    route directory** — the route is a Stage 04 screen too. `components/ui/`
    predates the law (e.g. `rounded-[var(--radius)]`) and is not rewritten.

@@ -78,6 +78,7 @@
       "type": "object"
     }
   },
+  "additionalProperties": false,
   "properties": {
     "scope": {
       "$ref": "#/$defs/CreativeScope"
@@ -88,17 +89,12 @@
       },
       "title": "Media Models",
       "type": "array"
-    },
-    "reuse_cache": {
-      "default": true,
-      "title": "Reuse Cache",
-      "type": "boolean"
     }
   },
   "required": [
     "scope"
   ],
-  "title": "StartCreativeRequest",
+  "title": "EstimateRequest",
   "type": "object",
   "$schema": "https://json-schema.org/draft/2020-12/schema"
 }

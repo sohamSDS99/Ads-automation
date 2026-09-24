@@ -1,0 +1,92 @@
+{
+  "description": "`POST /projects/{id}/creative/estimate`. No spend, no job rows.",
+  "properties": {
+    "text_usd": {
+      "title": "Text Usd",
+      "type": "number"
+    },
+    "image_usd": {
+      "title": "Image Usd",
+      "type": "number"
+    },
+    "video_usd": {
+      "title": "Video Usd",
+      "type": "number"
+    },
+    "total_usd": {
+      "title": "Total Usd",
+      "type": "number"
+    },
+    "confidence": {
+      "enum": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "title": "Confidence",
+      "type": "string"
+    },
+    "calc_evidence_id": {
+      "format": "uuid",
+      "title": "Calc Evidence Id",
+      "type": "string"
+    },
+    "jobs": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Jobs",
+      "type": "object"
+    },
+    "fits": {
+      "title": "Fits",
+      "type": "boolean"
+    },
+    "caps": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Caps",
+      "type": "object"
+    },
+    "reduction": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reduction"
+    },
+    "ratio_plan": {
+      "additionalProperties": true,
+      "title": "Ratio Plan",
+      "type": "object"
+    },
+    "ratio_plan_evidence_id": {
+      "format": "uuid",
+      "title": "Ratio Plan Evidence Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "text_usd",
+    "image_usd",
+    "video_usd",
+    "total_usd",
+    "confidence",
+    "calc_evidence_id",
+    "jobs",
+    "fits",
+    "caps",
+    "ratio_plan",
+    "ratio_plan_evidence_id"
+  ],
+  "title": "EstimateResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

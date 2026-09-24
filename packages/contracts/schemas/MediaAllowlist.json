@@ -1,0 +1,56 @@
+{
+  "$defs": {
+    "AllowlistEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Tag"
+        },
+        "enabled": {
+          "default": true,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "model_id"
+      ],
+      "title": "AllowlistEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "image": {
+      "items": {
+        "$ref": "#/$defs/AllowlistEntry"
+      },
+      "title": "Image",
+      "type": "array"
+    },
+    "video": {
+      "items": {
+        "$ref": "#/$defs/AllowlistEntry"
+      },
+      "title": "Video",
+      "type": "array"
+    }
+  },
+  "title": "MediaAllowlist",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

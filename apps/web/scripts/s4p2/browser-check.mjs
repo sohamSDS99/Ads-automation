@@ -26,6 +26,11 @@ const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3410";
 const STUB = process.env.STUB_URL ?? "http://127.0.0.1:18410";
 const SHOTS = process.env.SHOTS ?? "/tmp/s4p2-shots";
 const P = "p-4f1c2a90-0000-4000-8000-000000000001";
+// The catalogue the stub serves: S4-P1's recorded bodies, normalised by the api.
+const catalogue = (modality) =>
+  [...new Set(JSON.parse(readFileSync(new URL(`./fixtures/${modality}-catalogue.json`, import.meta.url), "utf8")).map((r) => r.model_id))];
+const IMAGE_IDS = catalogue("image");
+const VIDEO_IDS = catalogue("video");
 const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, height: 844 } };
 const THEMES = ["light", "dark"];
 
@@ -231,30 +236,40 @@ try {
     await page.getByRole("table", { name: "Image models in the live catalogue" }).waitFor();
     await page.getByRole("table", { name: "Video models in the live catalogue" }).waitFor();
     check("nothing is allowlisted by default", await page.getByText("0 image models and 0 video models allowed. No unsaved changes.").isVisible());
-    check("one row per model, not per provider endpoint", (await page.getByRole("table", { name: "Image models in the live catalogue" }).locator("tbody tr").count()) === 3);
+    const imageTable = page.getByRole("table", { name: "Image models in the live catalogue" });
+    const videoTable = page.getByRole("table", { name: "Video models in the live catalogue" });
+    check(`every catalogue model is a row (${IMAGE_IDS.length} image, ${VIDEO_IDS.length} video)`, (await imageTable.locator("tbody tr").count()) === IMAGE_IDS.length && (await videoTable.locator("tbody tr").count()) === VIDEO_IDS.length);
+    check("an image summary says it is priced per provider, not free", (await imageTable.locator("tbody tr", { hasText: "google/gemini-2.5-flash-image" }).textContent())?.includes("Priced per provider"));
+    check("a video row leads with its cheapest SKU", (await videoTable.locator("tbody tr", { hasText: "google/veo-3.1-lite" }).textContent())?.includes("from $0.03 / s at 720p without audio"));
 
     // Keyboard parity: the first tick is made from the keyboard.
     await page.getByRole("checkbox", { name: "Allow google/gemini-2.5-flash-image" }).focus();
     await page.keyboard.press("Space");
-    await page.getByRole("combobox", { name: "Provider for google/gemini-2.5-flash-image" }).selectOption("google-vertex");
+    // The filter narrows the list and never hides what is already allowed.
+    await page.getByRole("searchbox", { name: "Filter video models" }).fill("veo");
+    const veo = VIDEO_IDS.filter((id) => id.includes("veo"));
+    check(`the filter narrows 29 video models to the ${veo.length} Veo models`, (await videoTable.locator("tbody tr").count()) === veo.length);
     await page.getByRole("checkbox", { name: "Allow google/veo-3.1-fast" }).check();
+    await page.getByRole("searchbox", { name: "Filter image models" }).fill("flux");
+    check("an allowed model stays in view under a filter that does not match it", await page.getByRole("checkbox", { name: "Allow google/gemini-2.5-flash-image" }).isVisible());
+    await page.getByRole("searchbox", { name: "Filter image models" }).fill("");
     check("the consequence is stated in numbers before saving", await page.getByText("Saving allows 1 image model and 1 video model. Runs already started keep the model they pinned.").isVisible());
     await shoot(page, `${SHOTS}/settings-media-dirty-desktop-light.png`);
 
     await page.getByRole("button", { name: "Save allowlist" }).click();
     await page.getByText("Media allowlist saved").waitFor();
-    const { last_put: sent } = await (await fetch(`${STUB}/__stub/media`)).json();
+    const { last_put: sent, saved } = await (await fetch(`${STUB}/__stub/media`)).json();
     const expected = {
       media_allowlist: {
-        image: [{ model_id: "google/gemini-2.5-flash-image", provider_tag: "google-vertex", enabled: true }],
+        image: [{ model_id: "google/gemini-2.5-flash-image", provider_tag: null, enabled: true }],
         video: [{ model_id: "google/veo-3.1-fast", provider_tag: null, enabled: true }],
       },
     };
     check("admin allowlists one image and one video model (PUT body)", JSON.stringify(sent) === JSON.stringify(expected), JSON.stringify(sent));
+    check("…sending only the allowlist, so the workspace's media_defaults are untouched", !("media_defaults" in sent) && JSON.stringify(saved.media_defaults) === JSON.stringify({ image: {}, video: {} }));
     await page.reload();
     await page.getByRole("table", { name: "Image models in the live catalogue" }).waitFor();
     check("…and it is still allowed after a reload", (await page.getByRole("checkbox", { name: "Allow google/gemini-2.5-flash-image" }).isChecked()) && (await page.getByRole("checkbox", { name: "Allow google/veo-3.1-fast" }).isChecked()));
-    check("…with its provider pin", (await page.getByRole("combobox", { name: "Provider for google/gemini-2.5-flash-image" }).inputValue()) === "google-vertex");
     check("settings: no console errors or failed requests", problems.length === 0, problems.join("\n      "));
     await context.close();
   }

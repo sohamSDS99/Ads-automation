@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_tag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Tag"
+    },
+    "defaults": {
+      "additionalProperties": true,
+      "title": "Defaults",
+      "type": "object"
+    }
+  },
+  "required": [
+    "model_id"
+  ],
+  "title": "ProjectMediaModel",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

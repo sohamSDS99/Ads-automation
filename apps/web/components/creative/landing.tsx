@@ -23,9 +23,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import type { ApprovalItem } from "@/lib/api/approvals";
 import {
-  BLOCKER_LABEL,
   GATE_LABEL,
   WARNING_LABEL,
+  blockerLabel,
   destinationLabel,
   isLiveCreativeRun,
   type CreativeEligibility,
@@ -301,7 +301,7 @@ function ActionBlock({
                       key={note.code}
                       icon={TriangleAlert}
                       tone="blocker"
-                      label={BLOCKER_LABEL[note.code] ?? note.code}
+                      label={blockerLabel(note)}
                       detail={note.detail}
                       href={note.fix_url === here ? null : note.fix_url}
                     />

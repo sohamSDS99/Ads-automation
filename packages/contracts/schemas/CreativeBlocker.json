@@ -9,7 +9,13 @@
         "no_signoff_matrix",
         "creative_in_flight",
         "missing_credential",
-        "media_not_configured",
+        "media_model_unselected",
+        "media_model_not_allowlisted",
+        "media_model_unavailable",
+        "capability_unsupported",
+        "media_model_out_of_scope",
+        "estimate_exceeds_cap",
+        "estimate_unavailable",
         "zdr_blocks_video",
         "storage_insufficient",
         "missing_permission"
@@ -24,6 +30,63 @@
     "fix_url": {
       "title": "Fix Url",
       "type": "string"
+    },
+    "modality": {
+      "anyOf": [
+        {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Modality"
+    },
+    "estimate": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimate"
+    },
+    "cap": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cap"
+    },
+    "reduction": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reduction"
     }
   },
   "required": [

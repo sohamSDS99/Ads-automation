@@ -24,7 +24,13 @@ export type CreativeBlockerCode =
   | "no_signoff_matrix"
   | "creative_in_flight"
   | "missing_credential"
-  | "media_not_configured"
+  | "media_model_unselected"
+  | "media_model_not_allowlisted"
+  | "media_model_unavailable"
+  | "capability_unsupported"
+  | "media_model_out_of_scope"
+  | "estimate_exceeds_cap"
+  | "estimate_unavailable"
   | "zdr_blocks_video"
   | "storage_insufficient"
   | "missing_permission";
@@ -44,6 +50,12 @@ export type CreativeBlocker = {
   detail: string;
   /** Relative, always. */
   fix_url: string;
+  /** CR-E8: the modality the blocker is about. */
+  modality?: "image" | "video" | null;
+  /** CR-E9: the estimate, the caps it breaches, and the smallest reduction that fits. */
+  estimate?: Record<string, unknown> | null;
+  cap?: Record<string, number> | null;
+  reduction?: Record<string, unknown> | null;
 };
 
 export type CreativeWarning = {
@@ -60,6 +72,8 @@ export type CreativeEligibility = {
   warnings: CreativeWarning[];
   /** What a run started now would pin — only the halves that resolved. */
   pins: Record<string, string | number | null>;
+  /** CR-E9's pre-flight estimate, when every enabled modality resolved. */
+  estimate?: Record<string, unknown> | null;
 };
 
 export type CreativePackageStatus =
@@ -255,19 +269,31 @@ export function lockSentence(eligibility?: CreativeEligibility): string | null {
  * and is never rewritten. Nothing here decides anything.
  * ---------------------------------------------------------------------- */
 
-export const BLOCKER_LABEL: Record<CreativeBlockerCode, string> = {
-  no_frozen_plan: "Needs a frozen plan",
-  no_published_ruleset: "Needs a published ruleset",
-  schema_unsupported: "Plan and ruleset versions do not match",
-  ruleset_incomplete: "Ruleset cannot check creative yet",
-  no_signoff_matrix: "Needs a sign-off matrix",
-  creative_in_flight: "A creative run is already in progress",
-  missing_credential: "Needs an OpenRouter key",
-  media_not_configured: "No media model is set up",
-  zdr_blocks_video: "Video is unavailable under zero data retention",
-  storage_insufficient: "Not enough media storage",
-  missing_permission: "Your role cannot start creative runs",
+const BLOCKER_LABEL: Record<CreativeBlockerCode, (media: string) => string> = {
+  no_frozen_plan: () => "Needs a frozen plan",
+  no_published_ruleset: () => "Needs a published ruleset",
+  schema_unsupported: () => "Plan and ruleset versions do not match",
+  ruleset_incomplete: () => "Ruleset cannot check creative yet",
+  no_signoff_matrix: () => "Needs a sign-off matrix",
+  creative_in_flight: () => "A creative run is already in progress",
+  missing_credential: () => "Needs an OpenRouter key",
+  media_model_unselected: (media) => `No ${media} model is chosen`,
+  media_model_not_allowlisted: (media) => `The ${media} model is not allowed`,
+  media_model_unavailable: (media) => `The ${media} model is unavailable`,
+  capability_unsupported: (media) => `The ${media} model does not take a saved default`,
+  media_model_out_of_scope: (media) => `A ${media} model is chosen for a scope without ${media}`,
+  estimate_exceeds_cap: () => "The estimate is over a budget cap",
+  estimate_unavailable: () => "The media cost cannot be estimated",
+  zdr_blocks_video: () => "Video is unavailable under zero data retention",
+  storage_insufficient: () => "Not enough media storage",
+  missing_permission: () => "Your role cannot start creative runs",
 };
+
+/** The lead phrase for one blocker, naming its modality when the server gave one (CR-E8). */
+export function blockerLabel(blocker: CreativeBlocker): string {
+  const label = BLOCKER_LABEL[blocker.code];
+  return label ? label(blocker.modality ?? "media") : blocker.code;
+}
 
 export const WARNING_LABEL: Record<CreativeWarningCode, string> = {
   ruleset_category_missing: "Ruleset is missing a category",
