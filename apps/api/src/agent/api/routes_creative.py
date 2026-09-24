@@ -647,6 +647,8 @@ async def start_creative_run(
                 source_run_id=built.plan_ref.plan_run_id,
                 input_hash=input_hash,
                 reuse_cache=body.reuse_cache,
+                # §4.3 rule 1: assembled once, here, and carried to every node.
+                creative_input=built.model_dump(mode="json", by_alias=True),
                 pins=[
                     {
                         "ruleset_version": built.ruleset_ref.ruleset_version,

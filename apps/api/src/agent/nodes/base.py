@@ -30,8 +30,11 @@ from agent.llm.ledger import RunLedger
 from agent.llm.router import ModelRouter, TaskClass
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, not at type time
+    from agent.creative.constants import CreativeConstants
+    from agent.creative.lint_adapter import PinnedLinter
     from agent.orchestrator.plan_calc import PlanCalcRunner
     from agent.planning.constants import PlanningConstants
+    from agent.schemas.creative_input import CreativeInput
     from agent.schemas.plan_input import PlanInput
 
 log = structlog.get_logger(__name__)
@@ -314,6 +317,23 @@ class PlanContext:
     constants: PlanningConstants
 
 
+@dataclass(frozen=True, slots=True)
+class CreativeResources:
+    """What a creative node gets that no other node does (Stage 04 PRD §4.3, §8.1).
+
+    Resolved once per run by the executor, before the first wave, exactly as
+    `PlanContext` is for a plan run. `input` is the `CreativeInput` stored on
+    the run and re-hashed against `Run.input_hash`; `linter` is the run's
+    current pin loaded through `creative/lint_adapter.py` with the input's
+    offer snapshot; `constants` are `creative_constants.yaml` with the
+    project's overrides — and their version is the one the input names.
+    """
+
+    input: CreativeInput
+    linter: PinnedLinter
+    constants: CreativeConstants
+
+
 @dataclass(slots=True)
 class RunContext:
     """Everything a node may touch, and nothing else."""
@@ -337,6 +357,9 @@ class RunContext:
     #: executor could not build a `PlanInput` — which it treats as fatal, so a
     #: node never sees that second case.
     plan: PlanContext | None = None
+    #: Stage 04 only. None on every other stage; a creative run cannot start
+    #: executing without it, so a creative node never sees the None.
+    creative: CreativeResources | None = None
     _progress: Callable[[str, str], Awaitable[None]] | None = None
 
     def require_plan(self) -> PlanContext:
@@ -348,6 +371,16 @@ class RunContext:
                 "run_stage=RunStage.PLAN."
             )
         return self.plan
+
+    def require_creative(self) -> CreativeResources:
+        """The creative resources, or a failure naming the node that asked."""
+        if self.creative is None:
+            raise NodeContractError(
+                f"node {self.node_id or '?'} asked for the creative context on a "
+                f"{self.run.stage.value} run. A creative node must declare "
+                "run_stage=RunStage.CREATIVE."
+            )
+        return self.creative
 
     def output_of(self, node_id: str) -> dict[str, Any]:
         """The output of a node this one depends on."""

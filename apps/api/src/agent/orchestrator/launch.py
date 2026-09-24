@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field
+from typing import Any
 
 import structlog
 from redis.asyncio import Redis
@@ -87,6 +88,10 @@ class LaunchRequest:
     #: `stage=creative` only: the append-only `[{ruleset_version, reason, at}]`
     #: the run is made under (Stage 04 PRD §4.4). NULL for every other stage.
     pins: list[dict[str, str]] | None = None
+    #: `stage=creative` only: the `CreativeInput` as JSON, hashing to
+    #: `input_hash`. Required there and forbidden elsewhere —
+    #: `ck_run_creative_input_only_creative` is the backstop.
+    creative_input: dict[str, Any] | None = None
     #: A pre-minted id. Stage 04 needs it: `CreativeInput` names its run and
     #: is hashed into that run's `input_hash`, so the id exists before the row.
     run_id: uuid.UUID | None = None
@@ -107,6 +112,7 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
         project_id=project.id,
         stage=request.stage,
         pins=request.pins,
+        creative_input=request.creative_input,
         source_run_id=request.source_run_id,
         input_hash=request.input_hash,
         bindings=request.bindings,
