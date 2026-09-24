@@ -1,13 +1,14 @@
 """S4-P5 exit criteria — 4.2.1 `headline_spread` and 4.2.3 `combination_coherence`, end to end.
 
 A creative run is started through the API, halts on G7, is approved, and runs
-on through the real 4.2.1 (a scripted COPYWRITE pool), 4.2.2 and the real 4.2.3
-(scripted CLASSIFY labels), then the stubs to the end.
+on through the real 4.2.1 (a scripted COPYWRITE pool), the real 4.2.2 (a
+scripted pool of descriptions) and the real 4.2.3 (scripted CLASSIFY labels),
+then the rest of the DAG.
 
-**4.2.2 is a fixture.** The PRD orders 4.2.2 before 4.2.3 but builds it in
-S4-P6, so `_FixtureDescriptions` stands in: it writes and lints descriptions
-the way 4.2.2 will, and returns them through 4.2.2's real output schema,
-`ClaimBoundDescriptionsOutput`, validated against the pin's licensed claims.
+**4.2.3 consumes the real 4.2.2.** Until S4-P6 a fixture stood in for it. Now
+the descriptions 4.2.3 pairs and repairs from are the ones 4.2.2 wrote, linted
+and selected, read through `ClaimBoundDescriptionsOutput` against the pin's
+licensed claims.
 
 **The pin carries the spec-sheet rules synthesis really emits** (headline 30,
 description 90, path 15 characters, and the asset counts), so every length
@@ -27,7 +28,6 @@ from typing import Any
 import httpx
 import pytest
 import sqlalchemy as sa
-from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.creative import metrics
@@ -35,8 +35,6 @@ from agent.db.models import (
     CreativeAsset,
     CreativeAssetKind,
     CreativeAssetStatus,
-    CreativeAssetVariant,
-    Evidence,
     NodeRun,
     NodeRunStatus,
     RunStage,
@@ -45,13 +43,8 @@ from agent.db.models import (
 from agent.export.guideline_contract import AssetSpecs
 from agent.guidelines.constants import get_content_constants
 from agent.guidelines.synthesis import _asset_rules
-from agent.nodes.base import RunContext
-from agent.nodes.creative._text_assets import text_asset
 from agent.orchestrator.dag import Dag
 from agent.orchestrator.registry import NodeRegistry, get_registry
-from agent.schemas.creative_brief import CreativeBrief
-from agent.schemas.guardrails import LintTarget
-from agent.schemas.search_ads import PASSING, ClaimBoundDescriptionsOutput
 from tests.integration.conftest import ApiClient
 from tests.integration.creative_support import (
     LICENSED_CLAIM_ID,
@@ -141,6 +134,33 @@ DESCRIPTIONS = [
     f"Audit-ready records without the paperwork. {CLAIM_TEXT}.",
 ]
 RESERVE_DESCRIPTION = f"{CLAIM_TEXT} keep your chemical inventory audit-ready."
+#: 107 characters: fails `asset_spec.length.v1`, stays draft, and is never a reserve.
+TOO_LONG_DESCRIPTION = (
+    f"{CLAIM_TEXT} for every safety data sheet in every one of your warehouses, labs and offices."
+)
+#: Cites the claim but does not contain the words it quotes: dropped.
+MISQUOTED = "Every sheet stays current on every site you run."
+#: A second reserve that repeats the 30% offer. It conflicts with the 20%
+#: headline too, so the repair round passes over it for the one that offers nothing.
+OFFER_30_AGAIN = f"{CLAIM_TEXT}, and 30% off every annual plan."
+
+
+def _d(text: str) -> dict[str, Any]:
+    return {"text": text, "claim_ids": [CLAIM], "claim_text": CLAIM_TEXT}
+
+
+#: Eight descriptions and two paths, as COPYWRITE answers 4.2.2's schema.
+DESCRIPTION_POOL: dict[str, Any] = {
+    "descriptions": [
+        *(_d(text) for text in DESCRIPTIONS),
+        _d(RESERVE_DESCRIPTION),
+        _d(TOO_LONG_DESCRIPTION),
+        _d(MISQUOTED),
+        _d(OFFER_30_AGAIN),
+    ],
+    "paths": ["sds", "software"],
+}
+assert len(DESCRIPTION_POOL["descriptions"]) == 8
 
 #: The one pair CLASSIFY calls order_dependent, and the one it calls redundant
 #: — a pair only the swap creates, so only the verification pass ever sees it.
@@ -154,6 +174,7 @@ class _Script:
     def __init__(self) -> None:
         self.fake = FakeOpenRouter()
         self.pools: list[dict[str, Any]] = []
+        self.description_pools: list[dict[str, Any]] = []
         self.label_batches: list[dict[str, dict[str, str]]] = []
         self.fake.dispatch(self._respond)
 
@@ -166,6 +187,9 @@ class _Script:
         if name == "HeadlinePoolDraft":
             self.pools.append(body)
             return completion({"candidates": POOL}, model=body["model"])
+        if name == "DescriptionPoolDraft":
+            self.description_pools.append(body)
+            return completion(DESCRIPTION_POOL, model=body["model"])
         if name == "PairLabelsDraft":
             user = next(m["content"] for m in body["messages"] if m["role"] == "user")
             pairs = json.loads(user.split("PAIRS:\n", 1)[1])
@@ -183,102 +207,8 @@ class _Script:
         return "reads_well"
 
 
-class _FixtureDescriptions:
-    """4.2.2 until S4-P6 builds it: descriptions written and linted as 4.2.2 will,
-    returned through 4.2.2's real output schema."""
-
-    def __init__(self) -> None:
-        self.spec = (
-            get_registry()
-            .spec("4.2.2")
-            .model_copy(update={"output_model": ClaimBoundDescriptionsOutput})
-        )
-
-    async def gather(self, ctx: RunContext) -> list[Evidence]:
-        return []
-
-    async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
-        creative = ctx.require_creative()
-        brief = CreativeBrief.model_validate(ctx.output_of("4.1.1"))
-        groups = []
-        for group in brief.ad_groups:
-            written = []
-            for index, text in enumerate([*DESCRIPTIONS, RESERVE_DESCRIPTION]):
-                asset_id = uuid.uuid4()
-                result = creative.linter.lint_candidate(
-                    LintTarget(
-                        ref=str(asset_id),
-                        surface="rsa_description",
-                        campaign_type="search",
-                        market="*",
-                        language="en",
-                        text=text,
-                        generated_by_ai=True,
-                    ),
-                    now=ctx.run.started_at,  # type: ignore[arg-type]
-                )
-                assert result.verdict in PASSING, result.findings
-                reserve = index == len(DESCRIPTIONS)
-                ctx.db.add(
-                    text_asset(
-                        ctx,
-                        asset_id=asset_id,
-                        node_id="4.2.2",
-                        campaign_ref=group.campaign_ref,
-                        ad_group_ref=group.ad_group_ref,
-                        kind=CreativeAssetKind.DESCRIPTION,
-                        surface="rsa_description",
-                        variant=CreativeAssetVariant.A,
-                        category=None,
-                        text=text,
-                        fields={},
-                        claim_ids=[LICENSED_CLAIM_ID],
-                        status=CreativeAssetStatus.RESERVE
-                        if reserve
-                        else CreativeAssetStatus.LINTED,
-                        lint=result,
-                    )
-                )
-                start = text.index(CLAIM_TEXT)
-                written.append(
-                    {
-                        "asset_id": str(asset_id),
-                        "text": text,
-                        "claim_ids": [CLAIM],
-                        "claim_span": [start, start + len(CLAIM_TEXT)],
-                        "lint": {
-                            "verdict": result.verdict,
-                            "ruleset_version": result.ruleset_version,
-                            "rule_ids": [],
-                        },
-                    }
-                )
-            groups.append(
-                {
-                    "campaign_ref": group.campaign_ref,
-                    "ad_group_ref": group.ad_group_ref,
-                    "descriptions": written[: len(DESCRIPTIONS)],
-                    "paths": ["sds", "software"],
-                    "reserve": written[len(DESCRIPTIONS) :],
-                    "exception_candidates": [],
-                }
-            )
-        await ctx.db.flush()
-        return ClaimBoundDescriptionsOutput.model_validate(
-            {"ad_groups": groups}, context={"licensed_claim_ids": frozenset({LICENSED_CLAIM_ID})}
-        )
-
-
-def _registry(*, fixture_descriptions: bool = True) -> NodeRegistry:
-    creative = get_registry().for_stage(RunStage.CREATIVE)
-    return NodeRegistry.of(
-        [
-            _FixtureDescriptions()
-            if node_id == "4.2.2" and fixture_descriptions
-            else creative.node(node_id)
-            for node_id in creative.ids
-        ]
-    )
+def _registry() -> NodeRegistry:
+    return get_registry().for_stage(RunStage.CREATIVE)
 
 
 async def _seed(db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID) -> None:
@@ -433,6 +363,16 @@ async def test_headlines_are_spread_selected_paired_repaired_and_pinned(
     assert assets[uuid.UUID(by_text["Rated Best By EHS Teams"]["asset_id"])].status is (
         CreativeAssetStatus.DROPPED
     )
+
+    # --- 4.2.3 pairs what the real 4.2.2 wrote, linted and selected ---------
+    assert len(script.description_pools) == 1
+    (written,) = (await _output(db, run_id, "4.2.2"))["ad_groups"]
+    assert [d["text"] for d in written["descriptions"]] == DESCRIPTIONS
+    assert [d["text"] for d in written["reserve"]] == [RESERVE_DESCRIPTION, OFFER_30_AGAIN]
+    rows = {a.text: a for a in assets.values() if a.kind is CreativeAssetKind.DESCRIPTION}
+    assert rows[TOO_LONG_DESCRIPTION].status is CreativeAssetStatus.DRAFT
+    assert rows[MISQUOTED].status is CreativeAssetStatus.DROPPED
+    assert rows[OFFER_30_AGAIN].status is CreativeAssetStatus.RESERVE
 
     # --- a planted offer conflict is flagged and swapped from reserve --------
     (ad,) = coherence["ads"]
