@@ -18,7 +18,6 @@ from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_vali
 
 from agent.db.models import ApprovalRequiredRole, RunMode, RunStatus, RunTrigger
 from agent.gates import gate_ids
-from agent.llm.router import TaskClass
 
 Name = Annotated[str, StringConstraints(min_length=1, max_length=120, strip_whitespace=True)]
 Domain = Annotated[str, StringConstraints(min_length=3, max_length=253, strip_whitespace=True)]
@@ -163,9 +162,9 @@ class ModelRouting(BaseModel):
     def as_settings(self) -> dict[str, str]:
         """The `{task_class: model_id}` object `llm.router` reads."""
         return {
-            task_class.value: model
-            for task_class in TaskClass
-            if (model := getattr(self, task_class.value)) is not None
+            name: model
+            for name in type(self).model_fields
+            if (model := getattr(self, name)) is not None
         }
 
     @classmethod
@@ -178,7 +177,7 @@ class ModelRouting(BaseModel):
         raw = (settings or {}).get(SETTINGS_MODELS)
         if not isinstance(raw, dict):
             return cls()
-        known = {task_class.value for task_class in TaskClass}
+        known = set(cls.model_fields)
         return cls(
             **{
                 key: value

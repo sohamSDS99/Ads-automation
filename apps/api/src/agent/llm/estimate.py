@@ -63,7 +63,9 @@ async def usage_baseline(db: AsyncSession, workspace_id: uuid.UUID) -> list[Clas
     per run so the number means "the next run", not "every run so far".
     """
     measured = await _measured(db, workspace_id)
-    return [measured.get(task_class) or _assumed(task_class) for task_class in TaskClass]
+    # A *research* run's classes — the ones `ASSUMED` prices. The Stage 04
+    # classes never occur in one, and IMAGE_GEN/VIDEO_GEN are not text at all.
+    return [measured.get(task_class) or _assumed(task_class) for task_class in ASSUMED]
 
 
 async def _measured(db: AsyncSession, workspace_id: uuid.UUID) -> dict[TaskClass, ClassUsage]:

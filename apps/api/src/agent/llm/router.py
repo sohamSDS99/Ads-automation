@@ -35,6 +35,26 @@ class TaskClass(StrEnum):
     CRITIQUE = "critique"
     """Adversarial review of another model's output — deliberately cross-family."""
 
+    COPYWRITE = "copywrite"
+    """Stage 04: headline and description pools, variant B, extras, video scripts."""
+
+    VISION = "vision"
+    """Stage 04, advisory only: ranking masters, review notes, rights flags."""
+
+    IMAGE_GEN = "image_gen"
+    """Stage 04. **Routed only through `media/`** — user-selected, no seed (law 36)."""
+
+    VIDEO_GEN = "video_gen"
+    """Stage 04. **Routed only through `media/`** — user-selected, no seed (law 36)."""
+
+
+#: The two classes a text gateway must never serve (PRD §7.1). They have no
+#: seed model: the user picks one from the admin allowlist ∩ the live catalogue,
+#: and every request is capability-validated and budget-reserved in `media/`
+#: before a cent is spent. `router.choose()` refuses them, `validate_overrides`
+#: refuses them, and `LLMGateway.complete_structured` refuses them again.
+MEDIA_TASK_CLASSES: frozenset[TaskClass] = frozenset({TaskClass.IMAGE_GEN, TaskClass.VIDEO_GEN})
+
 
 #: Seed routing. Each entry is `(primary, *fallbacks)`; the gateway walks the
 #: tuple left to right when a model errors past its retries (PRD §16, "auto-
@@ -47,6 +67,12 @@ SEED_MODELS: dict[TaskClass, tuple[str, ...]] = {
     TaskClass.CLASSIFY: ("anthropic/claude-haiku-4.5", "google/gemini-2.5-flash"),
     TaskClass.SYNTHESIZE: ("anthropic/claude-opus-4.6", "openai/gpt-5.2"),
     TaskClass.CRITIQUE: ("openai/gpt-5.2", "anthropic/claude-opus-4.6"),
+    # Stage 04 PRD §9.6. The seed is the PRD's; the fallback crosses vendor for
+    # the reason above, and is SYNTHESIZE's own fallback.
+    TaskClass.COPYWRITE: ("anthropic/claude-opus-4.6", "openai/gpt-5.2"),
+    # Both accept image input; a vision fallback that could not see the image
+    # would be worse than none. Advisory only — nothing blocks on VISION.
+    TaskClass.VISION: ("google/gemini-2.5-flash", "anthropic/claude-haiku-4.5"),
 }
 
 #: Sampling per class as `(temperature, top_p)`.
@@ -60,6 +86,11 @@ SAMPLING: dict[TaskClass, tuple[float, float]] = {
     TaskClass.CLASSIFY: (0.0, 1.0),
     TaskClass.SYNTHESIZE: (0.3, 1.0),
     TaskClass.CRITIQUE: (0.3, 1.0),
+    # A ranking is a judgement asked twice; it should give the same answer.
+    TaskClass.VISION: (0.0, 1.0),
+    # COPYWRITE is deliberately absent: its temperature is
+    # `copy.temperature_copywrite` in creative_constants.yaml (PRD §9.6), with
+    # the project's `creative_overrides` applied, and `ModelRouter` reads it.
 }
 
 #: Where an override lives inside `Project.settings` / `Workspace.settings`.
@@ -117,8 +148,23 @@ def _overrides_from(settings: Mapping[str, Any] | None, *, source: str) -> dict[
         except ValueError as exc:
             raise ModelRoutingError(
                 f"{source}.{SETTINGS_KEY} names task class {key!r}; "
-                f"valid classes are {', '.join(sorted(TaskClass))}."
+                f"valid classes are {', '.join(sorted(TEXT_TASK_CLASSES))}."
             ) from exc
+        if task_class in MEDIA_TASK_CLASSES:
+            raise ModelRoutingError(
+                f"{source}.{SETTINGS_KEY}.{key}: {task_class.value} is routed only through "
+                "media/ — choose the model on the Media generation screen, where it is "
+                "checked against the live catalogue and the allowlist."
+            )
+        if task_class is TaskClass.VISION:
+            # PRD §9.6: the router rejects a VISION model whose
+            # `input_modalities` lacks `image`. Nothing here can see the
+            # catalogue yet, so an override is refused rather than trusted —
+            # fail closed until the first VISION caller (4.4.2) wires the check.
+            raise ModelRoutingError(
+                f"{source}.{SETTINGS_KEY}.{key}: a vision override cannot be checked for image "
+                "input yet, so it is not accepted. The seed model is used."
+            )
         if not isinstance(value, str):
             raise ModelRoutingError(f"{source}.{SETTINGS_KEY}.{key} must be a model id string.")
         resolved[task_class] = _validate(value, source=f"{source}.{SETTINGS_KEY}.{key}")
@@ -140,8 +186,16 @@ def validate_overrides(
 class ModelRouter:
     """Task class → model chain, with project settings winning over workspace settings."""
 
-    def __init__(self, overrides: Mapping[TaskClass, str] | None = None) -> None:
+    def __init__(
+        self,
+        overrides: Mapping[TaskClass, str] | None = None,
+        *,
+        copywrite_temperature: float | None = None,
+    ) -> None:
         self._overrides = dict(overrides or {})
+        if copywrite_temperature is None:
+            copywrite_temperature = _copywrite_temperature(None)
+        self._copywrite_temperature = copywrite_temperature
 
     @classmethod
     def resolve(
@@ -153,9 +207,14 @@ class ModelRouter:
         """Build the router for one run. Project settings are the narrower scope, so they win."""
         merged = _overrides_from(workspace_settings, source="workspace.settings")
         merged.update(_overrides_from(project_settings, source="project.settings"))
-        return cls(merged)
+        return cls(merged, copywrite_temperature=_copywrite_temperature(project_settings))
 
     def choose(self, task_class: TaskClass) -> ModelChoice:
+        if task_class in MEDIA_TASK_CLASSES:
+            raise ModelRoutingError(
+                f"{task_class.value} has no routable model: it is user-selected and served "
+                "only through media/ (law 36)."
+            )
         seeds = SEED_MODELS[task_class]
         override = self._overrides.get(task_class)
         # An override replaces the primary but keeps the seeds behind it: the
@@ -163,7 +222,10 @@ class ModelRouter:
         # down, and a chosen model is not less likely to be down than a seed.
         chain: Sequence[str] = seeds if override is None else (override, *seeds)
         deduped = tuple(dict.fromkeys(chain))
-        temperature, top_p = SAMPLING[task_class]
+        if task_class is TaskClass.COPYWRITE:
+            temperature, top_p = self._copywrite_temperature, 1.0
+        else:
+            temperature, top_p = SAMPLING[task_class]
         return ModelChoice(
             task_class=task_class, chain=deduped, temperature=temperature, top_p=top_p
         )
@@ -174,3 +236,18 @@ class ModelRouter:
     @property
     def overrides(self) -> dict[TaskClass, str]:
         return dict(self._overrides)
+
+
+#: Every class a text model may be chosen for.
+TEXT_TASK_CLASSES: frozenset[TaskClass] = frozenset(TaskClass) - MEDIA_TASK_CLASSES
+
+
+def _copywrite_temperature(project_settings: Mapping[str, Any] | None) -> float:
+    """`copy.temperature_copywrite`, with this project's overrides applied."""
+    from agent.creative.constants import OVERRIDES_KEY, get_creative_constants
+
+    overrides = (project_settings or {}).get(OVERRIDES_KEY)
+    constants = get_creative_constants().merged(
+        overrides if isinstance(overrides, Mapping) else None
+    )
+    return constants.copy_.temperature_copywrite.value
