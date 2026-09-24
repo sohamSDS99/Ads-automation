@@ -33,6 +33,7 @@ from agent.guardrails.registry import (
     rule,
 )
 from agent.schemas.guardrails import (
+    SURFACE_ASSET_TYPES,
     Authority,
     CountMatcher,
     EnumAllowMatcher,
@@ -151,7 +152,11 @@ def prepare_count(matcher: Matcher) -> PreparedCount:
 def evaluate_count(
     rule_: Rule, prepared: Any, target: LintTarget | None, ctx: LintContext
 ) -> list[LintFinding]:
-    """How many targets of one surface the submission holds.
+    """How many targets of one surface — or one spec-sheet asset type — the submission holds.
+
+    The entity is whichever vocabulary the rule was written in: a hand-built
+    rule names a surface (`rsa_headline`), a rule compiled from the spec sheet
+    names an asset type (`headline`), and `SURFACE_ASSET_TYPES` bridges them.
 
     Counted over the targets the *rule's own scope* selects, so a rule scoped
     to German search headlines does not count the French ones. A submission
@@ -162,7 +167,8 @@ def evaluate_count(
     matching = [
         item
         for item in ctx.targets
-        if item.surface == prepared.entity and rule_.scope.matches(item)
+        if prepared.entity in (item.surface, SURFACE_ASSET_TYPES.get(item.surface))
+        and rule_.scope.matches(item)
     ]
     count = len(matching)
     if prepared.maximum is not None and count > prepared.maximum:

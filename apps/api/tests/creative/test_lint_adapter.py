@@ -18,7 +18,7 @@ import pytest
 from agent.creative import lint_adapter
 from agent.creative.lint_adapter import LintAdapterError, PinnedLinter, current_pin
 from agent.guardrails.linter import lint as guardrails_lint
-from agent.schemas.guardrails import LintResult
+from agent.schemas.guardrails import LintResult, LintTarget
 from tests.guardrails.fixture import NOW, golden_offers, golden_ruleset, golden_targets
 
 SRC = Path(lint_adapter.__file__).resolve().parents[1]
@@ -117,3 +117,50 @@ def test_lint_adapter_is_the_only_stage_04_caller_of_the_linter() -> None:
     assert len(files) > 10, "the Stage 04 scan found almost nothing — are the paths right?"
     callers = sorted(str(path.relative_to(SRC)) for path in files if _imports_the_linter(path))
     assert callers == ["creative/lint_adapter.py"]
+
+
+# ---------------------------------------------------------------------------
+# a candidate is linted alone, at creation (law 33)
+# ---------------------------------------------------------------------------
+
+
+def _published() -> PinnedLinter:
+    """A pin carrying the spec-sheet rules synthesis really emits."""
+    from agent.export.guideline_contract import AssetSpecs
+    from agent.guidelines.constants import get_content_constants
+    from agent.guidelines.synthesis import _asset_rules
+
+    sheet = get_content_constants().asset_sheet()
+    rules = tuple(_asset_rules(AssetSpecs(sheet=sheet, scope="unscoped"), lambda _reason: None))
+    return PinnedLinter(
+        ruleset=golden_ruleset().model_copy(update={"rules": rules}), offer_records=()
+    )
+
+
+def _headline(text: str) -> LintTarget:
+    return LintTarget(
+        ref="h1",
+        surface="rsa_headline",
+        campaign_type="search",
+        market="US",
+        language="en",
+        text=text,
+    )
+
+
+def test_a_candidate_is_not_judged_by_the_submissions_asset_counts() -> None:
+    """One headline is not "fewer than three headlines" — the assembled ad is."""
+    pinned = _published()
+    alone = pinned.lint([_headline("Keep every SDS current")], now=NOW)
+    candidate = pinned.lint_candidate(_headline("Keep every SDS current"), now=NOW)
+
+    assert alone.verdict == "fail"
+    assert {f.target_ref for f in alone.findings} == {"*"}
+    assert candidate.verdict == "pass", candidate.findings
+    assert candidate.targets_checked == 1
+
+
+def test_a_candidate_still_meets_every_per_target_rule() -> None:
+    result = _published().lint_candidate(_headline("Keep every safety data sheet current"), now=NOW)
+    assert result.verdict == "fail"
+    assert [(f.target_ref, f.rule_id) for f in result.findings] == [("h1", "asset_spec.length.v1")]

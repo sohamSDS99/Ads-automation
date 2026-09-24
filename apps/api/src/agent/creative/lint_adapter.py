@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 
 import sqlalchemy as sa
@@ -66,9 +66,13 @@ class PinnedLinter:
     #: Built once per pin, not per call: a node linting 25 candidates builds
     #: the matchers once, which is what `lint(program=)` exists for.
     _program: Program = field(init=False, repr=False, compare=False)
+    #: The same program without its set rules — see `lint_candidate`.
+    _candidate_program: Program = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "_program", build_program(self.ruleset))
+        program = build_program(self.ruleset)
+        object.__setattr__(self, "_program", program)
+        object.__setattr__(self, "_candidate_program", replace(program, per_set=()))
 
     @property
     def pin(self) -> str:
@@ -81,6 +85,25 @@ class PinnedLinter:
             now=now,
             offers=self.offer_records,
             program=self._program,
+        )
+
+    def lint_candidate(self, target: LintTarget, *, now: datetime) -> LintResult:
+        """One candidate, linted alone at creation (law 33), against every
+        per-target rule its scope selects.
+
+        The set rules — the spec sheet's asset counts — are left out, and only
+        they are: "3 to 15 headlines" is a property of the assembled ad, not of
+        one headline, so asking a lone candidate would fail every candidate on
+        "there is 1 of headline". The ad is counted where it is assembled. The
+        linter still evaluates every rule it is given; this chooses which
+        compiled rules a candidate is subject to, and implements none.
+        """
+        return guardrails_lint(
+            [target],
+            self.ruleset,
+            now=now,
+            offers=self.offer_records,
+            program=self._candidate_program,
         )
 
 
