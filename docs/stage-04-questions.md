@@ -537,3 +537,80 @@ Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`
     there until S4-P6. The console baselines show that state. When a later
     phase moves the run further, re-record them: `UPDATE_BASELINES=1 make
     browser-s4p18`.
+
+## S4-P10
+
+Rulings owed on what S4-P10 decided where §9.4, §11 (4.4.3) and §21.3 are silent.
+
+1. **A new constant, `logo.width_ratio` = 0.2 (`source: internal`).** §9.4
+   item 3 gives a composited logo a floor (`min_width_px`), clear space and a
+   contrast bar, but no size. The logo is `max(0.2 × rendition width,
+   min_width_px)` wide. Listed as beyond §9.5 in `test_creative_constants.py`;
+   constants version bumped to `2026.09.2`. Rule on the value or the basis
+   (width vs area vs shorter side).
+2. **Spectral residual is written in OpenCV primitives.** The repo ships the
+   base `opencv-python-headless` wheel, which has no `cv2.saliency` module
+   (contrib only). `calc/media.spectral_residual` follows the contrib
+   `StaticSaliencySpectralResidual` steps (64×64, 3×3 mean on log amplitude,
+   5×5 σ8 blur, square, normalise) with `cv2.dft`/`blur`/`GaussianBlur`.
+   The alternative is swapping the wheel for `opencv-contrib-python-headless`
+   in both images. A frame with zero variance has no saliency (the method
+   would otherwise turn its all-zero spectrum into a spike at the origin),
+   so a window keeps saliency in proportion to its area.
+3. **"Retained saliency" is mass, and textured frames push it toward area.**
+   With real grain the residual is non-zero everywhere, so retained saliency
+   tracks area plus the subject's share: a 16:9 → 1:1 crop of a centred
+   subject kept 71% in testing — a gap at 0.85. The plan-time area bound
+   (`ratio_plan_v1`) and the pixel-time saliency bound therefore agree on
+   most frames. If crops should be judged on the subject only, the rule
+   needs a threshold on the map (not in §9.4).
+4. **A plan-time gap stays a gap.** `ratio_coverage` marks a ratio `gap`
+   when no supported frame covers 85% of its AREA; 4.4.3 does not then crop
+   on saliency even if the subject would survive — the estimate the user
+   approved said "gap", and §9.4's re-decision runs one way (crop → gap).
+5. **Crops come only from painted frames.** A crop is cut from the master or
+   a relay/native output of this concept, whichever covers the ratio best.
+   The ratio plan may promise a crop "from 16:9" that the run never paints
+   (16:9 not required, master at 1:1): that crop then usually gaps. No extra
+   job is sent to create a crop source — "a crop costs nothing" (§9.3).
+6. **A failed relay falls back to a crop, never to a second job.** `relaid`
+   or `native` jobs that do not complete (or whose rendition fails lint) try
+   a crop next; the estimate counted one job per painted ratio.
+7. **The spec sheet carries no `format`.** §11 lists "format" among
+   `asset_specs`, but `AssetSpec` has no such field, so every rendition is
+   JPEG (the only format with §9.4's quality search). A fitted logo slot is
+   PNG (transparent padding); over `max_bytes` it is a gap.
+8. **Logo variant = measured luminance, placement = least-salient corner.**
+   There is no light/dark tag on a registered logo: each is trimmed to its
+   visible pixels and its alpha-weighted WCAG luminance measured. Corners
+   are ranked by the saliency the logo's footprint would cover, ties in
+   bottom-right, bottom-left, top-right, top-left order; the first corner
+   where some variant reaches 3:1 gets the highest-contrast one. No stated
+   `clear_space_ratio` ⇒ no logo (it cannot be kept), recorded.
+9. **Visible labels apply only to rules that name the image surface.** A
+   pinned `DisclosureRule` whose `surfaces` include the image surface (and
+   whose `markets` include the market, or are empty) is drawn: `prefix`
+   top-left, `suffix` bottom-right, `anywhere` bottom-left, white on a 60%
+   box, text `video.caption_height_pct` of the frame tall (the one sizing
+   constant for burned-in text). A rule naming no image surface is treated
+   as a copy rule. Rule on both mappings.
+10. **Fitted logos are assets.** Each registered logo × spec-sheet logo slot
+    (`asset_type` containing `logo`) is a `logo` `CreativeAsset` (node 4.4.3,
+    `generated_by_ai=False`, `lineage.origin=reused`) with one `rendition`
+    artifact, derivation `composited`, disclosure NULL. It is measured and
+    linted like any image (`generated_by_ai=False`); failing lint is a gap.
+11. **A relay sends the master regardless of `media_references_allowed`.**
+    Law 44 governs uploaded references; the master is the provider's own
+    output. "Check again" now re-reads it from the run's MASTER artifact
+    (re-hashed; changed bytes are refused), where it used to die as
+    `unknown_reference`.
+12. **Rendition lint lives in the output, not on a row.** Renditions are
+    `media_artifact` rows on the concept's asset (4.4.2's), which has one
+    `lint` column (the master's). Each rendition's `CandidateLint` is in
+    `renditions[].lint`; a failing rendition is never written.
+13. **Two unit tests and three more cannot run in the worker container.**
+    `test_creative_fix_urls.py` and `test_deployment_config.py` read the
+    repo root (`parents[3]`), and `test_export_tokens.py` /
+    `test_nfr_stage_02.py` read an unset `FILE_TOKEN_SECRET` and the
+    Makefile: the test service sets the one and mounts neither. They pass on
+    the host; everything else ran in the worker image (exiftool, tesseract).
