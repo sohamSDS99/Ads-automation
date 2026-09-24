@@ -123,6 +123,10 @@ class CombinationCoherenceNode:
                 "and a second would re-ask a model without a bound on its cost"
             )
         headlines = HeadlineSpreadOutput.model_validate(ctx.output_of("4.2.1"))
+        if not headlines.ad_groups:
+            # No Search ad group in scope: no responsive search ad, no pair to
+            # judge, and nothing 4.2.2 could be asked for.
+            return CombinationCoherenceOutput()
         descriptions = _descriptions(ctx)
         by_group = {
             (group.campaign_ref, group.ad_group_ref, group.variant): group
