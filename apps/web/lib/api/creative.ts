@@ -9,8 +9,9 @@
  * server's, and every sentence a person reads about why not is the server's
  * too; the most this file does is choose which words go next to it.
  */
-import { apiFetch } from "@/lib/api";
+import { ApiError, apiFetch } from "@/lib/api";
 import type { ApprovalItem } from "@/lib/api/approvals";
+import type { MediaModality, RatioPlan } from "@/lib/api/media";
 import type { RunStatus } from "@/lib/api/projects";
 import type { RunDetail } from "@/lib/api/runs";
 import type { HumanTask } from "@/lib/api/tasks";
@@ -334,4 +335,145 @@ const DESTINATIONS: [RegExp, string][] = [
 export function destinationLabel(fixUrl: string): string {
   const path = fixUrl.split(/[?#]/)[0] ?? fixUrl;
   return DESTINATIONS.find(([pattern]) => pattern.test(path))?.[1] ?? "Open";
+}
+
+/* -------------------------------------------------------------------------
+ * Starting a run (S4-P3): scope, models, the estimate, the start
+ *
+ * Mirrors `schemas.creative_input.CreativeScope` / `MediaModelSelection` and
+ * `schemas_media.EstimateResponse`. The dialog sends a *selection* — which
+ * model, which defaults — and the server snapshots the capability record
+ * itself (Law 36); every verdict here (`fits`, the reduction, a refusal) is
+ * the server's, read and rendered.
+ * ---------------------------------------------------------------------- */
+
+export type CreativeScope = {
+  /** Explicit refs from the frozen plan; the server refuses one it does not have. */
+  campaign_refs: string[];
+  images: boolean;
+  video: boolean;
+  concepts_per_campaign: 2 | 3;
+};
+
+export type RunDefault = string | number | boolean;
+
+export type MediaModelSelection = {
+  modality: MediaModality;
+  model_id: string;
+  provider_tag: string | null;
+  defaults: Record<string, RunDefault>;
+};
+
+export type CreativeRequest = {
+  scope: CreativeScope;
+  /** One per enabled modality, and none for a modality that is off. */
+  media_models: MediaModelSelection[];
+};
+
+export type EstimateJobs = { image: number; video: number };
+
+/** `schemas_media.ScopeReduction`: the one-click reduction, as the scope to send. */
+export type ScopeReduction = {
+  scope: CreativeScope;
+  /** Degrade-ladder rungs, in order: `third_concept`, `video`. */
+  steps: string[];
+  fits: boolean;
+  jobs: EstimateJobs;
+  text_usd: number;
+  image_usd: number;
+  video_usd: number;
+  media_usd: number;
+  total_usd: number;
+};
+
+/** One required ratio in `media.ratio_plan_v1`: where a crop comes from and what it keeps. */
+export type RatioPlanEntry = { plan: RatioPlan; from?: string; retained?: number };
+
+/** `POST /projects/{id}/creative/estimate`. No spend, no job rows. */
+export type CreativeEstimate = {
+  text_usd: number;
+  image_usd: number;
+  video_usd: number;
+  total_usd: number;
+  confidence: "high" | "medium" | "low";
+  calc_evidence_id: string;
+  jobs: EstimateJobs;
+  /** The server's verdict against both caps. The Start button is a cache of it. */
+  fits: boolean;
+  caps: { max_creative_cost_usd: number; max_media_cost_usd: number };
+  scope_reduction: ScopeReduction | null;
+  ratio_plan: Partial<Record<MediaModality, Record<string, RatioPlanEntry>>>;
+  ratio_plan_evidence_id: string;
+};
+
+/** `POST /projects/{id}/creative/runs` → 202. */
+export type CreativeRunAccepted = { run_id: string; status: RunStatus; input_hash: string };
+
+export function estimateCreative(projectId: string, body: CreativeRequest) {
+  return apiFetch<CreativeEstimate>(`/projects/${projectId}/creative/estimate`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function startCreativeRun(projectId: string, body: CreativeRequest) {
+  return apiFetch<CreativeRunAccepted>(`/projects/${projectId}/creative/runs`, {
+    method: "POST",
+    body: JSON.stringify({ ...body, reuse_cache: true }),
+  });
+}
+
+/**
+ * A `422 capability_unsupported` (§16 rule 2, Law 36): the field the model
+ * does not take and the values it does. `supported` is a list for an enum, a
+ * `{min, max}` for a range, and empty when the field is not supported at all.
+ */
+export type CapabilityRefusal = {
+  modality: MediaModality | null;
+  field: string;
+  value: unknown;
+  /** Kept as the server typed them: a video's durations are numbers. */
+  supported: (string | number)[] | { min?: number; max?: number };
+  detail: string;
+};
+
+export function capabilityRefusal(error: unknown): CapabilityRefusal | null {
+  if (!(error instanceof ApiError) || error.status !== 422 || !error.problem) return null;
+  const problem = error.problem as Record<string, unknown>;
+  if (problem.code !== "capability_unsupported" || typeof problem.field !== "string") return null;
+  const errors = Array.isArray(problem.errors) ? (problem.errors as Record<string, unknown>[]) : [];
+  const first = errors.find((item) => item.field === problem.field);
+  const supported = problem.supported;
+  return {
+    modality: problem.modality === "image" || problem.modality === "video" ? problem.modality : null,
+    field: problem.field,
+    value: first?.value,
+    supported: Array.isArray(supported)
+      ? supported.filter((item): item is string | number => typeof item === "string" || typeof item === "number")
+      : supported && typeof supported === "object"
+        ? (supported as { min?: number; max?: number })
+        : [],
+    detail: error.problem.detail,
+  };
+}
+
+/** The problem's own `code`, when it has one (`media_model_not_allowlisted`, `creative_in_flight`…). */
+export function problemCode(error: unknown): string | null {
+  if (!(error instanceof ApiError) || !error.problem) return null;
+  const code = (error.problem as Record<string, unknown>).code;
+  return typeof code === "string" ? code : null;
+}
+
+/** What each scope rung gives up, said as the change a person makes. */
+export const SCOPE_STEP_LABEL: Record<string, string> = {
+  third_concept: "two concepts per campaign",
+  video: "no video",
+};
+
+/** `["third_concept", "video"]` → "Use two concepts per campaign and no video". */
+export function reductionLabel(steps: string[]): string {
+  const words = steps.map((step) => SCOPE_STEP_LABEL[step] ?? step.replaceAll("_", " "));
+  if (words.length === 0) return "Reduce the scope";
+  const sentence = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words.at(-1)}`;
+  return `Use ${sentence}`;
 }

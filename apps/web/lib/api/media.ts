@@ -181,3 +181,131 @@ export function priceLabel(line: PriceLine): string {
 export function sortedPrices(record: CapabilityRecord): PriceLine[] {
   return [...record.pricing].sort((a, b) => Number(a.usd) - Number(b.usd));
 }
+
+/* -------------------------------------------------------------------------
+ * The Start dialog's model list (S4-P3)
+ * ---------------------------------------------------------------------- */
+
+/** `calc.media` / `media.capability.ratio_coverage`: how one required ratio gets made. */
+export type RatioPlan = "native" | "relaid" | "crop" | "gap";
+
+/** `schemas_media.MediaModelRow`: one allowlisted model, as the live catalogue describes it. */
+export type MediaModelRow = {
+  modality: MediaModality;
+  model_id: string;
+  provider_tag: string | null;
+  enabled: boolean;
+  /** The server's answer: listed but not choosable when false, with `reason`. */
+  available: boolean;
+  reason: "media_model_unavailable" | "disabled" | null;
+  capability: CapabilityRecord | null;
+  capability_hash: string | null;
+  /** Against the project's spec sheet; `null` when the project has none to check. */
+  ratio_coverage: Record<string, RatioPlan> | null;
+};
+
+/** `GET /media/models` — the allowlist ∩ the live catalogue. */
+export type MediaModelsResponse = {
+  models: MediaModelRow[];
+  catalogue_hash: string | null;
+  warning: string | null;
+};
+
+export function getMediaModels(modality: MediaModality, projectId: string) {
+  return apiFetch<MediaModelsResponse>(
+    `/media/models?modality=${modality}&project_id=${encodeURIComponent(projectId)}`,
+  );
+}
+
+/** Why a listed model cannot be chosen, in a person's words. */
+export const UNAVAILABLE_REASON: Record<NonNullable<MediaModelRow["reason"]>, string> = {
+  media_model_unavailable: "Not in OpenRouter's live catalogue any more",
+  disabled: "Switched off by an admin",
+};
+
+/**
+ * One run default the Start dialog can set, as the control that sets it.
+ *
+ * `numeric` marks an enum whose values the request carries as numbers (a
+ * video's `duration`); everything else in an enum is sent as the string the
+ * catalogue lists.
+ */
+export type RunParam =
+  | { field: string; kind: "enum"; values: string[]; numeric: boolean }
+  | { field: string; kind: "range"; min: number | null; max: number | null }
+  | { field: string; kind: "boolean" };
+
+/**
+ * The run defaults the dialog offers, in the order it shows them — a subset
+ * of the server's default fields (`schemas_media.*_DEFAULT_FIELDS`), which is
+ * what validates them. Three are left out on purpose, each for the same
+ * reason the ratio-coverage table exists: `aspect_ratio` and `size` fix the
+ * frame's shape, which the ratio plan decides per rendition, and `seed` is
+ * catalogued as a may-send flag for an integer that a run-wide value would
+ * repeat across every candidate (docs/stage-04-questions.md, S4-P3).
+ */
+const RUN_FIELDS: Record<MediaModality, string[]> = {
+  image: ["resolution", "quality", "output_format", "background", "output_compression", "n"],
+  video: ["duration", "resolution", "generate_audio"],
+};
+
+/**
+ * The controls `CapabilityParams` draws for one model: **only what its
+ * capability record says it supports**. A parameter with no descriptor — or
+ * an empty `supported_*` list — is absent, never disabled. A parameter with a
+ * single possible value offers no choice and is not drawn either.
+ *
+ * Where each field's descriptor lives is the one fact this mirrors from
+ * `media.capability.validate`: an image's are `params[field]`; a video's
+ * duration and resolution are its `supported_*` lists, its flags are
+ * `params`. The server still validates every value it is sent.
+ */
+export function runParams(record: CapabilityRecord): RunParam[] {
+  const params: RunParam[] = [];
+  for (const field of RUN_FIELDS[record.modality]) {
+    if (record.modality === "video" && (field === "duration" || field === "resolution")) {
+      const listed =
+        field === "duration"
+          ? [...(record.video?.durations ?? [])].sort((a, b) => a - b).map(String)
+          : (record.video?.resolutions ?? []);
+      if (listed.length > 1) {
+        params.push({ field, kind: "enum", values: listed, numeric: field === "duration" });
+      }
+      continue;
+    }
+    const descriptor = record.params[field];
+    if (!descriptor) continue;
+    if (descriptor.kind === "enum") {
+      const values = descriptor.values ?? [];
+      if (values.length > 1) params.push({ field, kind: "enum", values, numeric: false });
+    } else if (descriptor.kind === "range") {
+      const min = descriptor.min ?? null;
+      const max = descriptor.max ?? null;
+      if (min === null || max === null || max > min) params.push({ field, kind: "range", min, max });
+    } else {
+      params.push({ field, kind: "boolean" });
+    }
+  }
+  return params;
+}
+
+/** A parameter's name as a label: `output_compression` → `Output compression`. */
+export const PARAM_LABEL: Record<string, string> = {
+  resolution: "Resolution",
+  quality: "Quality",
+  output_format: "Format",
+  background: "Background",
+  output_compression: "Compression",
+  n: "Images per request",
+  duration: "Duration",
+  generate_audio: "Generate audio",
+};
+
+/** `"1.91:1"` → 1.91. `null` for anything that is not a ratio (`auto`). */
+export function ratioValue(label: string): number | null {
+  const [w, h] = label.split(":").map(Number);
+  if (w === undefined || h === undefined || !Number.isFinite(w) || !Number.isFinite(h) || h <= 0) {
+    return null;
+  }
+  return w / h;
+}
