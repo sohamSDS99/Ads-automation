@@ -36,12 +36,13 @@ from agent.api.schemas_media import (
     MediaSettingsUpdate,
     ProjectMediaSettings,
     ProjectMediaSettingsPatch,
+    ScopeReduction,
 )
 from agent.audit import AuditAction, AuditTarget, write_audit
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
 from agent.calc.derived import DerivedWriter
-from agent.calc.media import cost_estimate_v1, ratio_plan_v1
+from agent.calc.media import cost_estimate_v1, ratio_plan_v1, scope_reduction
 from agent.config import get_settings
 from agent.db.models import Project, Workspace
 from agent.db.repos import ProjectRepo
@@ -398,10 +399,10 @@ async def creative_estimate(
         defaults=get_settings(),
     )
     constants = media_constants()
+    priced = inputs.estimate_inputs(plan, pin, body.scope, choices, caps)
     try:
-        estimate = cost_estimate_v1(
-            **inputs.estimate_inputs(plan, pin, body.scope, choices, caps), constants=constants
-        )
+        estimate = cost_estimate_v1(**priced, constants=constants)
+        smaller = scope_reduction(**priced, constants=constants)
     except ValueError as unpriced:  # CalcError
         raise problems.unprocessable(
             str(unpriced), title="This scope cannot be priced", code="estimate_unavailable"
@@ -430,6 +431,15 @@ async def creative_estimate(
         fits=result["fits"],
         caps=result["caps"],
         reduction=result["reduction"],
+        scope_reduction=(
+            None
+            if smaller is None
+            else ScopeReduction(
+                **{key: value for key, value in smaller.items() if key != "scope"},
+                # The walk prices the flags; the campaigns are the request's own.
+                scope=CreativeScope(campaign_refs=body.scope.campaign_refs, **smaller["scope"]),
+            )
+        ),
         ratio_plan=ratios.result,
         ratio_plan_evidence_id=ratios_id,
     )

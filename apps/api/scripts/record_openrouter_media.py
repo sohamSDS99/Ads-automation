@@ -43,6 +43,9 @@ ENDPOINT_MODELS = (
     "bytedance-seed/seedream-4.5",  # image
     "google/gemini-2.5-flash-image",  # token, four provider tags
     "qwen/qwen-image-3-pro",  # image, variants 1k / 2k
+    # token; the only recorded model taking quality, background and
+    # output_compression (S4-P3's CapabilityParams fixture, recorded 2026-09-24)
+    "openai/gpt-image-1",
 )
 IMAGE_REQUEST = {
     "model": "black-forest-labs/flux.2-klein-4b",

@@ -280,6 +280,75 @@ def cost_estimate_v1(
     )
 
 
+#: The degrade-ladder rungs a person can take in the Start dialog (PRD §15.4
+#: B), as the `CreativeScope` change each one is. `candidates` and
+#: `video_square` have no scope field — they are the run's own degradations,
+#: walked when a reservation would breach a cap (§9.3) — so a request cannot
+#: carry them and the dialog cannot offer them.
+SCOPE_RUNGS: dict[str, dict[str, Any]] = {
+    "third_concept": {"concepts_per_campaign": 2},
+    "video": {"video": False},
+}
+
+
+def scope_reduction(
+    *,
+    campaigns: list[dict[str, Any]],
+    scope: dict[str, Any],
+    image: dict[str, Any] | None,
+    video: dict[str, Any] | None,
+    text_usd: Decimal,
+    caps: dict[str, Any],
+    constants: MediaConstants,
+) -> dict[str, Any] | None:
+    """The smallest change to the *scope* that fits both caps: the Start
+    dialog's one-click reduction (PRD §15.4 B).
+
+    `cost_estimate_v1`'s `reduction` walks the whole ladder, and its first
+    rung — one candidate per concept — is not something a start request can
+    say. This walks only `SCOPE_RUNGS`, in ladder order and cumulatively,
+    re-pricing each step with `cost_estimate_v1` itself, and stops at the
+    first that fits. `None` when the scope already fits; `fits: False` when
+    no rung the scope can express is enough.
+    """
+
+    def price(candidate: dict[str, Any]) -> dict[str, Any]:
+        return cost_estimate_v1(
+            campaigns=campaigns,
+            scope=candidate,
+            image=image,
+            video=video,
+            text_usd=text_usd,
+            caps=caps,
+            constants=constants,
+        ).result
+
+    attempt = price(scope)
+    if attempt["fits"]:
+        return None
+    current = dict(scope)
+    steps: list[str] = []
+    for rung in constants.degrade_ladder:
+        change = SCOPE_RUNGS.get(rung)
+        if change is None or all(current.get(key) == value for key, value in change.items()):
+            continue
+        current = {**current, **change}
+        steps.append(rung)
+        attempt = price(current)
+        if attempt["fits"]:
+            break
+    return {
+        "scope": current,
+        "steps": steps,
+        "fits": attempt["fits"],
+        "jobs": attempt["jobs"],
+        **{
+            key: attempt[key]
+            for key in ("text_usd", "image_usd", "video_usd", "media_usd", "total_usd")
+        },
+    }
+
+
 @formula("media.ratio_plan_v1", kind="calc_ratio_plan")
 def ratio_plan_v1(
     *,

@@ -271,6 +271,50 @@ async def test_the_estimate_returns_its_breakdown_and_writes_no_generation_job(
     assert (await db.scalar(sa.select(sa.func.count()).select_from(GenerationJob))) == 0
 
 
+async def test_over_a_cap_the_estimate_offers_the_scope_reduction_a_start_request_can_carry(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+) -> None:
+    await _seed_media_ready(db, workspace_id, project_id, admin_user)
+    await _allowlist(admin)
+    await _defaults(db, project_id, {}, max_media_cost_usd="0.40")
+    scope = {**MEDIA_SCOPE, "campaign_refs": []}
+
+    over = await admin.post(
+        f"/projects/{project_id}/creative/estimate",
+        json={"scope": scope, "media_models": SELECTIONS},
+    )
+
+    assert over.status_code == 200, over.text
+    body = over.json()
+    assert body["fits"] is False
+    # The ladder's own answer leads with a rung no request can say...
+    assert body["reduction"]["steps"] == ["candidates", "video"]
+    # ...so the dialog's one click is the scope-only walk: drop video.
+    offered = body["scope_reduction"]
+    assert offered["steps"] == ["video"]
+    assert offered["fits"] is True
+    assert offered["scope"] == {**scope, "video": False}
+    assert offered["media_usd"] == 0.1174
+
+    # Taking it, exactly as offered, is an estimate that fits and offers nothing.
+    taken = await admin.post(
+        f"/projects/{project_id}/creative/estimate",
+        json={
+            "scope": offered["scope"],
+            "media_models": [s for s in SELECTIONS if s["modality"] == "image"],
+        },
+    )
+
+    assert taken.status_code == 200, taken.text
+    assert taken.json()["fits"] is True
+    assert taken.json()["scope_reduction"] is None
+    assert taken.json()["total_usd"] == offered["total_usd"]
+
+
 async def test_an_unsupported_aspect_ratio_is_our_422_and_no_request_reaches_the_mock(
     admin: ApiClient,
     db: AsyncSession,
