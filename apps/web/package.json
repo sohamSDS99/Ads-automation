@@ -7,7 +7,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint .",
+    "lint": "eslint . && stylelint --allow-empty-input \"components/creative/**/*.css\" \"app/**/creative/**/*.css\" && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check_design_laws.ts",
+    "test:design-laws": "node eslint-rules/design-laws.test.mjs && node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --test scripts/check_design_laws.test.mjs",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -37,8 +38,11 @@
     "@types/node": "^22.10.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
+    "axe-core": "^4",
     "eslint": "^9.17.0",
     "eslint-config-next": "^15.5.0",
+    "playwright": "1.55.0",
+    "stylelint": "^16",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.2"
   }

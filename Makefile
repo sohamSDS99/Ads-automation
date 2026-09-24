@@ -297,7 +297,7 @@ typecheck: ## mypy (api) + tsc (web)
 lint: ## ruff (api) + eslint (web)
 	cd $(API) && uv run ruff check .
 	cd $(API) && uv run ruff format --check .
-	cd $(WEB) && pnpm exec eslint .
+	cd $(WEB) && pnpm lint
 
 fmt: ## Format the api
 	cd $(API) && uv run ruff format .
