@@ -136,6 +136,11 @@ def test_every_gate_in_the_real_dag_routes_to_an_approver() -> None:
         # (H1, H2) are not gates and arrive in S3-P3 and S3-P4.
         "3.1.3",
         "3.5.1",
+        # Stage 04 law 40: G7 brief, G8 and G8b AI media. H3 (4.6.3) is a
+        # person-task, not a gate. Asserted in detail in tests/creative.
+        "4.1.1",
+        "4.4.5",
+        "4.4.7",
     ]
     assert all(item.required_role is ApprovalRequiredRole.APPROVER for item in gates)
 
@@ -160,6 +165,9 @@ def test_only_labelled_gates_carry_a_gate_key() -> None:
         "2.3.1": "G4",
         "3.1.3": "G5",
         "3.5.1": "G6",
+        "4.1.1": "G7",
+        "4.4.5": "G8",
+        "4.4.7": "G8b",
     }
     assert all(item.gate_key is None for item in specs if not item.gate)
 

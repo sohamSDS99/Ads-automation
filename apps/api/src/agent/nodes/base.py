@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -125,6 +125,14 @@ class NodeSpec(BaseModel):
     #: one of them can be None on a standalone run, and the unbound golden
     #: fixture exercises exactly that (PRD §4.3, §8.1 item 2).
     optional_inputs: tuple[str, ...] = ()
+    #: Stage 04 PRD §8.1 item 2: the modalities this node may submit to
+    #: `media/jobs.py`. A submit outside the list raises in the job layer, and
+    #: the executor re-checks every `GenerationJob` the node left behind.
+    media: tuple[Literal["image", "video"], ...] = ()
+    #: Stage 04 PRD §8.1 item 2 and law 33: every `CreativeAsset` this node
+    #: persisted with `status != draft` must carry a passing `LintResult`
+    #: against the run's current pin. The executor asserts it after `reason()`.
+    lint_required: bool = False
     version: int = Field(
         default=1,
         description=(
@@ -172,6 +180,13 @@ class NodeSpec(BaseModel):
                 f"plan gate {self.id} declares no gate_key — "
                 "G1..G4 is how the card is routed and how the freeze counts it"
             )
+        if self.gate and self.run_stage is RunStage.CREATIVE and not self.gate_key:
+            # Stage 04 PRD §5.3: G7 routes to the performance owner and G8/G8b
+            # to the brand owner, by key. An unkeyed creative gate reaches nobody.
+            raise ValueError(
+                f"creative gate {self.id} declares no gate_key — G7, G8 and G8b are how "
+                "the card reaches the owner the sign-off matrix names"
+            )
         if self.gate_key and not self.gate:
             raise ValueError(
                 f"node {self.id} declares gate_key {self.gate_key!r} but is not a gate"
@@ -200,6 +215,22 @@ class NodeSpec(BaseModel):
                 "An approval routes to a role; a person-task routes to one named "
                 "person with no admin fallback. A node cannot be both."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _media_and_lint_are_creative(self) -> NodeSpec:
+        """`media` and `lint_required` mean something only in the creative DAG.
+
+        Declared on a research or plan node they would read as enforced while
+        nothing checks them — no other stage submits media or writes assets.
+        """
+        if (self.media or self.lint_required) and self.run_stage is not RunStage.CREATIVE:
+            raise ValueError(
+                f"node {self.id} declares media/lint_required but runs in the "
+                f"{self.run_stage.value} DAG; only creative nodes submit media or emit assets"
+            )
+        if len(set(self.media)) != len(self.media):
+            raise ValueError(f"node {self.id} declares a media modality twice: {self.media}")
         return self
 
     @model_validator(mode="after")

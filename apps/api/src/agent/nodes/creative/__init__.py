@@ -1,9 +1,5 @@
-"""Stage 04's creative nodes.
+"""Stage 04's 24 creative nodes, one module per node (PRD §6.1, §11).
 
-S4-P0 registers exactly two placeholders (`_dummy.py`) so a creative run can
-execute end to end. S4-P4 replaces both re-exports below with the real nodes.
+`registry.discover()` walks every module here that does not start with an
+underscore. `_stub.py` is the shape a node has before its build phase.
 """
-
-from agent.nodes.creative._dummy import CREATIVE_DUMMY_END, CREATIVE_DUMMY_START
-
-__all__ = ["CREATIVE_DUMMY_END", "CREATIVE_DUMMY_START"]

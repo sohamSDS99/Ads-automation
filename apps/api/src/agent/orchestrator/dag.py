@@ -8,10 +8,10 @@ them, and a default argument is how that becomes a quiet bug instead of a
 type error.
 
 
-**The creative graph** (`get_dag(RunStage.CREATIVE)`) is exactly two
-placeholder nodes in S4-P0 — `4.0.1 → 4.0.2`, from `nodes/creative/_dummy.py`
-— so a creative run executes end to end over the existing SSE channel before
-any real node exists. Real nodes start in S4-P4.
+**The creative graph** (`get_dag(RunStage.CREATIVE)`) is Stage 04 PRD §11's
+24 nodes with §11's exact edges, one module per node under `nodes/creative/`.
+From S4-P4 the brief (4.1.1, ⛳G7) is real and the other 23 are stubs that do
+nothing until their own phase replaces them (`nodes/creative/_stub.py`).
 
 The edge list is not written out by hand: every node already declares
 `depends_on`, and two statements of the same graph would eventually disagree.
