@@ -104,6 +104,7 @@ from agent.guardrails.linter import lint
 from agent.guidelines import publish as publishing
 from agent.guidelines import versions
 from agent.guidelines.constants import get_content_constants
+from agent.guidelines.projection import ProjectionNotFound, build_creative_context
 from agent.orchestrator.guideline_input import build_guideline_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
 from agent.orchestrator.state import RunLock
@@ -111,6 +112,7 @@ from agent.queue import enqueue_export
 from agent.redis_client import get_redis
 from agent.schemas.guardrails import LintResult, LintTarget, LogoTemplate, Rule, Surface
 from agent.schemas.guardrails import RuleSet as RuleSetContract
+from agent.schemas.creative_input import CreativeContext
 from agent.schemas.imaging import ImageMeasurement
 
 log = structlog.get_logger(__name__)
@@ -1416,6 +1418,63 @@ async def published_ruleset(
             title="Nothing published",
         )
     return _as_ruleset(row, guideline)
+
+
+@router.get(
+    "/guidelines/published/creative-context",
+    response_model=CreativeContext,
+    summary="The published guideline's creative context, at the governing pin or `pin`",
+)
+async def published_creative_context(
+    project_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    pin: str | None = None,
+) -> CreativeContext:
+    """Stage 04 PRD §4.3 — the Law 27 resolution. `404` when nothing is published.
+
+    Resolves exactly like `published_ruleset` so the two can never name
+    different pins for the same question: no `pin` means the governing ruleset
+    of the latest published guideline; a `pin` means that historical ruleset,
+    whose guideline may since have been superseded — which is the point of a
+    pin. Either way the projection is of a published rulebook only, never a
+    draft (`guidelines/projection.py`).
+    """
+    if await ProjectRepo(db, me.workspace_id).get(project_id) is None:
+        raise problems.not_found(f"No project {project_id}.")
+
+    if pin:
+        row = await _ruleset_by_pin(db, me.workspace_id, pin)
+        if row is None or row.project_id != project_id:
+            raise problems.not_found(
+                f"No ruleset {pin!r} for this project.", title="Nothing published"
+            )
+    else:
+        guideline = (
+            await db.execute(
+                sa.select(ContentGuideline)
+                .where(
+                    ContentGuideline.workspace_id == me.workspace_id,
+                    ContentGuideline.project_id == project_id,
+                    ContentGuideline.status == GuidelineStatus.PUBLISHED,
+                )
+                .order_by(ContentGuideline.version_major.desc())
+                .limit(1)
+            )
+        ).scalar_one_or_none()
+        row = await versions.current_ruleset(db, guideline) if guideline else None
+        if row is None:
+            raise problems.not_found(
+                "No content guidelines have been published for this project, so there is "
+                "no creative context. Stage 04 must stop, not write without guidance.",
+                title="Nothing published",
+            )
+    try:
+        return await build_creative_context(
+            db, row.guideline_id, row.ruleset_version, workspace_id=me.workspace_id
+        )
+    except ProjectionNotFound as missing:
+        raise problems.not_found(str(missing), title="Nothing published") from missing
 
 
 @router.get(
