@@ -512,7 +512,12 @@ def _validated_defaults(
 def required_ratios(pin: PublishedPin, campaign_type: str) -> tuple[list[str], list[str]]:
     """`(image ratios, video ratios)` the pinned spec sheet requires for one
     campaign type. A logo is fitted by padding (Law 38), never generated."""
-    specs = ((pin.ruleset.compiled or {}).get("asset_specs") or {}).get("specs") or {}
+    return ratios_for(_pinned_specs(pin), campaign_type)
+
+
+def ratios_for(specs: dict[str, Any], campaign_type: str) -> tuple[list[str], list[str]]:
+    """`required_ratios` over a spec sheet already in hand — the pinned
+    `RuleSet.asset_specs.specs` a creative node holds (4.1.1's media plan)."""
     image: list[str] = []
     video: list[str] = []
     for asset_type, spec in (specs.get(campaign_type) or {}).items():
@@ -525,6 +530,10 @@ def required_ratios(pin: PublishedPin, campaign_type: str) -> tuple[list[str], l
     return image, video
 
 
+def _pinned_specs(pin: PublishedPin) -> dict[str, Any]:
+    return dict(((pin.ruleset.compiled or {}).get("asset_specs") or {}).get("specs") or {})
+
+
 def estimate_inputs(
     plan: PlanContract,
     pin: PublishedPin,
@@ -534,13 +543,27 @@ def estimate_inputs(
 ) -> dict[str, Any]:
     """The arguments `media.cost_estimate_v1` prices a scope from — gathered
     here, computed in `calc/` (law 14)."""
-    wanted = set(scope.campaign_refs) or set(campaign_refs(plan))
+    return estimate_inputs_for(
+        plan.account_structure.campaigns, _pinned_specs(pin), scope, choices, caps
+    )
+
+
+def estimate_inputs_for(
+    campaigns_in_plan: list[Any],
+    specs: dict[str, Any],
+    scope: CreativeScope,
+    choices: list[MediaModelChoice],
+    caps: BudgetCaps,
+) -> dict[str, Any]:
+    """`estimate_inputs` from the plan's campaigns and a spec sheet in hand."""
+    every = [c.campaign_ref or c.name for c in campaigns_in_plan]
+    wanted = set(scope.campaign_refs) or set(every)
     campaigns = []
-    for campaign in plan.account_structure.campaigns:
+    for campaign in campaigns_in_plan:
         ref = campaign.campaign_ref or campaign.name
         if ref not in wanted:
             continue
-        image_ratios, video_ratios = required_ratios(pin, campaign.type)
+        image_ratios, video_ratios = ratios_for(specs, campaign.type)
         campaigns.append(
             {"campaign_ref": ref, "image_ratios": image_ratios, "video_ratios": video_ratios}
         )
@@ -574,9 +597,18 @@ def ratio_inputs(
 ) -> dict[str, Any]:
     """The arguments of `media.ratio_plan_v1`: every ratio any campaign in
     scope requires, against each chosen model."""
-    inputs = estimate_inputs(
-        plan,
-        pin,
+    return ratio_inputs_for(plan.account_structure.campaigns, _pinned_specs(pin), scope, choices)
+
+
+def ratio_inputs_for(
+    campaigns_in_plan: list[Any],
+    specs: dict[str, Any],
+    scope: CreativeScope,
+    choices: list[MediaModelChoice],
+) -> dict[str, Any]:
+    inputs = estimate_inputs_for(
+        campaigns_in_plan,
+        specs,
         scope,
         choices,
         BudgetCaps(max_creative_cost_usd=Decimal(0), max_media_cost_usd=Decimal(0)),

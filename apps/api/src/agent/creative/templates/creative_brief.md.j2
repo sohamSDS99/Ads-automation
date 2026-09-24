@@ -1,0 +1,78 @@
+{# The one-page brief (Stage 04 PRD §11 4.1.1). Every word here counts toward
+   the 600-word page: `creative/brief.py` renders this and counts what it
+   emits. Headings and labels are part of the page, so they are short. #}
+# Creative brief
+
+**Objective.** {{ brief.objective.text }}
+
+**Angle.** {{ brief.angle.text }}
+
+## Audience
+{% for line in brief.audience %}
+- {{ line.text }}
+{% endfor %}
+{% if brief.exclusions %}
+
+## Not for
+{% for line in brief.exclusions %}
+- {{ line.text }}
+{% endfor %}
+{% endif %}
+{% if brief.proof_points %}
+
+## Proof points
+{% for claim in brief.proof_points %}
+- {{ claim.normalized_text }}
+{% endfor %}
+{% endif %}
+
+## Ad groups
+{% for group in brief.ad_groups %}
+
+### {{ group.campaign_ref }} / {{ group.ad_group_ref }}
+- Theme: {{ group.theme }}
+- Message: {{ group.primary_message.text }}
+- B angle: {{ group.angle_b.text }}
+- KPI: {{ group.kpi }}
+{% if group.top_keywords %}
+- Keywords: {{ group.top_keywords | join(", ") }}
+{% endif %}
+- Landing: {{ group.landing_url }}
+{% endfor %}
+
+## Non-negotiables
+{% set rules = brief.non_negotiables %}
+{% if rules.voice_words %}
+- Voice: {{ rules.voice_words | join(", ") }}
+{% endif %}
+{% if rules.required_terms %}
+- Always: {{ rules.required_terms | join(", ") }}
+{% endif %}
+{% if rules.never_terms %}
+- Never: {{ rules.never_terms | join(", ") }}
+{% endif %}
+{% for text in rules.disclosures %}
+- Disclose: {{ text }}
+{% endfor %}
+
+## Visuals
+{% set visual = brief.visual_constraints %}
+- Product: {{ visual.product_depiction | replace("_", " ") }}
+{% if visual.permitted_subjects %}
+- Show: {{ visual.permitted_subjects | join(", ") }}
+{% endif %}
+{% if visual.forbidden_subjects %}
+- Never show: {{ visual.forbidden_subjects | join(", ") }}
+{% endif %}
+{% if visual.palette_tokens %}
+- Palette: {{ visual.palette_tokens | join(", ") }}
+{% endif %}
+
+## Media plan
+{% set media = brief.media_plan %}
+- Images: {{ media.jobs.get("image", 0) if media.images else "off" }}{% if media.images %} jobs{% endif %}
+
+- Video: {{ media.jobs.get("video", 0) if media.video else "off" }}{% if media.video %} jobs{% endif %}
+
+- Estimate: ${{ media.total_usd }} (media ${{ media.media_usd }}, {{ media.confidence }} confidence){% if not media.fits %}, over a cap{% endif %}
+
