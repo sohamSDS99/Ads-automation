@@ -114,8 +114,12 @@ async def test_admin_can_sign_in(client: ApiClient, workspace: Ws) -> None:
         # non-delegable signature has stopped being non-delegable.
         "guideline_execute",
         "guideline_publish",
+        # Stage 04 (S4-P0). Both: an admin makes and releases creative. H3
+        # rides on `claim_sign`, which stays absent below.
+        "creative_execute",
+        "creative_release",
         # The bootstrap account is the system administrator. A workspace admin
-        # invited later holds the twelve above and not this one — see
+        # invited later holds the fourteen above and not this one — see
         # `test_authz_matrix`, which runs its `admin` row through an invited
         # account for exactly that reason.
         "platform_admin",

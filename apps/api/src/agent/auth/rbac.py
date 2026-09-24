@@ -80,6 +80,21 @@ class Permission(StrEnum):
     ATTEST_SUBMIT = "attest_submit"
     """Submit a verification attestation with supporting documents (H2)."""
 
+    CREATIVE_EXECUTE = "creative_execute"
+    """Start, cancel or retry a creative run (Stage 04 PRD §5.1).
+
+    `operator` and not `approver`, for the reason `PLAN_EXECUTE` gives: the
+    people who make the creative are not the people who sign it out.
+    """
+
+    CREATIVE_RELEASE = "creative_release"
+    """Release a creative package into an immutable version (Stage 04 PRD §5.1).
+
+    `approver` and not `operator` — the `PLAN_FREEZE` shape. H3, the legal
+    exception, is *not* this permission: it rides on `CLAIM_SIGN`, which stays
+    non-delegable.
+    """
+
     PLATFORM_ADMIN = "platform_admin"
     """Create workspaces, reach every one of them, and promote other admins.
 
@@ -122,6 +137,7 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.RUN_EXECUTE,
             Permission.PLAN_EXECUTE,
             Permission.GUIDELINE_EXECUTE,
+            Permission.CREATIVE_EXECUTE,
         }
     ),
     UserRole.APPROVER: frozenset(
@@ -130,6 +146,7 @@ ROLE_PERMISSIONS: dict[UserRole, frozenset[Permission]] = {
             Permission.APPROVAL_DECIDE,
             Permission.PLAN_FREEZE,
             Permission.GUIDELINE_PUBLISH,
+            Permission.CREATIVE_RELEASE,
             # The two non-delegable ones. `approver` is the only role that
             # holds them at all, and holding them is still not enough — see
             # NON_DELEGABLE.
