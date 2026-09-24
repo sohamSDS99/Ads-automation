@@ -20,6 +20,7 @@ log = structlog.get_logger(__name__)
 EXECUTE_RUN = "execute_run"
 GENERATE_EXPORT = "generate_export"
 MEASURE_IMAGE = "measure_image"
+STORE_REFERENCE = "store_reference"
 
 #: How long `POST /lint/image` waits for the worker before giving up. §17 CF5
 #: budgets the measurement itself at 3 s p95; the rest is queue time behind
@@ -27,6 +28,15 @@ MEASURE_IMAGE = "measure_image"
 #: an `indeterminate` verdict rather than an error — a precheck that 500s
 #: teaches people to skip it, and a precheck that lies teaches them to trust it.
 IMAGE_RESULT_TIMEOUT_SECONDS = 25.0
+#: How long `POST /projects/{id}/media-references` waits for the worker to write
+#: the file. A write of at most `media.reference_max_bytes` takes milliseconds;
+#: the rest is queue time behind whatever the worker is already running.
+REFERENCE_STORE_TIMEOUT_SECONDS = 30.0
+
+
+class WorkerUnavailable(RuntimeError):
+    """No worker did the job in time. The caller writes nothing and says so."""
+
 
 _pool: ArqRedis | None = None
 
@@ -110,4 +120,30 @@ async def measure_image(payload: dict[str, object]) -> dict[str, object]:
     if not isinstance(result, dict):  # pragma: no cover - the worker returns a dict
         log.warning("imaging.result_malformed", job_id=str(job.job_id))
         return {"status": "detector_unavailable", "reason": "detector_unavailable"}
+    return result
+
+
+async def store_reference(payload: dict[str, object]) -> dict[str, object]:
+    """Have the worker write one reference image to the Volume, and wait.
+
+    The worker owns the Volume (Stage 04 PRD §22); `api` mounts none, so a file
+    `api` wrote itself would land on a disk the worker — which sends references
+    to providers and composites product photos — can never read. Unlike
+    `measure_image` there is no degraded answer: a reference row without its
+    bytes would be a reference nobody can use, so every failure raises
+    `WorkerUnavailable` and the route writes no row.
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job(STORE_REFERENCE, payload)
+    if job is None:  # pragma: no cover - only on a job-id collision we do not set
+        raise WorkerUnavailable("the worker queue refused the job")
+    try:
+        result = await job.result(timeout=REFERENCE_STORE_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - arq raises several unrelated types here
+        log.warning("media_reference.store_unavailable", job_id=str(job.job_id), error=str(exc))
+        raise WorkerUnavailable(
+            f"the worker did not store the file ({type(exc).__name__})"
+        ) from exc
+    if not isinstance(result, dict):  # pragma: no cover - the worker returns a dict
+        raise WorkerUnavailable("the worker returned no receipt for the file")
     return result

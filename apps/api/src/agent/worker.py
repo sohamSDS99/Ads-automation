@@ -13,6 +13,8 @@ disagree about whether the Volume is mounted.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 import uuid
 from typing import Any
 
@@ -36,6 +38,7 @@ from agent.scheduling.jobs import (
     poll_schedules_job,
     reap_stale_runs_job,
 )
+from agent.storage.backend import get_storage
 
 log = structlog.get_logger(__name__)
 
@@ -126,6 +129,39 @@ async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[st
     return measurement.model_dump(mode="json")
 
 
+#: `references/{project_id}/{sha256}.{ext}` (PRD §7.4) and nothing else.
+_REFERENCE_KEY = re.compile(
+    r"references/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/"
+    r"(?P<sha256>[0-9a-f]{64})\.(?:png|jpg|webp)"
+)
+
+
+async def store_reference(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Write one media reference to the Volume (Stage 04 PRD §10.3, §7.4).
+
+    Worker-only because the worker owns the Volume; `api` decodes and hashes the
+    upload, then enqueues this and waits (`queue.store_reference`). The bytes are
+    hashed again here and must match both the payload and the key, and the key
+    must be exactly a reference key — so this job can neither store bytes other
+    than the ones attested nor write anywhere else on the Volume.
+    """
+    key = str(payload["key"])
+    content = payload["content"]
+    if not isinstance(content, bytes | bytearray):
+        raise ValueError("store_reference needs the file's bytes")
+    match = _REFERENCE_KEY.fullmatch(key)
+    if match is None:
+        raise ValueError(f"refusing to store a reference under {key!r}")
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != payload["sha256"] or digest != match["sha256"]:
+        raise ValueError("the reference bytes do not hash to the sha256 they were sent with")
+    await asyncio.to_thread(
+        get_storage().put, key, bytes(content), content_type=str(payload["content_type"])
+    )
+    log.info("media_reference.stored", key=key, bytes=len(content))
+    return {"key": key, "bytes": len(content), "sha256": digest}
+
+
 async def _tool_version(*argv: str) -> str | None:
     """The first line `argv` prints, or None when the binary is absent or fails.
 
@@ -208,7 +244,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_run, generate_export, measure_image]
+    functions = [execute_run, generate_export, measure_image, store_reference]
     # Everything unattended. `run_at_startup` is off for all of them: startup
     # already reaps explicitly above, and firing a nightly backup on every
     # deploy would make a busy afternoon of releases into a busy afternoon of

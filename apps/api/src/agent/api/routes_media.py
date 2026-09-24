@@ -15,13 +15,17 @@ creative run is sourced from (`Run.source_run_id`).
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 import httpx
+import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent import queue
 from agent.api import problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_media import (
@@ -32,6 +36,7 @@ from agent.api.schemas_media import (
     MediaDefaults,
     MediaModelRow,
     MediaModelsResponse,
+    MediaReferenceOut,
     MediaSettings,
     MediaSettingsUpdate,
     ProjectMediaSettings,
@@ -45,11 +50,18 @@ from agent.calc.derived import DerivedWriter
 from agent.calc.media import cost_estimate_v1, ratio_plan_v1, scope_reduction
 from agent.config import get_settings
 from agent.creative.constants import creative_constants_for
-from agent.db.models import Project, Workspace
+from agent.db.models import (
+    MediaReference,
+    MediaReferenceKind,
+    MediaReferenceOrigin,
+    Project,
+    Workspace,
+)
 from agent.db.repos import ProjectRepo
 from agent.db.session import get_session
 from agent.evidence.store import EvidenceStore
 from agent.export.plan_contract import CampaignPlan as PlanContract
+from agent.media import references
 from agent.media.budget import resolve_media_caps
 from agent.media.capability import capability_hash, ratio_coverage
 from agent.media.catalogue import CatalogueUnavailable, MediaCatalogue
@@ -66,6 +78,7 @@ router = APIRouter(tags=["media"])
 Db = Annotated[AsyncSession, Depends(get_session)]
 AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
 SettingsWriter = Annotated[Principal, Depends(require(Permission.SETTINGS_WRITE))]
+CreativeOperator = Annotated[Principal, Depends(require(Permission.CREATIVE_EXECUTE))]
 ModalityParam = Literal["image", "video"]
 
 #: The node id the estimate's calculations are recorded under.
@@ -445,6 +458,213 @@ async def creative_estimate(
         ratio_plan=ratios.result,
         ratio_plan_evidence_id=ratios_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# media references (PRD §10.3) — attested on upload, retired, never deleted
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/projects/{project_id}/media-references",
+    response_model=list[MediaReferenceOut],
+    summary="The project's product and style references, retired ones included",
+)
+async def list_media_references(
+    project_id: uuid.UUID, me: AnyMember, db: Db
+) -> list[MediaReferenceOut]:
+    project = await ProjectRepo(db, me.workspace_id).get(project_id)
+    if project is None:
+        raise problems.not_found(f"No project {project_id}.")
+    rows = (
+        (
+            await db.execute(
+                sa.select(MediaReference)
+                .where(
+                    MediaReference.workspace_id == me.workspace_id,
+                    MediaReference.project_id == project.id,
+                )
+                .order_by(MediaReference.created_at, MediaReference.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return [MediaReferenceOut.model_validate(row) for row in rows]
+
+
+@router.post(
+    "/projects/{project_id}/media-references",
+    response_model=MediaReferenceOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="Upload a product or style reference, attesting the rights to it",
+)
+async def upload_media_reference(
+    project_id: uuid.UUID,
+    me: CreativeOperator,
+    db: Db,
+    request: Request,
+    file: Annotated[UploadFile, File()],
+    kind: Annotated[Literal["product_reference", "style_reference"], Form()],
+    origin: Annotated[Literal["own", "licensed", "third_party"], Form()],
+    rights_statement: Annotated[str, Form()],
+    product_ref: Annotated[str | None, Form()] = None,
+) -> MediaReferenceOut:
+    """The upload is the attestation: the uploader is `attested_by`.
+
+    Nothing is written unless everything holds — a rights statement, bytes that
+    decode as PNG/JPEG/WebP within `media.reference_max_bytes`, and a worker
+    that stored them on the Volume. Whether the reference may ever reach a
+    provider is not decided here; Law 44 decides that each time it would be
+    sent (`media/references.py`).
+    """
+    project = await ProjectRepo(db, me.workspace_id).get(project_id)
+    if project is None:
+        raise problems.not_found(f"No project {project_id}.")
+    statement = rights_statement.strip()
+    if not statement:
+        raise problems.unprocessable(
+            "A rights statement is required: say who owns this image and on what basis it "
+            "may be used in advertising.",
+            title="Rights statement required",
+        )
+    max_bytes = creative_constants_for(project).media_constants().reference_max_bytes
+    # One byte past the cap is enough to know it is over; never buffer more.
+    content = await file.read(max_bytes + 1)
+    try:
+        upload = references.inspect_upload(content, max_bytes=max_bytes)
+    except references.ReferenceRejected as refused:
+        if refused.code == "too_large":
+            raise problems.Problem(
+                status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+                title="File too large",
+                detail=str(refused),
+                type_=problems.TYPE_VALIDATION,
+            ) from refused
+        raise problems.unprocessable(str(refused), title="Not a usable image") from refused
+
+    existing = (
+        await db.execute(
+            sa.select(MediaReference).where(
+                MediaReference.project_id == project.id, MediaReference.sha256 == upload.sha256
+            )
+        )
+    ).scalar_one_or_none()
+    if existing is not None:
+        retired = (
+            f", retired {existing.retired_at:%Y-%m-%d}" if existing.retired_at is not None else ""
+        )
+        raise problems.conflict(
+            f"This image is already reference {existing.id}{retired}. The same file is never "
+            "registered twice, so its attestation stays the one on record.",
+            title="Already uploaded",
+        )
+
+    key = references.storage_key(project.id, upload.sha256, upload.media_type)
+    try:
+        await queue.store_reference(
+            {
+                "key": key,
+                "content": upload.content,
+                "content_type": upload.media_type,
+                "sha256": upload.sha256,
+            }
+        )
+    except queue.WorkerUnavailable as exc:
+        raise problems.Problem(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            title="File not stored",
+            detail="The worker that owns file storage did not store this image, so nothing "
+            "was saved. Try again in a minute.",
+        ) from exc
+
+    row = MediaReference(
+        workspace_id=me.workspace_id,
+        project_id=project.id,
+        kind=MediaReferenceKind(kind),
+        storage_path=key,
+        media_type=upload.media_type,
+        width=upload.width,
+        height=upload.height,
+        bytes=upload.size,
+        sha256=upload.sha256,
+        product_ref=(product_ref or "").strip() or None,
+        origin=MediaReferenceOrigin(origin),
+        rights_statement=statement,
+        attested_by=me.user.id,
+        attested_at=datetime.now(UTC),
+    )
+    db.add(row)
+    await db.flush()
+    write_audit(
+        db,
+        workspace_id=me.workspace_id,
+        actor_id=me.user.id,
+        action=AuditAction.MEDIA_REFERENCE_UPLOADED,
+        target_type=AuditTarget.MEDIA_REFERENCE,
+        target_id=row.id,
+        meta=me.audit_meta(
+            project_id=str(project.id),
+            kind=kind,
+            origin=origin,
+            sha256=upload.sha256,
+            bytes=upload.size,
+        ),
+        ip=client_ip(request),
+    )
+    try:
+        await db.commit()
+    except IntegrityError as exc:
+        # `uq_media_reference_project_sha256`: the same bytes, uploaded by
+        # someone else between the check above and this commit.
+        await db.rollback()
+        raise problems.conflict(
+            "This image was registered by someone else a moment ago; refresh to see it.",
+            title="Already uploaded",
+        ) from exc
+    await db.refresh(row)
+    return MediaReferenceOut.model_validate(row)
+
+
+@router.post(
+    "/media-references/{reference_id}/retire",
+    response_model=MediaReferenceOut,
+    summary="Retire a reference so nothing new uses it. References are never deleted",
+)
+async def retire_media_reference(
+    reference_id: uuid.UUID, me: CreativeOperator, db: Db, request: Request
+) -> MediaReferenceOut:
+    """Idempotent: retiring a retired reference returns it unchanged.
+
+    Never deleted, so the provenance of every asset made from it stays
+    resolvable (§10.3, §13 `reference_sha256s[]`).
+    """
+    row = (
+        await db.execute(
+            sa.select(MediaReference)
+            .where(
+                MediaReference.id == reference_id, MediaReference.workspace_id == me.workspace_id
+            )
+            .with_for_update()
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise problems.not_found(f"No media reference {reference_id}.")
+    if row.retired_at is None:
+        row.retired_at = datetime.now(UTC)
+        write_audit(
+            db,
+            workspace_id=me.workspace_id,
+            actor_id=me.user.id,
+            action=AuditAction.MEDIA_REFERENCE_RETIRED,
+            target_type=AuditTarget.MEDIA_REFERENCE,
+            target_id=row.id,
+            meta=me.audit_meta(project_id=str(row.project_id), sha256=row.sha256),
+            ip=client_ip(request),
+        )
+        await db.commit()
+        await db.refresh(row)
+    return MediaReferenceOut.model_validate(row)
 
 
 # ---------------------------------------------------------------------------

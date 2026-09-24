@@ -487,6 +487,29 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         {"scope": {"images": False, "video": False, "concepts_per_campaign": 2}},
     ),
+    # Stage 04 (S4-P9): media references (§10.3, §16). Every role reads them;
+    # uploading (the rights attestation) and retiring are CREATIVE_EXECUTE.
+    (
+        "GET",
+        "/projects/{project_id}/media-references",
+        "/projects/{project}/media-references",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/media-references",
+        "/projects/{project}/media-references",
+        Permission.CREATIVE_EXECUTE,
+        {},
+    ),
+    (
+        "POST",
+        "/media-references/{reference_id}/retire",
+        "/media-references/00000000-0000-4000-8000-000000000000/retire",
+        Permission.CREATIVE_EXECUTE,
+        None,
+    ),
     (
         "GET",
         "/guidelines/published/creative-context",

@@ -62,6 +62,7 @@ from agent.db.models import (
     Workspace,
 )
 from agent.llm.ledger import RunLedger
+from agent.media import references
 from agent.media.budget import MediaBudget, resolve_media_caps
 from agent.media.capability import CapabilityUnsupported, validate
 from agent.media.constants import MediaConstants
@@ -504,18 +505,53 @@ class MediaJobs:
                     f"Job {job_id} was made with {row.model_id} at capability "
                     f"{row.capability_hash[:12]}; the choice given is a different one."
                 )
-            request = ImageRequest.model_validate(row.request)
-            if request.input_references:
-                # The row holds references by hash only (Law 44); their bytes
-                # are re-read by `media/references.py` (S4-P9).
+            capability = _capability(choice)
+            request = await self._stored_image_request(row, capability)
+            if request is None:
                 return row
             async with self._session() as session:
                 locked = await self._locked(session, job_id=job_id)
                 locked.status = GenerationStatus.QUEUED
                 locked.error = None
                 await session.commit()
-            return await self._submit(job_id, request, _capability(choice), None)
+            return await self._submit(job_id, request, capability, None)
         return row
+
+    async def _stored_image_request(
+        self, row: GenerationJob, capability: CapabilityRecord
+    ) -> ImageRequest | None:
+        """The image request `row` recorded, with its references' bytes re-read.
+
+        The row holds references by sha256 only (Law 44, §9.1 item 7), so their
+        bytes come back through `media/references.py`, which judges every one
+        again against live rows: a reference the project no longer allows, that
+        was retired, or whose bytes changed is not re-sent, and the job stays in
+        `unknown_submit_state` for a human. Same references, same order — so the
+        same idempotency key.
+        """
+        stored = dict(row.request)
+        hashes = [str(ref["sha256"]) for ref in stored.pop("input_references", None) or []]
+        if not hashes:
+            return ImageRequest.model_validate(stored)
+        async with self._session() as session:
+            project = await session.get(Project, row.project_id)
+            try:
+                images = await references.reload_by_sha256(
+                    session,
+                    self._storage,
+                    run_id=row.creative_run_id,
+                    project_id=row.project_id,
+                    allowed=references.references_allowed(project.settings if project else None),
+                    capability=capability,
+                    sha256s=hashes,
+                    max_bytes=self._constants.reference_max_bytes,
+                )
+            except references.ReferenceRefused as refused:
+                log.warning(
+                    "media.check_reference_refused", job_id=str(row.id), reason=refused.reason
+                )
+                return None
+        return ImageRequest.model_validate({**stored, "input_references": images})
 
     # -- G7 ------------------------------------------------------------------
 
