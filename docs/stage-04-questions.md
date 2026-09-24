@@ -466,3 +466,11 @@ ruling; items 1 and 2 are the ones that change behaviour outside this phase.
     and leaves the layout alone because the evidence page also reads
     `h-full` and would start scrolling internally. Proposed: `xl:h-full` on
     the project layout once the evidence page is checked, then drop the token.
+13. **The harness's resumed run now stops at 4.2.3.** Since S4-P5 (#63) the
+    real 4.2.1 writes headlines after G7 — so the harness seeds Stage 03's
+    real asset sheet and rules, as S4-P5's suite does (4.2.1 refuses to guess
+    a headline limit), and answers 4.2.1's model calls with S4-P5's own
+    scripted pool — and 4.2.3 then refuses the 4.2.2 stub, so the run fails
+    there until S4-P6. The console baselines show that state. When a later
+    phase moves the run further, re-record them: `UPDATE_BASELINES=1 make
+    browser-s4p18`.

@@ -4,14 +4,17 @@
   — S4-P1's recorded catalogue, through the suite's own `CatalogueReplay`
   (as S4-P3's stack), so the start route prices against real recordings.
 - `GET /api/v1/models` — the suite's fake text catalogue (`FakeOpenRouter`).
-- `POST /api/v1/chat/completions` — `brief_writer`: answers from the JSON
-  schema it is sent, briefing every ad group slot exactly once (4.1.1's
-  contract), in fixed words, so the brief page is the same on every run.
+- `POST /api/v1/chat/completions` — `writer`, by the schema a node sends:
+  4.1.1's brief from `brief_writer` (every ad-group slot exactly once, in
+  fixed words, so the brief page is the same on every run), and 4.2.1's
+  headline pool and pair labels from S4-P5's own scripted answers. Any other
+  schema is refused by name, so a node that starts calling a model shows up
+  as a failure naming it rather than as a plausible guess.
 - `GET /api/v1/videos/{id}` and `/content` — S4-P1's recorded completed poll
   and mp4, so a timed-out video that "Check again" re-polls completes for real
   in the worker.
 
-`seed.py` imports `brief_writer` to take a run to G7 in-process. Runs inside
+`seed.py` imports `FAKE` to take a run to G7 in-process. Runs inside
 the api image: `python /app/s4p18/openrouter_server.py`.
 """
 
@@ -27,6 +30,7 @@ import httpx
 
 sys.path.insert(0, "/app")
 
+from tests.integration.test_s4p5_headlines_combinations import POOL, _Script  # noqa: E402
 from tests.media.openrouter_mock import recorded, video_bytes  # noqa: E402
 from tests.media.replay import REPLAY  # noqa: E402
 from tests.openrouter_fake import FakeOpenRouter, completion  # noqa: E402
@@ -145,14 +149,27 @@ def _source_key(node: dict[str, Any], root: dict[str, Any], name: str) -> str:
     return (preferred or keys)[0]
 
 
-def brief_writer(request: httpx.Request) -> httpx.Response:
+def brief_writer(schema: dict[str, Any]) -> dict[str, Any]:
+    return _object(_deref(schema, schema), schema, "brief", 0)
+
+
+def writer(request: httpx.Request) -> httpx.Response:
     body = json.loads(request.content)
-    schema = body["response_format"]["json_schema"]["schema"]
-    return completion(_object(_deref(schema, schema), schema, "brief", 0), model=body["model"])
+    spec = body["response_format"]["json_schema"]
+    name, schema = spec["name"], spec["schema"]
+    if name == "CreativeBriefDraft":
+        return completion(brief_writer(schema), model=body["model"])
+    if name == "HeadlinePoolDraft":
+        return completion({"candidates": POOL}, model=body["model"])
+    if name == "PairLabelsDraft":
+        user = next(m["content"] for m in body["messages"] if m["role"] == "user")
+        pairs = json.loads(user.split("PAIRS:\n", 1)[1])
+        return completion({key: _Script._label(pair) for key, pair in pairs.items()})
+    return httpx.Response(500, json={"error": {"message": f"no scripted answer for {name}"}})
 
 
 FAKE = FakeOpenRouter()
-FAKE.dispatch(brief_writer)
+FAKE.dispatch(writer)
 
 
 def _video(job: str, content: bool) -> httpx.Response:

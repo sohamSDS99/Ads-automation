@@ -469,12 +469,19 @@ try {
     await context.close();
   }
 
-  /* The worker resumes A through the 23 stubs; then its media history is seeded. */
-  const done = await waitFor("run A to finish", async () => {
+  /* The worker picks the approved run back up past G7; then its media history is seeded.
+     How far it gets is later phases' business: on main today the real 4.2.1 writes headlines
+     and 4.2.3 refuses the 4.2.2 stub (S4-P6 builds it), so the run ends there. What this phase
+     owns is that approving resumed it, and that the real 4.2.1 had a brief to write from. */
+  const done = await waitFor("run A to leave G7 and finish", async () => {
     const run = (await admin.call("GET", `/runs/${A.runId}`)).body;
-    return ["succeeded", "failed"].includes(run.status) ? run : null;
-  }, 120_000);
-  check(`the approved run resumes past G7 in the worker (${done.status})`, done.status === "succeeded");
+    return ["succeeded", "failed", "cancelled"].includes(run.status) ? run : null;
+  }, 180_000);
+  const headlines = done.nodes.find((node) => node.id === "4.2.1");
+  check(
+    `the worker resumed the approved run past G7 (4.2.1 ${headlines?.status}; run ${done.status})`,
+    headlines?.status === "succeeded",
+  );
   const extras = seed("extras", A.runId);
 
   /* The console: rail, lane, meters, Jobs, Assets, Check again. */
@@ -561,7 +568,21 @@ try {
     const assets = page.getByRole("table", { name: "Assets written by 4.2.1" });
     await assets.waitFor();
     check("the Assets tab's Status column is on screen", await onScreen(assets.getByRole("columnheader", { name: "Status" })));
-    check("the Assets tab shows each asset's lint chip", (await assets.getByText("Passes lint").count()) === 1 && (await assets.getByText("Passes with warnings").count()) === 1 && (await assets.getByText("Fails lint").count()) === 1);
+    // The real 4.2.1's headlines: every one carries the chip of the verdict it was stored with.
+    const written = (await admin.call("GET", `/creative-runs/${A.runId}/assets`)).body.items.filter((asset) => asset.node_id === "4.2.1");
+    const CHIP = { pass: "Passes lint", pass_with_warnings: "Passes with warnings", fail: "Fails lint" };
+    const chipsWanted = {};
+    for (const asset of written) {
+      const label = CHIP[asset.lint_verdict] ?? "Not linted";
+      chipsWanted[label] = (chipsWanted[label] ?? 0) + 1;
+    }
+    const chipsShown = {};
+    for (const label of Object.keys(chipsWanted)) chipsShown[label] = await assets.getByText(label, { exact: true }).count();
+    check(
+      `the Assets tab shows 4.2.1's ${written.length} headlines, each with its stored lint verdict (${JSON.stringify(chipsWanted)})`,
+      written.length > 0 && (await assets.locator("tbody tr").count()) === written.length && JSON.stringify(chipsShown) === JSON.stringify(chipsWanted),
+      JSON.stringify(chipsShown),
+    );
     check("operator console: no console errors", problems.length === 0, problems.join("\n      "));
     await context.close();
 

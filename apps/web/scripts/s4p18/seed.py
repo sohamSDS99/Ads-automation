@@ -7,19 +7,21 @@
 `project` — one project a creative run can start on, made by the helpers the
 integration suite uses (`tests/integration/creative_support.py`): a frozen
 plan with one Search campaign of three ad groups (so G7 authorises RSAs) and
-one Performance Max campaign (so it authorises images and video), a
-published ruleset whose spec sheet asks for their ratios, and a sign-off
+one Performance Max campaign (so it authorises images and video); a published
+ruleset carrying Stage 03's real asset sheet and the rules compiled from it,
+as S4-P5's suite seeds it — 4.2.1 refuses to write a headline without the
+sheet's limit — plus the PMax ratios §15.4 D's example assumes; and a sign-off
 matrix naming `<owner-email>` as the performance owner.
 
 `execute` — takes a started run to G7 exactly as the worker would, against
-`openrouter_server.brief_writer` instead of a model: the real executor, the
+`openrouter_server.writer` instead of a model: the real executor, the
 real node 4.1.1, a real brief row and a real pending G7.
 
-`extras` — what the run's later nodes would leave, for the Jobs and Assets
-tabs: generation jobs in the states the tab distinguishes (a video timed out
-with a provider id the recorded poll answers, so "Check again" completes it
-for real), one reservation held in Redis, and three linted headlines. Labelled
-here as seeded, not produced.
+`extras` — what the media nodes would leave, for the Jobs tab (4.4.x are
+still stubs): generation jobs in the states the tab distinguishes (a video
+timed out with a provider id the recorded poll answers, so "Check again"
+completes it for real) and one reservation held in Redis. Seeded, not
+produced — the Assets tab reads the headlines the real 4.2.1 wrote.
 """
 
 from __future__ import annotations
@@ -39,13 +41,11 @@ import sqlalchemy as sa  # noqa: E402
 from openrouter_server import FAKE  # noqa: E402
 from tests.integration.creative_support import seed_plan, seed_published  # noqa: E402
 from tests.integration.runs_support import execute  # noqa: E402
+from tests.integration.test_s4p5_headlines_combinations import KEYWORDS  # noqa: E402
 from tests.media.openrouter_mock import video_job_id  # noqa: E402
 
 from agent.db.models import (  # noqa: E402
     CampaignPlanStatus,
-    CreativeAsset,
-    CreativeAssetKind,
-    CreativeAssetStatus,
     GenerationJob,
     GenerationModality,
     GenerationStatus,
@@ -56,27 +56,25 @@ from agent.db.models import (  # noqa: E402
     User,
 )
 from agent.db.session import get_sessionmaker  # noqa: E402
+from agent.export.guideline_contract import AssetSpecs  # noqa: E402
+from agent.guidelines.constants import get_content_constants  # noqa: E402
+from agent.guidelines.synthesis import _asset_rules  # noqa: E402
 from agent.media.budget import MediaBudget, resolve_media_caps  # noqa: E402
 from agent.config import get_settings  # noqa: E402
 from agent.redis_client import get_redis  # noqa: E402
 
 _SPEC = {"source": "google", "reviewed_at": "2026-09-24"}
-SPECS = {
-    "search": {
-        "landscape_image": {"ratio": "1.91:1", **_SPEC},
-        "square_image": {"ratio": "1:1", **_SPEC},
-    },
-    "performance_max": {
-        name: {"ratio": ratio, **_SPEC}
-        for name, ratio in (
-            ("landscape_image", "1.91:1"),
-            ("square_image", "1:1"),
-            ("portrait_image", "4:5"),
-            ("landscape_video", "16:9"),
-            ("portrait_video", "9:16"),
-            ("logo", "1:1"),
-        )
-    },
+#: On top of the shipped sheet, whose PMax entry asks for one image ratio and
+#: no video: the square and portrait images and the two video ratios the
+#: example in §15.4 D ("… 36 images, 4 videos …") assumes.
+PMAX_EXTRA = {
+    name: {"ratio": ratio, **_SPEC}
+    for name, ratio in (
+        ("square_image", "1:1"),
+        ("portrait_image", "4:5"),
+        ("landscape_video", "16:9"),
+        ("portrait_video", "9:16"),
+    )
 }
 
 AD_GROUPS = [
@@ -128,10 +126,9 @@ async def project(name: str, owner_email: str) -> None:
                             "theme": theme,
                             "landing_url": url,
                             "primary_message": message,
-                            "keywords": [
-                                {"term": group, "search_volume": 900},
-                                {"term": f"{group} tool", "search_volume": 300},
-                            ],
+                            # S4-P5's keywords: its scripted headline pool
+                            # names them in `keyword_ref`.
+                            "keywords": KEYWORDS,
                         }
                         for group, theme, url, message in AD_GROUPS
                     ],
@@ -143,7 +140,13 @@ async def project(name: str, owner_email: str) -> None:
         plan.status = CampaignPlanStatus.FROZEN
         plan.version = 1
         plan.frozen_at = datetime.now(UTC)
-        await seed_published(db, workspace_id, row.id, admin.id, asset_specs=SPECS)
+        sheet = get_content_constants().asset_sheet()
+        specs = sheet.model_dump(mode="json")["specs"]
+        specs["performance_max"] = {**specs["performance_max"], **PMAX_EXTRA}
+        rules = tuple(_asset_rules(AssetSpecs(sheet=sheet, scope="unscoped"), lambda _why: None))
+        await seed_published(
+            db, workspace_id, row.id, admin.id, asset_specs=specs, extra_rules=rules
+        )
         db.add(
             SignOffMatrix(
                 workspace_id=workspace_id,
@@ -210,24 +213,6 @@ async def extras(run_id: str) -> None:
         ]
         db.add_all(jobs)
         run.cost_usd = Decimal(run.cost_usd or 0) + Decimal("0.5600")
-        headline = {
-            **{k: v for k, v in common.items() if k != "capability_hash"},
-            "node_id": "4.2.1",
-            "campaign_ref": "c-sds-us",
-            "ad_group_ref": "sds software",
-            "kind": CreativeAssetKind.HEADLINE,
-            "surface": "rsa_headline",
-            "generated_by_ai": True,
-            "status": CreativeAssetStatus.LINTED,
-            "content_hash": "h" * 64,
-        }
-        db.add_all(
-            [
-                CreativeAsset(**headline, text="SDS Updates Within 24 Hours", lint={"verdict": "pass"}),
-                CreativeAsset(**headline, text="Audit-Ready Safety Data Sheets", lint={"verdict": "pass_with_warnings"}),
-                CreativeAsset(**headline, text="The #1 SDS Software, Guaranteed", lint={"verdict": "fail"}),
-            ]
-        )
         await db.commit()
         in_flight = jobs[-1]
         caps = resolve_media_caps(project_settings=None, workspace_settings=None, defaults=get_settings())
