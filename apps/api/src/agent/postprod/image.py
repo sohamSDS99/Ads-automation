@@ -13,16 +13,23 @@ A model paints a master; everything after that is code, and deterministic:
    luminance reaches ≥ 3:1 against the background it would sit on; it keeps
    `clear_space_ratio × logo height` from every edge, is at least
    `min_width_px` wide, and is fitted by padding, never stretched.
-5. **Labels** — any visible disclosure label a pinned Stage 03 rule requires
-   for this surface and market, drawn at its placement.
+4. **Encode** as JPEG at the highest quality, searched down to
+   `jpeg_quality_floor`, whose STAMPED file fits `max_bytes` — else a gap.
+5. **Stamp** — EXIF and GPS stripped, XMP `Iptc4xmpExt:DigitalSourceType`
+   written by `exiftool` and read back; and any visible disclosure label a
+   pinned Stage 03 rule requires for this surface and market, drawn at its
+   placement.
 
-No I/O here: bytes and pixels in, pixels out. The node stores and records.
+No storage or database here: bytes and pixels in, bytes out — `exiftool` is
+the one process this module runs. The node stores and records.
 """
 
 from __future__ import annotations
 
 import io
+import json
 import math
+import subprocess
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
@@ -512,3 +519,145 @@ def _label_font(size: int) -> ImageFont.FreeTypeFont:
         except OSError:
             continue
     raise LabelError(f"no label face is installed (looked for {', '.join(LABEL_FONTS)})")
+
+
+# ---------------------------------------------------------------------------
+# 4. encode to fit
+# ---------------------------------------------------------------------------
+
+#: The top of the search. Pillow: "values above 95 should be avoided".
+JPEG_QUALITY_CEILING = 95
+
+
+@dataclass(frozen=True, slots=True)
+class Encoded:
+    content: bytes
+    quality: int
+
+    @property
+    def encoder_args(self) -> dict[str, Any]:
+        return {"format": "JPEG", "quality": self.quality, "optimize": True}
+
+
+def encode_jpeg(
+    frame: Image.Image, *, max_bytes: int | None, quality_floor: int, overhead: int = 0
+) -> Encoded | None:
+    """The highest quality in [floor, 95] whose file plus `overhead` (the
+    stamp) fits `max_bytes`, by binary search; None when even the floor does
+    not fit — a gap, never an over-size file or a quality below the floor."""
+    rgb = flatten(frame)
+    cache: dict[int, bytes] = {}
+
+    def at(quality: int) -> bytes:
+        if quality not in cache:
+            buffer = io.BytesIO()
+            rgb.save(buffer, format="JPEG", quality=quality, optimize=True)
+            cache[quality] = buffer.getvalue()
+        return cache[quality]
+
+    if max_bytes is None or len(at(JPEG_QUALITY_CEILING)) + overhead <= max_bytes:
+        return Encoded(at(JPEG_QUALITY_CEILING), JPEG_QUALITY_CEILING)
+    if len(at(quality_floor)) + overhead > max_bytes:
+        return None
+    low, high = quality_floor, JPEG_QUALITY_CEILING - 1  # `low` always fits
+    while low < high:
+        middle = (low + high + 1) // 2
+        if len(at(middle)) + overhead <= max_bytes:
+            low = middle
+        else:
+            high = middle - 1
+    return Encoded(at(low), low)
+
+
+# ---------------------------------------------------------------------------
+# 5. the disclosure stamp
+# ---------------------------------------------------------------------------
+
+#: IPTC NewsCodes Digital Source Type (§13 "AI disclosure").
+_IPTC_DST = "http://cv.iptc.org/newscodes/digitalsourcetype/"
+TRAINED = _IPTC_DST + "trainedAlgorithmicMedia"
+COMPOSITE = _IPTC_DST + "compositeWithTrainedAlgorithmicMedia"
+_EXIFTOOL_TIMEOUT_S = 60
+
+
+class StampError(RuntimeError):
+    """The disclosure could not be written, or did not read back — unstamped
+    media never ships (§13 blocking #8)."""
+
+
+def digital_source_type(*, composited: bool) -> str:
+    return COMPOSITE if composited else TRAINED
+
+
+def stamp(content: bytes, *, composited: bool) -> tuple[bytes, dict[str, Any]]:
+    """Strip every tag (EXIF and GPS included), write the XMP DigitalSourceType
+    — `compositeWithTrainedAlgorithmicMedia` when code composited a logo onto
+    the model's pixels — then re-read the written bytes and refuse anything
+    that does not say exactly that, or still carries EXIF or GPS."""
+    uri = digital_source_type(composited=composited)
+    written = _exiftool(
+        ["-all=", f"-XMP-iptcExt:DigitalSourceType#={uri}", "-o", "-", "-"], content
+    )
+    back = read_stamp(written)
+    if back.get("DigitalSourceType") != uri:
+        raise StampError(
+            f"the stamp did not read back: wrote {uri!r}, read {back.get('DigitalSourceType')!r}"
+        )
+    leaked = sorted(key for key in back if key not in ("DigitalSourceType", "SourceFile"))
+    if leaked:
+        raise StampError(f"EXIF/GPS survived the strip: {', '.join(leaked)}")
+    return written, {"xmp_digital_source_type": uri}
+
+
+def read_stamp(content: bytes) -> dict[str, Any]:
+    """What a file says about itself: its DigitalSourceType and every EXIF and
+    GPS tag it still carries, raw values (`-n`), as exiftool reads them."""
+    out = _exiftool(
+        ["-j", "-n", "-XMP-iptcExt:DigitalSourceType", "-EXIF:all", "-GPS:all", "-"], content
+    )
+    try:
+        (record,) = json.loads(out)
+    except (ValueError, TypeError) as exc:
+        raise StampError(f"exiftool returned no readable record: {exc}") from exc
+    return dict(record)
+
+
+def encode_and_stamp(
+    frame: Image.Image, *, max_bytes: int | None, quality_floor: int, composited: bool
+) -> tuple[bytes, dict[str, Any], dict[str, Any]] | None:
+    """Encode, stamp, and keep the STAMPED file under `max_bytes`.
+
+    The stamp's size does not depend on the pixels, so it is measured once on
+    the ceiling-quality encode and reserved while the quality is searched. The
+    result is checked after stamping all the same; None is a gap.
+    """
+    first = encode_jpeg(frame, max_bytes=None, quality_floor=quality_floor)
+    assert first is not None  # no cap: the ceiling is always returned
+    stamped, disclosure = stamp(first.content, composited=composited)
+    if max_bytes is None or len(stamped) <= max_bytes:
+        return stamped, first.encoder_args, disclosure
+    overhead = len(stamped) - len(first.content)
+    fitted = encode_jpeg(frame, max_bytes=max_bytes, quality_floor=quality_floor, overhead=overhead)
+    if fitted is None:
+        return None
+    stamped, disclosure = stamp(fitted.content, composited=composited)
+    if len(stamped) > max_bytes:
+        return None
+    return stamped, fitted.encoder_args, disclosure
+
+
+def _exiftool(arguments: list[str], content: bytes) -> bytes:
+    try:
+        done = subprocess.run(  # noqa: S603 — a fixed binary, arguments built here
+            ["exiftool", *arguments],  # noqa: S607 — installed in the worker image
+            input=content,
+            capture_output=True,
+            timeout=_EXIFTOOL_TIMEOUT_S,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise StampError(f"exiftool could not run: {exc}") from exc
+    if done.returncode != 0 or not done.stdout:
+        detail = done.stderr.decode("utf-8", "replace").strip() or f"exit {done.returncode}"
+        raise StampError(f"exiftool failed: {detail}")
+    return done.stdout
