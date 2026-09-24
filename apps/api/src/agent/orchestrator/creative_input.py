@@ -293,7 +293,6 @@ def reject_media(scope: CreativeScope, media_models: list[MediaModelChoice]) -> 
         )
 
 
-
 async def build_creative_input(
     db: AsyncSession,
     project_id: uuid.UUID,

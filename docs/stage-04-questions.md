@@ -23,7 +23,11 @@ phase. Nothing here was built.
    media (footprint 0, check passes without touching the disk). A media scope's
    footprint comes from the shot plan S4-P1 prices; until then CR-E8 already
    blocks every media scope, so `media_footprint_bytes` returns `None`
-   ("not estimable"), never 0. S4-P1 must return a number here.
+   ("not estimable"), never 0. S4-P1 must return a number here **and** add a
+   free-space probe to `StorageBackend`: the api service does not mount the
+   worker's `/data` volume, and `tests/test_filesystem_boundary.py` forbids
+   reading the filesystem outside `storage/`. `routes_creative.storage_blocker`
+   is the (tested) rule it will apply to the two numbers.
 6. **`offer_max_age_days` (CR-E13) is not in config or constants.** S4-P0 uses
    Stage 03's `content_constants.offers.staleness_warning_days` (30), so the
    two stages agree on when offer data is stale. Move it to

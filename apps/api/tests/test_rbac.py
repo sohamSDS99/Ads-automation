@@ -43,7 +43,14 @@ MATRIX: list[tuple[str, Permission, bool, bool, bool, bool]] = [
     # Stage 04 PRD §5.1. The Stage 02 asymmetry again: an operator makes the
     # creative and does not release it; an approver releases it and does not
     # make it.
-    ("Start / cancel / retry a creative run", Permission.CREATIVE_EXECUTE, True, True, False, False),
+    (
+        "Start / cancel / retry a creative run",
+        Permission.CREATIVE_EXECUTE,
+        True,
+        True,
+        False,
+        False,
+    ),
     ("Release a creative package", Permission.CREATIVE_RELEASE, True, False, True, False),
     # Not a PRD §4.1 row: no role grants it. It is the whole-system
     # administrator (`user.is_superadmin`), and the four Falses are the point —

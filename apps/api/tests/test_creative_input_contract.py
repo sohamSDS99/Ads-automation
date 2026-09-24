@@ -7,6 +7,7 @@ import uuid
 import pytest
 from pydantic import ValidationError
 
+from agent.export.guideline_contract import VisualIdentity, VoiceProfile
 from agent.schemas.creative_input import (
     CompetitorRules,
     CreativeContext,
@@ -15,7 +16,6 @@ from agent.schemas.creative_input import (
     PersonalizationRules,
     canonical_hash,
 )
-from agent.export.guideline_contract import VisualIdentity, VoiceProfile
 
 
 def _context(**overrides: object) -> CreativeContext:

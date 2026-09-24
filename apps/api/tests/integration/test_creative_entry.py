@@ -12,7 +12,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import subprocess
 import sys
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -125,7 +124,11 @@ async def test_gated_by_two_frozen_artifacts(
 
 
 async def test_e1_names_the_latest_plans_state(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(
         db, workspace_id, project_id, admin_user.id, status=CampaignPlanStatus.READY_TO_FREEZE
@@ -137,7 +140,11 @@ async def test_e1_names_the_latest_plans_state(
 
 
 async def test_e1_a_superseded_source_is_not_a_frozen_plan(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(db, workspace_id, project_id, admin_user.id, source_superseded=True)
     await db.commit()
@@ -145,7 +152,11 @@ async def test_e1_a_superseded_source_is_not_a_frozen_plan(
 
 
 async def test_e3_schema_skew_names_both_versions(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(db, workspace_id, project_id, admin_user.id, schema_version="9.9")
     await seed_published(db, workspace_id, project_id, admin_user.id, ruleset_schema="1.0")
@@ -162,7 +173,11 @@ async def test_e3_schema_skew_names_both_versions(
 
 
 async def test_e4_missing_asset_spec_or_claim_blocks_and_others_warn(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(db, workspace_id, project_id, admin_user.id)
     await seed_published(
@@ -178,7 +193,11 @@ async def test_e4_missing_asset_spec_or_claim_blocks_and_others_warn(
 
 
 async def test_e5_no_signoff_matrix_blocks(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(db, workspace_id, project_id, admin_user.id)
     await seed_published(db, workspace_id, project_id, admin_user.id)
@@ -187,7 +206,11 @@ async def test_e5_no_signoff_matrix_blocks(
 
 
 async def test_e6_a_held_lock_blocks_and_names_the_holder(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
     holder_run = uuid.uuid4()
@@ -238,7 +261,11 @@ async def test_e8_a_media_default_blocks_as_not_configured(
 
 
 async def test_e8_a_media_request_is_a_422(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
     model = {
@@ -284,7 +311,11 @@ async def test_e11_storage_needs_twice_the_footprint() -> None:
 
 
 async def test_e12_guideline_flags_are_warnings_never_blockers(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_plan(db, workspace_id, project_id, admin_user.id)
     guideline, _ = await seed_published(
@@ -327,7 +358,11 @@ async def test_e12_guideline_flags_are_warnings_never_blockers(
 
 
 async def test_e13_stale_or_missing_offer_data_warns(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
     body = await _eligibility(admin, project_id)
@@ -367,7 +402,11 @@ async def test_e13_stale_or_missing_offer_data_warns(
 
 
 async def test_e14_a_released_package_warns_will_mint_new_version(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     plan, guideline, ruleset = await seed_both(db, workspace_id, project_id, admin_user.id)
     earlier = Run(
@@ -440,7 +479,11 @@ async def _creative_runs(db: AsyncSession, project_id: uuid.UUID) -> int:
 
 
 async def test_both_starts_a_run_and_the_dummy_dag_reaches_its_terminal_node_over_sse(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     plan, _, ruleset = await seed_both(db, workspace_id, project_id, admin_user.id)
     body = await _eligibility(admin, project_id)
@@ -485,7 +528,11 @@ async def test_both_starts_a_run_and_the_dummy_dag_reaches_its_terminal_node_ove
 
 
 async def test_two_concurrent_starts_make_one_run_and_one_409(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
     first, second = await asyncio.gather(_start(admin, project_id), _start(admin, project_id))
@@ -500,7 +547,11 @@ async def test_two_concurrent_starts_make_one_run_and_one_409(
 
 
 async def test_an_unknown_campaign_in_scope_is_a_422(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     await seed_both(db, workspace_id, project_id, admin_user.id)
     response = await _start(admin, project_id, scope={**TEXT_ONLY, "campaign_refs": ["c-nope"]})
@@ -524,7 +575,11 @@ async def test_creative_context_is_404_when_nothing_is_published(
 
 
 async def test_a_pin_returns_the_historical_context_after_a_newer_publish(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     first, first_ruleset = await seed_published(db, workspace_id, project_id, admin_user.id)
     await db.commit()
@@ -552,7 +607,11 @@ async def test_a_pin_returns_the_historical_context_after_a_newer_publish(
 
 
 async def test_the_context_hash_is_identical_across_two_processes(
-    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
 ) -> None:
     guideline, ruleset = await seed_published(db, workspace_id, project_id, admin_user.id)
     await db.commit()
@@ -575,13 +634,15 @@ async def test_the_context_hash_is_identical_across_two_processes(
     )
     # A fresh interpreter with a different hash seed: dict and set ordering in
     # the new process owes nothing to this one.
-    result = subprocess.run(  # noqa: S603
-        [sys.executable, "-c", script],
+    process = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-c",
+        script,
         cwd=API_ROOT,
         env={**os.environ, "PYTHONHASHSEED": "12345"},
-        capture_output=True,
-        text=True,
-        check=False,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
     )
-    assert result.returncode == 0, result.stderr
-    assert result.stdout.strip().splitlines()[-1] == here
+    stdout, stderr = await process.communicate()
+    assert process.returncode == 0, stderr.decode()
+    assert stdout.decode().strip().splitlines()[-1] == here

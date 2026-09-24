@@ -76,7 +76,9 @@ def _run(
     )
 
 
-async def _creative_run(db: AsyncSession, ws: uuid.UUID, project: uuid.UUID, actor: uuid.UUID) -> Run:
+async def _creative_run(
+    db: AsyncSession, ws: uuid.UUID, project: uuid.UUID, actor: uuid.UUID
+) -> Run:
     research = _run(ws, project, actor, RunStage.RESEARCH)
     db.add(research)
     await db.flush()
@@ -121,14 +123,18 @@ async def _asset(db: AsyncSession, run: Run, **extra: Any) -> CreativeAsset:
 async def test_every_stage04_enum_matches_the_database(db: AsyncSession) -> None:
     for enum_cls, type_name in STAGE04_ENUMS:
         labels = (
-            await db.execute(
-                sa.text(
-                    "SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
-                    "WHERE t.typname = :name ORDER BY e.enumsortorder"
-                ),
-                {"name": type_name},
+            (
+                await db.execute(
+                    sa.text(
+                        "SELECT e.enumlabel FROM pg_enum e JOIN pg_type t ON t.oid = e.enumtypid "
+                        "WHERE t.typname = :name ORDER BY e.enumsortorder"
+                    ),
+                    {"name": type_name},
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         assert labels == [member.value for member in enum_cls], type_name
 
 
@@ -356,9 +362,7 @@ async def _package(
     db: AsyncSession, run: Run, actor: uuid.UUID, *, status: CreativePackageStatus
 ) -> CreativePackage:
     """A package needs a real plan and a real guideline to point at."""
-    research = (
-        await db.execute(sa.select(Run).where(Run.id == run.source_run_id))
-    ).scalar_one()
+    research = (await db.execute(sa.select(Run).where(Run.id == run.source_run_id))).scalar_one()
     report = Report(run_id=research.id, schema_version="1.2", payload={}, markdown="")
     db.add(report)
     await db.flush()

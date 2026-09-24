@@ -15,7 +15,6 @@ shows and the input the run is built from agree about which plan and which pin.
 
 from __future__ import annotations
 
-import shutil
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -41,7 +40,6 @@ from agent.api.throttle import throttle
 from agent.auth.deps import Principal, require
 from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
-from agent.config import get_settings
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     AmendmentStatus,
@@ -97,9 +95,7 @@ ZDR_SETTING = "zdr_enforced"
     response_model=CreativeEligibility,
     summary="Can a creative run start on this project",
 )
-async def creative_eligibility(
-    project_id: uuid.UUID, me: AnyMember, db: Db
-) -> CreativeEligibility:
+async def creative_eligibility(project_id: uuid.UUID, me: AnyMember, db: Db) -> CreativeEligibility:
     project = await ProjectRepo(db, me.workspace_id).get(project_id)
     if project is None:
         raise problems.not_found(f"No project {project_id}.")
@@ -119,7 +115,12 @@ def default_scope(project: Project) -> CreativeScope:
 
 
 def storage_blocker(*, free_bytes: int, footprint_bytes: int) -> CreativeBlocker | None:
-    """CR-E11: free space must be at least twice the estimated media footprint."""
+    """CR-E11: free space must be at least twice the estimated media footprint.
+
+    The rule, kept pure and tested now so S4-P1 only has to supply the two
+    numbers: the footprint from the shot plan, the free space from a
+    `StorageBackend` probe on the worker's volume.
+    """
     if free_bytes >= 2 * footprint_bytes:
         return None
     return CreativeBlocker(
@@ -183,7 +184,9 @@ async def _eligibility(
                 f"The latest plan (run {str(latest.plan_run_id)[:8]}) is {latest.status.value}; "
                 "creative needs a frozen plan to write into."
             )
-        blockers.append(CreativeBlocker(code="no_frozen_plan", detail=state, fix_url=f"{home}/plan"))
+        blockers.append(
+            CreativeBlocker(code="no_frozen_plan", detail=state, fix_url=f"{home}/plan")
+        )
     else:
         pins |= {
             "plan_id": str(plan.id),
@@ -325,14 +328,13 @@ async def _eligibility(
                 )
             )
 
-    # CR-E11 — only a scope with a known footprint can be measured; see
-    # `media_footprint_bytes` for why a media scope has none yet.
-    footprint = media_footprint_bytes(scope)
-    if footprint:
-        usage = shutil.disk_usage(get_settings().storage_dir)
-        found = storage_blocker(free_bytes=usage.free, footprint_bytes=footprint)
-        if found is not None:
-            blockers.append(found)
+    # CR-E11 — satisfied by every scope S4-P0 can start: a text-only run
+    # writes no media, and every media scope is already blocked by CR-E8
+    # above. Measuring free space is S4-P1's, together with the footprint:
+    # it needs a `StorageBackend` probe, because the api service does not
+    # mount the worker's volume and `tests/test_filesystem_boundary.py`
+    # forbids reading it directly. `storage_blocker` is the rule it will apply
+    # to `media_footprint_bytes(scope)`; `test_e11_*` pins both.
 
     # CR-E12 — guideline flags. Warnings, never blockers.
     if pin is not None:

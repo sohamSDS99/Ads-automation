@@ -34,14 +34,23 @@ from agent.db.models import (
 )
 
 #: A ruleset that satisfies CR-E4 in full.
-ALL_CATEGORIES: tuple[str, ...] = ("asset_spec", "claim", "lexicon", "policy", "image", "disclosure")
+ALL_CATEGORIES: tuple[str, ...] = (
+    "asset_spec",
+    "claim",
+    "lexicon",
+    "policy",
+    "image",
+    "disclosure",
+)
 
 
 def _now() -> datetime:
     return datetime.now(UTC)
 
 
-def _run(ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID, stage: RunStage, **extra: Any) -> Run:
+def _run(
+    ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID, stage: RunStage, **extra: Any
+) -> Run:
     return Run(
         workspace_id=ws,
         project_id=project_id,
@@ -106,7 +115,9 @@ async def seed_plan(
         plan_run_id=plan_run.id,
         acceptance_id=acceptance.id,
         schema_version=schema_version,
-        version=version if status in {CampaignPlanStatus.FROZEN, CampaignPlanStatus.SUPERSEDED} else 0,
+        version=version
+        if status in {CampaignPlanStatus.FROZEN, CampaignPlanStatus.SUPERSEDED}
+        else 0,
         status=status,
         source_superseded=source_superseded,
         frozen_at=_now() if status is CampaignPlanStatus.FROZEN else None,

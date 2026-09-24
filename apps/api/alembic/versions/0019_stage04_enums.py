@@ -102,7 +102,16 @@ NEW_TYPES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ),
     (
         "media_artifact_role",
-        ("candidate", "master", "rendition", "clip", "preview", "thumbnail", "poster", "frame_sample"),
+        (
+            "candidate",
+            "master",
+            "rendition",
+            "clip",
+            "preview",
+            "thumbnail",
+            "poster",
+            "frame_sample",
+        ),
     ),
     (
         "media_artifact_derivation",
@@ -132,7 +141,8 @@ def upgrade() -> None:
             # Postgres has no CREATE TYPE IF NOT EXISTS; the probe is the
             # idempotent form.
             op.execute(
-                "DO $$ BEGIN "
+                # Every name and label is a module constant above, never input.
+                "DO $$ BEGIN "  # noqa: S608
                 f"IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = '{type_name}') THEN "
                 f"CREATE TYPE {type_name} AS ENUM ({values}); "
                 "END IF; END $$"

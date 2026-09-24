@@ -180,9 +180,7 @@ def upgrade() -> None:
         _jsonb("offer_binding", nullable=True),
         sa.Column("pin_position", sa.Text(), nullable=True),
         sa.Column("generated_by_ai", sa.Boolean(), nullable=False),
-        sa.Column(
-            "status", _enum("creative_asset_status"), server_default="draft", nullable=False
-        ),
+        sa.Column("status", _enum("creative_asset_status"), server_default="draft", nullable=False),
         _jsonb("lint", nullable=True),
         sa.Column("ruleset_version", sa.Text(), nullable=True),
         _jsonb("lineage"),
@@ -238,9 +236,7 @@ def upgrade() -> None:
         sa.UniqueConstraint("idempotency_key"),
         sa.UniqueConstraint("openrouter_job_id"),
     )
-    op.create_index(
-        "ix_generation_job_run_status", "generation_job", ["creative_run_id", "status"]
-    )
+    op.create_index("ix_generation_job_run_status", "generation_job", ["creative_run_id", "status"])
     op.create_index(
         "ix_generation_job_status_next_poll", "generation_job", ["status", "next_poll_at"]
     )
@@ -399,9 +395,7 @@ def upgrade() -> None:
         sa.Column("released_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("released_by", sa.UUID(), nullable=True),
         sa.Column("released_approval_ids", postgresql.ARRAY(sa.UUID()), nullable=True),
-        sa.Column(
-            "plan_superseded", sa.Boolean(), server_default=sa.text("false"), nullable=False
-        ),
+        sa.Column("plan_superseded", sa.Boolean(), server_default=sa.text("false"), nullable=False),
         sa.Column(
             "ruleset_superseded", sa.Boolean(), server_default=sa.text("false"), nullable=False
         ),

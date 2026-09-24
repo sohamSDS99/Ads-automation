@@ -2342,9 +2342,7 @@ class GenerationJob(Base):
     capability_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
     #: Canonical and redacted: references as sha256, never base64 (Law 44).
     request: Mapped[dict[str, Any]] = _jsonb_object()
-    idempotency_key: Mapped[str] = mapped_column(
-        sa.Text, nullable=False, unique=True
-    )
+    idempotency_key: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
     #: Video only.
     openrouter_job_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)
     status: Mapped[GenerationStatus] = mapped_column(
@@ -2605,9 +2603,7 @@ class CreativePackage(Base):
     released_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL")
     )
-    released_approval_ids: Mapped[list[uuid.UUID] | None] = mapped_column(
-        ARRAY(UUID(as_uuid=True))
-    )
+    released_approval_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
     plan_superseded: Mapped[bool] = mapped_column(
         sa.Boolean, nullable=False, server_default=sa.text("false")
     )
