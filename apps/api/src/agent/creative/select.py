@@ -116,7 +116,7 @@ def headlines_v1(
     need = {category: quotas.get(category, 0) for category in _categories(quotas, order)}
 
     while any(need.values()):
-        eligible = [item for item in state.open() if need.get(item.category, 0) > 0]
+        eligible = [item for item in state.unpicked() if need.get(item.category, 0) > 0]
         if not eligible:
             break
         feasible = [item for item in eligible if state.keeps_quotas(item, need)]
@@ -125,7 +125,7 @@ def headlines_v1(
         need[chosen.category] -= 1
 
     while len(state.selected) < limit:
-        remaining = state.open()
+        remaining = state.unpicked()
         if not remaining:
             break
         state.choose(state.best(remaining))
@@ -191,7 +191,7 @@ class _State:
     def too_close(self, left: Candidate, right: Candidate) -> bool:
         return float(self.similarity(left, right)) >= self.threshold
 
-    def open(self) -> list[Candidate]:
+    def unpicked(self) -> list[Candidate]:
         return [
             item
             for item in self.order
@@ -211,7 +211,7 @@ class _State:
         else:
             # Nothing selected yet: the candidate farthest from the rest of the
             # open pool opens the selection.
-            rest = self.open()
+            rest = self.unpicked()
             scored = [
                 (self.score(item, [other for other in rest if other.ref != item.ref]), item)
                 for item in candidates
@@ -225,7 +225,7 @@ class _State:
         if remaining.get(item.category, 0) > 0:
             remaining[item.category] -= 1
         left: dict[str, int] = {}
-        for other in self.open():
+        for other in self.unpicked():
             if other.ref == item.ref or self.too_close(other, item):
                 continue
             left[other.category] = left.get(other.category, 0) + 1
@@ -234,7 +234,7 @@ class _State:
     def choose(self, item: Candidate) -> None:
         self.selected.append(item)
         self.chosen.add(item.ref)
-        for other in self.open():
+        for other in self.unpicked():
             if self.too_close(other, item):
                 self.excluded[other.ref] = (item.ref, self.similarity(other, item))
 

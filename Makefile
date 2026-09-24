@@ -63,10 +63,11 @@ test-integration: ## Run the DB+Redis suite inside the compose network
 	# `test` service's own command is `pytest tests/integration -q`.
 	docker compose run --rm test
 
-guards: ## Fail if a route lost its require(Permission), arithmetic escaped calc/, or a verdict escaped guardrails/
+guards: ## Fail if a route lost its require(Permission), arithmetic escaped calc/, a verdict escaped guardrails/, or Stage 04's selection stopped being pure
 	cd $(API) && uv run python scripts/check_route_guards.py
 	cd $(API) && uv run python scripts/check_calc_isolation.py
 	cd $(API) && uv run python scripts/check_guardrails_purity.py
+	cd $(API) && uv run python scripts/check_creative_purity.py
 
 verify: ## Run PRD §19.1's acceptance list against the running stack
 	./scripts/verify-p0b.sh
