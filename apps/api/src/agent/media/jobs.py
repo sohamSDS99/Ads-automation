@@ -53,10 +53,13 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agent.db.models import (
     Approval,
     ApprovalStatus,
+    CreativeAsset,
     CreativeBrief,
     GenerationJob,
     GenerationModality,
     GenerationStatus,
+    MediaArtifact,
+    MediaArtifactRole,
     Project,
     Run,
     Workspace,
@@ -73,6 +76,7 @@ from agent.media.types import (
     CapabilityRecord,
     ImageRequest,
     MediaRequest,
+    ReferenceImage,
     VideoRequest,
     redacted,
 )
@@ -554,35 +558,85 @@ class MediaJobs:
         """The image request `row` recorded, with its references' bytes re-read.
 
         The row holds references by sha256 only (Law 44, §9.1 item 7), so their
-        bytes come back through `media/references.py`, which judges every one
-        again against live rows: a reference the project no longer allows, that
-        was retired, or whose bytes changed is not re-sent, and the job stays in
-        `unknown_submit_state` for a human. Same references, same order — so the
-        same idempotency key.
+        bytes come back from where they live. A 4.4.3 relay's input is this
+        run's own master: it is re-read from that artifact and sent only if its
+        bytes still hash to what was recorded. Every other reference comes back
+        through `media/references.py`, which judges it again against live rows:
+        a reference the project no longer allows, that was retired, or whose
+        bytes changed is not re-sent, and the job stays in
+        `unknown_submit_state` for a human. Same references, same order — so
+        the same idempotency key.
         """
         stored = dict(row.request)
         hashes = [str(ref["sha256"]) for ref in stored.pop("input_references", None) or []]
         if not hashes:
             return ImageRequest.model_validate(stored)
         async with self._session() as session:
+            masters = await self._run_masters(session, row.creative_run_id, hashes)
+            rest = [sha for sha in hashes if sha not in masters]
             project = await session.get(Project, row.project_id)
             try:
-                images = await references.reload_by_sha256(
-                    session,
-                    self._storage,
-                    run_id=row.creative_run_id,
-                    project_id=row.project_id,
-                    allowed=references.references_allowed(project.settings if project else None),
-                    capability=capability,
-                    sha256s=hashes,
-                    max_bytes=self._constants.reference_max_bytes,
+                loaded = (
+                    await references.reload_by_sha256(
+                        session,
+                        self._storage,
+                        run_id=row.creative_run_id,
+                        project_id=row.project_id,
+                        allowed=references.references_allowed(
+                            project.settings if project else None
+                        ),
+                        capability=capability,
+                        sha256s=rest,
+                        max_bytes=self._constants.reference_max_bytes,
+                    )
+                    if rest
+                    else []
                 )
             except references.ReferenceRefused as refused:
                 log.warning(
                     "media.check_reference_refused", job_id=str(row.id), reason=refused.reason
                 )
                 return None
-        return ImageRequest.model_validate({**stored, "input_references": images})
+        by_sha = {**{image.sha256: image for image in loaded}, **masters}
+        return ImageRequest.model_validate(
+            {**stored, "input_references": [by_sha[sha] for sha in hashes]}
+        )
+
+    async def _run_masters(
+        self, session: AsyncSession, run_id: uuid.UUID, sha256s: list[str]
+    ) -> dict[str, ReferenceImage]:
+        """This run's master artifacts among `sha256s`, re-read and re-hashed.
+        A master whose stored bytes no longer hash to its recorded sha256 is
+        left out — and then refused as an unknown reference, never re-sent."""
+        rows = (
+            (
+                await session.execute(
+                    sa.select(MediaArtifact)
+                    .join(CreativeAsset, CreativeAsset.id == MediaArtifact.asset_id)
+                    .where(
+                        CreativeAsset.creative_run_id == run_id,
+                        MediaArtifact.role == MediaArtifactRole.MASTER,
+                        MediaArtifact.sha256.in_(sha256s),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        found: dict[str, ReferenceImage] = {}
+        for artifact in rows:
+            try:
+                content = await asyncio.to_thread(self._storage.get, artifact.storage_path)
+            except Exception as exc:  # noqa: BLE001 — a missing file is simply not re-sent
+                log.warning(
+                    "media.check_master_unreadable", artifact_id=str(artifact.id), error=str(exc)
+                )
+                continue
+            if hashlib.sha256(content).hexdigest() == artifact.sha256:
+                found[artifact.sha256] = ReferenceImage(
+                    sha256=artifact.sha256, media_type=artifact.media_type, data=content
+                )
+        return found
 
     # -- G7 ------------------------------------------------------------------
 
