@@ -1,5 +1,22 @@
 {
   "$defs": {
+    "CreativeSpend": {
+      "description": "Stage 04 law 43's two caps (PRD \u00a715.4 C): `max_creative_cost_usd` over text\nand media, `max_media_cost_usd` over media alone.",
+      "properties": {
+        "total": {
+          "$ref": "#/$defs/SpendMeter"
+        },
+        "media": {
+          "$ref": "#/$defs/SpendMeter"
+        }
+      },
+      "required": [
+        "total",
+        "media"
+      ],
+      "title": "CreativeSpend",
+      "type": "object"
+    },
     "DagEdge": {
       "description": "`source` must succeed before `target` may start.",
       "properties": {
@@ -287,13 +304,66 @@
       "title": "RunTrigger",
       "type": "string"
     },
+    "SpendMeter": {
+      "description": "One cap as the Creative Console draws it: spent and reserved, two segments.",
+      "properties": {
+        "spent_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Spent Usd"
+        },
+        "reserved_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "description": "Held for media jobs submitted but not yet reconciled to `usage.cost` (law 43).",
+          "title": "Reserved Usd"
+        },
+        "cap_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cap Usd"
+        }
+      },
+      "required": [
+        "spent_usd",
+        "reserved_usd",
+        "cap_usd"
+      ],
+      "title": "SpendMeter",
+      "type": "object"
+    },
     "TaskClass": {
       "description": "What a node asks of a model. The only thing a node declares.",
       "enum": [
         "extract",
         "classify",
         "synthesize",
-        "critique"
+        "critique",
+        "copywrite",
+        "vision",
+        "image_gen",
+        "video_gen"
       ],
       "title": "TaskClass",
       "type": "string"
@@ -462,6 +532,18 @@
       },
       "title": "Degraded Sources",
       "type": "array"
+    },
+    "creative_spend": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CreativeSpend"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "A creative run's two meters, each spent + reserved against its cap \u2014 the three numbers the budget script compares before it grants a media job, so the header and the guard cannot disagree. Null on every other stage, and when Redis cannot say what is reserved (the meters are then withheld rather than drawn low)."
     }
   },
   "required": [

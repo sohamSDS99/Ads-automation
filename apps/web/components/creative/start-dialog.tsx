@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { TriangleAlert } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 
 import { CapabilityParams, type ParamValues } from "@/components/creative/capability-params";
@@ -112,6 +113,7 @@ function StartSheet({
   onStarted: () => void;
 }) {
   const client = useQueryClient();
+  const router = useRouter();
   const ids = useId();
   const planRun = typeof pins.plan_run_id === "string" ? pins.plan_run_id : null;
 
@@ -245,6 +247,8 @@ function StartSheet({
       onSuccess: (accepted) => {
         toast.success(`Creative run ${accepted.run_id.slice(0, 8)} started. It is ${accepted.status}.`);
         onStarted();
+        // Into the run's own console, as the plan and guideline dialogs do.
+        router.push(`/projects/${projectId}/creative/runs/${accepted.run_id}`);
       },
     });
   };

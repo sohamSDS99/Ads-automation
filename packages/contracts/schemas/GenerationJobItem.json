@@ -1,0 +1,188 @@
+{
+  "$defs": {
+    "GenerationModality": {
+      "enum": [
+        "image",
+        "video"
+      ],
+      "title": "GenerationModality",
+      "type": "string"
+    },
+    "GenerationStatus": {
+      "enum": [
+        "queued",
+        "submitting",
+        "submitted",
+        "in_progress",
+        "completed",
+        "failed",
+        "cancelled",
+        "expired",
+        "timed_out",
+        "blocked_by_budget",
+        "unknown_submit_state"
+      ],
+      "title": "GenerationStatus",
+      "type": "string"
+    }
+  },
+  "description": "One media request, as the Jobs tab reads it (PRD \u00a715.4 C).",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "node_id": {
+      "title": "Node Id",
+      "type": "string"
+    },
+    "asset_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Asset Id"
+    },
+    "round": {
+      "title": "Round",
+      "type": "integer"
+    },
+    "modality": {
+      "$ref": "#/$defs/GenerationModality"
+    },
+    "model_id": {
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_tag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Provider Tag"
+    },
+    "status": {
+      "$ref": "#/$defs/GenerationStatus"
+    },
+    "estimate_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Estimate Usd"
+    },
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What OpenRouter billed. Null until it answers.",
+      "title": "Cost Usd"
+    },
+    "attempts": {
+      "title": "Attempts",
+      "type": "integer"
+    },
+    "polls": {
+      "title": "Polls",
+      "type": "integer"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Error"
+    },
+    "submitted_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Submitted At"
+    },
+    "completed_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Completed At"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "format": "date-time",
+      "title": "Updated At",
+      "type": "string"
+    },
+    "can_check": {
+      "description": "Whether `POST /generation-jobs/{id}/check` would do anything for this job and this caller may ask: a timed-out video, or an image whose submit state is unknown, for someone holding `creative_execute`.",
+      "title": "Can Check",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "id",
+    "node_id",
+    "asset_id",
+    "round",
+    "modality",
+    "model_id",
+    "provider_tag",
+    "status",
+    "estimate_usd",
+    "cost_usd",
+    "attempts",
+    "polls",
+    "error",
+    "submitted_at",
+    "completed_at",
+    "created_at",
+    "updated_at",
+    "can_check"
+  ],
+  "title": "GenerationJobItem",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -96,6 +96,52 @@ class BudgetState:
     reserved_usd: Decimal
 
 
+@dataclass(frozen=True, slots=True)
+class SpendLine:
+    spent_usd: Decimal
+    reserved_usd: Decimal
+    cap_usd: Decimal
+
+
+@dataclass(frozen=True, slots=True)
+class RunSpend:
+    """Both caps as the console draws them (PRD §15.4 C): spent and reserved,
+    against each cap — the three numbers `_RESERVE` compares before it grants
+    anything, so the meter and the guard cannot disagree about "how close"."""
+
+    total: SpendLine
+    media: SpendLine
+
+
+def text_spend(run_cost_usd: Decimal | None, media_committed_usd: Decimal) -> Decimal:
+    """The text half of the creative cap. `Run.cost_usd` is the run's ledger
+    and already counts committed media, which is not counted twice."""
+    return max(Decimal(0), Decimal(run_cost_usd or 0) - media_committed_usd)
+
+
+def run_spend(
+    *,
+    caps: BudgetCaps,
+    run_cost_usd: Decimal | None,
+    media_committed_usd: Decimal,
+    state: BudgetState,
+) -> RunSpend:
+    # The script never counts media below what is committed (`floor`), so
+    # neither does the meter: a Redis flush must not show a cap reset.
+    media = max(state.spent_usd, media_committed_usd)
+    text = text_spend(run_cost_usd, media_committed_usd)
+    return RunSpend(
+        total=SpendLine(
+            spent_usd=text + media,
+            reserved_usd=state.reserved_usd,
+            cap_usd=caps.max_creative_cost_usd,
+        ),
+        media=SpendLine(
+            spent_usd=media, reserved_usd=state.reserved_usd, cap_usd=caps.max_media_cost_usd
+        ),
+    )
+
+
 def resolve_media_caps(
     *,
     project_settings: dict[str, Any] | None,

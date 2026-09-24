@@ -4,6 +4,9 @@ import { Hourglass } from "lucide-react";
 import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { AssetsTab } from "@/components/creative/assets-tab";
+import { BriefGateSummary } from "@/components/creative/brief-gate-summary";
+import { JobsTab } from "@/components/creative/jobs-tab";
 import { RulesPanel } from "@/components/guidelines/rules-panel";
 import { PlanNodeFigure } from "@/components/plan/node-figure";
 import { CalcPanel } from "@/components/run/calc-panel";
@@ -22,7 +25,7 @@ import { absoluteTime, usd } from "@/lib/format";
 import { useNodeRun } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc" | "rules";
+type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc" | "rules" | "assets" | "jobs";
 
 /**
  * Everything one node did (PRD §13.4 B, right panel).
@@ -90,7 +93,13 @@ export function NodePanel({
 
       {approval ? (
         <div className="border-b p-3">
-          <ApprovalCard approval={approval} onDecided={onDecided} />
+          {/* G7 is decided on the brief page, beside the brief and what it
+              authorises; here it only says who it waits on and links there. */}
+          {stage === "creative" && approval.gate_key === "G7" ? (
+            <BriefGateSummary approval={approval} projectId={projectId} />
+          ) : (
+            <ApprovalCard approval={approval} onDecided={onDecided} />
+          )}
         </div>
       ) : null}
 
@@ -113,66 +122,82 @@ export function NodePanel({
           ...(stage === "plan" ? [{ id: "calc", label: "Calc" }] : []),
           // Stage 03 PRD §15.3 B: the sixth.
           ...(stage === "guideline" ? [{ id: "rules", label: "Rules" }] : []),
+          // Stage 04 PRD §15.4 C: what this node produced, and the run's media jobs.
+          ...(stage === "creative"
+            ? [
+                { id: "assets", label: "Assets" },
+                { id: "jobs", label: "Jobs" },
+              ]
+            : []),
         ]}
       />
 
       <div className="min-h-0 flex-1 overflow-y-auto p-3">
-        {detail.isPending && !notRunYet ? <Skeleton className="h-40 w-full" /> : null}
+        {/* Both read the run, not this node's attempt, so they answer before
+            the node has run — "nothing yet" is theirs to say. */}
+        {tab === "assets" ? <AssetsTab runId={runId} nodeId={node.id} model={node.model} /> : null}
+        {tab === "jobs" ? <JobsTab runId={runId} selectedNodeId={node.id} /> : null}
 
-        {notRunYet ? (
-          <EmptyState
-            icon={Hourglass}
-            title="Not run yet"
-            description="This node is waiting for the nodes it depends on. Its output, evidence and cost appear here the moment it starts."
-          />
-        ) : null}
-
-        {data ? (
+        {tab !== "assets" && tab !== "jobs" ? (
           <>
-            {data.error ? (
-              <Alert tone="error" title="This node failed" className="mb-3">
-                <pre className="mt-1 break-words whitespace-pre-wrap font-mono text-xs">
-                  {JSON.stringify(data.error, null, 2)}
-                </pre>
-              </Alert>
-            ) : null}
+            {detail.isPending && !notRunYet ? <Skeleton className="h-40 w-full" /> : null}
 
-            {tab === "output" ? (
-              data.output ? (
-                <>
-                  {/* Only a plan run has nodes with a shape worth drawing; a
-                      research node id never matches, so the call is free. */}
-                  {stage === "plan" ? (
-                    <PlanNodeFigure nodeId={node.id} output={data.output} />
-                  ) : null}
-                  <JsonTree value={data.output} />
-                </>
-              ) : (
-                <p className="text-sm text-fg-subtle">No output recorded for this attempt.</p>
-              )
-            ) : null}
-
-            {tab === "evidence" ? (
-              <NodeEvidence projectId={projectId} ids={data.evidence_ids} />
-            ) : null}
-
-            {tab === "prompt" ? <Prompt text={data.prompt} /> : null}
-
-            {tab === "metrics" ? <Metrics detail={data} /> : null}
-
-            {/* `runId` is the plan run: `plan_calc` rows are keyed by it and
-                the node, which is exactly this panel's subject. */}
-            {tab === "calc" ? (
-              <CalcPanel planRunId={runId} nodeId={node.id} projectId={projectId} />
-            ) : null}
-
-            {tab === "rules" ? (
-              <RulesPanel
-                projectId={projectId}
-                runId={runId}
-                stage={node.stage}
-                output={data.output}
+            {notRunYet ? (
+              <EmptyState
+                icon={Hourglass}
+                title="Not run yet"
+                description="This node is waiting for the nodes it depends on. Its output, evidence and cost appear here the moment it starts."
               />
+            ) : null}
+
+            {data ? (
+              <>
+                {data.error ? (
+                  <Alert tone="error" title="This node failed" className="mb-3">
+                    <pre className="mt-1 break-words whitespace-pre-wrap font-mono text-xs">
+                      {JSON.stringify(data.error, null, 2)}
+                    </pre>
+                  </Alert>
+                ) : null}
+
+                {tab === "output" ? (
+                  data.output ? (
+                    <>
+                      {/* Only a plan run has nodes with a shape worth drawing; a
+                          research node id never matches, so the call is free. */}
+                      {stage === "plan" ? (
+                        <PlanNodeFigure nodeId={node.id} output={data.output} />
+                      ) : null}
+                      <JsonTree value={data.output} />
+                    </>
+                  ) : (
+                    <p className="text-sm text-fg-subtle">No output recorded for this attempt.</p>
+                  )
+                ) : null}
+
+                {tab === "evidence" ? (
+                  <NodeEvidence projectId={projectId} ids={data.evidence_ids} />
+                ) : null}
+
+                {tab === "prompt" ? <Prompt text={data.prompt} /> : null}
+
+                {tab === "metrics" ? <Metrics detail={data} /> : null}
+
+                {/* `runId` is the plan run: `plan_calc` rows are keyed by it and
+                    the node, which is exactly this panel's subject. */}
+                {tab === "calc" ? (
+                  <CalcPanel planRunId={runId} nodeId={node.id} projectId={projectId} />
+                ) : null}
+
+                {tab === "rules" ? (
+                  <RulesPanel
+                    projectId={projectId}
+                    runId={runId}
+                    stage={node.stage}
+                    output={data.output}
+                  />
+                ) : null}
+              </>
             ) : null}
           </>
         ) : null}

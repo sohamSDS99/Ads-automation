@@ -10,10 +10,13 @@ run that is about to be thrown away.
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 from typing import Annotated
 
+import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, Request, Response, status
+from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 from starlette.responses import StreamingResponse
 
@@ -21,6 +24,7 @@ from agent.api import problems
 from agent.api.middleware import client_ip
 from agent.api.schemas_diff import RunDiffResponse, to_response
 from agent.api.schemas_runs import (
+    CreativeSpend,
     DagEdge,
     DegradedSource,
     LaunchRunRequest,
@@ -29,6 +33,7 @@ from agent.api.schemas_runs import (
     PresenceResponse,
     RunResponse,
     RunViewer,
+    SpendMeter,
 )
 from agent.api.sse import cursor_from, sse_response
 from agent.api.throttle import throttle
@@ -38,6 +43,7 @@ from agent.auth.ratelimit import RUN_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import get_settings
 from agent.db.models import (
+    GenerationJob,
     NodeRun,
     Project,
     Run,
@@ -51,6 +57,7 @@ from agent.db.repos import ProjectRepo, ReportRepo, RunRepo, UserRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
 from agent.export.diff import diff_reports
+from agent.media.budget import MediaBudget, SpendLine, resolve_media_caps, run_spend
 from agent.nodes.gather import parse_note
 from agent.orchestrator.approvals import expire_pending
 from agent.orchestrator.budget import resolve_cost_cap
@@ -489,6 +496,48 @@ async def _run_response(
             if edge.source in selected and edge.target in selected
         ],
         degraded_sources=degraded_sources(latest),
+        creative_spend=(
+            await _creative_spend(db, run, project=project, workspace=workspace)
+            if run.stage is RunStage.CREATIVE
+            else None
+        ),
+    )
+
+
+async def _creative_spend(
+    db: AsyncSession, run: Run, *, project: Project | None, workspace: Workspace | None
+) -> CreativeSpend | None:
+    """Law 43's two meters, read from the same three places the reserve script
+    reads: the caps, the committed media (the floor) and Redis's reservations."""
+    caps = resolve_media_caps(
+        project_settings=project.settings if project else None,
+        workspace_settings=workspace.settings if workspace else None,
+        defaults=get_settings(),
+    )
+    committed = await db.scalar(
+        sa.select(sa.func.coalesce(sa.func.sum(GenerationJob.cost_usd), 0)).where(
+            GenerationJob.creative_run_id == run.id, GenerationJob.cost_usd.is_not(None)
+        )
+    )
+    try:
+        state = await MediaBudget(get_redis()).state(run.id)
+    except (RedisError, OSError) as exc:
+        # Reserved money is only in Redis. Drawing it as zero would show a run
+        # further from its cap than it is — withhold the meters instead.
+        log.warning("creative_spend.unavailable", run_id=str(run.id), error=str(exc))
+        return None
+    spend = run_spend(
+        caps=caps,
+        run_cost_usd=run.cost_usd,
+        media_committed_usd=Decimal(committed or 0),
+        state=state,
+    )
+    return CreativeSpend(total=_meter(spend.total), media=_meter(spend.media))
+
+
+def _meter(line: SpendLine) -> SpendMeter:
+    return SpendMeter(
+        spent_usd=line.spent_usd, reserved_usd=line.reserved_usd, cap_usd=line.cap_usd
     )
 
 

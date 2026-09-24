@@ -15,7 +15,9 @@ three the moment `approved_hash` is set).
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 import sqlalchemy as sa
@@ -26,9 +28,52 @@ from agent.creative import lint_adapter
 from agent.db.models import Approval, Run
 from agent.db.models import CreativeBrief as CreativeBriefRow
 from agent.schemas.creative_brief import CreativeBrief
+from agent.schemas.creative_input import CreativeInput
 
 #: `Approval.gate_key` of node 4.1.1.
 G7 = "G7"
+
+#: PRD §11: 4.2.3 writes RSA A for every Search ad group and 4.2.4 writes
+#: variant B, "a second RSA per ad group from a different brief angle".
+RSAS_PER_AD_GROUP = 2
+
+#: The plan's `PlannedCampaign.type` for a campaign that carries RSAs.
+#: Performance Max carries asset-group text instead, and an untyped campaign
+#: is not counted — an authorisation must not claim work nobody planned.
+SEARCH = "search"
+
+
+@dataclass(frozen=True, slots=True)
+class Authorisation:
+    """What approving the brief lets the run do, in numbers (PRD §15.4 D,
+    §15.2 rule 8): "Authorises 20 RSAs, 36 images, 4 videos and up to $38.40
+    of media spend".
+
+    Media figures are the brief's own `media_plan`, which is `calc/`'s
+    estimate copied — the numbers the approver signs are the numbers the
+    hash covers, never a second computation.
+    """
+
+    rsas: int
+    images: int
+    videos: int
+    media_usd: Decimal
+
+
+def authorises(brief: CreativeBrief, inp: CreativeInput) -> Authorisation:
+    search = {
+        campaign.campaign_ref or campaign.name
+        for campaign in inp.account_structure.campaigns
+        if campaign.type == SEARCH
+    }
+    groups = sum(1 for group in brief.ad_groups if group.campaign_ref in search)
+    jobs = brief.media_plan.jobs
+    return Authorisation(
+        rsas=RSAS_PER_AD_GROUP * groups,
+        images=int(jobs.get("image", 0)),
+        videos=int(jobs.get("video", 0)),
+        media_usd=Decimal(brief.media_plan.media_usd),
+    )
 
 
 async def approve(
