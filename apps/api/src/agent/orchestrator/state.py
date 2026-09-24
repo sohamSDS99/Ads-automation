@@ -66,7 +66,24 @@ def lock_key(project_id: uuid.UUID, stage: RunStage = RunStage.RESEARCH) -> str:
         return f"project:{project_id}:plan_lock"
     if stage is RunStage.GUIDELINE:
         return f"project:{project_id}:guideline_lock"
+    if stage is RunStage.CREATIVE:
+        return f"project:{project_id}:creative_lock"
     return f"run:lock:project:{project_id}"
+
+
+def lock_ttl(stage: RunStage) -> int:
+    """How long one pipeline's lock lives without a refresh.
+
+    Creative gets `creative_lock_ttl_seconds` (three hours): its runs wait on
+    video renders that are polled rather than pushed, and a lock that lapsed
+    mid-render would let a second run start on the same project. Every other
+    stage keeps the two hours it always had.
+    """
+    if stage is RunStage.CREATIVE:
+        from agent.config import get_settings
+
+        return get_settings().creative_lock_ttl_seconds
+    return RUN_LOCK_TTL_SECONDS
 
 
 def cancel_key(run_id: uuid.UUID) -> str:
@@ -108,7 +125,7 @@ class RunLock:
             lock_key(project_id, self._stage),
             json.dumps(holder.as_dict()),
             nx=True,
-            ex=RUN_LOCK_TTL_SECONDS,
+            ex=lock_ttl(self._stage),
         )
         if acquired:
             return None
@@ -120,7 +137,7 @@ class RunLock:
                 lock_key(project_id, self._stage),
                 json.dumps(holder.as_dict()),
                 nx=True,
-                ex=RUN_LOCK_TTL_SECONDS,
+                ex=lock_ttl(self._stage),
             )
             if acquired:
                 return None
@@ -145,7 +162,7 @@ class RunLock:
         """Extend the TTL while a long run is still making progress."""
         current = await self.holder(project_id)
         if current is not None and current.run_id == run_id:
-            await self._redis.expire(lock_key(project_id, self._stage), RUN_LOCK_TTL_SECONDS)
+            await self._redis.expire(lock_key(project_id, self._stage), lock_ttl(self._stage))
 
     async def release(self, project_id: uuid.UUID, run_id: uuid.UUID) -> None:
         """Release only if this run still holds it — never another run's lock."""

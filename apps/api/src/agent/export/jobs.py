@@ -79,6 +79,10 @@ MEDIA_TYPES: dict[ExportFormat, str] = {
     # Stage 03's machine handoff. `application/json` and not a bespoke type:
     # the point of the ruleset export is that anything can read it.
     ExportFormat.RULESET_JSON: "application/json; charset=utf-8",
+    # Stage 04's Google Ads Editor bundle. The label exists from S4-P0 (the
+    # enum and the exporter ship in different phases, as EDITOR_CSV did); its
+    # writer arrives with the exports phase. No format list offers it yet.
+    ExportFormat.EDITOR_ZIP: "application/zip",
 }
 
 EXTENSIONS: dict[ExportFormat, str] = {
@@ -90,6 +94,7 @@ EXTENSIONS: dict[ExportFormat, str] = {
     ExportFormat.EDITOR_CSV: "csv",
     ExportFormat.XLSX: "xlsx",
     ExportFormat.RULESET_JSON: "json",
+    ExportFormat.EDITOR_ZIP: "zip",
 }
 
 #: The formats a *research report* can be rendered as. Not every member of

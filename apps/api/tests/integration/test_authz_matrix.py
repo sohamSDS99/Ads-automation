@@ -440,6 +440,38 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # Stage 04 (S4-P0). Eligibility is READ — every role may ask whether the
+    # project is ready — and starting is CREATIVE_EXECUTE: admin and operator,
+    # never approver or viewer (PRD §5.1). The body is a valid text-only
+    # scope, so the 403 is the guard's and not the validator's.
+    (
+        "GET",
+        "/projects/{project_id}/creative/eligibility",
+        "/projects/{project}/creative/eligibility",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/projects/{project_id}/creative/runs",
+        "/projects/{project}/creative/runs",
+        Permission.CREATIVE_EXECUTE,
+        {"scope": {"images": False, "video": False, "concepts_per_campaign": 2}},
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/creative",
+        "/projects/{project}/creative",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/guidelines/published/creative-context",
+        "/guidelines/published/creative-context?project_id=00000000-0000-4000-8000-000000000000",
+        Permission.READ,
+        None,
+    ),
     (
         "GET",
         "/guidelines/{guideline_id}",

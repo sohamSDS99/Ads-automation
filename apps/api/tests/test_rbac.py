@@ -40,6 +40,18 @@ MATRIX: list[tuple[str, Permission, bool, bool, bool, bool]] = [
     ("Publish a guideline version", Permission.GUIDELINE_PUBLISH, True, False, True, False),
     ("Sign a claim set (H1)", Permission.CLAIM_SIGN, False, False, True, False),
     ("Submit a verification attestation (H2)", Permission.ATTEST_SUBMIT, False, False, True, False),
+    # Stage 04 PRD §5.1. The Stage 02 asymmetry again: an operator makes the
+    # creative and does not release it; an approver releases it and does not
+    # make it.
+    (
+        "Start / cancel / retry a creative run",
+        Permission.CREATIVE_EXECUTE,
+        True,
+        True,
+        False,
+        False,
+    ),
+    ("Release a creative package", Permission.CREATIVE_RELEASE, True, False, True, False),
     # Not a PRD §4.1 row: no role grants it. It is the whole-system
     # administrator (`user.is_superadmin`), and the four Falses are the point —
     # a workspace admin must not reach another workspace.
@@ -153,3 +165,23 @@ def test_superadmin_cannot_sign_either(permission: Permission) -> None:
 def test_only_approver_holds_a_non_delegable_permission(permission: Permission) -> None:
     holders = {role for role, granted in ROLE_PERMISSIONS.items() if permission in granted}
     assert holders == {UserRole.APPROVER}
+
+
+# ---------------------------------------------------------------------------
+# Stage 04 — two permissions, and law 23 still holds (PRD §5.1, §23 item 3)
+# ---------------------------------------------------------------------------
+
+
+def test_stage04_adds_no_role_and_leaves_claim_sign_non_delegable() -> None:
+    """H3 is built on the same person-task primitive as H1: admin is still
+    absent from `CLAIM_SIGN`, however many permissions Stage 04 adds."""
+    assert Permission.CLAIM_SIGN not in ROLE_PERMISSIONS[UserRole.ADMIN]
+    assert set(ROLE_PERMISSIONS) == set(ROLE_ORDER)
+
+
+def test_approver_cannot_execute_creative() -> None:
+    assert Permission.CREATIVE_EXECUTE not in ROLE_PERMISSIONS[UserRole.APPROVER]
+
+
+def test_operator_cannot_release_creative() -> None:
+    assert Permission.CREATIVE_RELEASE not in ROLE_PERMISSIONS[UserRole.OPERATOR]

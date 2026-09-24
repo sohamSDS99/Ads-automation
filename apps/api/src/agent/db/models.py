@@ -125,6 +125,11 @@ class RunStage(StrEnum):
     #: a plan run may carry a source, which a guideline run that resolved a
     #: research binding contradicts.
     GUIDELINE = "guideline"
+    #: Stage 04. Gated harder than `plan`: a creative run consumes a frozen,
+    #: non-superseded plan (named in `source_run_id` — the plan's
+    #: `plan_run_id`) *and* a published ruleset (pinned in `Run.pins`).
+    #: `ck_run_creative_has_source` is the database half of CR-E1.
+    CREATIVE = "creative"
 
 
 class NodeRunStatus(StrEnum):
@@ -201,6 +206,10 @@ class ExportFormat(StrEnum):
     #: `ruleset_version`, hashed. The only export another stage reads.
     RULESET_JSON = "ruleset_json"
 
+    #: Stage 04 (migration 0019). The Google Ads Editor bundle of a released
+    #: creative package. No writer until the exports phase.
+    EDITOR_ZIP = "editor_zip"
+
 
 class ExportArtifactType(StrEnum):
     """What an `Export` row points at (Stage 02 PRD §7.1).
@@ -214,6 +223,7 @@ class ExportArtifactType(StrEnum):
     RESEARCH_REPORT = "research_report"
     CAMPAIGN_PLAN = "campaign_plan"
     CONTENT_GUIDELINE = "content_guideline"
+    CREATIVE_PACKAGE = "creative_package"
 
 
 class CampaignPlanStatus(StrEnum):
@@ -722,6 +732,14 @@ class Run(Base):
             "stage <> 'guideline' OR (bindings IS NOT NULL AND jsonb_typeof(bindings) = 'object')",
             name="ck_run_guideline_has_bindings",
         ),
+        # Stage 04, CR-E1 in DDL: a creative run names the frozen plan it
+        # writes into. *Added* beside the two above, never folded into them —
+        # rewriting `ck_run_plan_has_source` again would re-open what its
+        # own test pins down.
+        sa.CheckConstraint(
+            "stage <> 'creative' OR source_run_id IS NOT NULL",
+            name="ck_run_creative_has_source",
+        ),
         # The reaper's sweep has no project to narrow by, so the composite index
         # above cannot serve it (PRD §16, "Worker killed").
         sa.Index("ix_run_status", "status"),
@@ -784,6 +802,11 @@ class Run(Base):
     #: never recomputed: it is what lets a later run tell whether it is looking
     #: at the same research it was planned against.
     input_hash: Mapped[str | None] = mapped_column(sa.Text)
+    #: Stage 04 only: the append-only list of `{ruleset_version, reason, at}`
+    #: a creative run was made under (PRD §4.4). The first entry has
+    #: `reason='start'`; the only other reason is `h3_clearance`. NULL for
+    #: every other stage. `none_as_null` for the reason `bindings` gives.
+    pins: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
 
 
 class NodeRun(Base):
@@ -928,6 +951,9 @@ class Approval(Base):
     #: The last what-if payload shown to the approver on a budget gate. Stage
     #: 02 S2-P3 writes it; nothing reads it before then.
     recalc_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    #: A reviewer's saved, unsubmitted per-item decisions on G8/G8b (Stage 04
+    #: PRD §7.1). A draft, never a decision: `AssetDecision` rows are those.
+    draft_state: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -1348,6 +1374,9 @@ class AmendmentOrigin(StrEnum):
     CLAIM_EXPIRY = "claim_expiry"
     DISAPPROVAL = "disapproval"
     MANUAL = "manual"
+    #: Stage 04: applied by the H3 transaction when a legal owner clears a
+    #: creative exception (migration 0019).
+    CREATIVE_EXCEPTION = "creative_exception"
 
 
 class AmendmentChangeKind(StrEnum):
@@ -1544,6 +1573,10 @@ class ClaimRecord(Base):
     superseded_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), sa.ForeignKey("claim_record.id", ondelete="SET NULL")
     )
+    #: `harvest` (Stage 03) or `creative_exception` (a claim a legal owner
+    #: licensed through H3, Stage 04 PRD §7.1). Text, not an enum, as the PRD
+    #: writes it; the default makes every existing row `harvest`.
+    origin: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="harvest")
     created_at: Mapped[datetime] = mapped_column(
         sa.DateTime(timezone=True), server_default=_now(), nullable=False
     )
@@ -1944,6 +1977,646 @@ class DisapprovalEvent(Base):
     )
 
 
+# ---------------------------------------------------------------------------
+# Stage 04 — the Copy & Creative Agent (Stage 04 PRD §7.2)
+#
+# Types created by migration 0019, tables by 0020. Each enum is named for its
+# table and never *as* its table: Postgres gives every table a composite type
+# of the same name, so an enum called `asset_decision` could not coexist with
+# the `asset_decision` table.
+#
+# Nullability follows the PRD: a column §7.2 writes as `null` is nullable,
+# everything else is NOT NULL. The handful of places the PRD is silent and the
+# lifecycle forces NULL (a landing page that never answered has no status; a
+# preview that could not render has no file) say so where they are declared.
+# ---------------------------------------------------------------------------
+
+
+class CreativeAssetKind(StrEnum):
+    HEADLINE = "headline"
+    LONG_HEADLINE = "long_headline"
+    DESCRIPTION = "description"
+    PATH = "path"
+    SITELINK = "sitelink"
+    CALLOUT = "callout"
+    STRUCTURED_SNIPPET = "structured_snippet"
+    PROMOTION = "promotion"
+    PRICE = "price"
+    LEAD_FORM = "lead_form"
+    BUSINESS_NAME = "business_name"
+    VIDEO_SCRIPT = "video_script"
+    IMAGE = "image"
+    VIDEO = "video"
+    LOGO = "logo"
+
+
+class CreativeAssetStatus(StrEnum):
+    DRAFT = "draft"
+    LINTED = "linted"
+    RESERVE = "reserve"
+    AWAITING_REVIEW = "awaiting_review"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+    DROPPED = "dropped"
+    AWAITING_EXCEPTION = "awaiting_exception"
+    RELEASED = "released"
+
+
+class CreativeAssetVariant(StrEnum):
+    A = "A"
+    B = "B"
+
+
+class GenerationModality(StrEnum):
+    IMAGE = "image"
+    VIDEO = "video"
+
+
+class GenerationStatus(StrEnum):
+    QUEUED = "queued"
+    SUBMITTING = "submitting"
+    SUBMITTED = "submitted"
+    IN_PROGRESS = "in_progress"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    EXPIRED = "expired"
+    TIMED_OUT = "timed_out"
+    BLOCKED_BY_BUDGET = "blocked_by_budget"
+    #: Law 37: surfaced to a human, never retried.
+    UNKNOWN_SUBMIT_STATE = "unknown_submit_state"
+
+
+class MediaArtifactRole(StrEnum):
+    CANDIDATE = "candidate"
+    MASTER = "master"
+    RENDITION = "rendition"
+    CLIP = "clip"
+    PREVIEW = "preview"
+    THUMBNAIL = "thumbnail"
+    POSTER = "poster"
+    FRAME_SAMPLE = "frame_sample"
+
+
+class MediaArtifactDerivation(StrEnum):
+    NATIVE = "native"
+    RELAID = "relaid"
+    CROP = "crop"
+    COMPOSITED = "composited"
+    ENCODED = "encoded"
+    INGESTED = "ingested"
+
+
+class AssetDecisionChoice(StrEnum):
+    APPROVE = "approve"
+    REJECT = "reject"
+    REGENERATE = "regenerate"
+
+
+class CreativeExceptionKind(StrEnum):
+    NEW_CLAIM = "new_claim"
+    DISCLAIMER = "disclaimer"
+    IMAGE_RIGHT = "image_right"
+
+
+class CreativeExceptionStatus(StrEnum):
+    OPEN = "open"
+    CLEARED = "cleared"
+    REJECTED = "rejected"
+    WITHDRAWN = "withdrawn"
+
+
+class LandingAuditVerdict(StrEnum):
+    OK = "ok"
+    NEEDS_CHANGE = "needs_change"
+    BLOCKING_FOR_LAUNCH = "blocking_for_launch"
+    UNREACHABLE = "unreachable"
+
+
+class PreviewDevice(StrEnum):
+    MOBILE = "mobile"
+    DESKTOP = "desktop"
+
+
+class PreviewVerdict(StrEnum):
+    PASS = "pass"  # noqa: S105 — a verdict, not a password
+    WARNING = "warning"
+    BLOCKING = "blocking"
+    UNAVAILABLE = "unavailable"
+
+
+class CreativePackageStatus(StrEnum):
+    DRAFT = "draft"
+    BLOCKED = "blocked"
+    READY_TO_RELEASE = "ready_to_release"
+    RELEASED = "released"
+    SUPERSEDED = "superseded"
+
+
+class MediaReferenceKind(StrEnum):
+    PRODUCT_REFERENCE = "product_reference"
+    STYLE_REFERENCE = "style_reference"
+
+
+class MediaReferenceOrigin(StrEnum):
+    OWN = "own"
+    LICENSED = "licensed"
+    THIRD_PARTY = "third_party"
+
+
+#: (enum class, Postgres type) for every Stage 04 type. Migration 0019 creates
+#: exactly these; `test_stage04_schema` asserts the database agrees label for
+#: label, so a member added here without a migration fails a test rather than
+#: an insert.
+STAGE04_ENUMS: tuple[tuple[type[StrEnum], str], ...] = (
+    (CreativeAssetKind, "creative_asset_kind"),
+    (CreativeAssetStatus, "creative_asset_status"),
+    (CreativeAssetVariant, "creative_asset_variant"),
+    (GenerationModality, "generation_modality"),
+    (GenerationStatus, "generation_status"),
+    (MediaArtifactRole, "media_artifact_role"),
+    (MediaArtifactDerivation, "media_artifact_derivation"),
+    (AssetDecisionChoice, "asset_decision_choice"),
+    (CreativeExceptionKind, "creative_exception_kind"),
+    (CreativeExceptionStatus, "creative_exception_status"),
+    (LandingAuditVerdict, "landing_audit_verdict"),
+    (PreviewDevice, "preview_device"),
+    (PreviewVerdict, "preview_verdict"),
+    (CreativePackageStatus, "creative_package_status"),
+    (MediaReferenceKind, "media_reference_kind"),
+    (MediaReferenceOrigin, "media_reference_origin"),
+)
+
+
+def _workspace_fk() -> Mapped[uuid.UUID]:
+    return mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("workspace.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+def _project_fk() -> Mapped[uuid.UUID]:
+    return mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("project.id", ondelete="CASCADE"), nullable=False
+    )
+
+
+def _creative_run_fk(*, unique: bool = False) -> Mapped[uuid.UUID]:
+    return mapped_column(
+        UUID(as_uuid=True),
+        sa.ForeignKey("run.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=unique,
+    )
+
+
+def _created_at() -> Mapped[datetime]:
+    return mapped_column(sa.DateTime(timezone=True), server_default=_now(), nullable=False)
+
+
+def _updated_at() -> Mapped[datetime]:
+    return mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), onupdate=_now(), nullable=False
+    )
+
+
+def _uuids() -> Mapped[list[uuid.UUID]]:
+    return mapped_column(
+        ARRAY(UUID(as_uuid=True)), nullable=False, server_default=sa.text("'{}'::uuid[]")
+    )
+
+
+def _jsonb_object() -> Mapped[dict[str, Any]]:
+    return mapped_column(JSONB, nullable=False, server_default=sa.text("'{}'::jsonb"))
+
+
+class CreativeBrief(Base):
+    """4.1's brief, and the hash G7 approved (PRD §7.2).
+
+    `approved_hash` must equal `brief_hash` for any media submit. Once it is
+    set, trigger `creative_brief_approved_freeze` makes `payload`, `markdown`
+    and `brief_hash` immutable, so "the brief that was approved" and "the brief
+    on the row" cannot drift apart after the fact.
+    """
+
+    __tablename__ = "creative_brief"
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk(unique=True)
+    schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    payload: Mapped[dict[str, Any]] = _jsonb_object()
+    markdown: Mapped[str] = mapped_column(sa.Text, nullable=False, server_default="")
+    #: sha256 over the canonical payload.
+    brief_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: G7.
+    approval_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("approval.id", ondelete="SET NULL")
+    )
+    approved_hash: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class MediaReference(Base):
+    """A product or style reference someone attested the rights to (PRD §10.3).
+
+    `origin='third_party'` is never sent to a provider without a cleared H3
+    `image_right` (Law 44).
+    """
+
+    __tablename__ = "media_reference"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "sha256", name="uq_media_reference_project_sha256"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    kind: Mapped[MediaReferenceKind] = mapped_column(
+        _enum(MediaReferenceKind, "media_reference_kind"), nullable=False
+    )
+    storage_path: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    width: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    height: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    bytes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: The sku / product_set depicted.
+    product_ref: Mapped[str | None] = mapped_column(sa.Text)
+    origin: Mapped[MediaReferenceOrigin] = mapped_column(
+        _enum(MediaReferenceOrigin, "media_reference_origin"), nullable=False
+    )
+    rights_statement: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    attested_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    attested_at: Mapped[datetime] = mapped_column(sa.DateTime(timezone=True), nullable=False)
+    retired_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CreativeAsset(Base):
+    """One piece of copy or media, written into one container of the plan.
+
+    Frozen at release: trigger `creative_asset_frozen` rejects every change
+    once `frozen_at` is set (Law 42).
+    """
+
+    __tablename__ = "creative_asset"
+    __table_args__ = (
+        sa.Index("ix_creative_asset_run_kind_status", "creative_run_id", "kind", "status"),
+        sa.Index("ix_creative_asset_run_ad_group", "creative_run_id", "ad_group_ref"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk()
+    node_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    campaign_ref: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    ad_group_ref: Mapped[str | None] = mapped_column(sa.Text)
+    ad_ref: Mapped[str | None] = mapped_column(sa.Text)
+    kind: Mapped[CreativeAssetKind] = mapped_column(
+        _enum(CreativeAssetKind, "creative_asset_kind"), nullable=False
+    )
+    #: A `LintTarget.surface` literal.
+    surface: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    variant: Mapped[CreativeAssetVariant | None] = mapped_column(
+        _enum(CreativeAssetVariant, "creative_asset_variant")
+    )
+    category: Mapped[str | None] = mapped_column(sa.Text)
+    text: Mapped[str | None] = mapped_column(sa.Text)
+    #: Sitelink `{link_text, line1, line2, final_url}` and the like.
+    fields: Mapped[dict[str, Any]] = _jsonb_object()
+    claim_ids: Mapped[list[uuid.UUID]] = _uuids()
+    #: Law 35: every numeric and date field of a promotion or price asset.
+    offer_binding: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    pin_position: Mapped[str | None] = mapped_column(sa.Text)
+    generated_by_ai: Mapped[bool] = mapped_column(sa.Boolean, nullable=False)
+    status: Mapped[CreativeAssetStatus] = mapped_column(
+        _enum(CreativeAssetStatus, "creative_asset_status"),
+        nullable=False,
+        server_default=CreativeAssetStatus.DRAFT.value,
+    )
+    lint: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    ruleset_version: Mapped[str | None] = mapped_column(sa.Text)
+    #: `{origin: generated|human_edit|reserve_swap|regenerated|reused,
+    #:   parent_id, by_user?, node_id}`.
+    lineage: Mapped[dict[str, Any]] = _jsonb_object()
+    content_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    frozen_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class GenerationJob(Base):
+    """One media request to OpenRouter, committed before the network call.
+
+    `idempotency_key UNIQUE` is Law 37 in DDL: the row exists before the POST,
+    so a resumed worker finds it and re-polls `openrouter_job_id` rather than
+    submitting (and paying for) the video a second time. Never drop it "to
+    allow retries" (PRD §7.5 note 4).
+    """
+
+    __tablename__ = "generation_job"
+    __table_args__ = (
+        sa.Index("ix_generation_job_run_status", "creative_run_id", "status"),
+        sa.Index("ix_generation_job_status_next_poll", "status", "next_poll_at"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk()
+    node_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    asset_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("creative_asset.id", ondelete="SET NULL")
+    )
+    round: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("1"))
+    modality: Mapped[GenerationModality] = mapped_column(
+        _enum(GenerationModality, "generation_modality"), nullable=False
+    )
+    model_id: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    provider_tag: Mapped[str | None] = mapped_column(sa.Text)
+    capability_hash: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: Canonical and redacted: references as sha256, never base64 (Law 44).
+    request: Mapped[dict[str, Any]] = _jsonb_object()
+    idempotency_key: Mapped[str] = mapped_column(sa.Text, nullable=False, unique=True)
+    #: Video only.
+    openrouter_job_id: Mapped[str | None] = mapped_column(sa.Text, unique=True)
+    status: Mapped[GenerationStatus] = mapped_column(
+        _enum(GenerationStatus, "generation_status"),
+        nullable=False,
+        server_default=GenerationStatus.QUEUED.value,
+    )
+    estimate_usd: Mapped[Decimal] = mapped_column(sa.Numeric(12, 4), nullable=False)
+    cost_usd: Mapped[Decimal | None] = mapped_column(sa.Numeric(12, 4))
+    attempts: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
+    polls: Mapped[int] = mapped_column(sa.Integer, nullable=False, server_default=sa.text("0"))
+    next_poll_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    error: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    submitted_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    completed_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class MediaArtifact(Base):
+    """One file: a candidate, a master, a rendition, a clip, a preview.
+
+    `ck_media_artifact_uniform_scale` is Law 39 in DDL — relay out, never
+    stretch. A crop scales both axes by the same factor or it is not stored.
+    """
+
+    __tablename__ = "media_artifact"
+    __table_args__ = (
+        # Law 39: RELAY OUT, NEVER STRETCH. Compared as the JSON text of each
+        # factor, exactly as PRD §7.2 writes it: the writer stores one
+        # computed number in both keys, so equal factors are equal text.
+        sa.CheckConstraint(
+            "transform IS NULL OR (transform->>'sx') = (transform->>'sy')",
+            name="ck_media_artifact_uniform_scale",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("creative_asset.id", ondelete="CASCADE"), nullable=False
+    )
+    job_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("generation_job.id", ondelete="SET NULL")
+    )
+    role: Mapped[MediaArtifactRole] = mapped_column(
+        _enum(MediaArtifactRole, "media_artifact_role"), nullable=False
+    )
+    storage_path: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    media_type: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    width: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    height: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    duration_ms: Mapped[int | None] = mapped_column(sa.Integer)
+    bytes: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    sha256: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    aspect_ratio: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    derivation: Mapped[MediaArtifactDerivation] = mapped_column(
+        _enum(MediaArtifactDerivation, "media_artifact_derivation"), nullable=False
+    )
+    derived_from: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("media_artifact.id", ondelete="SET NULL")
+    )
+    #: `{crop_box, sx, sy, logo_box, encoder_args}`. NULL for a native file,
+    #: which is the case the CHECK's first half admits.
+    transform: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    #: Pillow / ffprobe output.
+    probe: Mapped[dict[str, Any]] = _jsonb_object()
+    #: `{xmp_digital_source_type, mp4_comment, visible_label?}`. NULL for an
+    #: `ingested` file nobody generated — there is nothing to disclose.
+    disclosure: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class AssetDecision(Base):
+    """One reviewer's decision on one asset at G8/G8b. Append-only.
+
+    Trigger `asset_decision_append_only` rejects every UPDATE: a changed mind
+    is a new approval round, never an edited row.
+    """
+
+    __tablename__ = "asset_decision"
+    __table_args__ = (
+        sa.UniqueConstraint("approval_id", "asset_id", name="uq_asset_decision_approval_asset"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    approval_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("approval.id", ondelete="CASCADE"), nullable=False
+    )
+    asset_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("creative_asset.id", ondelete="CASCADE"), nullable=False
+    )
+    round: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    decision: Mapped[AssetDecisionChoice] = mapped_column(
+        _enum(AssetDecisionChoice, "asset_decision_choice"), nullable=False
+    )
+    #: `{label_ok, product_match_ok, subjects_ok, rights_ok}`.
+    checklist: Mapped[dict[str, Any]] = _jsonb_object()
+    note: Mapped[str | None] = mapped_column(sa.Text)
+    model_override: Mapped[str | None] = mapped_column(sa.Text)
+    params_override: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    decided_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT"), nullable=False
+    )
+    decided_at: Mapped[datetime] = mapped_column(
+        sa.DateTime(timezone=True), server_default=_now(), nullable=False
+    )
+
+
+class CreativeException(Base):
+    """Something the copy wants to say that nobody has licensed yet (Law 34).
+
+    Cleared only through H3, which writes the `ClaimSignature`.
+    """
+
+    __tablename__ = "creative_exception"
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk()
+    kind: Mapped[CreativeExceptionKind] = mapped_column(
+        _enum(CreativeExceptionKind, "creative_exception_kind"), nullable=False
+    )
+    subject_text: Mapped[str | None] = mapped_column(sa.Text)
+    asset_ids: Mapped[list[uuid.UUID]] = _uuids()
+    occurrences: Mapped[int] = mapped_column(
+        sa.Integer, nullable=False, server_default=sa.text("1")
+    )
+    #: claim: `{claim_type, surface_forms[], substantiation}` ·
+    #: disclaimer: `{text, placement}` · image_right: `{basis, flag}`.
+    proposed: Mapped[dict[str, Any]] = _jsonb_object()
+    evidence_ids: Mapped[list[uuid.UUID]] = _uuids()
+    fallback_asset_ids: Mapped[list[uuid.UUID]] = _uuids()
+    status: Mapped[CreativeExceptionStatus] = mapped_column(
+        _enum(CreativeExceptionStatus, "creative_exception_status"),
+        nullable=False,
+        server_default=CreativeExceptionStatus.OPEN.value,
+    )
+    human_task_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("human_task.id", ondelete="SET NULL")
+    )
+    claim_record_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("claim_record.id", ondelete="SET NULL")
+    )
+    signature_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("claim_signature.id", ondelete="SET NULL")
+    )
+    decided_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="RESTRICT")
+    )
+    decided_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    decision_note: Mapped[str | None] = mapped_column(sa.Text)
+    set_hash: Mapped[str | None] = mapped_column(sa.Text)
+    reauth_token_id: Mapped[str | None] = mapped_column(sa.Text)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class LandingPageAudit(Base):
+    """4.5 — one landing URL, audited once per run (GETs only, Law 41)."""
+
+    __tablename__ = "landing_page_audit"
+    __table_args__ = (
+        sa.UniqueConstraint("creative_run_id", "url", name="uq_landing_page_audit_run_url"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk()
+    url: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: Both NULL when `verdict='unreachable'`: a page that never answered has
+    #: no final URL and no status.
+    final_url: Mapped[str | None] = mapped_column(sa.Text)
+    http_status: Mapped[int | None] = mapped_column(sa.Integer)
+    ad_group_refs: Mapped[list[str]] = mapped_column(
+        ARRAY(sa.Text), nullable=False, server_default=sa.text("'{}'::text[]")
+    )
+    #: message_match, fold_px, offer bbox, fields.
+    metrics: Mapped[dict[str, Any]] = _jsonb_object()
+    patch: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    verdict: Mapped[LandingAuditVerdict] = mapped_column(
+        _enum(LandingAuditVerdict, "landing_audit_verdict"), nullable=False
+    )
+    screenshots: Mapped[dict[str, Any]] = _jsonb_object()
+    evidence_ids: Mapped[list[uuid.UUID]] = _uuids()
+    created_at: Mapped[datetime] = _created_at()
+
+
+class RenderPreview(Base):
+    """4.6.4 — one ad combination, rendered on one device."""
+
+    __tablename__ = "render_preview"
+
+    id: Mapped[uuid.UUID] = _pk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk()
+    ad_ref: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    device: Mapped[PreviewDevice] = mapped_column(
+        _enum(PreviewDevice, "preview_device"), nullable=False
+    )
+    combination: Mapped[dict[str, Any]] = _jsonb_object()
+    #: NULL when `verdict='unavailable'`: a render that did not happen has no
+    #: file.
+    storage_path: Mapped[str | None] = mapped_column(sa.Text)
+    dom_metrics: Mapped[dict[str, Any]] = _jsonb_object()
+    spec_diff: Mapped[dict[str, Any]] = _jsonb_object()
+    visual_diff: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    template_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    verdict: Mapped[PreviewVerdict] = mapped_column(
+        _enum(PreviewVerdict, "preview_verdict"), nullable=False
+    )
+    created_at: Mapped[datetime] = _created_at()
+
+
+class CreativePackage(Base):
+    """What Stage 05 loads. Immutable once released (Law 42).
+
+    Trigger `creative_package_released` allows exactly three columns to move
+    after `status='released'`: `status` itself (a released package can become
+    `superseded`) and the two `*_superseded` banners.
+
+    `plan_id` and `guideline_id` take the default NO ACTION rather than
+    RESTRICT: both are provenance, but a project delete cascades to the plan,
+    the guideline and this row in one statement, and RESTRICT is checked
+    row-by-row mid-cascade where NO ACTION waits for the statement to end.
+    """
+
+    __tablename__ = "creative_package"
+    __table_args__ = (
+        sa.UniqueConstraint("project_id", "version", name="uq_creative_package_project_version"),
+    )
+
+    id: Mapped[uuid.UUID] = _pk()
+    workspace_id: Mapped[uuid.UUID] = _workspace_fk()
+    project_id: Mapped[uuid.UUID] = _project_fk()
+    creative_run_id: Mapped[uuid.UUID] = _creative_run_fk(unique=True)
+    schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    status: Mapped[CreativePackageStatus] = mapped_column(
+        _enum(CreativePackageStatus, "creative_package_status"),
+        nullable=False,
+        server_default=CreativePackageStatus.DRAFT.value,
+    )
+    plan_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("campaign_plan.id"), nullable=False
+    )
+    plan_version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
+    guideline_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("content_guideline.id"), nullable=False
+    )
+    ruleset_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: NULL on a draft package whose brief has not been written yet.
+    brief_hash: Mapped[str | None] = mapped_column(sa.Text)
+    payload: Mapped[dict[str, Any]] = _jsonb_object()
+    #: Both written at release, which is what hashes the manifest.
+    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    package_hash: Mapped[str | None] = mapped_column(sa.Text)
+    released_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
+    released_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), sa.ForeignKey("user.id", ondelete="SET NULL")
+    )
+    released_approval_ids: Mapped[list[uuid.UUID] | None] = mapped_column(ARRAY(UUID(as_uuid=True)))
+    plan_superseded: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    ruleset_superseded: Mapped[bool] = mapped_column(
+        sa.Boolean, nullable=False, server_default=sa.text("false")
+    )
+    cost_usd: Mapped[Decimal] = mapped_column(
+        sa.Numeric(12, 4), nullable=False, server_default=sa.text("0")
+    )
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
 #: Every table the migration must create, in dependency order.
 ALL_TABLES: tuple[str, ...] = (
     "workspace",
@@ -1978,4 +2651,15 @@ ALL_TABLES: tuple[str, ...] = (
     "policy_source",
     "policy_amendment",
     "disapproval_event",
+    # Stage 04 (migration 0020).
+    "creative_brief",
+    "media_reference",
+    "creative_asset",
+    "generation_job",
+    "media_artifact",
+    "asset_decision",
+    "creative_exception",
+    "landing_page_audit",
+    "render_preview",
+    "creative_package",
 )

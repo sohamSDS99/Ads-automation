@@ -33,12 +33,16 @@ log = structlog.get_logger(__name__)
 COST_CAP_KEYS: dict[RunStage, str] = {
     RunStage.RESEARCH: "max_run_cost_usd",
     RunStage.PLAN: "max_plan_cost_usd",
+    #: Law 43's first cap. `max_media_cost_usd` is the second, and is enforced
+    #: by the media budget (S4-P1), not by this per-run ledger.
+    RunStage.CREATIVE: "max_creative_cost_usd",
 }
 
 
 class _Defaults(Protocol):
     max_run_cost_usd: Decimal
     max_plan_cost_usd: Decimal
+    max_creative_cost_usd: Decimal
 
 
 def cost_cap_key(stage: RunStage) -> str:
@@ -65,5 +69,7 @@ def resolve_cost_cap(
             log.warning(
                 "run.bad_budget_setting", scope=scope, key=key, project_id=project_id, value=raw
             )
-    fallback = defaults.max_plan_cost_usd if stage is RunStage.PLAN else defaults.max_run_cost_usd
+    # The environment default carries the same name as the settings key, so
+    # a stage's fallback is read by that name rather than by a branch per stage.
+    fallback = getattr(defaults, key)
     return Decimal(fallback)

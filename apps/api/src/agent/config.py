@@ -224,6 +224,25 @@ class Settings(BaseSettings):
     #: support.google.com/google-ads/answer/9566341.
     image_lint_max_bytes: int = 5_242_880
 
+    # --- Stage 04, the copy & creative agent --------------------------------
+    #: Stage 04 IS gated (law 32), so these are the Stage 02 kind of version
+    #: check: a skew is a 422 at trigger time naming both versions, never a
+    #: dropped input — Stage 04 cannot do without either artifact (PRD §4.3
+    #: rule 5). CR-E3 reads the same two sets.
+    creative_supported_plan_schemas: frozenset[str] = frozenset({"1.0"})
+    creative_supported_ruleset_schemas: frozenset[str] = frozenset({"1.0"})
+    #: The two caps of law 43. Project settings override both (PRD §7.1).
+    max_creative_cost_usd: Decimal = Decimal("50.00")
+    max_media_cost_usd: Decimal = Decimal("40.00")
+    #: Three hours, not the two every other stage gets: a creative run waits
+    #: on video renders that are polled, not pushed (PRD §22 MEDIA).
+    creative_lock_ttl_seconds: int = 10_800
+    #: Stamped into `CreativeInput.constants_version`. A placeholder until
+    #: `creative_constants.yaml` exists — the same move S3-P0 made with
+    #: `content_constants_version`, so the input hash is honest before the file
+    #: does.
+    creative_constants_version: str = "s4p0-unset"
+
     # --- source keys supplied by the deployment ----------------------------
     # Every secret the product uses, and the only place any of them lives. The
     # interface never accepts a key and has nowhere to put one: what a
