@@ -46,6 +46,7 @@ from agent.api.routes_workspace import router as workspace_router
 from agent.api.worker_files import close_worker_client
 from agent.auth.bootstrap import bootstrap_from_environment
 from agent.config import Settings, get_settings
+from agent.creative.constants import get_creative_constants
 from agent.db.session import dispose_engine, get_sessionmaker
 from agent.logging_setup import configure_logging
 from agent.planning.constants import get_planning_constants
@@ -66,6 +67,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # threshold nobody can check. `ConstantsError` names the key.
     constants = get_planning_constants()
     log.info("planning.constants.loaded", version=constants.version)
+    # Stage 04's law 25, same place and same reason: `CreativeConstantsError`
+    # names the key that has no source, and the process does not come up.
+    creative = get_creative_constants()
+    log.info("creative.constants.loaded", version=creative.version)
 
     # First boot creates the workspace and its admin. A database that is not
     # migrated yet must not stop the process: Railway runs migrations in

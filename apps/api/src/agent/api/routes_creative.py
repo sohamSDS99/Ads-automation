@@ -44,6 +44,7 @@ from agent.auth.rbac import Permission
 from agent.calc.media import cost_estimate_v1
 from agent.calc.registry import CalcError
 from agent.config import get_settings
+from agent.creative.constants import creative_constants_for
 from agent.credentials import MissingCredential, resolve_values
 from agent.db.models import (
     AmendmentStatus,
@@ -64,7 +65,6 @@ from agent.guidelines.constants import get_content_constants
 from agent.guidelines.projection import project as project_context
 from agent.media.budget import resolve_media_caps
 from agent.media.catalogue import MediaCatalogue
-from agent.media.constants import media_constants
 from agent.orchestrator import creative_input as inputs
 from agent.orchestrator.creative_input import CreativeInputError, build_creative_input
 from agent.orchestrator.launch import LaunchRequest, ProjectBusy, QueueUnavailable, launch
@@ -363,7 +363,7 @@ async def _eligibility(
                 **inputs.estimate_inputs(
                     PlanContract.model_validate(plan.payload), pin, scope, choices, caps
                 ),
-                constants=media_constants(),
+                constants=creative_constants_for(project).media_constants(),
             ).result
         except CalcError as unpriced:
             blockers.append(

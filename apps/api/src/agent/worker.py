@@ -21,6 +21,7 @@ from arq import cron
 from arq.connections import RedisSettings
 
 from agent.config import get_settings
+from agent.creative.constants import get_creative_constants
 from agent.db.session import dispose_engine, get_sessionmaker
 from agent.export.jobs import generate_export
 from agent.fileserver import FileServer
@@ -138,6 +139,9 @@ async def startup(ctx: dict[str, Any]) -> None:
     # stop it here rather than surface as a wrong number inside a finished plan
     # (global law 15).
     constants = get_planning_constants()
+    # Stage 04 law 25: the worker is what submits media and writes packages, so
+    # an unattributable creative constant stops it here, naming the key.
+    creative = get_creative_constants()
 
     file_server = FileServer(settings)
     await file_server.start()
@@ -148,6 +152,7 @@ async def startup(ctx: dict[str, Any]) -> None:
         storage_dir=settings.storage_dir,
         nodes={stage.value: len(dag.node_ids) for stage, dag in dags.items()},
         planning_constants=constants.version,
+        creative_constants=creative.version,
         file_server_port=settings.file_server_port,
     )
 

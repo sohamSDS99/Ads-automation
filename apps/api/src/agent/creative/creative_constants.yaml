@@ -1,0 +1,110 @@
+# Stage 04 constants (PRD §9.5, law 25). Every value carries `value`, `source`
+# and `reviewed_at`; a missing `source` fails startup naming the key, and
+# `version` is stamped on every CreativeInput and package.
+#
+# Google character limits, asset counts, ratios, pixel minimums and file-size
+# caps are NOT here — they come from the pinned RuleSet.asset_specs (Stage 03
+# §9.6). A surface the spec sheet lacks is `spec_missing`, never a guess.
+#
+# One entry per line, on purpose: `tests/creative/test_creative_constants.py`
+# strips a `source` by line to prove startup names the key.
+version: "2026.09.1"
+copy:
+  headline_pool_size:          { value: 25,   source: internal, reviewed_at: 2026-09-24 }
+  headline_quotas:             { value: {keyword: 3, benefit: 3, offer: 2, proof: 2, objection: 2, cta: 2},
+                                 source: internal, reviewed_at: 2026-09-24 }
+  description_pool_size:       { value: 8,    source: internal, reviewed_at: 2026-09-24 }
+  near_duplicate_trigram:      { value: 0.80, source: internal, reviewed_at: 2026-09-24 }
+  variant_min_distance:        { value: 0.65, source: internal, reviewed_at: 2026-09-24 }  # 1 − similarity
+  pair_repair_rounds:          { value: 1,    source: internal, reviewed_at: 2026-09-24 }
+  temperature_copywrite:       { value: 0.7,  source: internal, reviewed_at: 2026-09-24 }
+landing:
+  message_match_min:           { value: 0.55, source: internal, reviewed_at: 2026-09-24 }
+  viewport_mobile:             { value: "390x844",  source: internal, reviewed_at: 2026-09-24 }
+  viewport_desktop:            { value: "1280x800", source: internal, reviewed_at: 2026-09-24 }
+offers:
+  offer_max_age_days:          { value: 7,    source: internal, reviewed_at: 2026-09-24 }
+extras:
+  # §9.5 writes both values as `[...]`. Resolved from Google's own sources and
+  # kept `unverified`, as §9.5 labels them (docs/stage-04-questions.md, S4-P4):
+  # the 13 predefined headers of Google Ads Help "About structured snippet
+  # assets" (support.google.com/google-ads/answer/6280012), in Google's order;
+  # and googleapis `LeadFormFieldUserInputTypeEnum` (google/ads/googleads/v25),
+  # less its UNSPECIFIED/UNKNOWN sentinels.
+  snippet_headers:             { value: [Amenities, Brands, Courses, Degree programs, Destinations,
+                                         Featured hotels, Insurance coverage, Models, Neighborhoods,
+                                         Service catalog, Shows, Styles, Types],
+                                 source: unverified, reviewed_at: 2026-09-24 }
+  lead_form_question_types:    { value: [
+                                     FULL_NAME, EMAIL, PHONE_NUMBER, POSTAL_CODE,
+                                     STREET_ADDRESS, CITY, REGION, COUNTRY, WORK_EMAIL,
+                                     COMPANY_NAME, WORK_PHONE, JOB_TITLE,
+                                     GOVERNMENT_ISSUED_ID_CPF_BR,
+                                     GOVERNMENT_ISSUED_ID_DNI_AR,
+                                     GOVERNMENT_ISSUED_ID_DNI_PE,
+                                     GOVERNMENT_ISSUED_ID_RUT_CL,
+                                     GOVERNMENT_ISSUED_ID_CC_CO, GOVERNMENT_ISSUED_ID_CI_EC,
+                                     GOVERNMENT_ISSUED_ID_RFC_MX, FIRST_NAME, LAST_NAME,
+                                     VEHICLE_MODEL, VEHICLE_TYPE, PREFERRED_DEALERSHIP,
+                                     VEHICLE_PURCHASE_TIMELINE, VEHICLE_OWNERSHIP,
+                                     VEHICLE_PAYMENT_TYPE, VEHICLE_CONDITION, COMPANY_SIZE,
+                                     ANNUAL_SALES, YEARS_IN_BUSINESS, JOB_DEPARTMENT,
+                                     JOB_ROLE, OVER_18_AGE, OVER_19_AGE, OVER_20_AGE,
+                                     OVER_21_AGE, OVER_22_AGE, OVER_23_AGE, OVER_24_AGE,
+                                     OVER_25_AGE, OVER_26_AGE, OVER_27_AGE, OVER_28_AGE,
+                                     OVER_29_AGE, OVER_30_AGE, OVER_31_AGE, OVER_32_AGE,
+                                     OVER_33_AGE, OVER_34_AGE, OVER_35_AGE, OVER_36_AGE,
+                                     OVER_37_AGE, OVER_38_AGE, OVER_39_AGE, OVER_40_AGE,
+                                     OVER_41_AGE, OVER_42_AGE, OVER_43_AGE, OVER_44_AGE,
+                                     OVER_45_AGE, OVER_46_AGE, OVER_47_AGE, OVER_48_AGE,
+                                     OVER_49_AGE, OVER_50_AGE, OVER_51_AGE, OVER_52_AGE,
+                                     OVER_53_AGE, OVER_54_AGE, OVER_55_AGE, OVER_56_AGE,
+                                     OVER_57_AGE, OVER_58_AGE, OVER_59_AGE, OVER_60_AGE,
+                                     OVER_61_AGE, OVER_62_AGE, OVER_63_AGE, OVER_64_AGE,
+                                     OVER_65_AGE, EDUCATION_PROGRAM, EDUCATION_COURSE,
+                                     PRODUCT, SERVICE, OFFER, CATEGORY,
+                                     PREFERRED_CONTACT_METHOD, PREFERRED_LOCATION,
+                                     PREFERRED_CONTACT_TIME, PURCHASE_TIMELINE,
+                                     YEARS_OF_EXPERIENCE, JOB_INDUSTRY, LEVEL_OF_EDUCATION,
+                                     PROPERTY_TYPE, REALTOR_HELP_GOAL, PROPERTY_COMMUNITY,
+                                     PRICE_RANGE, NUMBER_OF_BEDROOMS, FURNISHED_PROPERTY,
+                                     PETS_ALLOWED_PROPERTY, NEXT_PLANNED_PURCHASE,
+                                     EVENT_SIGNUP_INTEREST, PREFERRED_SHOPPING_PLACES,
+                                     FAVORITE_BRAND, TRANSPORTATION_COMMERCIAL_LICENSE_TYPE,
+                                     EVENT_BOOKING_INTEREST, DESTINATION_COUNTRY,
+                                     DESTINATION_CITY, DEPARTURE_COUNTRY, DEPARTURE_CITY,
+                                     DEPARTURE_DATE, RETURN_DATE, NUMBER_OF_TRAVELERS,
+                                     TRAVEL_BUDGET, TRAVEL_ACCOMMODATION],
+                                 source: unverified, reviewed_at: 2026-09-24 }
+media:
+  candidates_per_concept:      { value: 2,     source: internal, reviewed_at: 2026-09-24 }
+  ratio_tolerance:             { value: 0.005, source: internal, reviewed_at: 2026-09-24 }
+  crop_min_saliency_retained:  { value: 0.85,  source: internal, reviewed_at: 2026-09-24 }
+  jpeg_quality_floor:          { value: 80,    source: internal, reviewed_at: 2026-09-24 }
+  reference_max_bytes:         { value: 8388608, source: internal, reviewed_at: 2026-09-24 }
+  image_tokens_per_megapixel:  { value: 1300,  source: unverified, reviewed_at: 2026-09-24 }
+  semaphore_image:             { value: 4,     source: internal, reviewed_at: 2026-09-24 }
+  semaphore_video:             { value: 2,     source: internal, reviewed_at: 2026-09-24 }
+  video_poll_initial_s:        { value: 10,    source: "openrouter docs", reviewed_at: 2026-09-24 }
+  video_poll_max_s:            { value: 30,    source: "openrouter docs", reviewed_at: 2026-09-24 }
+  video_job_timeout_s:         { value: 900,   source: internal, reviewed_at: 2026-09-24 }
+  degrade_ladder:              { value: [candidates, third_concept, video_square, video],
+                                 source: internal, reviewed_at: 2026-09-24 }
+video:
+  brand_within_ms:             { value: 5000,  source: "stage board 4.4", reviewed_at: 2026-09-24 }
+  end_card_ms:                 { value: 2000,  source: internal, reviewed_at: 2026-09-24 }
+  caption_height_pct:          { value: 0.055, source: internal, reviewed_at: 2026-09-24 }
+  caption_ocr_min_similarity:  { value: 0.85,  source: internal, reviewed_at: 2026-09-24 }
+  target_fps:                  { value: 30,    source: internal, reviewed_at: 2026-09-24 }
+  loudness_lufs:               { value: -16,   source: internal, reviewed_at: 2026-09-24 }
+  generate_audio_default:      { value: false, source: internal, reviewed_at: 2026-09-24 }
+logo:
+  permitted_surfaces:          { value: [pmax_image, display_image, demand_gen_image, video],
+                                 source: unverified, reviewed_at: 2026-09-24 }
+exceptions:
+  max_exceptions_per_run:      { value: 20,    source: internal, reviewed_at: 2026-09-24 }
+retention:
+  unreleased_media_days:       { value: 30,    source: internal, reviewed_at: 2026-09-24 }
+  superseded_package_days:     { value: 180,   source: internal, reviewed_at: 2026-09-24 }
+preview:
+  serp_template_version:       { value: "2026.09", source: unverified, reviewed_at: 2026-09-24 }

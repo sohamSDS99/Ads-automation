@@ -36,7 +36,7 @@ from agent.db.session import get_sessionmaker
 from agent.llm.ledger import RunLedger, Usage
 from agent.media.budget import MediaBudget
 from agent.media.capability import capability_hash
-from agent.media.constants import MediaConstants
+from agent.media.constants import media_constants
 from agent.media.http import MediaApi
 from agent.media.images import ImageClient
 from agent.media.jobs import BriefNotApproved, MediaJobs, idempotency_key
@@ -66,7 +66,7 @@ from tests.media.openrouter_mock import (
 )
 
 KEY = "sk-or-v1-canary-jobs-0123456789abcdef"
-CONSTANTS = MediaConstants(version="test")
+CONSTANTS = media_constants()
 
 
 class SimulatedCrash(BaseException):

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.calc.media import TEXT_ESTIMATE_USD
 from agent.config import get_settings
+from agent.creative.constants import creative_constants_for
 from agent.db.models import (
     CampaignPlan,
     CampaignPlanStatus,
@@ -786,7 +787,9 @@ async def build_creative_input(
                 for task in h2
             ),
         ],
-        constants_version=get_settings().creative_constants_version,
+        # `creative_constants.yaml` with this project's overrides merged in —
+        # the version the run's cache key and every package cite (PRD §8.3).
+        constants_version=creative_constants_for(project).version,
     )
     input_hash = built.content_hash()
     log.info(
