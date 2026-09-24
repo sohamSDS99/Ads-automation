@@ -158,6 +158,10 @@ class RateLimiter:
             await asyncio.sleep(wait)
 
 
+#: `X-Title` on every OpenRouter request — how the calls are labelled on the
+#: account's activity page.
+DEFAULT_TITLE = "Paid Ads Research Agent"
+
 #: The process-wide limiter. Tests build their own.
 _LIMITER = RateLimiter()
 
@@ -173,7 +177,7 @@ class LLMGateway:
         catalogue: ModelCatalogue,
         base_url: str,
         referer: str = "",
-        title: str = "Paid Ads Research Agent",
+        title: str = DEFAULT_TITLE,
         limiter: RateLimiter | None = None,
         max_transport_attempts: int = MAX_TRANSPORT_ATTEMPTS,
     ) -> None:
@@ -360,14 +364,7 @@ class LLMGateway:
         raise LLMTransportError(last or "request failed")
 
     def _headers(self) -> dict[str, str]:
-        headers = {
-            "Authorization": f"Bearer {self._api_key}",
-            "Content-Type": "application/json",
-            "X-Title": self._title,
-        }
-        if self._referer:
-            headers["HTTP-Referer"] = self._referer
-        return headers
+        return auth_headers(self._api_key, referer=self._referer, title=self._title)
 
     # -- request shaping ---------------------------------------------------
 
@@ -529,6 +526,19 @@ def _repair_instruction(error: str, schema: dict[str, Any]) -> str:
         "Return the corrected JSON object only — no prose, no code fence — matching:\n"
         f"{json.dumps(schema, separators=(',', ':'))}"
     )
+
+
+def auth_headers(api_key: str, *, referer: str = "", title: str = DEFAULT_TITLE) -> dict[str, str]:
+    """The headers every OpenRouter call carries. `media/` sends the same ones
+    (Stage 04 §23.1 item 4), so they are spelled once."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "X-Title": title,
+    }
+    if referer:
+        headers["HTTP-Referer"] = referer
+    return headers
 
 
 def _error_detail(response: httpx.Response) -> str:

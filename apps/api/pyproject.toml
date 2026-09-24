@@ -70,6 +70,7 @@ dev = [
     "pandas-stubs>=2.2.3",  # mypy strict has no types for pandas otherwise, and `frames.py` is where the arithmetic lives
     "types-openpyxl>=3.1.5", # the workbook builder writes cell formulas as strings; strict mode has to see the Cell API
     "pytest-cov>=6.0.0",  # PRD §15 NF9 sets a coverage floor; `make coverage` is what measures it
+    "respx>=0.22.0",  # the media gateway replays recorded OpenRouter fixtures (Stage 04 §23.1)
 ]
 
 [build-system]
