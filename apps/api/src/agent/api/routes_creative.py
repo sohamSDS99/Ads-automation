@@ -293,7 +293,7 @@ async def _eligibility(
                 code="missing_credential",
                 detail="No OpenRouter credential resolves for this workspace, so a creative "
                 "run has no model to call.",
-                fix_url="/settings/sources",
+                fix_url="/settings/connections",
             )
         )
 
@@ -309,7 +309,7 @@ async def _eligibility(
                         f"{modality.capitalize()} generation is enabled for this project but "
                         "no media model can be selected yet. Turn it off to run text-only."
                     ),
-                    fix_url=f"{home}/settings",
+                    fix_url="/settings/models",
                 )
             )
 
@@ -380,7 +380,7 @@ async def _eligibility(
                         f"{len(h2)} verification task(s) are still open. Creative can be made; "
                         "it cannot launch until they are complete."
                     ),
-                    fix_url="/tasks",
+                    fix_url="/approvals",
                 )
             )
 
@@ -401,7 +401,7 @@ async def _eligibility(
                     f"{seen} (older than {max_age} days counts as stale). Promotion and price "
                     "assets will be skipped, not guessed."
                 ),
-                fix_url=f"{home}/documents",
+                fix_url="/settings/context",
             )
         )
 

@@ -245,3 +245,67 @@ export function lockSentence(eligibility?: CreativeEligibility): string | null {
     ? first.detail
     : `${first.detail} ${rest.length === 1 ? "1 more blocker" : `${rest.length} more blockers`} on the Copy & creative page.`;
 }
+
+/* -------------------------------------------------------------------------
+ * The words beside the server's words
+ *
+ * The landing leads each blocker with a short phrase — "Needs a frozen plan ·
+ * No campaign plan exists yet…" (§15.1 rule 1) — so a list of five reads at a
+ * glance. The phrase names the *code*; the sentence after it is the server's
+ * and is never rewritten. Nothing here decides anything.
+ * ---------------------------------------------------------------------- */
+
+export const BLOCKER_LABEL: Record<CreativeBlockerCode, string> = {
+  no_frozen_plan: "Needs a frozen plan",
+  no_published_ruleset: "Needs a published ruleset",
+  schema_unsupported: "Plan and ruleset versions do not match",
+  ruleset_incomplete: "Ruleset cannot check creative yet",
+  no_signoff_matrix: "Needs a sign-off matrix",
+  creative_in_flight: "A creative run is already in progress",
+  missing_credential: "Needs an OpenRouter key",
+  media_not_configured: "No media model is set up",
+  zdr_blocks_video: "Video is unavailable under zero data retention",
+  storage_insufficient: "Not enough media storage",
+  missing_permission: "Your role cannot start creative runs",
+};
+
+export const WARNING_LABEL: Record<CreativeWarningCode, string> = {
+  ruleset_category_missing: "Ruleset is missing a category",
+  claims_unlicensed_stale: "Some claims are unlicensed or stale",
+  unreviewed_amendments: "Policy amendments are unreviewed",
+  verification_open_blocks_launch: "Verification tasks are still open",
+  offer_data_stale: "Offer data is stale",
+  will_mint_new_version: "This run makes a new package version",
+};
+
+/** The gate names a person reads, keyed by the PRD's gate keys (§8, law 40). */
+export const GATE_LABEL: Record<string, string> = {
+  G7: "Brief sign-off",
+  G8: "Media review",
+  G8b: "Media re-review",
+};
+
+/**
+ * Where a `fix_url` goes, said as the link's text. Read off the URL rather
+ * than the blocker code, so the words cannot drift from where the link
+ * actually lands. Ordered most specific first.
+ */
+const DESTINATIONS: [RegExp, string][] = [
+  [/^\/projects\/[^/]+\/plan(?:\/|$)/, "Open campaign planning"],
+  [/^\/projects\/[^/]+\/guidelines\/claims(?:\/|$)/, "Open the claims register"],
+  [/^\/projects\/[^/]+\/guidelines\/amendments(?:\/|$)/, "Open amendments"],
+  [/^\/projects\/[^/]+\/guidelines(?:\/|$)/, "Open content guidelines"],
+  [/^\/projects\/[^/]+\/runs\/[^/]+/, "Open the run"],
+  [/^\/projects\/[^/]+\/creative(?:\/|$)/, "Open copy & creative"],
+  [/^\/projects\/[^/]+\/?$/, "Open the project"],
+  [/^\/settings\/models(?:\/|$)/, "Open model settings"],
+  [/^\/settings\/connections(?:\/|$)/, "Open connections"],
+  [/^\/settings\/context(?:\/|$)/, "Open business context"],
+  [/^\/settings\/?$/, "Open workspace settings"],
+  [/^\/approvals(?:\/|$)/, "Open approvals"],
+];
+
+export function destinationLabel(fixUrl: string): string {
+  const path = fixUrl.split(/[?#]/)[0] ?? fixUrl;
+  return DESTINATIONS.find(([pattern]) => pattern.test(path))?.[1] ?? "Open";
+}
