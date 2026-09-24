@@ -1,0 +1,116 @@
+{
+  "$defs": {
+    "CreativeScope": {
+      "additionalProperties": false,
+      "properties": {
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "images": {
+          "title": "Images",
+          "type": "boolean"
+        },
+        "video": {
+          "title": "Video",
+          "type": "boolean"
+        },
+        "concepts_per_campaign": {
+          "enum": [
+            2,
+            3
+          ],
+          "title": "Concepts Per Campaign",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "images",
+        "video",
+        "concepts_per_campaign"
+      ],
+      "title": "CreativeScope",
+      "type": "object"
+    },
+    "MediaModelChoice": {
+      "additionalProperties": false,
+      "description": "One user-selected media model, with the catalogue record it was chosen from.",
+      "properties": {
+        "modality": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "title": "Modality",
+          "type": "string"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Tag"
+        },
+        "capability": {
+          "additionalProperties": true,
+          "title": "Capability",
+          "type": "object"
+        },
+        "capability_hash": {
+          "minLength": 1,
+          "title": "Capability Hash",
+          "type": "string"
+        },
+        "defaults": {
+          "additionalProperties": true,
+          "title": "Defaults",
+          "type": "object"
+        }
+      },
+      "required": [
+        "modality",
+        "model_id",
+        "capability",
+        "capability_hash"
+      ],
+      "title": "MediaModelChoice",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "scope": {
+      "$ref": "#/$defs/CreativeScope"
+    },
+    "media_models": {
+      "items": {
+        "$ref": "#/$defs/MediaModelChoice"
+      },
+      "title": "Media Models",
+      "type": "array"
+    },
+    "reuse_cache": {
+      "default": true,
+      "title": "Reuse Cache",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "scope"
+  ],
+  "title": "StartCreativeRequest",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,40 @@
+{
+  "additionalProperties": false,
+  "description": "The current matrix: who G7, G8 and H3 route to.",
+  "properties": {
+    "matrix_id": {
+      "format": "uuid",
+      "title": "Matrix Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "brand_owner_id": {
+      "format": "uuid",
+      "title": "Brand Owner Id",
+      "type": "string"
+    },
+    "legal_owner_id": {
+      "format": "uuid",
+      "title": "Legal Owner Id",
+      "type": "string"
+    },
+    "performance_owner_id": {
+      "format": "uuid",
+      "title": "Performance Owner Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "matrix_id",
+    "version",
+    "brand_owner_id",
+    "legal_owner_id",
+    "performance_owner_id"
+  ],
+  "title": "SignOffMatrixRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

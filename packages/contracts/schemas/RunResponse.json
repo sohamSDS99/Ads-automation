@@ -260,7 +260,8 @@
       "enum": [
         "research",
         "plan",
-        "guideline"
+        "guideline",
+        "creative"
       ],
       "title": "RunStage",
       "type": "string"

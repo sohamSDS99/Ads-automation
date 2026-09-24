@@ -1,0 +1,76 @@
+{
+  "$defs": {
+    "CreativePackageStatus": {
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_release",
+        "released",
+        "superseded"
+      ],
+      "title": "CreativePackageStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "package_id": {
+      "format": "uuid",
+      "title": "Package Id",
+      "type": "string"
+    },
+    "creative_run_id": {
+      "format": "uuid",
+      "title": "Creative Run Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "status": {
+      "$ref": "#/$defs/CreativePackageStatus"
+    },
+    "plan_version": {
+      "title": "Plan Version",
+      "type": "integer"
+    },
+    "ruleset_version": {
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "released_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Released At"
+    },
+    "plan_superseded": {
+      "title": "Plan Superseded",
+      "type": "boolean"
+    },
+    "ruleset_superseded": {
+      "title": "Ruleset Superseded",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "package_id",
+    "creative_run_id",
+    "version",
+    "status",
+    "plan_version",
+    "ruleset_version",
+    "released_at",
+    "plan_superseded",
+    "ruleset_superseded"
+  ],
+  "title": "CreativePackageSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

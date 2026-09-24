@@ -1,0 +1,85 @@
+{
+  "additionalProperties": false,
+  "description": "A non-retired `MediaReference` row, with its rights attestation (\u00a710.3).\n\nNever the bytes and never the storage path: nothing in the input is a\nthing a provider could be handed (Law 44).",
+  "properties": {
+    "reference_id": {
+      "format": "uuid",
+      "title": "Reference Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "product_reference",
+        "style_reference"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "origin": {
+      "enum": [
+        "own",
+        "licensed",
+        "third_party"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "media_type": {
+      "title": "Media Type",
+      "type": "string"
+    },
+    "width": {
+      "title": "Width",
+      "type": "integer"
+    },
+    "height": {
+      "title": "Height",
+      "type": "integer"
+    },
+    "product_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Product Ref"
+    },
+    "rights_statement": {
+      "title": "Rights Statement",
+      "type": "string"
+    },
+    "attested_by": {
+      "format": "uuid",
+      "title": "Attested By",
+      "type": "string"
+    },
+    "attested_at": {
+      "format": "date-time",
+      "title": "Attested At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "reference_id",
+    "kind",
+    "origin",
+    "sha256",
+    "media_type",
+    "width",
+    "height",
+    "rights_statement",
+    "attested_by",
+    "attested_at"
+  ],
+  "title": "MediaReferenceRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

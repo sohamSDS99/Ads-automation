@@ -1,0 +1,129 @@
+{
+  "$defs": {
+    "OpenTaskRef": {
+      "description": "One person-task, named enough for a badge and a row and no more.\n\nThe person-task *card* is S3-P8's, and this is deliberately not a step\ntoward it: no instructions, no artifact checklist, no attachments. What the\nrail and the landing's attention block need is who owes what and what it\nstops, and a shape that answers only that cannot quietly become the card.",
+      "properties": {
+        "task_id": {
+          "format": "uuid",
+          "title": "Task Id",
+          "type": "string"
+        },
+        "task_key": {
+          "title": "Task Key",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "blocking_for": {
+          "title": "Blocking For",
+          "type": "string"
+        },
+        "assignee_id": {
+          "format": "uuid",
+          "title": "Assignee Id",
+          "type": "string"
+        },
+        "assignee_name": {
+          "default": "",
+          "title": "Assignee Name",
+          "type": "string"
+        },
+        "mine": {
+          "default": false,
+          "title": "Mine",
+          "type": "boolean"
+        },
+        "due_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Due At"
+        }
+      },
+      "required": [
+        "task_id",
+        "task_key",
+        "title",
+        "status",
+        "blocking_for",
+        "assignee_id"
+      ],
+      "title": "OpenTaskRef",
+      "type": "object"
+    }
+  },
+  "description": "Everything on this project that is waiting for a human (\u00a715.3 A).\n\nOne request rather than three, because the two surfaces that read it \u2014 the\nstage rail on every project page, and the landing's attention block \u2014 both\nwant the whole answer at once, and a rail that fires three requests per\nproject navigation is a rail nobody will keep.\n\nCounts and a list, not a paginated collection: the badge needs a number and\nthe block needs a handful of rows. When there are more open tasks than the\nlist carries, `open_tasks_total` is still the truth and the block says so.",
+  "properties": {
+    "open_tasks": {
+      "items": {
+        "$ref": "#/$defs/OpenTaskRef"
+      },
+      "title": "Open Tasks",
+      "type": "array"
+    },
+    "open_tasks_total": {
+      "default": 0,
+      "title": "Open Tasks Total",
+      "type": "integer"
+    },
+    "my_open_tasks": {
+      "default": 0,
+      "title": "My Open Tasks",
+      "type": "integer"
+    },
+    "expiring_claims": {
+      "default": 0,
+      "title": "Expiring Claims",
+      "type": "integer"
+    },
+    "earliest_expiry": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Earliest Expiry"
+    },
+    "expiry_window_days": {
+      "default": 30,
+      "title": "Expiry Window Days",
+      "type": "integer"
+    },
+    "unreviewed_amendments": {
+      "default": 0,
+      "title": "Unreviewed Amendments",
+      "type": "integer"
+    },
+    "signature_affecting_amendments": {
+      "default": 0,
+      "title": "Signature Affecting Amendments",
+      "type": "integer"
+    },
+    "signature_stale": {
+      "default": false,
+      "title": "Signature Stale",
+      "type": "boolean"
+    }
+  },
+  "title": "GuidelineAttention",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

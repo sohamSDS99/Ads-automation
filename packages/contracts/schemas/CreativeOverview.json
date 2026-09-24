@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "CreativePackageStatus": {
+      "enum": [
+        "draft",
+        "blocked",
+        "ready_to_release",
+        "released",
+        "superseded"
+      ],
+      "title": "CreativePackageStatus",
+      "type": "string"
+    },
+    "CreativePackageSummary": {
+      "properties": {
+        "package_id": {
+          "format": "uuid",
+          "title": "Package Id",
+          "type": "string"
+        },
+        "creative_run_id": {
+          "format": "uuid",
+          "title": "Creative Run Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "status": {
+          "$ref": "#/$defs/CreativePackageStatus"
+        },
+        "plan_version": {
+          "title": "Plan Version",
+          "type": "integer"
+        },
+        "ruleset_version": {
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "released_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Released At"
+        },
+        "plan_superseded": {
+          "title": "Plan Superseded",
+          "type": "boolean"
+        },
+        "ruleset_superseded": {
+          "title": "Ruleset Superseded",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "package_id",
+        "creative_run_id",
+        "version",
+        "status",
+        "plan_version",
+        "ruleset_version",
+        "released_at",
+        "plan_superseded",
+        "ruleset_superseded"
+      ],
+      "title": "CreativePackageSummary",
+      "type": "object"
+    },
+    "CreativeRunSummary": {
+      "properties": {
+        "run_id": {
+          "format": "uuid",
+          "title": "Run Id",
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/RunStatus"
+        },
+        "source_run_id": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Source Run Id"
+        },
+        "input_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Input Hash"
+        },
+        "pins": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Pins",
+          "type": "array"
+        },
+        "triggered_by": {
+          "anyOf": [
+            {
+              "format": "uuid",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Triggered By"
+        },
+        "started_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Started At"
+        },
+        "finished_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Finished At"
+        },
+        "cost_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Cost Usd"
+        }
+      },
+      "required": [
+        "run_id",
+        "status",
+        "source_run_id",
+        "input_hash",
+        "triggered_by",
+        "started_at",
+        "finished_at",
+        "cost_usd"
+      ],
+      "title": "CreativeRunSummary",
+      "type": "object"
+    },
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "awaiting_human_task",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "description": "`GET /projects/{id}/creative` \u2014 runs and package history, newest first.",
+  "properties": {
+    "runs": {
+      "items": {
+        "$ref": "#/$defs/CreativeRunSummary"
+      },
+      "title": "Runs",
+      "type": "array"
+    },
+    "packages": {
+      "items": {
+        "$ref": "#/$defs/CreativePackageSummary"
+      },
+      "title": "Packages",
+      "type": "array"
+    }
+  },
+  "title": "CreativeOverview",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

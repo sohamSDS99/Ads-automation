@@ -1,0 +1,26 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "guideline_id": {
+      "format": "uuid",
+      "title": "Guideline Id",
+      "type": "string"
+    },
+    "ruleset_version": {
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "hash": {
+      "title": "Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "guideline_id",
+    "ruleset_version",
+    "hash"
+  ],
+  "title": "RuleSetRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,32 @@
+{
+  "properties": {
+    "code": {
+      "enum": [
+        "ruleset_category_missing",
+        "claims_unlicensed_stale",
+        "unreviewed_amendments",
+        "verification_open_blocks_launch",
+        "offer_data_stale",
+        "will_mint_new_version"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "fix_url": {
+      "title": "Fix Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "fix_url"
+  ],
+  "title": "CreativeWarning",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

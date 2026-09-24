@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "description": "One user-selected media model, with the catalogue record it was chosen from.",
+  "properties": {
+    "modality": {
+      "enum": [
+        "image",
+        "video"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "model_id": {
+      "minLength": 1,
+      "title": "Model Id",
+      "type": "string"
+    },
+    "provider_tag": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Provider Tag"
+    },
+    "capability": {
+      "additionalProperties": true,
+      "title": "Capability",
+      "type": "object"
+    },
+    "capability_hash": {
+      "minLength": 1,
+      "title": "Capability Hash",
+      "type": "string"
+    },
+    "defaults": {
+      "additionalProperties": true,
+      "title": "Defaults",
+      "type": "object"
+    }
+  },
+  "required": [
+    "modality",
+    "model_id",
+    "capability",
+    "capability_hash"
+  ],
+  "title": "MediaModelChoice",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

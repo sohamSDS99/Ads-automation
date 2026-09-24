@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "VoiceExample": {
+      "additionalProperties": true,
+      "description": "One quoted line of real copy, and why it is here.\n\n\u00a711 is explicit that 3.1.1's examples are \"quoted from real best-performing\ncopy, never invented\", so `source_ref` is not decoration \u2014 it is the only\nthing separating this from a model's idea of how the brand sounds.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source_ref": {
+          "default": "",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "rewritten_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rewritten As"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "VoiceExample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "3.1.1 `voice_profile`.",
+  "properties": {
+    "voice_words": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Voice Words",
+      "type": "array"
+    },
+    "definition_per_word": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Definition Per Word",
+      "type": "object"
+    },
+    "do_examples": {
+      "items": {
+        "$ref": "#/$defs/VoiceExample"
+      },
+      "title": "Do Examples",
+      "type": "array"
+    },
+    "dont_examples": {
+      "items": {
+        "$ref": "#/$defs/VoiceExample"
+      },
+      "title": "Dont Examples",
+      "type": "array"
+    },
+    "register": {
+      "additionalProperties": true,
+      "title": "Register",
+      "type": "object"
+    },
+    "readability_targets": {
+      "additionalProperties": true,
+      "title": "Readability Targets",
+      "type": "object"
+    },
+    "input_mode": {
+      "default": "",
+      "title": "Input Mode",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "title": "VoiceProfile",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

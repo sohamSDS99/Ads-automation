@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "awaiting_human_task",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "source_run_id": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Source Run Id"
+    },
+    "input_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Input Hash"
+    },
+    "pins": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Pins",
+      "type": "array"
+    },
+    "triggered_by": {
+      "anyOf": [
+        {
+          "format": "uuid",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Triggered By"
+    },
+    "started_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Started At"
+    },
+    "finished_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Finished At"
+    },
+    "cost_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "title": "Cost Usd"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "source_run_id",
+    "input_hash",
+    "triggered_by",
+    "started_at",
+    "finished_at",
+    "cost_usd"
+  ],
+  "title": "CreativeRunSummary",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

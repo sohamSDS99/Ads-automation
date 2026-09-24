@@ -1,0 +1,37 @@
+{
+  "properties": {
+    "code": {
+      "enum": [
+        "no_frozen_plan",
+        "no_published_ruleset",
+        "schema_unsupported",
+        "ruleset_incomplete",
+        "no_signoff_matrix",
+        "creative_in_flight",
+        "missing_credential",
+        "media_not_configured",
+        "zdr_blocks_video",
+        "storage_insufficient",
+        "missing_permission"
+      ],
+      "title": "Code",
+      "type": "string"
+    },
+    "detail": {
+      "title": "Detail",
+      "type": "string"
+    },
+    "fix_url": {
+      "title": "Fix Url",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "detail",
+    "fix_url"
+  ],
+  "title": "CreativeBlocker",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

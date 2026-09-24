@@ -1,0 +1,2533 @@
+{
+  "$defs": {
+    "AccountStructure": {
+      "additionalProperties": true,
+      "description": "\u00a712's `account_structure` \u2014 stage 2.4 in one section.",
+      "properties": {
+        "naming_convention": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NamingConvention"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "campaigns": {
+          "items": {
+            "$ref": "#/$defs/PlannedCampaign"
+          },
+          "title": "Campaigns",
+          "type": "array"
+        },
+        "account_negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Account Negatives",
+          "type": "array"
+        },
+        "orphan_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Orphan Terms",
+          "type": "array"
+        },
+        "volume_check": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Volume Check",
+          "type": "array"
+        },
+        "structure_verdict": {
+          "default": "",
+          "title": "Structure Verdict",
+          "type": "string"
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "duplicate_terms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Duplicate Terms"
+        },
+        "invalid_names": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Invalid Names"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "AccountStructure",
+      "type": "object"
+    },
+    "AudienceSlice": {
+      "additionalProperties": false,
+      "description": "1.1.2 best customers and 1.1.3 who we do not want.",
+      "properties": {
+        "best_customers": {
+          "items": {
+            "$ref": "#/$defs/IcpSegment"
+          },
+          "title": "Best Customers",
+          "type": "array"
+        },
+        "not_wanted": {
+          "items": {
+            "$ref": "#/$defs/IcpExclusion"
+          },
+          "title": "Not Wanted",
+          "type": "array"
+        }
+      },
+      "title": "AudienceSlice",
+      "type": "object"
+    },
+    "AutomationBoundaries": {
+      "additionalProperties": true,
+      "description": "2.3.2. What Google's automation is allowed to decide for itself.",
+      "properties": {
+        "pmax": {
+          "additionalProperties": true,
+          "title": "Pmax",
+          "type": "object"
+        },
+        "broad_match": {
+          "additionalProperties": true,
+          "title": "Broad Match",
+          "type": "object"
+        },
+        "overlap": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Overlap",
+          "type": "array"
+        }
+      },
+      "title": "AutomationBoundaries",
+      "type": "object"
+    },
+    "BrandIsolation": {
+      "additionalProperties": true,
+      "description": "2.3.3. Which terms are ours, and where they may not be bid on.",
+      "properties": {
+        "brand_terms": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Brand Terms",
+          "type": "array"
+        },
+        "brand_campaign_ref": {
+          "default": "",
+          "title": "Brand Campaign Ref",
+          "type": "string"
+        },
+        "match_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Match Types",
+          "type": "array"
+        },
+        "budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Pct"
+        },
+        "negatives_for_nonbrand": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives For Nonbrand",
+          "type": "array"
+        },
+        "reporting_rule": {
+          "default": "",
+          "title": "Reporting Rule",
+          "type": "string"
+        },
+        "competitor_bidding_policy": {
+          "default": "",
+          "title": "Competitor Bidding Policy",
+          "type": "string"
+        }
+      },
+      "title": "BrandIsolation",
+      "type": "object"
+    },
+    "CampaignObjective": {
+      "additionalProperties": true,
+      "description": "2.1.3. What one campaign is optimising toward, and what it may not exceed.",
+      "properties": {
+        "campaign_ref": {
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "objective": {
+          "title": "Objective",
+          "type": "string"
+        },
+        "primary_kpi": {
+          "title": "Primary Kpi",
+          "type": "string"
+        },
+        "target_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Value"
+        },
+        "ceiling_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ceiling Value"
+        },
+        "basis": {
+          "default": "",
+          "title": "Basis",
+          "type": "string"
+        },
+        "ramp": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Ramp",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "objective",
+        "primary_kpi"
+      ],
+      "title": "CampaignObjective",
+      "type": "object"
+    },
+    "ChannelSlate": {
+      "additionalProperties": true,
+      "description": "\u00a712's `channel_slate` \u2014 stage 2.3 in one section.",
+      "properties": {
+        "slate": {
+          "items": {
+            "$ref": "#/$defs/SlateEntry"
+          },
+          "title": "Slate",
+          "type": "array"
+        },
+        "rejected": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Rejected",
+          "type": "array"
+        },
+        "brand_isolation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/BrandIsolation"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "automation_boundaries": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AutomationBoundaries"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "notes": {
+          "default": "",
+          "title": "Notes",
+          "type": "string"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "ChannelSlate",
+      "type": "object"
+    },
+    "CompetitorRules": {
+      "additionalProperties": true,
+      "description": "3.3.3 `competitor_mentions`, verbatim.",
+      "properties": {},
+      "title": "CompetitorRules",
+      "type": "object"
+    },
+    "ConversionAction": {
+      "additionalProperties": true,
+      "description": "2.1.1. What counts as a conversion, and what it is worth.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "ads_action_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ads Action Id"
+        },
+        "category": {
+          "default": "",
+          "title": "Category",
+          "type": "string"
+        },
+        "counting": {
+          "default": "",
+          "title": "Counting",
+          "type": "string"
+        },
+        "value_model": {
+          "default": "",
+          "title": "Value Model",
+          "type": "string"
+        },
+        "assigned_value_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned Value Usd"
+        },
+        "lead_to_won_rate_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lead To Won Rate Pct"
+        },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rank"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "include_in_conversions": {
+          "default": true,
+          "title": "Include In Conversions",
+          "type": "boolean"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConversionAction",
+      "type": "object"
+    },
+    "CreativeContext": {
+      "additionalProperties": false,
+      "description": "Stage 03 delta \u2014 a projection, not a new source of truth (\u00a74.3).",
+      "properties": {
+        "schema_version": {
+          "const": "1.0",
+          "default": "1.0",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "guideline_id": {
+          "format": "uuid",
+          "title": "Guideline Id",
+          "type": "string"
+        },
+        "guideline_version": {
+          "title": "Guideline Version",
+          "type": "string"
+        },
+        "ruleset_version": {
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "voice": {
+          "$ref": "#/$defs/VoiceProfile"
+        },
+        "lexicon_guidance": {
+          "$ref": "#/$defs/LexiconGuidance"
+        },
+        "visual_identity": {
+          "$ref": "#/$defs/VisualIdentity"
+        },
+        "disclosure_rules": {
+          "items": {
+            "$ref": "#/$defs/DisclosureRule"
+          },
+          "title": "Disclosure Rules",
+          "type": "array"
+        },
+        "competitor_rules": {
+          "$ref": "#/$defs/CompetitorRules"
+        },
+        "personalization_rules": {
+          "$ref": "#/$defs/PersonalizationRules"
+        },
+        "hash": {
+          "title": "Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "guideline_id",
+        "guideline_version",
+        "ruleset_version",
+        "voice",
+        "lexicon_guidance",
+        "visual_identity",
+        "competitor_rules",
+        "personalization_rules",
+        "hash"
+      ],
+      "title": "CreativeContext",
+      "type": "object"
+    },
+    "CreativeContextRef": {
+      "additionalProperties": false,
+      "properties": {
+        "hash": {
+          "title": "Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "hash"
+      ],
+      "title": "CreativeContextRef",
+      "type": "object"
+    },
+    "CreativeScope": {
+      "additionalProperties": false,
+      "properties": {
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "images": {
+          "title": "Images",
+          "type": "boolean"
+        },
+        "video": {
+          "title": "Video",
+          "type": "boolean"
+        },
+        "concepts_per_campaign": {
+          "enum": [
+            2,
+            3
+          ],
+          "title": "Concepts Per Campaign",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "images",
+        "video",
+        "concepts_per_campaign"
+      ],
+      "title": "CreativeScope",
+      "type": "object"
+    },
+    "Dependency": {
+      "additionalProperties": true,
+      "description": "Something that must happen before this plan can run (\u00a712).\n\nCarried from a Stage 01 `launch_blocker` or raised by 2.5.1/2.5.2. A\n`blocking` dependency is what stops a freeze, so it always names an owner\n\u2014 `unassigned` is a legitimate owner and an anonymous blocker is not.",
+      "properties": {
+        "task": {
+          "minLength": 1,
+          "title": "Task",
+          "type": "string"
+        },
+        "owner": {
+          "default": "unassigned",
+          "title": "Owner",
+          "type": "string"
+        },
+        "blocking": {
+          "default": false,
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "source": {
+          "default": "",
+          "description": "Where it came from: a node id or `research`.",
+          "title": "Source",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "task"
+      ],
+      "title": "Dependency",
+      "type": "object"
+    },
+    "DifferentiationClaim": {
+      "additionalProperties": false,
+      "description": "1.3.4 \u2014 the recommended claim and the whitespace it came from.",
+      "properties": {
+        "recommended_claim": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recommended Claim"
+        },
+        "whitespace": {
+          "items": {
+            "$ref": "#/$defs/Whitespace"
+          },
+          "title": "Whitespace",
+          "type": "array"
+        },
+        "substantiation_required": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Substantiation Required",
+          "type": "array"
+        }
+      },
+      "title": "DifferentiationClaim",
+      "type": "object"
+    },
+    "DisclosureRule": {
+      "additionalProperties": false,
+      "description": "Where an AI-disclosure string is required, and what it must say.",
+      "properties": {
+        "disclosure_id": {
+          "minLength": 1,
+          "title": "Disclosure Id",
+          "type": "string"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "enum": [
+              "rsa_headline",
+              "rsa_description",
+              "rsa_path",
+              "long_headline",
+              "pmax_headline",
+              "pmax_description",
+              "asset_group_description",
+              "display_text",
+              "youtube_script",
+              "sitelink",
+              "callout",
+              "structured_snippet",
+              "business_name",
+              "landing_page_section"
+            ],
+            "type": "string"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "markets": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Markets",
+          "type": "array"
+        },
+        "required_text": {
+          "minLength": 1,
+          "title": "Required Text",
+          "type": "string"
+        },
+        "placement": {
+          "default": "anywhere",
+          "enum": [
+            "prefix",
+            "suffix",
+            "anywhere"
+          ],
+          "title": "Placement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disclosure_id",
+        "required_text"
+      ],
+      "title": "DisclosureRule",
+      "type": "object"
+    },
+    "IcpExclusion": {
+      "additionalProperties": true,
+      "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "persona": {
+          "title": "Persona",
+          "type": "string"
+        },
+        "disqualifier": {
+          "title": "Disqualifier",
+          "type": "string"
+        },
+        "observable_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observable Signal"
+        },
+        "suggested_negative_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suggested Negative Terms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "persona",
+        "disqualifier"
+      ],
+      "title": "IcpExclusion",
+      "type": "object"
+    },
+    "IcpSegment": {
+      "additionalProperties": true,
+      "description": "1.1.2 `icp_profile`.\n\n`firmographics` is a union because the two shipped halves of this pipeline\ndisagree about it, and the disagreement is legitimate: PRD \u00a710 does not type\nthe field, node 1.1.2 asks the model for \"a sentence of firmographics\", and\na structured `{employees: \u2026, sites: \u2026}` map is what the field looks like\nwhen it comes from a CRM rollup. Both render. Refusing one of them would\nfail the very last node of a forty-minute run over a section heading.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "firmographics": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Firmographics"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "jobs_to_be_done": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Jobs To Be Done",
+          "type": "array"
+        },
+        "share_of_revenue_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Of Revenue Pct"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "IcpSegment",
+      "type": "object"
+    },
+    "KeywordPageMapping": {
+      "additionalProperties": true,
+      "description": "1.4.5 `keyword_to_page_map`.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "term_cluster": {
+          "title": "Term Cluster",
+          "type": "string"
+        },
+        "best_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Url"
+        },
+        "relevance_score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Relevance Score"
+        },
+        "verdict": {
+          "enum": [
+            "good_fit",
+            "weak_fit",
+            "gap"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "term_cluster",
+        "verdict"
+      ],
+      "title": "KeywordPageMapping",
+      "type": "object"
+    },
+    "LexiconEntry": {
+      "additionalProperties": true,
+      "description": "One term we always use, or never do. Compiles to a matcher or it is not here.",
+      "properties": {
+        "term": {
+          "minLength": 1,
+          "title": "Term",
+          "type": "string"
+        },
+        "surface_forms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Surface Forms",
+          "type": "array"
+        },
+        "severity": {
+          "default": "warning",
+          "title": "Severity",
+          "type": "string"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
+        },
+        "context": {
+          "default": "",
+          "title": "Context",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "suggested_replacement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Replacement"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "LexiconEntry",
+      "type": "object"
+    },
+    "LexiconGuidance": {
+      "additionalProperties": false,
+      "description": "3.1.2 always/never, as writer guidance. The `RuleSet` enforces them.",
+      "properties": {
+        "always": {
+          "items": {
+            "$ref": "#/$defs/LexiconEntry"
+          },
+          "title": "Always",
+          "type": "array"
+        },
+        "never": {
+          "items": {
+            "$ref": "#/$defs/LexiconEntry"
+          },
+          "title": "Never",
+          "type": "array"
+        },
+        "case_and_spelling": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Case And Spelling",
+          "type": "array"
+        }
+      },
+      "title": "LexiconGuidance",
+      "type": "object"
+    },
+    "MediaModelChoice": {
+      "additionalProperties": false,
+      "description": "One user-selected media model, with the catalogue record it was chosen from.",
+      "properties": {
+        "modality": {
+          "enum": [
+            "image",
+            "video"
+          ],
+          "title": "Modality",
+          "type": "string"
+        },
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Tag"
+        },
+        "capability": {
+          "additionalProperties": true,
+          "title": "Capability",
+          "type": "object"
+        },
+        "capability_hash": {
+          "minLength": 1,
+          "title": "Capability Hash",
+          "type": "string"
+        },
+        "defaults": {
+          "additionalProperties": true,
+          "title": "Defaults",
+          "type": "object"
+        }
+      },
+      "required": [
+        "modality",
+        "model_id",
+        "capability",
+        "capability_hash"
+      ],
+      "title": "MediaModelChoice",
+      "type": "object"
+    },
+    "MediaReferenceRef": {
+      "additionalProperties": false,
+      "description": "A non-retired `MediaReference` row, with its rights attestation (\u00a710.3).\n\nNever the bytes and never the storage path: nothing in the input is a\nthing a provider could be handed (Law 44).",
+      "properties": {
+        "reference_id": {
+          "format": "uuid",
+          "title": "Reference Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "product_reference",
+            "style_reference"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "origin": {
+          "enum": [
+            "own",
+            "licensed",
+            "third_party"
+          ],
+          "title": "Origin",
+          "type": "string"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        },
+        "media_type": {
+          "title": "Media Type",
+          "type": "string"
+        },
+        "width": {
+          "title": "Width",
+          "type": "integer"
+        },
+        "height": {
+          "title": "Height",
+          "type": "integer"
+        },
+        "product_ref": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Product Ref"
+        },
+        "rights_statement": {
+          "title": "Rights Statement",
+          "type": "string"
+        },
+        "attested_by": {
+          "format": "uuid",
+          "title": "Attested By",
+          "type": "string"
+        },
+        "attested_at": {
+          "format": "date-time",
+          "title": "Attested At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "reference_id",
+        "kind",
+        "origin",
+        "sha256",
+        "media_type",
+        "width",
+        "height",
+        "rights_statement",
+        "attested_by",
+        "attested_at"
+      ],
+      "title": "MediaReferenceRef",
+      "type": "object"
+    },
+    "MessageCluster": {
+      "additionalProperties": true,
+      "properties": {
+        "theme": {
+          "title": "Theme",
+          "type": "string"
+        },
+        "frequency": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Frequency"
+        },
+        "advertisers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Advertisers",
+          "type": "array"
+        }
+      },
+      "required": [
+        "theme"
+      ],
+      "title": "MessageCluster",
+      "type": "object"
+    },
+    "NamingConvention": {
+      "additionalProperties": true,
+      "description": "2.4.1. The patterns every generated name is checked against.",
+      "properties": {
+        "patterns": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Patterns",
+          "type": "object"
+        },
+        "tokens": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Tokens",
+          "type": "array"
+        },
+        "validator_regex": {
+          "default": "",
+          "title": "Validator Regex",
+          "type": "string"
+        },
+        "examples": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Examples",
+          "type": "array"
+        },
+        "collisions": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Collisions",
+          "type": "array"
+        },
+        "collision_check": {
+          "default": "",
+          "title": "Collision Check",
+          "type": "string"
+        }
+      },
+      "title": "NamingConvention",
+      "type": "object"
+    },
+    "Number": {
+      "additionalProperties": true,
+      "description": "A figure the plan asserts, with the calculation that produced it.\n\n`Decimal`, not `float`: an envelope is money, invariant 4 checks the\nallocation sums to it within \u00b10.5%, and the last thing that argument needs\nis binary floating point deciding that 0.1 + 0.2 misses a cap.\n\n**`value` is stored in JSONB as a string**, because that is how pydantic\nserialises a `Decimal` \u2014 losslessly, and back to a `Decimal` on the way in.\nAnything reading the payload *through this contract* therefore sees a\n`Decimal` and need not care. Anything reading the raw JSONB \u2014 a zod schema,\na diff, Stage 03 \u2014 sees `\"40000\"` and not `40000`, and a type check for\n`int | float` there will silently fall through. The S2-P6c session hit\nexactly that: a stringified value compared against a dict reported a whole\nmedia plan as rewritten. `tests/test_plan_exports.py` pins both halves.",
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "enum": [
+            "usd",
+            "pct",
+            "count",
+            "days",
+            "months",
+            "ratio"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "calc_evidence_id": {
+          "format": "uuid",
+          "title": "Calc Evidence Id",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "calc_evidence_id"
+      ],
+      "title": "Number",
+      "type": "object"
+    },
+    "Objectives": {
+      "additionalProperties": true,
+      "description": "\u00a712's `objectives` \u2014 stage 2.1 in one section.",
+      "properties": {
+        "north_star_metric": {
+          "default": "",
+          "title": "North Star Metric",
+          "type": "string"
+        },
+        "north_star_target": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "north_star_period": {
+          "default": "",
+          "title": "North Star Period",
+          "type": "string"
+        },
+        "conversion_actions": {
+          "items": {
+            "$ref": "#/$defs/ConversionAction"
+          },
+          "title": "Conversion Actions",
+          "type": "array"
+        },
+        "deprecate": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Deprecate",
+          "type": "array"
+        },
+        "unit_economics": {
+          "items": {
+            "$ref": "#/$defs/SegmentCeiling"
+          },
+          "title": "Unit Economics",
+          "type": "array"
+        },
+        "blended_max_cpl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "blended_target_cpl": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "blended_max_cpa_won": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "method_notes": {
+          "default": "",
+          "title": "Method Notes",
+          "type": "string"
+        },
+        "campaign_objectives": {
+          "items": {
+            "$ref": "#/$defs/CampaignObjective"
+          },
+          "title": "Campaign Objectives",
+          "type": "array"
+        },
+        "qualified_lead": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/QualifiedLead"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "expected_mql_to_sql_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Mql To Sql Pct"
+        },
+        "sla_response_hours": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Sla Response Hours"
+        },
+        "routing": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Routing",
+          "type": "array"
+        },
+        "observed_rejection_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Observed Rejection Reasons",
+          "type": "array"
+        },
+        "calc_evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Calc Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "Objectives",
+      "type": "object"
+    },
+    "OfferRecord": {
+      "additionalProperties": false,
+      "description": "Live offer data, passed into `lint()` for `offers.py` to check against.\n\nPRD \u00a79.4 and Q4: it arrives through `csv_ingest` today and may come from a\npricing feed later. Either way it is an *argument*, because a matcher that\ncould fetch its own prices is a matcher whose verdict depends on when it\nran.",
+      "properties": {
+        "sku": {
+          "minLength": 1,
+          "title": "Sku",
+          "type": "string"
+        },
+        "product_set": {
+          "minLength": 1,
+          "title": "Product Set",
+          "type": "string"
+        },
+        "list_price": {
+          "minimum": 0,
+          "title": "List Price",
+          "type": "number"
+        },
+        "current_price": {
+          "minimum": 0,
+          "title": "Current Price",
+          "type": "number"
+        },
+        "currency": {
+          "minLength": 1,
+          "title": "Currency",
+          "type": "string"
+        },
+        "market": {
+          "minLength": 1,
+          "title": "Market",
+          "type": "string"
+        },
+        "effective_from": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective From"
+        },
+        "effective_to": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Effective To"
+        },
+        "reference_price": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reference Price"
+        },
+        "ends_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ends At"
+        },
+        "extensions": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Extensions",
+          "type": "integer"
+        },
+        "observed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed At"
+        }
+      },
+      "required": [
+        "sku",
+        "product_set",
+        "list_price",
+        "current_price",
+        "currency",
+        "market"
+      ],
+      "title": "OfferRecord",
+      "type": "object"
+    },
+    "PageAudit": {
+      "additionalProperties": true,
+      "description": "1.5.1 `landing_page_audit`.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "lcp_ms": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lcp Ms"
+        },
+        "cls": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cls"
+        },
+        "mobile_ok": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile Ok"
+        },
+        "form_fields_count": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Form Fields Count"
+        },
+        "trust_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trust Signals",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "severity": {
+          "anyOf": [
+            {
+              "enum": [
+                "critical",
+                "major",
+                "minor",
+                "none"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Severity"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "PageAudit",
+      "type": "object"
+    },
+    "PersonalizationRules": {
+      "additionalProperties": true,
+      "description": "3.3.x `personalization`, verbatim.",
+      "properties": {},
+      "title": "PersonalizationRules",
+      "type": "object"
+    },
+    "PlanRef": {
+      "additionalProperties": false,
+      "properties": {
+        "plan_id": {
+          "format": "uuid",
+          "title": "Plan Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "plan_run_id": {
+          "format": "uuid",
+          "title": "Plan Run Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan_id",
+        "version",
+        "schema_version",
+        "plan_run_id"
+      ],
+      "title": "PlanRef",
+      "type": "object"
+    },
+    "PlannedAdGroup": {
+      "additionalProperties": true,
+      "description": "\u00a712.3 item 1: the container Stage 03 writes every ad into.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "theme": {
+          "default": "",
+          "title": "Theme",
+          "type": "string"
+        },
+        "landing_url": {
+          "default": "",
+          "title": "Landing Url",
+          "type": "string"
+        },
+        "primary_message": {
+          "default": "",
+          "title": "Primary Message",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "keywords": {
+          "items": {
+            "$ref": "#/$defs/PlannedKeyword"
+          },
+          "title": "Keywords",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        },
+        "coherence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Coherence"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedAdGroup",
+      "type": "object"
+    },
+    "PlannedCampaign": {
+      "additionalProperties": true,
+      "description": "One campaign, complete enough to build.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "campaign_ref": {
+          "default": "",
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "type": {
+          "default": "",
+          "title": "Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
+        "monthly_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Monthly Budget Usd"
+        },
+        "daily_budget_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Daily Budget Usd"
+        },
+        "bid_strategy": {
+          "default": "",
+          "title": "Bid Strategy",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "locations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Locations",
+          "type": "array"
+        },
+        "ad_groups": {
+          "items": {
+            "$ref": "#/$defs/PlannedAdGroup"
+          },
+          "title": "Ad Groups",
+          "type": "array"
+        },
+        "negatives": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Negatives",
+          "type": "array"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "PlannedCampaign",
+      "type": "object"
+    },
+    "PlannedKeyword": {
+      "additionalProperties": true,
+      "description": "One keyword, as it will be imported. The EDITOR_CSV row.",
+      "properties": {
+        "term": {
+          "title": "Term",
+          "type": "string"
+        },
+        "match_type": {
+          "default": "phrase",
+          "title": "Match Type",
+          "type": "string"
+        },
+        "forecast_cpc_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Forecast Cpc Usd"
+        },
+        "search_volume": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Search Volume"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "PlannedKeyword",
+      "type": "object"
+    },
+    "QualifiedLead": {
+      "additionalProperties": true,
+      "description": "2.1.4. What sales agreed counts as a lead worth paying for.",
+      "properties": {
+        "required_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Signals",
+          "type": "array"
+        },
+        "disqualifiers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disqualifiers",
+          "type": "array"
+        },
+        "scoring": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Scoring",
+          "type": "array"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        }
+      },
+      "title": "QualifiedLead",
+      "type": "object"
+    },
+    "ResearchRef": {
+      "additionalProperties": false,
+      "description": "Reached through `plan.source` \u2014 never a third precondition (\u00a74.1).",
+      "properties": {
+        "research_run_id": {
+          "format": "uuid",
+          "title": "Research Run Id",
+          "type": "string"
+        },
+        "report_id": {
+          "format": "uuid",
+          "title": "Report Id",
+          "type": "string"
+        },
+        "acceptance_id": {
+          "format": "uuid",
+          "title": "Acceptance Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "research_run_id",
+        "report_id",
+        "acceptance_id"
+      ],
+      "title": "ResearchRef",
+      "type": "object"
+    },
+    "RuleSetRef": {
+      "additionalProperties": false,
+      "properties": {
+        "guideline_id": {
+          "format": "uuid",
+          "title": "Guideline Id",
+          "type": "string"
+        },
+        "ruleset_version": {
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "hash": {
+          "title": "Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "guideline_id",
+        "ruleset_version",
+        "hash"
+      ],
+      "title": "RuleSetRef",
+      "type": "object"
+    },
+    "SegmentCeiling": {
+      "additionalProperties": true,
+      "description": "2.1.2. What one segment can afford to pay, per lead and per customer.",
+      "properties": {
+        "segment": {
+          "title": "Segment",
+          "type": "string"
+        },
+        "acv_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acv Usd"
+        },
+        "gross_margin_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gross Margin Pct"
+        },
+        "lead_to_won_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lead To Won Pct"
+        },
+        "max_cpa_won_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cpa Won Usd"
+        },
+        "max_cpl_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cpl Usd"
+        },
+        "target_cpl_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Cpl Usd"
+        },
+        "target_roas": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Roas"
+        },
+        "payback_months": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payback Months"
+        }
+      },
+      "required": [
+        "segment"
+      ],
+      "title": "SegmentCeiling",
+      "type": "object"
+    },
+    "SignOffMatrixRef": {
+      "additionalProperties": false,
+      "description": "The current matrix: who G7, G8 and H3 route to.",
+      "properties": {
+        "matrix_id": {
+          "format": "uuid",
+          "title": "Matrix Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "integer"
+        },
+        "brand_owner_id": {
+          "format": "uuid",
+          "title": "Brand Owner Id",
+          "type": "string"
+        },
+        "legal_owner_id": {
+          "format": "uuid",
+          "title": "Legal Owner Id",
+          "type": "string"
+        },
+        "performance_owner_id": {
+          "format": "uuid",
+          "title": "Performance Owner Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "matrix_id",
+        "version",
+        "brand_owner_id",
+        "legal_owner_id",
+        "performance_owner_id"
+      ],
+      "title": "SignOffMatrixRef",
+      "type": "object"
+    },
+    "SlateEntry": {
+      "additionalProperties": true,
+      "description": "2.3.1. One campaign type in one market, and when it launches.",
+      "properties": {
+        "campaign_type": {
+          "title": "Campaign Type",
+          "type": "string"
+        },
+        "market": {
+          "default": "",
+          "title": "Market",
+          "type": "string"
+        },
+        "campaign_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Campaign Refs",
+          "type": "array"
+        },
+        "launch_wave": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Launch Wave"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "entry_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Entry Criteria",
+          "type": "array"
+        },
+        "exit_criteria": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Exit Criteria",
+          "type": "array"
+        },
+        "prerequisites": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Prerequisites",
+          "type": "array"
+        },
+        "est_share_of_budget_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Est Share Of Budget Pct"
+        }
+      },
+      "required": [
+        "campaign_type"
+      ],
+      "title": "SlateEntry",
+      "type": "object"
+    },
+    "VisualIdentity": {
+      "additionalProperties": true,
+      "description": "3.1.3 `visual_identity_rules` \u26f3 G5.",
+      "properties": {
+        "logo": {
+          "additionalProperties": true,
+          "title": "Logo",
+          "type": "object"
+        },
+        "colour": {
+          "additionalProperties": true,
+          "title": "Colour",
+          "type": "object"
+        },
+        "imagery": {
+          "additionalProperties": true,
+          "title": "Imagery",
+          "type": "object"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "VisualIdentity",
+      "type": "object"
+    },
+    "VoiceExample": {
+      "additionalProperties": true,
+      "description": "One quoted line of real copy, and why it is here.\n\n\u00a711 is explicit that 3.1.1's examples are \"quoted from real best-performing\ncopy, never invented\", so `source_ref` is not decoration \u2014 it is the only\nthing separating this from a model's idea of how the brand sounds.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source_ref": {
+          "default": "",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "rewritten_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rewritten As"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "VoiceExample",
+      "type": "object"
+    },
+    "VoiceProfile": {
+      "additionalProperties": true,
+      "description": "3.1.1 `voice_profile`.",
+      "properties": {
+        "voice_words": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Voice Words",
+          "type": "array"
+        },
+        "definition_per_word": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Definition Per Word",
+          "type": "object"
+        },
+        "do_examples": {
+          "items": {
+            "$ref": "#/$defs/VoiceExample"
+          },
+          "title": "Do Examples",
+          "type": "array"
+        },
+        "dont_examples": {
+          "items": {
+            "$ref": "#/$defs/VoiceExample"
+          },
+          "title": "Dont Examples",
+          "type": "array"
+        },
+        "register": {
+          "additionalProperties": true,
+          "title": "Register",
+          "type": "object"
+        },
+        "readability_targets": {
+          "additionalProperties": true,
+          "title": "Readability Targets",
+          "type": "object"
+        },
+        "input_mode": {
+          "default": "",
+          "title": "Input Mode",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "VoiceProfile",
+      "type": "object"
+    },
+    "Whitespace": {
+      "additionalProperties": true,
+      "description": "1.3.4 \u26f3 `differentiation_claim` \u2014 gated on an `approver` (marketing).",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "why_unsaid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why Unsaid"
+        },
+        "our_proof": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Our Proof"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Risk"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "Whitespace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Everything Stage 04 is allowed to know about Stages 01\u201303 (\u00a74.3).",
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "creative_run_id": {
+      "format": "uuid",
+      "title": "Creative Run Id",
+      "type": "string"
+    },
+    "plan_ref": {
+      "$ref": "#/$defs/PlanRef"
+    },
+    "research_ref": {
+      "$ref": "#/$defs/ResearchRef"
+    },
+    "ruleset_ref": {
+      "$ref": "#/$defs/RuleSetRef"
+    },
+    "context_ref": {
+      "$ref": "#/$defs/CreativeContextRef"
+    },
+    "scope": {
+      "$ref": "#/$defs/CreativeScope"
+    },
+    "media_models": {
+      "items": {
+        "$ref": "#/$defs/MediaModelChoice"
+      },
+      "title": "Media Models",
+      "type": "array"
+    },
+    "audience": {
+      "$ref": "#/$defs/AudienceSlice"
+    },
+    "differentiation": {
+      "$ref": "#/$defs/DifferentiationClaim"
+    },
+    "competitor_messages": {
+      "items": {
+        "$ref": "#/$defs/MessageCluster"
+      },
+      "title": "Competitor Messages",
+      "type": "array"
+    },
+    "keyword_page_map": {
+      "items": {
+        "$ref": "#/$defs/KeywordPageMapping"
+      },
+      "title": "Keyword Page Map",
+      "type": "array"
+    },
+    "landing_audit": {
+      "items": {
+        "$ref": "#/$defs/PageAudit"
+      },
+      "title": "Landing Audit",
+      "type": "array"
+    },
+    "objectives": {
+      "$ref": "#/$defs/Objectives"
+    },
+    "lead_definition": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QualifiedLead"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "channel_slate": {
+      "$ref": "#/$defs/ChannelSlate"
+    },
+    "account_structure": {
+      "$ref": "#/$defs/AccountStructure"
+    },
+    "naming": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/NamingConvention"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "creative_context": {
+      "$ref": "#/$defs/CreativeContext"
+    },
+    "offer_records": {
+      "items": {
+        "$ref": "#/$defs/OfferRecord"
+      },
+      "title": "Offer Records",
+      "type": "array"
+    },
+    "offer_snapshot_at": {
+      "format": "date-time",
+      "title": "Offer Snapshot At",
+      "type": "string"
+    },
+    "references": {
+      "items": {
+        "$ref": "#/$defs/MediaReferenceRef"
+      },
+      "title": "References",
+      "type": "array"
+    },
+    "signoff_matrix": {
+      "$ref": "#/$defs/SignOffMatrixRef"
+    },
+    "inherited_dependencies": {
+      "items": {
+        "$ref": "#/$defs/Dependency"
+      },
+      "title": "Inherited Dependencies",
+      "type": "array"
+    },
+    "constants_version": {
+      "title": "Constants Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "project_id",
+    "creative_run_id",
+    "plan_ref",
+    "research_ref",
+    "ruleset_ref",
+    "context_ref",
+    "scope",
+    "audience",
+    "differentiation",
+    "objectives",
+    "lead_definition",
+    "channel_slate",
+    "account_structure",
+    "naming",
+    "creative_context",
+    "offer_snapshot_at",
+    "signoff_matrix",
+    "constants_version"
+  ],
+  "title": "CreativeInput",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

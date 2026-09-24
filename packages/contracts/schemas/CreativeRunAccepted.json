@@ -1,0 +1,39 @@
+{
+  "$defs": {
+    "RunStatus": {
+      "enum": [
+        "queued",
+        "running",
+        "awaiting_approval",
+        "awaiting_human_task",
+        "succeeded",
+        "failed",
+        "cancelled"
+      ],
+      "title": "RunStatus",
+      "type": "string"
+    }
+  },
+  "properties": {
+    "run_id": {
+      "format": "uuid",
+      "title": "Run Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/RunStatus"
+    },
+    "input_hash": {
+      "title": "Input Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "run_id",
+    "status",
+    "input_hash"
+  ],
+  "title": "CreativeRunAccepted",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

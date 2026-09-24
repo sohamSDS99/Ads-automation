@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "IcpExclusion": {
+      "additionalProperties": true,
+      "description": "1.1.3 `negative_icp` \u2014 who we are *not* selling to, and how to spot them.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "persona": {
+          "title": "Persona",
+          "type": "string"
+        },
+        "disqualifier": {
+          "title": "Disqualifier",
+          "type": "string"
+        },
+        "observable_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observable Signal"
+        },
+        "suggested_negative_terms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Suggested Negative Terms",
+          "type": "array"
+        }
+      },
+      "required": [
+        "persona",
+        "disqualifier"
+      ],
+      "title": "IcpExclusion",
+      "type": "object"
+    },
+    "IcpSegment": {
+      "additionalProperties": true,
+      "description": "1.1.2 `icp_profile`.\n\n`firmographics` is a union because the two shipped halves of this pipeline\ndisagree about it, and the disagreement is legitimate: PRD \u00a710 does not type\nthe field, node 1.1.2 asks the model for \"a sentence of firmographics\", and\na structured `{employees: \u2026, sites: \u2026}` map is what the field looks like\nwhen it comes from a CRM rollup. Both render. Refusing one of them would\nfail the very last node of a forty-minute run over a section heading.",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "firmographics": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "string"
+            }
+          ],
+          "title": "Firmographics"
+        },
+        "triggers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Triggers",
+          "type": "array"
+        },
+        "jobs_to_be_done": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Jobs To Be Done",
+          "type": "array"
+        },
+        "share_of_revenue_pct": {
+          "anyOf": [
+            {
+              "maximum": 100,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Share Of Revenue Pct"
+        }
+      },
+      "required": [
+        "label"
+      ],
+      "title": "IcpSegment",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "1.1.2 best customers and 1.1.3 who we do not want.",
+  "properties": {
+    "best_customers": {
+      "items": {
+        "$ref": "#/$defs/IcpSegment"
+      },
+      "title": "Best Customers",
+      "type": "array"
+    },
+    "not_wanted": {
+      "items": {
+        "$ref": "#/$defs/IcpExclusion"
+      },
+      "title": "Not Wanted",
+      "type": "array"
+    }
+  },
+  "title": "AudienceSlice",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

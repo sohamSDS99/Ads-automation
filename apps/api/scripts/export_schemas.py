@@ -41,6 +41,9 @@ SOURCE_MODULES: tuple[str, ...] = (
     "agent.schemas.guideline_input",
     "agent.schemas.guardrails",
     "agent.schemas.imaging",
+    # Stage 04.
+    "agent.api.schemas_creative",
+    "agent.schemas.creative_input",
 )
 
 
@@ -61,6 +64,10 @@ def collect_models() -> dict[str, type[BaseModel]]:
             if not (isinstance(obj, type) and issubclass(obj, BaseModel)):
                 continue
             if obj is BaseModel or obj.__name__ in ABSTRACT_BASES:
+                continue
+            # A private base (`_Frozen`, `_Carried` in Stage 04's contract)
+            # carries configuration for its subclasses and is never a payload.
+            if obj.__name__.startswith("_"):
                 continue
             found[obj.__name__] = obj
     return found
