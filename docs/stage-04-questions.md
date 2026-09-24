@@ -288,6 +288,112 @@ to Soham during the phase and answered; the rest want a ruling.
     any other branch holding a 0021 must renumber — a duplicate alembic
     revision is not a git conflict.
 
+## S4-P5
+
+What S4-P5 had to decide that the PRD does not settle. Every item wants a
+ruling; items 1 and 2 are the ones that change behaviour outside this phase.
+
+1. **The PRD's ordering gap: 4.2.3 consumes 4.2.2, which S4-P6 builds.** §11's
+   edges feed 4.2.2's descriptions into 4.2.3; §21.3 builds 4.2.2 one phase
+   later. S4-P5 defines 4.2.2's *output contract* now
+   (`schemas/search_ads.ClaimBoundDescriptionsOutput`, with `claim_ids ⊆
+   licensed(pin)` as a validator that refuses to run without the pin's ids) and
+   leaves the node a stub. The integration test feeds 4.2.3 fixture
+   descriptions through that schema. **Consequence: until S4-P6 merges, a live
+   creative run fails at 4.2.3** ("4.2.2 claim_bound_descriptions is still a
+   stub"). Rejected: judging headline pairs only — the report would look
+   complete and would never have checked the headline × description pairs
+   Google serves. Ruling owed: accept the window, or merge S4-P6 with or
+   before this.
+2. **A Stage 03 defect fixed here: spec-sheet rules ignored their asset type.**
+   `RuleScope.matches` never read `asset_types`, and `CountMatcher` compared
+   its entity (an asset type, `headline`) with a surface (`rsa_headline`). So
+   against any ruleset compiled from the spec sheet a Search path's 15
+   characters failed every legal headline, and every Search lint reported "0
+   of headline". **Every Stage 04 lint against a real published ruleset
+   failed**; S4-P4's tests used a ruleset with no asset rules and could not
+   see it. Fixed with `schemas/guardrails.SURFACE_ASSET_TYPES`, which narrows a
+   rule only where the surface's asset type is known. This changes the verdicts
+   of rulesets already published, but only by removing findings that applied a
+   rule to the wrong asset type. Rulings owed: accept a Stage 03 change in a
+   Stage 04 PR; confirm the mapping (`asset_group_description → description`;
+   `display_text`, `youtube_script` and `landing_page_section` left unmapped,
+   so asset-typed rules still apply to them).
+3. **Still open from the same root: set rules ignore the submission's campaign
+   types.** A count rule is evaluated on every lint call for every campaign
+   type the ruleset carries, so an assembled Search ad linted against a
+   ruleset that also specifies Performance Max reports "0 of headline" for
+   PMax. Candidates are unaffected (item 4); the ad-level lint (4.6.1) will
+   need to scope set rules to the campaign types it submits. Not built.
+4. **Candidates are linted without set rules** (`lint_adapter.lint_candidate`).
+   Law 33 lints every candidate at creation; "3 to 15 headlines" is a property
+   of the assembled ad, and asking one candidate would fail every candidate on
+   "there is 1 of headline". Every per-target rule still applies.
+5. **`combinatorics.pair_flags_v1` — the six flags §11 names but does not
+   define.** Each uses structured fields, no word lists: `duplicate` (equal
+   after `metrics.normalize`); `near_duplicate` (`copy.trigram_v1 ≥
+   copy.near_duplicate_trigram`); `offer_conflict` (percentages or same-currency
+   amounts *outside* the licensed claim span that differ); `claim_conflict`
+   (both carry claims, not the same ones, and a quantity inside their claim
+   spans differs — durations, counts keyed by the word counted, percentages);
+   `cta_collision` (both ask, sharing no ask; the CTA verbs are the leading
+   words of the pool's own `cta` headlines); `keyword_stuffing` (HH only: a
+   headline's `keyword_ref` repeated in the other headline). Known limits: a
+   count's unit is the next word ("#1 SDS tool" counts `sds`); a DKI headline
+   carries only its `keyword_ref`, so the keyword Google inserts at serve time
+   is not checked against its neighbours.
+6. **The metrics.** `copy.trigram_v1` = Dice over the character trigrams of the
+   NFKC-casefolded, alphanumeric-only text, padded by one space each side.
+   `copy.distinctness_v1` = 1 − the two-way mean of each asset's best-match
+   similarity on the other side (not the union of every trigram, which scores
+   two ads alike for sharing common words). `creative/metrics.py` owns both
+   definitions rather than borrowing `guardrails.normalize.trigram_similarity`,
+   because a version must pin its definition; any change is a `_v2`.
+7. **`select.headlines_v1`'s rules.** Candidates are ranked in a canonical
+   order first; the first pick is the candidate farthest from the rest of the
+   pool; the feasibility guard is a count bound, not an exact solve. A quota
+   the pool cannot meet is *reported* (`quota_report.met = false`) and the node
+   succeeds so long as the spec's `min_count` headlines were selected; below
+   that it fails. Ruling owed: is a reported shortfall acceptable, or should
+   4.2.1 re-ask for the short categories (bounded)?
+8. **4.2.1's own checks, beyond the PRD's words.** A `keyword` headline must
+   contain its `keyword_ref` as whole words (on the default text); a `proof`
+   headline must cite ≥ 1 licensed claim; DKI accepts only Google's five
+   documented capitalisations (keyword, Keyword, KeyWord, KEYWord, KeyWORD —
+   support.google.com/google-ads/answer/2454041), one insertion per headline
+   and a non-empty default; any other braces (location insertion, ad
+   customizers) are refused. A candidate that fails lint stays `draft`; one
+   that passes lint but breaks these is `dropped` with its reason.
+9. **Market and language for a candidate's `LintTarget`.** The ad group's
+   market, else the campaign's, else `*`; the campaign's language, else `en` —
+   the fallback Stage 03's lint route uses. A plan with no language on a
+   non-English campaign is linted as English. Ruling owed.
+10. **Asset rows.** `keyword_ref`, `dki` and `default_text` live in
+    `CreativeAsset.fields` (§12.2 `TextAsset` has no such fields).
+    `content_hash` — §7.2 names the column, not its definition — is sha256 over
+    the canonical JSON of kind, surface, text, fields, claims and offer
+    binding (`nodes/creative/_text_assets.py`), so a status change, a re-lint
+    or a swap never changes it. `ad_ref` stays NULL until package assembly.
+11. **The repair round.** Swapped out → `reserve` (a person can swap it back);
+    swapped in → `linted`, lineage `{origin: reserve_swap, parent_id: <out>,
+    node_id: 4.2.3}`. The asset in the most bad pairs goes first, headlines
+    before descriptions, and a category keeps its kind while its quota has no
+    slack. **What the round cannot end is reported (`PairReport.unresolved`)
+    and the run continues** — nothing downstream refuses it yet (4.6/4.7).
+    Ruling owed: should an unresolved *deterministic* flag fail 4.2.3 instead?
+12. **One labelling pass after the round.** The pairs a swap forms are
+    labelled once, so every pair in the report has a label; they are never
+    repaired. That is at most ⌈new pairs / 50⌉ more CLASSIFY calls per ad.
+13. **Pins.** HH → H1/H2, HD → H1/D1, DD → D1/D2, in the order the pair reads;
+    an asset is pinned once; a pair that contradicts an earlier pin is left
+    unpinned. Several assets may share a position (Google rotates within it),
+    so assets pinned for two different pairs can serve crosswise.
+14. **The executor commits a failed attempt's writes.** `finish_node` commits
+    the session with the failure record; nothing rolls the attempt back. So
+    4.2.1 builds everything before writing and clears its own rows on entry,
+    and 4.2.3 writes an absolute state. A rollback in the executor before the
+    failure is recorded would make every node safe by default (not built).
+
 ## S4-P9
 
 Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`.
@@ -340,3 +446,13 @@ Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`
     after S4-P4 added `copywrite`/`vision`/`image_gen`/`video_gen`;
     `scripts/export_schemas.py` rewrites them. This PR exports only its own
     changes (`MediaReferenceOut`, the four image surfaces).
+11. **Reconciled with S4-P5 (#63) at merge.** 4.4.2 lints each candidate with
+    `PinnedLinter.lint_candidate` — per-target rules only — because a lone
+    image counted against the spec sheet's set rules is "0 of image_square"
+    and "0 of headline", which failed every candidate against a real
+    published ruleset (the hand-built fixture had no set rules, so nothing
+    saw it). The four image surfaces stay OUT of `SURFACE_ASSET_TYPES` on
+    purpose: one image surface is several spec-sheet asset types
+    (`image_landscape`/`image_square`/`image_portrait`, by ratio), and an
+    unmapped surface keeps every asset-typed rule applying. The 4.4.2 tests
+    now pin rules `guidelines/synthesis.py` itself compiles from the spec sheet.

@@ -73,6 +73,7 @@ async def seed_plan(
     schema_version: str = "1.0",
     source_superseded: bool = False,
     campaign_type: str | None = None,
+    keywords: list[dict[str, Any]] | None = None,
 ) -> CampaignPlan:
     """Accepted research → a plan run → a plan in `status`, with a real payload."""
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
@@ -158,6 +159,7 @@ async def seed_plan(
                                 "theme": "SDS management",
                                 "landing_url": "https://example.com/sds",
                                 "primary_message": "Keep every SDS current",
+                                **({"keywords": keywords} if keywords else {}),
                             }
                         ],
                     },
@@ -221,7 +223,7 @@ async def seed_published(
     ruleset_schema: str = "1.0",
     signature_stale: bool = False,
     asset_specs: dict[str, Any] | None = None,
-    image_rule: bool = False,
+    extra_rules: tuple[Any, ...] = (),
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -263,12 +265,12 @@ async def seed_published(
             digest=digest,
             categories=categories,
             asset_specs=asset_specs,
-            image_rule=image_rule,
             schema_version=ruleset_schema,
+            extra_rules=extra_rules,
         ),
         compiler_version="test",
         constants_version="test",
-        rule_count=len(categories),
+        rule_count=len(categories) + len(extra_rules),
         hash=digest,
     )
     db.add(ruleset)
@@ -295,7 +297,7 @@ def compiled_ruleset(
     categories: tuple[str, ...] = ALL_CATEGORIES,
     asset_specs: dict[str, Any] | None = None,
     schema_version: str = "1.0",
-    image_rule: bool = False,
+    extra_rules: tuple[Any, ...] = (),
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -318,26 +320,6 @@ def compiled_ruleset(
         )
         for category in categories
     ]
-    if image_rule:
-        # S4-P9: Stage 03's own text-coverage rule, so a candidate image can fail —
-        # scoped exactly as `stage_3_4._image_rules` scopes it for a search
-        # `image_square` spec row. Not EVERYWHERE: once `RuleScope.matches`
-        # honours `asset_types`, an image surface missing from that mapping must
-        # fail these tests, not pass every candidate unchecked.
-        from agent.guardrails.matchers.image import text_coverage
-        from agent.schemas.guardrails import RuleScope
-
-        rules.append(
-            Rule(
-                rule_id="image.text_coverage.v1",
-                category="image",
-                **text_coverage(
-                    authority=authority,
-                    maximum=0.20,
-                    scope=RuleScope(campaign_types=("search",), asset_types=("image_square",)),
-                ).model_dump(exclude={"rule_id", "category"}),
-            )
-        )
     claims = [
         ClaimRef(
             claim_id=LICENSED_CLAIM_ID,
@@ -355,7 +337,7 @@ def compiled_ruleset(
         compiler_version="test",
         constants_version="test",
         compiled_at=_now(),
-        rules=tuple(rules),
+        rules=(*rules, *extra_rules),
         claims_index=tuple(claims),
         **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),  # type: ignore[arg-type]
         hash=digest,

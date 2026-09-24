@@ -71,6 +71,40 @@ SEARCH_SPECS: dict[str, Any] = {
 }
 
 
+def published_rules(specs: dict[str, Any]) -> tuple[Any, ...]:
+    """The rules a real Stage 03 publish pins for `specs` — never hand-built.
+
+    `synthesis._asset_rules` compiles the spec sheet (char limits AND the set
+    rules that count assets), and `stage_3_4._image_rules` emits the image
+    rules for each image spec row, scoped to its campaign and asset types.
+    S4-P4's fixture carried neither, which is how per-candidate lint once
+    passed tests while failing every candidate against a real ruleset.
+    """
+    from agent.export.guideline_contract import AssetSpecs
+    from agent.guidelines.constants import get_content_constants
+    from agent.guidelines.synthesis import _asset_rules
+    from agent.nodes.content.stage_3_4 import _image_rules
+    from agent.schemas.guardrails import AssetSpecSheet
+
+    sheet = AssetSpecSheet.model_validate({"specs": specs})
+    image_rows = sorted(
+        (campaign_type, asset_type)
+        for campaign_type, assets in specs.items()
+        for asset_type, spec in assets.items()
+        if spec.get("ratio") and "video" not in asset_type and "logo" not in asset_type
+    )
+    return (
+        *_asset_rules(AssetSpecs(sheet=sheet, scope="unscoped"), lambda _reason: None),
+        *_image_rules(
+            get_content_constants(),
+            policy_reference="https://support.google.com/google-ads/answer/9566341",
+            campaign_types=tuple(sorted({c for c, _ in image_rows})),
+            asset_types=tuple(sorted({a for _, a in image_rows})),
+            has_templates=False,
+        ),
+    )
+
+
 def image_model(*, n_max: int = 4, image_input: bool = True) -> CapabilityRecord:
     return CapabilityRecord(
         modality="image",
@@ -153,11 +187,15 @@ async def start_image_run(
     capability: CapabilityRecord,
     refs: list[MediaReference] = (),  # type: ignore[assignment]
     allowed: bool = False,
-    image_rule: bool = True,
 ) -> uuid.UUID:
     await seed_plan(db, workspace_id, project_id, actor, campaign_type="search")
     await seed_published(
-        db, workspace_id, project_id, actor, asset_specs=SEARCH_SPECS, image_rule=image_rule
+        db,
+        workspace_id,
+        project_id,
+        actor,
+        asset_specs=SEARCH_SPECS,
+        extra_rules=published_rules(SEARCH_SPECS),
     )
     await seed_signoff(db, workspace_id, project_id, actor)
     await db.commit()
@@ -318,8 +356,27 @@ class Provider:
 
 
 async def run_until_done(run_id: uuid.UUID) -> None:
+    """Execute the chain under test — 4.1.1 (G7) → 4.4.1 → 4.4.2 — and only it.
+
+    The full creative DAG carries other phases' real nodes (4.2.x since S4-P5),
+    whose answers this harness does not script; a failure there must not decide
+    whether 4.4.x ran.
+    """
+    from agent.nodes.creative.n4_1_1_creative_brief import CREATIVE_BRIEF
+    from agent.nodes.creative.n4_4_1_creative_concepts import CREATIVE_CONCEPTS
+    from agent.nodes.creative.n4_4_2_image_masters import IMAGE_MASTERS
+    from agent.orchestrator.dag import Dag
+    from agent.orchestrator.registry import NodeRegistry
+
+    registry = NodeRegistry.of([CREATIVE_BRIEF, CREATIVE_CONCEPTS, IMAGE_MASTERS])
     async with httpx.AsyncClient() as client:
-        await execute(run_id, FakeOpenRouter(), client=client)
+        await execute(
+            run_id,
+            FakeOpenRouter(),
+            client=client,
+            registry=registry,
+            dag=Dag.from_registry(registry),
+        )
 
 
 def coverage_table(monkeypatch: Any, coverage: dict[bytes, float]) -> None:

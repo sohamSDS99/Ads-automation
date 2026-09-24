@@ -30,7 +30,9 @@ these.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date, datetime
+from types import MappingProxyType
 from typing import Annotated, Final, Literal
 from uuid import UUID
 
@@ -94,6 +96,30 @@ Surface = Literal[
     "display_image",
     "demand_gen_image",
 ]
+
+#: The spec-sheet asset type (`AssetSpecSheet.specs[campaign_type][asset_type]`)
+#: each surface is written against. `RuleScope.asset_types` and
+#: `CountMatcher.entity` speak this vocabulary, because the rules that use them
+#: are compiled from the spec sheet; a `LintTarget` speaks surfaces. Without the
+#: bridge a Search path's 15 characters applied to every Search headline and a
+#: Search ruleset always counted "0 of headline". A surface that is absent here
+#: has no known asset type, and an asset-typed rule keeps applying to it — an
+#: unknown mapping must never switch a rule off.
+SURFACE_ASSET_TYPES: Final[Mapping[str, str]] = MappingProxyType(
+    {
+        "rsa_headline": "headline",
+        "rsa_description": "description",
+        "rsa_path": "path",
+        "long_headline": "long_headline",
+        "pmax_headline": "headline",
+        "pmax_description": "description",
+        "asset_group_description": "description",
+        "sitelink": "sitelink",
+        "callout": "callout",
+        "structured_snippet": "structured_snippet",
+        "business_name": "business_name",
+    }
+)
 
 #: The claim-shaped-language families of PRD §9.3. A detector does not decide
 #: whether a claim is *true* — it decides that a sentence is making one, which
@@ -174,12 +200,19 @@ class RuleScope(_Contract):
             _in_scope(self.markets, target.market)
             and _in_scope(self.languages, target.language)
             and _in_scope(self.campaign_types, target.campaign_type)
+            and _asset_type_in_scope(self.asset_types, target.surface)
             and (not self.surfaces or target.surface in self.surfaces)
         )
 
 
 def _in_scope(allowed: tuple[str, ...], value: str) -> bool:
     return not allowed or value.casefold() in {item.casefold() for item in allowed}
+
+
+def _asset_type_in_scope(allowed: tuple[str, ...], surface: str) -> bool:
+    """`asset_types` narrows only where the surface's asset type is known."""
+    asset_type = SURFACE_ASSET_TYPES.get(surface)
+    return asset_type is None or _in_scope(allowed, asset_type)
 
 
 # ---------------------------------------------------------------------------

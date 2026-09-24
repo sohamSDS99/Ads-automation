@@ -485,7 +485,11 @@ class _Mastering:
             image_metrics=measurement.metrics(),
             generated_by_ai=True,
         )
-        result = creative.linter.lint([target], now=datetime.now(UTC))
+        # One candidate, alone, at creation: `lint_candidate` applies every
+        # per-target rule and leaves out only the set rules. "At least one
+        # image_square" or "3 to 15 headlines" is a property of the assembled
+        # ad; asked of a lone image it is "0 of …" and fails every candidate.
+        result = creative.linter.lint_candidate(target, now=datetime.now(UTC))
         verdict, unchecked = image_verdict(result)
         return _Judged(
             artifact=artifact,
