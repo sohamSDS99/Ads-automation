@@ -78,7 +78,7 @@ function Cite({
           type="button"
           className={cn(
             "rounded-[4px] px-1 text-[0.625rem] leading-4 font-medium transition-colors",
-            "bg-accent-soft text-accent hover:bg-accent hover:text-accent-fg",
+            "bg-accent-soft text-accent-soft-fg hover:bg-accent hover:text-accent-fg",
           )}
         >
           {index}

@@ -1,0 +1,15 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "hash": {
+      "title": "Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "hash"
+  ],
+  "title": "CreativeContextRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

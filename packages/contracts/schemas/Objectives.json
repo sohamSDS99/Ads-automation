@@ -1,0 +1,540 @@
+{
+  "$defs": {
+    "CampaignObjective": {
+      "additionalProperties": true,
+      "description": "2.1.3. What one campaign is optimising toward, and what it may not exceed.",
+      "properties": {
+        "campaign_ref": {
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "objective": {
+          "title": "Objective",
+          "type": "string"
+        },
+        "primary_kpi": {
+          "title": "Primary Kpi",
+          "type": "string"
+        },
+        "target_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Value"
+        },
+        "ceiling_value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ceiling Value"
+        },
+        "basis": {
+          "default": "",
+          "title": "Basis",
+          "type": "string"
+        },
+        "ramp": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Ramp",
+          "type": "array"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "objective",
+        "primary_kpi"
+      ],
+      "title": "CampaignObjective",
+      "type": "object"
+    },
+    "ConversionAction": {
+      "additionalProperties": true,
+      "description": "2.1.1. What counts as a conversion, and what it is worth.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "ads_action_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ads Action Id"
+        },
+        "category": {
+          "default": "",
+          "title": "Category",
+          "type": "string"
+        },
+        "counting": {
+          "default": "",
+          "title": "Counting",
+          "type": "string"
+        },
+        "value_model": {
+          "default": "",
+          "title": "Value Model",
+          "type": "string"
+        },
+        "assigned_value_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Assigned Value Usd"
+        },
+        "lead_to_won_rate_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lead To Won Rate Pct"
+        },
+        "rank": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rank"
+        },
+        "primary": {
+          "default": false,
+          "title": "Primary",
+          "type": "boolean"
+        },
+        "include_in_conversions": {
+          "default": true,
+          "title": "Include In Conversions",
+          "type": "boolean"
+        },
+        "rationale": {
+          "default": "",
+          "title": "Rationale",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "ConversionAction",
+      "type": "object"
+    },
+    "Number": {
+      "additionalProperties": true,
+      "description": "A figure the plan asserts, with the calculation that produced it.\n\n`Decimal`, not `float`: an envelope is money, invariant 4 checks the\nallocation sums to it within \u00b10.5%, and the last thing that argument needs\nis binary floating point deciding that 0.1 + 0.2 misses a cap.\n\n**`value` is stored in JSONB as a string**, because that is how pydantic\nserialises a `Decimal` \u2014 losslessly, and back to a `Decimal` on the way in.\nAnything reading the payload *through this contract* therefore sees a\n`Decimal` and need not care. Anything reading the raw JSONB \u2014 a zod schema,\na diff, Stage 03 \u2014 sees `\"40000\"` and not `40000`, and a type check for\n`int | float` there will silently fall through. The S2-P6c session hit\nexactly that: a stringified value compared against a dict reported a whole\nmedia plan as rewritten. `tests/test_plan_exports.py` pins both halves.",
+      "properties": {
+        "value": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+              "type": "string"
+            }
+          ],
+          "title": "Value"
+        },
+        "unit": {
+          "enum": [
+            "usd",
+            "pct",
+            "count",
+            "days",
+            "months",
+            "ratio"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "calc_evidence_id": {
+          "format": "uuid",
+          "title": "Calc Evidence Id",
+          "type": "string"
+        },
+        "confidence": {
+          "default": "medium",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "label": {
+          "default": "",
+          "title": "Label",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "unit",
+        "calc_evidence_id"
+      ],
+      "title": "Number",
+      "type": "object"
+    },
+    "QualifiedLead": {
+      "additionalProperties": true,
+      "description": "2.1.4. What sales agreed counts as a lead worth paying for.",
+      "properties": {
+        "required_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Signals",
+          "type": "array"
+        },
+        "disqualifiers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Disqualifiers",
+          "type": "array"
+        },
+        "scoring": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Scoring",
+          "type": "array"
+        },
+        "threshold": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Threshold"
+        }
+      },
+      "title": "QualifiedLead",
+      "type": "object"
+    },
+    "SegmentCeiling": {
+      "additionalProperties": true,
+      "description": "2.1.2. What one segment can afford to pay, per lead and per customer.",
+      "properties": {
+        "segment": {
+          "title": "Segment",
+          "type": "string"
+        },
+        "acv_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Acv Usd"
+        },
+        "gross_margin_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gross Margin Pct"
+        },
+        "lead_to_won_pct": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lead To Won Pct"
+        },
+        "max_cpa_won_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cpa Won Usd"
+        },
+        "max_cpl_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Cpl Usd"
+        },
+        "target_cpl_usd": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Cpl Usd"
+        },
+        "target_roas": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Roas"
+        },
+        "payback_months": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Payback Months"
+        }
+      },
+      "required": [
+        "segment"
+      ],
+      "title": "SegmentCeiling",
+      "type": "object"
+    }
+  },
+  "additionalProperties": true,
+  "description": "\u00a712's `objectives` \u2014 stage 2.1 in one section.",
+  "properties": {
+    "north_star_metric": {
+      "default": "",
+      "title": "North Star Metric",
+      "type": "string"
+    },
+    "north_star_target": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "north_star_period": {
+      "default": "",
+      "title": "North Star Period",
+      "type": "string"
+    },
+    "conversion_actions": {
+      "items": {
+        "$ref": "#/$defs/ConversionAction"
+      },
+      "title": "Conversion Actions",
+      "type": "array"
+    },
+    "deprecate": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Deprecate",
+      "type": "array"
+    },
+    "unit_economics": {
+      "items": {
+        "$ref": "#/$defs/SegmentCeiling"
+      },
+      "title": "Unit Economics",
+      "type": "array"
+    },
+    "blended_max_cpl": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "blended_target_cpl": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "blended_max_cpa_won": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "method_notes": {
+      "default": "",
+      "title": "Method Notes",
+      "type": "string"
+    },
+    "campaign_objectives": {
+      "items": {
+        "$ref": "#/$defs/CampaignObjective"
+      },
+      "title": "Campaign Objectives",
+      "type": "array"
+    },
+    "qualified_lead": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/QualifiedLead"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "expected_mql_to_sql_pct": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Mql To Sql Pct"
+    },
+    "sla_response_hours": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sla Response Hours"
+    },
+    "routing": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Routing",
+      "type": "array"
+    },
+    "observed_rejection_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Observed Rejection Reasons",
+      "type": "array"
+    },
+    "calc_evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Calc Evidence Ids",
+      "type": "array"
+    }
+  },
+  "title": "Objectives",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

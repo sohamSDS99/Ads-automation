@@ -135,3 +135,40 @@ beyond what is described.
 16. **The S4-P1 media constants live in `media/constants.py`** with §9.5's
     values and sources, stamped with `Settings.creative_constants_version`,
     until S4-P4 creates `creative_constants.yaml`.
+
+## S4-P2
+
+1. **The allowlist editor cannot offer §9.2's provider pin.** S4-P1 landed
+   while S4-P2 was open and the web now codes against its `schemas_media`.
+   `GET /media/catalogue?modality=image` returns OpenRouter's
+   `/images/models` summaries — one record per model, **no `provider_tag` and
+   no pricing** (both live on `/images/models/{id}/endpoints`, which no route
+   exposes). Video cannot pin at all (S4-P1 §10). So the editor shows image
+   prices as "Priced per provider", offers no pin, and shows and keeps a pin
+   an entry already has. Proposed: `GET /media/catalogue/{model_id}/endpoints`
+   (SETTINGS_WRITE) returning the endpoint records, for a per-row picker.
+2. **Workspace default params (`media_defaults`) have storage and a route
+   now (S4-P1) but no editor.** It needs S4-P3's `CapabilityParams` — one
+   control per descriptor — and building a second set here would fork it.
+   `PUT /settings/media` sends only `media_allowlist`, so defaults set by API
+   survive every allowlist save. Estimate accuracy (§15.3) still has no route.
+3. **Three §15.4 A landing fields are not on the wire.**
+   `CreativePackageSummary` has no released-by name, no per-campaign launch
+   readiness (`ready` / `blocked: youtube_upload`) and no bound-offer end
+   date (so neither the landing's "offers ending soon" row nor the rail's
+   third amber reason can be drawn). Cost is joined from the package's run.
+   Proposed: `released_by_name`, `launch_readiness[]` and
+   `earliest_offer_end` on the summary, added with S4-P16's package.
+4. **A newest creative run that `failed` reads `Blocked` on the rail.**
+   §15.1 rule 2's vocabulary has no word for it; `Blocked` is the closest
+   true one. Ruling wanted.
+5. **Fixed four S4-P0 `fix_url`s that named pages the web app does not
+   have** (`/settings/sources`, `/projects/{id}/settings`, `/tasks`,
+   `/projects/{id}/documents` → connections, model settings, approvals,
+   business context). `tests/test_creative_fix_urls.py` now derives the real
+   route list from `apps/web/app`. S4-P1's CR-E8/E9 rewrite, merged in, sent
+   three more to `{home}/settings`; those now go to `/settings/models`, where
+   the allowlist and the project-scoped media settings live.
+6. **The design laws apply to `components/creative/**` and the creative
+   route directory** — the route is a Stage 04 screen too. `components/ui/`
+   predates the law (e.g. `rounded-[var(--radius)]`) and is not rewritten.

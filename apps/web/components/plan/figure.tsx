@@ -138,7 +138,7 @@ function CalcChip({
           type="button"
           className={cn(
             "mt-px inline-flex items-center rounded-[4px] px-1 py-px align-super transition-colors",
-            "bg-accent-soft text-accent hover:bg-accent hover:text-accent-fg",
+            "bg-accent-soft text-accent-soft-fg hover:bg-accent hover:text-accent-fg",
           )}
         >
           <Sigma aria-hidden className="size-2.5" />

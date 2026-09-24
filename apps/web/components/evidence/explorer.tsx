@@ -404,7 +404,7 @@ function ViewToggle({
       aria-pressed={active}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-[calc(var(--radius)-4px)] px-2.5 py-1.5 text-xs transition-colors",
-        active ? "bg-accent-soft text-accent" : "text-fg-muted hover:text-fg",
+        active ? "bg-accent-soft text-accent-soft-fg" : "text-fg-muted hover:text-fg",
       )}
     >
       <Icon className="size-3.5" aria-hidden />

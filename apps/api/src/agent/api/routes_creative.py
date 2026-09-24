@@ -314,7 +314,7 @@ async def _eligibility(
                 code="missing_credential",
                 detail="No OpenRouter credential resolves for this workspace, so a creative "
                 "run has no model to call.",
-                fix_url="/settings/sources",
+                fix_url="/settings/connections",
             )
         )
 
@@ -339,12 +339,11 @@ async def _eligibility(
                 CreativeBlocker(
                     code=refused.code,
                     detail=refused.detail,
-                    fix_url=(
-                        "/settings/models"
-                        if refused.code
-                        in ("media_model_not_allowlisted", "media_model_unavailable")
-                        else f"{home}/settings"
-                    ),
+                    # Every CR-E8 refusal is fixed on /settings/models: the
+                    # allowlist, and the project's media defaults and caps in
+                    # its project-scoped section. There is no
+                    # `/projects/{id}/settings` page for a link to land on.
+                    fix_url="/settings/models",
                     modality=modality,
                 )
             )
@@ -372,7 +371,7 @@ async def _eligibility(
                     code="estimate_unavailable",
                     detail=f"{unpriced} Choose a model whose price the catalogue states per "
                     "image or per second, so its spend can be reserved before it happens.",
-                    fix_url=f"{home}/settings",
+                    fix_url="/settings/models",
                 )
             )
         else:
@@ -455,7 +454,7 @@ async def _eligibility(
                         f"{len(h2)} verification task(s) are still open. Creative can be made; "
                         "it cannot launch until they are complete."
                     ),
-                    fix_url="/tasks",
+                    fix_url="/approvals",
                 )
             )
 
@@ -476,7 +475,7 @@ async def _eligibility(
                     f"{seen} (older than {max_age} days counts as stale). Promotion and price "
                     "assets will be skipped, not guessed."
                 ),
-                fix_url=f"{home}/documents",
+                fix_url="/settings/context",
             )
         )
 
@@ -547,7 +546,7 @@ def _over_cap(priced: dict[str, Any], home: str) -> CreativeBlocker:
             f"the caps are ${caps['max_creative_cost_usd']:.2f} total and "
             f"${caps['max_media_cost_usd']:.2f} media. {fix}"
         ),
-        fix_url=f"{home}/settings",
+        fix_url="/settings/models",
         estimate={
             key: priced[key]
             for key in ("text_usd", "image_usd", "video_usd", "media_usd", "total_usd", "jobs")

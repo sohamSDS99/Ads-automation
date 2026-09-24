@@ -1,0 +1,49 @@
+{
+  "additionalProperties": true,
+  "description": "2.4.1. The patterns every generated name is checked against.",
+  "properties": {
+    "patterns": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Patterns",
+      "type": "object"
+    },
+    "tokens": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Tokens",
+      "type": "array"
+    },
+    "validator_regex": {
+      "default": "",
+      "title": "Validator Regex",
+      "type": "string"
+    },
+    "examples": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "collisions": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Collisions",
+      "type": "array"
+    },
+    "collision_check": {
+      "default": "",
+      "title": "Collision Check",
+      "type": "string"
+    }
+  },
+  "title": "NamingConvention",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

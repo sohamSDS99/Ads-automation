@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "plan_id": {
+      "format": "uuid",
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "integer"
+    },
+    "schema_version": {
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "plan_run_id": {
+      "format": "uuid",
+      "title": "Plan Run Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plan_id",
+    "version",
+    "schema_version",
+    "plan_run_id"
+  ],
+  "title": "PlanRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,191 @@
+{
+  "$defs": {
+    "CreativeBlocker": {
+      "properties": {
+        "code": {
+          "enum": [
+            "no_frozen_plan",
+            "no_published_ruleset",
+            "schema_unsupported",
+            "ruleset_incomplete",
+            "no_signoff_matrix",
+            "creative_in_flight",
+            "missing_credential",
+            "media_model_unselected",
+            "media_model_not_allowlisted",
+            "media_model_unavailable",
+            "capability_unsupported",
+            "media_model_out_of_scope",
+            "estimate_exceeds_cap",
+            "estimate_unavailable",
+            "zdr_blocks_video",
+            "storage_insufficient",
+            "missing_permission"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "fix_url": {
+          "title": "Fix Url",
+          "type": "string"
+        },
+        "modality": {
+          "anyOf": [
+            {
+              "enum": [
+                "image",
+                "video"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Modality"
+        },
+        "estimate": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Estimate"
+        },
+        "cap": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cap"
+        },
+        "reduction": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reduction"
+        }
+      },
+      "required": [
+        "code",
+        "detail",
+        "fix_url"
+      ],
+      "title": "CreativeBlocker",
+      "type": "object"
+    },
+    "CreativeWarning": {
+      "properties": {
+        "code": {
+          "enum": [
+            "ruleset_category_missing",
+            "claims_unlicensed_stale",
+            "unreviewed_amendments",
+            "verification_open_blocks_launch",
+            "offer_data_stale",
+            "will_mint_new_version"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "fix_url": {
+          "title": "Fix Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "detail",
+        "fix_url"
+      ],
+      "title": "CreativeWarning",
+      "type": "object"
+    }
+  },
+  "description": "`GET /projects/{id}/creative/eligibility`. `eligible` = no blockers.",
+  "properties": {
+    "eligible": {
+      "title": "Eligible",
+      "type": "boolean"
+    },
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/CreativeBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "warnings": {
+      "items": {
+        "$ref": "#/$defs/CreativeWarning"
+      },
+      "title": "Warnings",
+      "type": "array"
+    },
+    "pins": {
+      "additionalProperties": {
+        "anyOf": [
+          {
+            "type": "string"
+          },
+          {
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Pins",
+      "type": "object"
+    },
+    "estimate": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Estimate"
+    }
+  },
+  "required": [
+    "eligible"
+  ],
+  "title": "CreativeEligibility",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

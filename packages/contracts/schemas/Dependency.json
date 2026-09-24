@@ -1,0 +1,41 @@
+{
+  "additionalProperties": true,
+  "description": "Something that must happen before this plan can run (\u00a712).\n\nCarried from a Stage 01 `launch_blocker` or raised by 2.5.1/2.5.2. A\n`blocking` dependency is what stops a freeze, so it always names an owner\n\u2014 `unassigned` is a legitimate owner and an anonymous blocker is not.",
+  "properties": {
+    "task": {
+      "minLength": 1,
+      "title": "Task",
+      "type": "string"
+    },
+    "owner": {
+      "default": "unassigned",
+      "title": "Owner",
+      "type": "string"
+    },
+    "blocking": {
+      "default": false,
+      "title": "Blocking",
+      "type": "boolean"
+    },
+    "source": {
+      "default": "",
+      "description": "Where it came from: a node id or `research`.",
+      "title": "Source",
+      "type": "string"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "task"
+  ],
+  "title": "Dependency",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

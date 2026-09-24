@@ -1,0 +1,29 @@
+{
+  "additionalProperties": false,
+  "description": "Reached through `plan.source` \u2014 never a third precondition (\u00a74.1).",
+  "properties": {
+    "research_run_id": {
+      "format": "uuid",
+      "title": "Research Run Id",
+      "type": "string"
+    },
+    "report_id": {
+      "format": "uuid",
+      "title": "Report Id",
+      "type": "string"
+    },
+    "acceptance_id": {
+      "format": "uuid",
+      "title": "Acceptance Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "research_run_id",
+    "report_id",
+    "acceptance_id"
+  ],
+  "title": "ResearchRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

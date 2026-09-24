@@ -1,0 +1,109 @@
+{
+  "$defs": {
+    "ProjectMediaModel": {
+      "additionalProperties": false,
+      "properties": {
+        "model_id": {
+          "minLength": 1,
+          "title": "Model Id",
+          "type": "string"
+        },
+        "provider_tag": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Tag"
+        },
+        "defaults": {
+          "additionalProperties": true,
+          "title": "Defaults",
+          "type": "object"
+        }
+      },
+      "required": [
+        "model_id"
+      ],
+      "title": "ProjectMediaModel",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "`PATCH /projects/{id}/settings/media`. `null` for a modality clears its\ndefault model (turning that modality off by default).",
+  "properties": {
+    "media_models": {
+      "anyOf": [
+        {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/ProjectMediaModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "propertyNames": {
+            "enum": [
+              "image",
+              "video"
+            ]
+          },
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Media Models"
+    },
+    "media_references_allowed": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Media References Allowed"
+    },
+    "max_creative_cost_usd": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d{1,4})?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Creative Cost Usd"
+    },
+    "max_media_cost_usd": {
+      "anyOf": [
+        {
+          "pattern": "^\\d+(\\.\\d{1,4})?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Max Media Cost Usd"
+    }
+  },
+  "title": "ProjectMediaSettingsPatch",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

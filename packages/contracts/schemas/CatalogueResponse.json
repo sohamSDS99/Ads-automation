@@ -1,0 +1,49 @@
+{
+  "properties": {
+    "modality": {
+      "enum": [
+        "image",
+        "video"
+      ],
+      "title": "Modality",
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "catalogue_hash": {
+      "title": "Catalogue Hash",
+      "type": "string"
+    },
+    "fetched_at": {
+      "title": "Fetched At",
+      "type": "string"
+    },
+    "warning": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Warning"
+    }
+  },
+  "required": [
+    "modality",
+    "models",
+    "catalogue_hash",
+    "fetched_at"
+  ],
+  "title": "CatalogueResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

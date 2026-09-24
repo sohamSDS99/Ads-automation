@@ -28,6 +28,9 @@
   --accent-hover: #1d4ed8;
   --accent-fg: #ffffff;
   --accent-soft: #eff6ff;
+  /* Text on the accent tint. Its own token because `--accent` on
+     `--accent-soft` clears AA in light (4.75:1) and not in dark (4.0:1). */
+  --accent-soft-fg: #2563eb;
 
   /* run status — running / success / gate / failed / skipped */
   --status-running: #3b82f6;
@@ -77,6 +80,7 @@
   --accent-hover: #60a5fa;
   --accent-fg: #ffffff;
   --accent-soft: #172554;
+  --accent-soft-fg: #60a5fa;
 
   --shadow-overlay: 0 10px 30px -10px rgb(0 0 0 / 0.6);
 }

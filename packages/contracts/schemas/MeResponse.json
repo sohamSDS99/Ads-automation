@@ -17,6 +17,8 @@
         "guideline_publish",
         "claim_sign",
         "attest_submit",
+        "creative_execute",
+        "creative_release",
         "platform_admin"
       ],
       "title": "Permission",

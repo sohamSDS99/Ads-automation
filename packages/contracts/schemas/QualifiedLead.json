@@ -1,0 +1,43 @@
+{
+  "additionalProperties": true,
+  "description": "2.1.4. What sales agreed counts as a lead worth paying for.",
+  "properties": {
+    "required_signals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Signals",
+      "type": "array"
+    },
+    "disqualifiers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Disqualifiers",
+      "type": "array"
+    },
+    "scoring": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Scoring",
+      "type": "array"
+    },
+    "threshold": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Threshold"
+    }
+  },
+  "title": "QualifiedLead",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

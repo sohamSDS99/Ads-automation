@@ -1,0 +1,8 @@
+{
+  "additionalProperties": true,
+  "description": "3.3.3 `competitor_mentions`, verbatim.",
+  "properties": {},
+  "title": "CompetitorRules",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,96 @@
+{
+  "$defs": {
+    "Whitespace": {
+      "additionalProperties": true,
+      "description": "1.3.4 \u26f3 `differentiation_claim` \u2014 gated on an `approver` (marketing).",
+      "properties": {
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "claim": {
+          "title": "Claim",
+          "type": "string"
+        },
+        "why_unsaid": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Why Unsaid"
+        },
+        "our_proof": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Our Proof"
+        },
+        "risk": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Risk"
+        }
+      },
+      "required": [
+        "claim"
+      ],
+      "title": "Whitespace",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "1.3.4 \u2014 the recommended claim and the whitespace it came from.",
+  "properties": {
+    "recommended_claim": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Recommended Claim"
+    },
+    "whitespace": {
+      "items": {
+        "$ref": "#/$defs/Whitespace"
+      },
+      "title": "Whitespace",
+      "type": "array"
+    },
+    "substantiation_required": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Substantiation Required",
+      "type": "array"
+    }
+  },
+  "title": "DifferentiationClaim",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

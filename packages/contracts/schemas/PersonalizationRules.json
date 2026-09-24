@@ -1,0 +1,8 @@
+{
+  "additionalProperties": true,
+  "description": "3.3.x `personalization`, verbatim.",
+  "properties": {},
+  "title": "PersonalizationRules",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

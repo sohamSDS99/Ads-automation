@@ -122,7 +122,7 @@ function NavRow({
         "flex items-center gap-3 rounded-[var(--radius)] py-2 text-sm transition-colors",
         "justify-center px-0 md:justify-start md:px-3",
         active
-          ? "bg-accent-soft font-medium text-accent"
+          ? "bg-accent-soft font-medium text-accent-soft-fg"
           : "text-fg-muted hover:bg-surface-hover hover:text-fg",
       )}
     >

@@ -106,10 +106,25 @@
       "default": null,
       "title": "Published By"
     },
+    "published_by_name": {
+      "default": "",
+      "title": "Published By Name",
+      "type": "string"
+    },
     "created_at": {
       "format": "date-time",
       "title": "Created At",
       "type": "string"
+    },
+    "rule_count": {
+      "default": 0,
+      "title": "Rule Count",
+      "type": "integer"
+    },
+    "claim_count": {
+      "default": 0,
+      "title": "Claim Count",
+      "type": "integer"
     }
   },
   "required": [

@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -175,6 +175,9 @@ browser-s3p8: ## Drive the claims register, the signature ceremony and the S3-P8
 		/app/.venv/bin/python /tmp/browser-check-s3p8.py
 	@echo "screenshots: docker compose cp worker:/tmp/shots ./shots"
 
+browser-s4p2: ## Drive the 04 rail entry, the Stage 04 landing and Media generation against fixtures, at 1280 and 390, light and dark, with axe (no backend)
+	cd $(WEB) && scripts/s4p2/run.sh
+
 browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
@@ -297,7 +300,7 @@ typecheck: ## mypy (api) + tsc (web)
 lint: ## ruff (api) + eslint (web)
 	cd $(API) && uv run ruff check .
 	cd $(API) && uv run ruff format --check .
-	cd $(WEB) && pnpm exec eslint .
+	cd $(WEB) && pnpm lint
 
 fmt: ## Format the api
 	cd $(API) && uv run ruff format .

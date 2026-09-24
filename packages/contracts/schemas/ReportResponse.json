@@ -720,7 +720,8 @@
         "csv",
         "editor_csv",
         "xlsx",
-        "ruleset_json"
+        "ruleset_json",
+        "editor_zip"
       ],
       "title": "ExportFormat",
       "type": "string"

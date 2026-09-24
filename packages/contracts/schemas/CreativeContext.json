@@ -1,0 +1,377 @@
+{
+  "$defs": {
+    "CompetitorRules": {
+      "additionalProperties": true,
+      "description": "3.3.3 `competitor_mentions`, verbatim.",
+      "properties": {},
+      "title": "CompetitorRules",
+      "type": "object"
+    },
+    "DisclosureRule": {
+      "additionalProperties": false,
+      "description": "Where an AI-disclosure string is required, and what it must say.",
+      "properties": {
+        "disclosure_id": {
+          "minLength": 1,
+          "title": "Disclosure Id",
+          "type": "string"
+        },
+        "surfaces": {
+          "default": [],
+          "items": {
+            "enum": [
+              "rsa_headline",
+              "rsa_description",
+              "rsa_path",
+              "long_headline",
+              "pmax_headline",
+              "pmax_description",
+              "asset_group_description",
+              "display_text",
+              "youtube_script",
+              "sitelink",
+              "callout",
+              "structured_snippet",
+              "business_name",
+              "landing_page_section"
+            ],
+            "type": "string"
+          },
+          "title": "Surfaces",
+          "type": "array"
+        },
+        "markets": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Markets",
+          "type": "array"
+        },
+        "required_text": {
+          "minLength": 1,
+          "title": "Required Text",
+          "type": "string"
+        },
+        "placement": {
+          "default": "anywhere",
+          "enum": [
+            "prefix",
+            "suffix",
+            "anywhere"
+          ],
+          "title": "Placement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "disclosure_id",
+        "required_text"
+      ],
+      "title": "DisclosureRule",
+      "type": "object"
+    },
+    "LexiconEntry": {
+      "additionalProperties": true,
+      "description": "One term we always use, or never do. Compiles to a matcher or it is not here.",
+      "properties": {
+        "term": {
+          "minLength": 1,
+          "title": "Term",
+          "type": "string"
+        },
+        "surface_forms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Surface Forms",
+          "type": "array"
+        },
+        "severity": {
+          "default": "warning",
+          "title": "Severity",
+          "type": "string"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
+        },
+        "context": {
+          "default": "",
+          "title": "Context",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "suggested_replacement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Replacement"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "LexiconEntry",
+      "type": "object"
+    },
+    "LexiconGuidance": {
+      "additionalProperties": false,
+      "description": "3.1.2 always/never, as writer guidance. The `RuleSet` enforces them.",
+      "properties": {
+        "always": {
+          "items": {
+            "$ref": "#/$defs/LexiconEntry"
+          },
+          "title": "Always",
+          "type": "array"
+        },
+        "never": {
+          "items": {
+            "$ref": "#/$defs/LexiconEntry"
+          },
+          "title": "Never",
+          "type": "array"
+        },
+        "case_and_spelling": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Case And Spelling",
+          "type": "array"
+        }
+      },
+      "title": "LexiconGuidance",
+      "type": "object"
+    },
+    "PersonalizationRules": {
+      "additionalProperties": true,
+      "description": "3.3.x `personalization`, verbatim.",
+      "properties": {},
+      "title": "PersonalizationRules",
+      "type": "object"
+    },
+    "VisualIdentity": {
+      "additionalProperties": true,
+      "description": "3.1.3 `visual_identity_rules` \u26f3 G5.",
+      "properties": {
+        "logo": {
+          "additionalProperties": true,
+          "title": "Logo",
+          "type": "object"
+        },
+        "colour": {
+          "additionalProperties": true,
+          "title": "Colour",
+          "type": "object"
+        },
+        "imagery": {
+          "additionalProperties": true,
+          "title": "Imagery",
+          "type": "object"
+        },
+        "extraction_confidence": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Extraction Confidence"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "VisualIdentity",
+      "type": "object"
+    },
+    "VoiceExample": {
+      "additionalProperties": true,
+      "description": "One quoted line of real copy, and why it is here.\n\n\u00a711 is explicit that 3.1.1's examples are \"quoted from real best-performing\ncopy, never invented\", so `source_ref` is not decoration \u2014 it is the only\nthing separating this from a model's idea of how the brand sounds.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "source_ref": {
+          "default": "",
+          "title": "Source Ref",
+          "type": "string"
+        },
+        "why": {
+          "default": "",
+          "title": "Why",
+          "type": "string"
+        },
+        "rewritten_as": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Rewritten As"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "title": "VoiceExample",
+      "type": "object"
+    },
+    "VoiceProfile": {
+      "additionalProperties": true,
+      "description": "3.1.1 `voice_profile`.",
+      "properties": {
+        "voice_words": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Voice Words",
+          "type": "array"
+        },
+        "definition_per_word": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Definition Per Word",
+          "type": "object"
+        },
+        "do_examples": {
+          "items": {
+            "$ref": "#/$defs/VoiceExample"
+          },
+          "title": "Do Examples",
+          "type": "array"
+        },
+        "dont_examples": {
+          "items": {
+            "$ref": "#/$defs/VoiceExample"
+          },
+          "title": "Dont Examples",
+          "type": "array"
+        },
+        "register": {
+          "additionalProperties": true,
+          "title": "Register",
+          "type": "object"
+        },
+        "readability_targets": {
+          "additionalProperties": true,
+          "title": "Readability Targets",
+          "type": "object"
+        },
+        "input_mode": {
+          "default": "",
+          "title": "Input Mode",
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "title": "VoiceProfile",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Stage 03 delta \u2014 a projection, not a new source of truth (\u00a74.3).",
+  "properties": {
+    "schema_version": {
+      "const": "1.0",
+      "default": "1.0",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "guideline_id": {
+      "format": "uuid",
+      "title": "Guideline Id",
+      "type": "string"
+    },
+    "guideline_version": {
+      "title": "Guideline Version",
+      "type": "string"
+    },
+    "ruleset_version": {
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "voice": {
+      "$ref": "#/$defs/VoiceProfile"
+    },
+    "lexicon_guidance": {
+      "$ref": "#/$defs/LexiconGuidance"
+    },
+    "visual_identity": {
+      "$ref": "#/$defs/VisualIdentity"
+    },
+    "disclosure_rules": {
+      "items": {
+        "$ref": "#/$defs/DisclosureRule"
+      },
+      "title": "Disclosure Rules",
+      "type": "array"
+    },
+    "competitor_rules": {
+      "$ref": "#/$defs/CompetitorRules"
+    },
+    "personalization_rules": {
+      "$ref": "#/$defs/PersonalizationRules"
+    },
+    "hash": {
+      "title": "Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "guideline_id",
+    "guideline_version",
+    "ruleset_version",
+    "voice",
+    "lexicon_guidance",
+    "visual_identity",
+    "competitor_rules",
+    "personalization_rules",
+    "hash"
+  ],
+  "title": "CreativeContext",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

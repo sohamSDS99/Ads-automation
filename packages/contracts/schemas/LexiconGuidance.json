@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "LexiconEntry": {
+      "additionalProperties": true,
+      "description": "One term we always use, or never do. Compiles to a matcher or it is not here.",
+      "properties": {
+        "term": {
+          "minLength": 1,
+          "title": "Term",
+          "type": "string"
+        },
+        "surface_forms": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Surface Forms",
+          "type": "array"
+        },
+        "severity": {
+          "default": "warning",
+          "title": "Severity",
+          "type": "string"
+        },
+        "locale": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Locale"
+        },
+        "context": {
+          "default": "",
+          "title": "Context",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "title": "Reason",
+          "type": "string"
+        },
+        "suggested_replacement": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suggested Replacement"
+        }
+      },
+      "required": [
+        "term"
+      ],
+      "title": "LexiconEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "3.1.2 always/never, as writer guidance. The `RuleSet` enforces them.",
+  "properties": {
+    "always": {
+      "items": {
+        "$ref": "#/$defs/LexiconEntry"
+      },
+      "title": "Always",
+      "type": "array"
+    },
+    "never": {
+      "items": {
+        "$ref": "#/$defs/LexiconEntry"
+      },
+      "title": "Never",
+      "type": "array"
+    },
+    "case_and_spelling": {
+      "items": {
+        "additionalProperties": true,
+        "type": "object"
+      },
+      "title": "Case And Spelling",
+      "type": "array"
+    }
+  },
+  "title": "LexiconGuidance",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

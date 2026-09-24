@@ -1,12 +1,13 @@
 "use client";
 
-import { BookCheck, Map as MapIcon, Palette, Telescope } from "lucide-react";
+import { BookCheck, CircleDashed, Lock, Map as MapIcon, Palette, Telescope } from "lucide-react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { stageBadges, stageChip, type StageBadge } from "@/lib/api/guidelines";
-import { useGuidelineAttention, useGuidelines, useProject } from "@/lib/queries";
+import { useCreativeStatus, useGuidelineAttention, useGuidelines, useProject } from "@/lib/queries";
+import { useSession } from "@/lib/session";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,12 +36,21 @@ import { cn } from "@/lib/utils";
  *
  * §15.1 rule 4 also renumbers the placeholder: the board has seven stages and
  * the old `03 Creative` was one short of where copy and creative actually sit.
+ *
+ * **Stage 04 is the first row that locks** (Stage 04 PRD §15.1 rule 1), and it
+ * locks on exactly one thing: `GET /creative/eligibility` answering
+ * `eligible: false`. The lock never makes the row unreachable — a locked entry
+ * is still a link, because the page it opens is the one that names the
+ * blocker in words and links to the stage that fixes it. The row carries the
+ * server's own first sentence as its accessible name and tooltip, so a lock is
+ * never only a picture of a padlock. Stages 05–07 stay one placeholder row.
  */
 const STAGES = [
   { id: "research", label: "01 Research", href: "", icon: Telescope },
   { id: "plan", label: "02 Campaign planning", href: "/plan", icon: MapIcon },
   { id: "guidelines", label: "03 Content guidelines", href: "/guidelines", icon: BookCheck },
-  { id: "creative", label: "04 Copy & creative", href: null, icon: Palette, hint: "Coming later" },
+  { id: "creative", label: "04 Copy & creative", href: "/creative", icon: Palette },
+  { id: "later", label: "05–07", href: null, icon: CircleDashed, hint: "Coming later" },
 ] as const;
 
 /** One geometry for all three rows, so they line up whatever they are made of. */
@@ -90,6 +100,7 @@ function StageBadges({ badges }: { badges: StageBadge[] }) {
 
 export function StageNav({ projectId }: { projectId: string }) {
   const pathname = usePathname();
+  const { user } = useSession();
   const project = useProject(projectId);
   const base = `/projects/${projectId}`;
   // Anything under `/plan` is stage 02; everything else under the project —
@@ -98,11 +109,13 @@ export function StageNav({ projectId }: { projectId: string }) {
   const attention = useGuidelineAttention(projectId);
   // Longest-prefix first would matter if one route were a prefix of another;
   // these three are disjoint, so the order is only about reading order.
-  const active = pathname.startsWith(`${base}/guidelines`)
-    ? "guidelines"
-    : pathname.startsWith(`${base}/plan`)
-      ? "plan"
-      : "research";
+  const active = pathname.startsWith(`${base}/creative`)
+    ? "creative"
+    : pathname.startsWith(`${base}/guidelines`)
+      ? "guidelines"
+      : pathname.startsWith(`${base}/plan`)
+        ? "plan"
+        : "research";
   // Rendered only once the list has loaded, and only when there is something
   // to say — see `stageChip`. A chip shown while the answer is still in flight
   // is a chip a person would act on before it is true.
@@ -110,6 +123,13 @@ export function StageNav({ projectId }: { projectId: string }) {
   // Same rule as the chip: rendered only once the answer has arrived. A dot
   // that appears a second late is a dot somebody has already decided is absent.
   const badges = attention.data ? stageBadges(attention.data) : [];
+  const creative = useCreativeStatus(projectId, user.id);
+
+  /** Each row's status, keyed by stage. Rows 01 and 02 carry none here. */
+  const status: Record<string, { chip: string | null; badges: StageBadge[]; lock?: string | null }> = {
+    guidelines: { chip, badges },
+    creative: { chip: creative.chip, badges: creative.badges, lock: creative.lock },
+  };
 
   return (
     <nav aria-label="Pipeline stage" className="shrink-0 p-2">
@@ -151,46 +171,74 @@ export function StageNav({ projectId }: { projectId: string }) {
           }
 
           const current = stage.id === active;
+          const row = status[stage.id];
+          const lock = row?.lock ?? null;
           return (
             <li key={stage.id}>
               <Link
                 href={`${base}${stage.href}`}
                 aria-current={current ? "page" : undefined}
-                title={stage.label}
+                title={lock ? `${stage.label} · Locked: ${lock}` : stage.label}
                 className={cn(
                   ROW,
                   "transition-colors",
+                  // `accent-soft-fg`, not `accent`: on the tint, dark
+                  // `--accent` measures 4.0:1, under AA for 14px text.
                   current
-                    ? "bg-accent-soft font-medium text-accent"
+                    ? "bg-accent-soft font-medium text-accent-soft-fg"
                     : "text-fg-muted hover:bg-surface-hover hover:text-fg",
                 )}
               >
                 {/* The badges ride the icon rather than the far edge, so they
                     survive the narrow rail — where the row *is* the icon and
                     the chip has already been dropped for want of room. */}
-                {stage.id === "guidelines" && badges.length > 0 ? (
-                  <span className="relative shrink-0">
+                {/* On the narrow rail the row *is* its icon, so a locked row
+                    swaps its icon for the padlock there; above `md` the stage
+                    keeps its own icon and the padlock trails the label. */}
+                <span className="relative shrink-0">
+                  {lock ? (
+                    <>
+                      <Lock className="size-4 md:hidden" aria-hidden />
+                      <Icon className="hidden size-4 md:block" aria-hidden />
+                    </>
+                  ) : (
                     <Icon className="size-4" aria-hidden />
-                    <StageBadges badges={badges} />
-                  </span>
-                ) : (
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                )}
-                {/* Stage 03 carries its own status, independent of the other
-                    two rows — and it carries it on a second line rather than
+                  )}
+                  {row && row.badges.length > 0 ? <StageBadges badges={row.badges} /> : null}
+                </span>
+                {/* Stages 03 and 04 carry their own status, independent of
+                    the other rows — and they carry it on a second line rather than
                     beside the label. A chip and a label competing for 240px
                     is a fight the label loses: "Amendments pending" truncated
                     `03 Content guidelines` to `03…`, which is a row that has
                     stopped naming anything. Hidden on the narrow rail, where
                     the row is an icon and there is nowhere to put either. */}
-                {stage.id === "guidelines" && chip ? (
+                {row?.chip || lock ? (
                   <span className={cn(LABEL, "flex flex-col gap-0.5")}>
-                    <span className="truncate">{stage.label}</span>
-                    <span className="truncate text-xs font-normal text-fg-subtle">{chip}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate">{stage.label}</span>
+                      {lock ? <Lock className="size-3.5 shrink-0 text-fg-subtle" aria-hidden /> : null}
+                    </span>
+                    {/* `fg-subtle` clears AA on the panel but not on the
+                        current row's accent tint (4.4:1 light, 4.35:1 dark),
+                        so the current row's chip is `fg-muted` (7.1, 5.7). */}
+                    {row?.chip ? (
+                      <span
+                        className={cn(
+                          "truncate text-xs font-normal",
+                          current ? "text-fg-muted" : "text-fg-subtle",
+                        )}
+                      >
+                        {row.chip}
+                      </span>
+                    ) : null}
                   </span>
                 ) : (
                   <span className={LABEL}>{stage.label}</span>
                 )}
+                {/* The lock's sentence, in the link's accessible name — the
+                    server's words, so "locked" is never the whole story. */}
+                {lock ? <span className="sr-only">Locked: {lock}</span> : null}
               </Link>
             </li>
           );
