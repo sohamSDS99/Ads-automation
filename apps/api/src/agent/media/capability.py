@@ -85,6 +85,23 @@ class FieldError(BaseModel):
     reason: Literal["unsupported_field", "not_in_values", "out_of_range"]
 
 
+class CapabilityUnsupported(ValueError):
+    """A request asked for something its capability record does not allow.
+
+    Raised *before* any spend. The route turns it into `422
+    capability_unsupported` naming each field and its supported values.
+    """
+
+    def __init__(self, errors: list[FieldError]) -> None:
+        names = ", ".join(error.field for error in errors)
+        super().__init__(f"The chosen model does not support: {names}.")
+        self.errors = errors
+
+    @property
+    def first(self) -> FieldError:
+        return self.errors[0]
+
+
 def validate(request: MediaRequest, capability: CapabilityRecord) -> list[FieldError]:
     """Every field of `request` that `capability` does not allow, by field name."""
     modality = "image" if isinstance(request, ImageRequest) else "video"
