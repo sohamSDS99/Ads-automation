@@ -475,28 +475,3 @@ async def test_headlines_are_spread_selected_paired_repaired_and_pinned(
     }
     pinned = {str(a.id): a.pin_position for a in assets.values() if a.pin_position is not None}
     assert pinned == {order_pair["a"]: "H1", order_pair["b"]: "H2"}
-
-
-async def test_combination_coherence_refuses_a_stub_4_2_2(
-    admin: ApiClient,
-    db: AsyncSession,
-    workspace_id: uuid.UUID,
-    project_id: uuid.UUID,
-    admin_user: Any,
-) -> None:
-    """Until S4-P6 builds 4.2.2, 4.2.3 fails loudly rather than judge headlines alone."""
-    run_id, script = await _through_g7(admin, db, workspace_id, project_id, admin_user.id)
-    registry = _registry(fixture_descriptions=False)
-    result = await execute(
-        run_id, script.fake, registry=registry, dag=Dag.from_registry(registry), max_attempts=1
-    )
-    assert result.status is RunStatus.FAILED
-    node = (
-        await db.execute(
-            sa.select(NodeRun).where(NodeRun.run_id == run_id, NodeRun.node_id == "4.2.3")
-        )
-    ).scalar_one()
-    assert node.status is NodeRunStatus.FAILED
-    assert "still a stub" in json.dumps(node.error)
-    assert script.label_batches == [], "no CLASSIFY token is spent on an ad with no descriptions"
-    assert (await _output(db, run_id, "4.2.1"))["ad_groups"], "4.2.1 itself succeeded"

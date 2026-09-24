@@ -17,11 +17,9 @@ descriptions, so every pair it could serve is checked, per ad group:
 4. **Pins only for `order_dependent` pairs** (`combinatorics.pins_v1`), in the
    order they read — never to force a message.
 
-4.2.2 is built in S4-P6 (the PRD orders 4.2.2 before 4.2.3 but phases it
-after). Its output is read through its real schema, `ClaimBoundDescriptionsOutput`,
-validated against the pin's licensed claims; while 4.2.2 is still a stub this
-node fails rather than report on headlines alone
-(docs/stage-04-questions.md § S4-P5).
+4.2.2's output is read through its schema, `ClaimBoundDescriptionsOutput`,
+validated against the claims the pin licenses at the run's start — the same
+set 4.2.2 wrote against — so no description reaches a pair without one (law 34).
 
 Nothing is written until every ad has been judged. The asset rows are then set
 to an absolute state computed from 4.2.1's and 4.2.2's outputs — which assets
@@ -293,12 +291,6 @@ class CombinationCoherenceNode:
 
 def _descriptions(ctx: RunContext) -> ClaimBoundDescriptionsOutput:
     raw = ctx.output_of("4.2.2")
-    if raw.get("stub") is True:
-        raise NodeContractError(
-            "4.2.2 claim_bound_descriptions is still a stub (it is built in S4-P6), so there "
-            "are no descriptions to pair; 4.2.3 checks headlines beside the descriptions "
-            "Google serves them with and does not report on headlines alone"
-        )
     creative = ctx.require_creative()
     now = ctx.run.started_at or datetime.now(UTC)
     licensed = frozenset(

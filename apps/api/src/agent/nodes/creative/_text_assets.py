@@ -6,6 +6,10 @@ and a `content_hash` over what the asset *says* — kind, surface, text, fields,
 claims, offer binding — and nothing about where it is in its life (status,
 lint, lineage), so a swap or a re-lint never changes it.
 
+And what every copy node does the same way around those rows: read the specs
+it writes against from the pin (missing is `spec_missing`, never a guess),
+report a lint result by verdict, and clear what a failed attempt left behind.
+
 The leading underscore keeps `registry.discover()` from walking this module.
 """
 
@@ -14,8 +18,10 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from typing import Any
+
+import sqlalchemy as sa
 
 from agent.db.models import (
     CreativeAsset,
@@ -23,8 +29,58 @@ from agent.db.models import (
     CreativeAssetStatus,
     CreativeAssetVariant,
 )
-from agent.nodes.base import RunContext
-from agent.schemas.guardrails import LintResult
+from agent.nodes.base import NodeContractError, RunContext
+from agent.schemas.guardrails import AssetSpec, LintResult, RuleSet
+from agent.schemas.search_ads import LintRef
+
+
+def required_specs(
+    ruleset: RuleSet, campaign_type: str, needs: Mapping[str, Sequence[str]]
+) -> dict[str, AssetSpec]:
+    """`asset_type -> AssetSpec` for every spec `needs` names, each with the fields it names.
+
+    Raises `NodeContractError` naming **every** missing spec and field at once:
+    Stage 04 never guesses a Google limit (§9.5), and a run that fails on one
+    gap should not hide the next.
+    """
+    sheet = ruleset.asset_specs.for_campaign(campaign_type)
+    missing: list[str] = []
+    for asset_type, fields in needs.items():
+        spec = sheet.get(asset_type)
+        if spec is None:
+            missing.append(f"asset_specs.{campaign_type}.{asset_type}")
+            continue
+        missing.extend(
+            f"asset_specs.{campaign_type}.{asset_type}.{name}"
+            for name in fields
+            if getattr(spec, name) is None
+        )
+    if missing:
+        raise NodeContractError(
+            f"spec_missing: ruleset {ruleset.ruleset_version} has no {', '.join(missing)}; "
+            f"Stage 04 never guesses a Google limit (§9.5)"
+        )
+    return {asset_type: sheet[asset_type] for asset_type in needs}
+
+
+def lint_ref(result: LintResult) -> LintRef:
+    """The asset's lint result by verdict, as a node output reports it."""
+    return LintRef(
+        verdict=result.verdict,
+        ruleset_version=result.ruleset_version,
+        rule_ids=list(dict.fromkeys(finding.rule_id for finding in result.findings)),
+    )
+
+
+async def clear_earlier_attempts(ctx: RunContext, node_id: str) -> None:
+    """A failed attempt's rows were committed with its failure; this attempt replaces them."""
+    await ctx.db.execute(
+        sa.delete(CreativeAsset).where(
+            CreativeAsset.creative_run_id == ctx.run.id,
+            CreativeAsset.node_id == node_id,
+            CreativeAsset.frozen_at.is_(None),
+        )
+    )
 
 
 def content_hash(
