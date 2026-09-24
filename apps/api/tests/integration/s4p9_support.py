@@ -296,9 +296,11 @@ class Provider:
         self.chat.append(payload)
         schema = payload["response_format"]["json_schema"]["schema"]
         answer = fill(schema, schema)
-        if "best" in answer and self.vision_best is not None:
-            keys = schema["properties"]["best"].get("enum") or []
-            answer["best"] = self.vision_best(keys)
+        if "best" in answer:  # VISION: a note on every candidate, as a real ranking gives
+            keys = list(schema["properties"]["best"].get("enum") or [])
+            answer["notes"] = [{"candidate": k, "note": "Clean frame.", "flags": []} for k in keys]
+            if self.vision_best is not None:
+                answer["best"] = self.vision_best(keys)
         return completion(answer, model=payload["model"])
 
     def _paint(self, request: httpx.Request) -> httpx.Response:

@@ -215,6 +215,11 @@ class MediaJobs:
             ),
         }
 
+    @property
+    def storage(self) -> StorageBackend:
+        """Where finished media lands — `creative/{run}/media/{asset}/{job}-{i}.{ext}`."""
+        return self._storage
+
     # -- submit ------------------------------------------------------------
 
     async def submit_or_resume(

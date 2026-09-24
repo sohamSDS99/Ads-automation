@@ -67,6 +67,10 @@ from agent.guidelines import tasks as human_tasks
 from agent.llm.gateway import LLMAuthError, LLMGateway, build_gateway
 from agent.llm.ledger import BudgetExceeded, RunLedger
 from agent.llm.router import ModelRouter
+from agent.media.http import MediaApi
+from agent.media.images import ImageClient
+from agent.media.jobs import MediaJobs
+from agent.media.videos import VideoClient
 from agent.nodes.base import (
     CreativeResources,
     Node,
@@ -90,6 +94,7 @@ from agent.orchestrator.plan_input import PlanInputError, build_plan_input_for_r
 from agent.orchestrator.registry import NodeRegistry, get_registry
 from agent.orchestrator.state import TERMINAL_STATUSES, CancelFlag, RunLock, RunStore, utcnow
 from agent.planning.constants import ConstantsError
+from agent.storage.backend import get_storage
 
 log = structlog.get_logger(__name__)
 
@@ -267,6 +272,7 @@ class RunExecutor:
         backoff_base: float = BACKOFF_BASE_SECONDS,
         max_attempts: int = MAX_NODE_ATTEMPTS,
         sessions: async_sessionmaker[AsyncSession] | None = None,
+        media: MediaJobs | None = None,
     ) -> None:
         self.db = db
         self._sessions = sessions or get_sessionmaker()
@@ -290,6 +296,9 @@ class RunExecutor:
         #: The creative twin of `_plan` (Stage 04 PRD §4.3): resolved once per
         #: creative run in `execute()`, None on every other stage.
         self._creative: CreativeResources | None = None
+        self._media_override = media
+        self._media: MediaJobs | None = None
+        self._media_client: httpx.AsyncClient | None = None
         self._gateway = gateway
         self._http_client = http_client
         self._backoff_base = backoff_base
@@ -364,6 +373,7 @@ class RunExecutor:
                 return await self._abort(
                     run, events, ledger, RunStatus.FAILED, {"code": exc.code, "message": str(exc)}
                 )
+            self._media = self._media_override or await self._build_media(run, client)
 
         crashed = await self.store.fail_stale_running(run.id)
         if crashed:
@@ -427,6 +437,9 @@ class RunExecutor:
         finally:
             if client is not None and self._http_client is None:
                 await client.aclose()
+            if self._media_client is not None:
+                await self._media_client.aclose()
+                self._media_client = None
 
         if status in (RunStatus.AWAITING_APPROVAL, RunStatus.AWAITING_HUMAN_TASK):
             # Nothing is skipped and nothing is finished: the run is paused.
@@ -668,6 +681,7 @@ class RunExecutor:
                 scratch=scratch,
                 plan=self._plan_context(node.spec, scope),
                 creative=self._creative,
+                media=self._media,
                 _progress=_progress_sink(events),
             )
 
@@ -1173,6 +1187,39 @@ class RunExecutor:
             api_key=values["api_key"], settings=self.settings, client=self._http_client
         )
         return gateway, client
+
+    async def _build_media(self, run: Run, client: httpx.AsyncClient | None) -> MediaJobs:
+        """The media gateway a creative run's nodes submit through (PRD §9.1, §8.4).
+
+        The deployment's OpenRouter key — the same one the LLM gateway resolved —
+        over the LLM gateway's connection pool when there is one, writing to the
+        worker's Volume. Every submit goes through `MediaJobs`, so Law 37 (submit
+        once) and Law 43 (reserve before spend) hold for every node that uses it.
+        """
+        values = await resolve_values(
+            self.db, workspace_id=run.workspace_id, kind=CredentialKind.OPENROUTER
+        )
+        http = client or self._http_client
+        if http is None:
+            http = self._media_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(120.0, connect=10.0)
+            )
+        api = MediaApi(
+            client=http,
+            api_key=values["api_key"],
+            base_url=self.settings.openrouter_base_url,
+            referer=self.settings.app_base_url,
+        )
+        assert self._creative is not None  # noqa: S101 — loaded just above
+        return MediaJobs(
+            sessionmaker=self._sessions,
+            redis=self.redis,
+            images=ImageClient(api),
+            videos=VideoClient(api),
+            storage=get_storage(self.settings),
+            constants=self._creative.constants.media_constants(),
+            defaults=self.settings,
+        )
 
     async def _plan_resources(self, run: Run, project: Project) -> PlanResources:
         """The `PlanInput` and constants this plan run executes against.
