@@ -68,6 +68,7 @@ from agent.llm.gateway import LLMAuthError, LLMGateway, build_gateway
 from agent.llm.ledger import BudgetExceeded, RunLedger
 from agent.llm.router import ModelRouter
 from agent.nodes.base import (
+    CreativeResources,
     Node,
     NodeContractError,
     NodeSpec,
@@ -79,7 +80,7 @@ from agent.nodes.base import (
     derived_ids,
 )
 from agent.notify.email import send_approval_request
-from agent.orchestrator import approvals
+from agent.orchestrator import approvals, creative_run
 from agent.orchestrator.budget import resolve_cost_cap
 from agent.orchestrator.dag import Dag, get_dag
 from agent.orchestrator.events import EventType, RunEventStream
@@ -286,6 +287,9 @@ class RunExecutor:
         # research run; a plan run cannot start without it, so a plan node
         # never sees the None.
         self._plan: PlanResources | None = None
+        #: The creative twin of `_plan` (Stage 04 PRD §4.3): resolved once per
+        #: creative run in `execute()`, None on every other stage.
+        self._creative: CreativeResources | None = None
         self._gateway = gateway
         self._http_client = http_client
         self._backoff_base = backoff_base
@@ -346,6 +350,19 @@ class RunExecutor:
                 code = getattr(exc, "code", "planning_constants")
                 return await self._abort(
                     run, events, ledger, RunStatus.FAILED, {"code": code, "message": str(exc)}
+                )
+
+        if run.stage is RunStage.CREATIVE:
+            try:
+                self._creative = await creative_run.load_resources(self.db, run, project)
+            except creative_run.CreativeRunError as exc:
+                # §4.3 rule 1: every creative node reads the pinned input and
+                # lints against the pinned rules. Without both there is nothing
+                # to write from, so stop before a token is spent.
+                if client is not None and self._http_client is None:
+                    await client.aclose()
+                return await self._abort(
+                    run, events, ledger, RunStatus.FAILED, {"code": exc.code, "message": str(exc)}
                 )
 
         crashed = await self.store.fail_stale_running(run.id)
@@ -650,6 +667,7 @@ class RunExecutor:
                 node_id=node_id,
                 scratch=scratch,
                 plan=self._plan_context(node.spec, scope),
+                creative=self._creative,
                 _progress=_progress_sink(events),
             )
 
@@ -729,7 +747,15 @@ class RunExecutor:
             # would leave every deterministic node serving an output computed
             # under the old one, and `calc_version` on the reused `PlanCalc`
             # row would say so while the node output did not.
-            constants_version=ctx.plan.constants.version if ctx.plan else None,
+            # Stage 04 PRD §8.3: the same for a creative run, whose constants
+            # are `creative_constants.yaml` with the project's overrides.
+            constants_version=(
+                ctx.plan.constants.version
+                if ctx.plan
+                else ctx.creative.constants.version
+                if ctx.creative
+                else None
+            ),
         )
 
         # A gate is never served from cache. The cached value is the *proposal*,
@@ -814,6 +840,12 @@ class RunExecutor:
                     + ". Every number comes from an @formula in agent/calc/ (law 14); call it "
                     "through ctx.plan.calc.run() and return the row from gather()."
                 )
+
+        if run.stage is RunStage.CREATIVE:
+            # Stage 04 PRD §8.1 item 2: `media` and `lint_required` are
+            # asserted, not trusted — before a gate opens on the output and
+            # before the node is checkpointed as succeeded.
+            await creative_run.assert_node_contract(scope.db, run, spec)
 
         telemetry = ctx.telemetry
         if task_wanted(node, ctx, result):

@@ -6,6 +6,7 @@ import pytest
 
 from agent.llm.router import (
     SEED_MODELS,
+    TEXT_TASK_CLASSES,
     ModelRouter,
     ModelRoutingError,
     TaskClass,
@@ -13,7 +14,9 @@ from agent.llm.router import (
 
 
 def test_every_task_class_has_a_seed_and_a_fallback() -> None:
-    for task_class in TaskClass:
+    # IMAGE_GEN / VIDEO_GEN have no seed by law (Stage 04 law 36) and the
+    # router refuses them; `tests/creative/test_task_classes.py` asserts that.
+    for task_class in TEXT_TASK_CLASSES:
         chain = ModelRouter().chain(task_class)
         assert len(chain) >= 2, f"{task_class} has nothing to fall back to"
         assert chain[0] == SEED_MODELS[task_class][0]
@@ -21,7 +24,7 @@ def test_every_task_class_has_a_seed_and_a_fallback() -> None:
 
 def test_fallbacks_cross_vendors() -> None:
     """A same-vendor fallback does not survive the outage it exists for."""
-    for task_class in TaskClass:
+    for task_class in TEXT_TASK_CLASSES:
         chain = ModelRouter().chain(task_class)
         vendors = {model.split("/", 1)[0] for model in chain}
         assert len(vendors) > 1, f"{task_class} never leaves {vendors}"

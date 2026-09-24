@@ -807,6 +807,11 @@ class Run(Base):
     #: `reason='start'`; the only other reason is `h3_clearance`. NULL for
     #: every other stage. `none_as_null` for the reason `bindings` gives.
     pins: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
+    #: Stage 04 only: the `CreativeInput` this run was started from, written
+    #: in the run's own INSERT (migration 0021, PRD §4.3 rule 1). The executor
+    #: re-hashes it against `input_hash` before the first node and hands it to
+    #: every node read-only. `ck_run_creative_input_only_creative`.
+    creative_input: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
 
 
 class NodeRun(Base):

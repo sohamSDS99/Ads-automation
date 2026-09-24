@@ -29,11 +29,11 @@ from agent.media.catalogue import (
     normalise_image_endpoints,
     normalise_video_models,
 )
-from agent.media.constants import MediaConstants
+from agent.media.constants import media_constants
 from agent.media.types import CapabilityRecord, PriceLine
 from tests.media.openrouter_mock import FLUX, GEMINI, QWEN, SEEDREAM, VEO, body, endpoints_fixture
 
-K = MediaConstants(version="test")
+K = media_constants()
 MP_1K = Decimal(1024 * 1024) / Decimal(1_000_000)  # 1.048576
 
 

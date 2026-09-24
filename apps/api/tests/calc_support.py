@@ -106,7 +106,7 @@ def every_formula_result() -> list[Any]:
         structure,
     )
     from agent.calc.media import TEXT_ESTIMATE_USD
-    from agent.media.constants import MediaConstants
+    from agent.media.constants import media_constants
     from agent.planning.tracking import upload_options_frame
 
     ceiling = economics.max_cpa_v1(frame(SEGMENTS), constants=CONSTANTS)
@@ -240,13 +240,13 @@ def every_formula_result() -> list[Any]:
             video={"capability": _MEDIA_VIDEO, "params": {"duration": 4, "resolution": "720p"}},
             text_usd=TEXT_ESTIMATE_USD,
             caps={"max_creative_cost_usd": "50", "max_media_cost_usd": "40"},
-            constants=MediaConstants(version="test"),
+            constants=media_constants(),
         ),
         media.ratio_plan_v1(
             image_ratios=["1:1", "1.91:1"],
             video_ratios=["16:9", "1:1"],
             image=_MEDIA_IMAGE,
             video=_MEDIA_VIDEO,
-            constants=MediaConstants(version="test"),
+            constants=media_constants(),
         ),
     ]

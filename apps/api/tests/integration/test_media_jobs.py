@@ -31,15 +31,23 @@ import sqlalchemy as sa
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.db.models import CreativeBrief, GenerationJob, GenerationStatus, RunStage
+from agent.db.models import (
+    Approval,
+    ApprovalRequiredRole,
+    ApprovalStatus,
+    CreativeBrief,
+    GenerationJob,
+    GenerationStatus,
+    RunStage,
+)
 from agent.db.session import get_sessionmaker
 from agent.llm.ledger import RunLedger, Usage
 from agent.media.budget import MediaBudget
 from agent.media.capability import capability_hash
-from agent.media.constants import MediaConstants
+from agent.media.constants import media_constants
 from agent.media.http import MediaApi
 from agent.media.images import ImageClient
-from agent.media.jobs import BriefNotApproved, MediaJobs, idempotency_key
+from agent.media.jobs import BriefNotApproved, MediaJobs, MediaNotDeclared, idempotency_key
 from agent.media.types import (
     CapabilityRecord,
     Descriptor,
@@ -66,7 +74,7 @@ from tests.media.openrouter_mock import (
 )
 
 KEY = "sk-or-v1-canary-jobs-0123456789abcdef"
-CONSTANTS = MediaConstants(version="test")
+CONSTANTS = media_constants()
 
 
 class SimulatedCrash(BaseException):
@@ -204,7 +212,28 @@ async def _approve_brief(
     run_id: uuid.UUID,
     *,
     approved: bool = True,
+    approval_status: ApprovalStatus | None = None,
 ) -> None:
+    """A brief, and — when `approved` — the decided G7 `Approval` it points at.
+
+    The spend gate reads both (§8.3): a hash with no approved G7 row behind it
+    is a brief nobody signed. `approval_status` overrides the row's status to
+    prove exactly that.
+    """
+    approval_id = None
+    status = approval_status or (ApprovalStatus.APPROVED if approved else None)
+    if status is not None:
+        approval = Approval(
+            run_id=run_id,
+            node_id="4.1.1",
+            status=status,
+            required_role=ApprovalRequiredRole.APPROVER,
+            proposal={"objective": "fixture brief"},
+            gate_key="G7",
+        )
+        db.add(approval)
+        await db.flush()
+        approval_id = approval.id
     db.add(
         CreativeBrief(
             workspace_id=ws,
@@ -213,6 +242,7 @@ async def _approve_brief(
             schema_version="1.0",
             payload={"objective": "fixture brief"},
             brief_hash="b" * 64,
+            approval_id=approval_id,
             approved_hash=("b" * 64) if approved else None,
         )
     )
@@ -513,6 +543,69 @@ async def test_a_submit_before_g7_approval_raises_and_issues_no_http(
             estimate_usd=Decimal("0.03"),
         )
 
+    assert len(router.calls) == 0
+
+
+@pytest.mark.parametrize(
+    "status", [ApprovalStatus.PENDING, ApprovalStatus.REJECTED, ApprovalStatus.EXPIRED]
+)
+async def test_a_hash_without_an_approved_g7_row_is_not_approval(
+    router: respx.Router,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    tmp_path: Path,
+    status: ApprovalStatus,
+) -> None:
+    """The spend gate is enforced in the job layer (§8.3), and it reads the
+    decision, not just the hash: `approved_hash` set on a brief whose G7 was
+    never approved still spends nothing."""
+    run_id = await _creative_run(db, workspace_id, project_id, admin_user.id)
+    await _approve_brief(db, workspace_id, project_id, run_id, approval_status=status)
+    world = World(tmp_path, run_id)
+    router.post(f"{BASE}/images").mock(return_value=response("image_generate.json"))
+
+    with pytest.raises(BriefNotApproved, match="not approved"):
+        await world.jobs().submit_or_resume(
+            run_id=run_id,
+            node_id="4.4.2",
+            asset_id=None,
+            round=1,
+            request=IMAGE,
+            choice=choice(flux()),
+            estimate_usd=Decimal("0.03"),
+        )
+    assert len(router.calls) == 0
+
+
+@pytest.mark.parametrize("node_id", ["4.4.4", "4.2.1", "9.9.9"])
+async def test_a_submit_outside_the_nodes_declared_media_raises_before_a_row(
+    router: respx.Router, world: World, db: AsyncSession, node_id: str
+) -> None:
+    """§8.1 item 2: 4.4.4 declares video only, 4.2.1 no media at all, and an
+    unregistered node declares nothing."""
+    router.post(f"{BASE}/images").mock(return_value=response("image_generate.json"))
+    with pytest.raises(MediaNotDeclared, match=node_id):
+        await world.jobs().submit_or_resume(
+            run_id=world.run_id,
+            node_id=node_id,
+            asset_id=None,
+            round=1,
+            request=IMAGE,
+            choice=choice(flux()),
+            estimate_usd=Decimal("0.03"),
+        )
+    rows = (
+        (
+            await db.execute(
+                sa.select(GenerationJob).where(GenerationJob.creative_run_id == world.run_id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert rows == []
     assert len(router.calls) == 0
 
 

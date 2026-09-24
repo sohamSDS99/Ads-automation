@@ -237,11 +237,6 @@ class Settings(BaseSettings):
     #: Three hours, not the two every other stage gets: a creative run waits
     #: on video renders that are polled, not pushed (PRD §22 MEDIA).
     creative_lock_ttl_seconds: int = 10_800
-    #: Stamped into `CreativeInput.constants_version`. A placeholder until
-    #: `creative_constants.yaml` exists — the same move S3-P0 made with
-    #: `content_constants_version`, so the input hash is honest before the file
-    #: does.
-    creative_constants_version: str = "s4p0-unset"
 
     # --- source keys supplied by the deployment ----------------------------
     # Every secret the product uses, and the only place any of them lives. The

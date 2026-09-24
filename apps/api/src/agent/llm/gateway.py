@@ -35,7 +35,7 @@ from pydantic import BaseModel, ValidationError
 
 from agent.config import Settings
 from agent.llm.ledger import ModelCatalogue, Usage
-from agent.llm.router import ModelChoice
+from agent.llm.router import MEDIA_TASK_CLASSES, ModelChoice, TaskClass
 
 log = structlog.get_logger(__name__)
 
@@ -90,6 +90,17 @@ class LLMAuthError(LLMError):
 
 class LLMTransportError(LLMError):
     """The provider could not be reached, or kept failing, for one model."""
+
+
+class MediaTaskClassError(LLMError):
+    """A media task class reached the text gateway (Stage 04 PRD §7.1, law 36)."""
+
+    def __init__(self, task_class: TaskClass) -> None:
+        super().__init__(
+            f"{task_class.value} is routed only through media/ — the text gateway never "
+            "serves it, so no capability check, budget reservation or G7 gate is skipped."
+        )
+        self.task_class = task_class
 
 
 class StructuredOutputError(LLMError):
@@ -205,7 +216,13 @@ class LLMGateway:
 
         Walks the router's chain; for each model walks the ladder; for each rung
         retries the transport. The first validated object wins.
+
+        IMAGE_GEN and VIDEO_GEN are refused before anything leaves the process
+        (Stage 04 PRD §7.1): they are served only through `media/`, where the
+        request is capability-validated, budget-reserved and G7-gated first.
         """
+        if choice.task_class in MEDIA_TASK_CLASSES:
+            raise MediaTaskClassError(choice.task_class)
         failures: list[str] = []
         primary = choice.primary
 

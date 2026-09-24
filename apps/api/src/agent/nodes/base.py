@@ -17,7 +17,7 @@ import uuid
 from collections.abc import Awaitable, Callable, Iterable, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
 import structlog
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -30,8 +30,11 @@ from agent.llm.ledger import RunLedger
 from agent.llm.router import ModelRouter, TaskClass
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, not at type time
+    from agent.creative.constants import CreativeConstants
+    from agent.creative.lint_adapter import PinnedLinter
     from agent.orchestrator.plan_calc import PlanCalcRunner
     from agent.planning.constants import PlanningConstants
+    from agent.schemas.creative_input import CreativeInput
     from agent.schemas.plan_input import PlanInput
 
 log = structlog.get_logger(__name__)
@@ -125,6 +128,14 @@ class NodeSpec(BaseModel):
     #: one of them can be None on a standalone run, and the unbound golden
     #: fixture exercises exactly that (PRD §4.3, §8.1 item 2).
     optional_inputs: tuple[str, ...] = ()
+    #: Stage 04 PRD §8.1 item 2: the modalities this node may submit to
+    #: `media/jobs.py`. A submit outside the list raises in the job layer, and
+    #: the executor re-checks every `GenerationJob` the node left behind.
+    media: tuple[Literal["image", "video"], ...] = ()
+    #: Stage 04 PRD §8.1 item 2 and law 33: every `CreativeAsset` this node
+    #: persisted with `status != draft` must carry a passing `LintResult`
+    #: against the run's current pin. The executor asserts it after `reason()`.
+    lint_required: bool = False
     version: int = Field(
         default=1,
         description=(
@@ -172,6 +183,13 @@ class NodeSpec(BaseModel):
                 f"plan gate {self.id} declares no gate_key — "
                 "G1..G4 is how the card is routed and how the freeze counts it"
             )
+        if self.gate and self.run_stage is RunStage.CREATIVE and not self.gate_key:
+            # Stage 04 PRD §5.3: G7 routes to the performance owner and G8/G8b
+            # to the brand owner, by key. An unkeyed creative gate reaches nobody.
+            raise ValueError(
+                f"creative gate {self.id} declares no gate_key — G7, G8 and G8b are how "
+                "the card reaches the owner the sign-off matrix names"
+            )
         if self.gate_key and not self.gate:
             raise ValueError(
                 f"node {self.id} declares gate_key {self.gate_key!r} but is not a gate"
@@ -200,6 +218,22 @@ class NodeSpec(BaseModel):
                 "An approval routes to a role; a person-task routes to one named "
                 "person with no admin fallback. A node cannot be both."
             )
+        return self
+
+    @model_validator(mode="after")
+    def _media_and_lint_are_creative(self) -> NodeSpec:
+        """`media` and `lint_required` mean something only in the creative DAG.
+
+        Declared on a research or plan node they would read as enforced while
+        nothing checks them — no other stage submits media or writes assets.
+        """
+        if (self.media or self.lint_required) and self.run_stage is not RunStage.CREATIVE:
+            raise ValueError(
+                f"node {self.id} declares media/lint_required but runs in the "
+                f"{self.run_stage.value} DAG; only creative nodes submit media or emit assets"
+            )
+        if len(set(self.media)) != len(self.media):
+            raise ValueError(f"node {self.id} declares a media modality twice: {self.media}")
         return self
 
     @model_validator(mode="after")
@@ -283,6 +317,23 @@ class PlanContext:
     constants: PlanningConstants
 
 
+@dataclass(frozen=True, slots=True)
+class CreativeResources:
+    """What a creative node gets that no other node does (Stage 04 PRD §4.3, §8.1).
+
+    Resolved once per run by the executor, before the first wave, exactly as
+    `PlanContext` is for a plan run. `input` is the `CreativeInput` stored on
+    the run and re-hashed against `Run.input_hash`; `linter` is the run's
+    current pin loaded through `creative/lint_adapter.py` with the input's
+    offer snapshot; `constants` are `creative_constants.yaml` with the
+    project's overrides — and their version is the one the input names.
+    """
+
+    input: CreativeInput
+    linter: PinnedLinter
+    constants: CreativeConstants
+
+
 @dataclass(slots=True)
 class RunContext:
     """Everything a node may touch, and nothing else."""
@@ -306,6 +357,9 @@ class RunContext:
     #: executor could not build a `PlanInput` — which it treats as fatal, so a
     #: node never sees that second case.
     plan: PlanContext | None = None
+    #: Stage 04 only. None on every other stage; a creative run cannot start
+    #: executing without it, so a creative node never sees the None.
+    creative: CreativeResources | None = None
     _progress: Callable[[str, str], Awaitable[None]] | None = None
 
     def require_plan(self) -> PlanContext:
@@ -317,6 +371,16 @@ class RunContext:
                 "run_stage=RunStage.PLAN."
             )
         return self.plan
+
+    def require_creative(self) -> CreativeResources:
+        """The creative resources, or a failure naming the node that asked."""
+        if self.creative is None:
+            raise NodeContractError(
+                f"node {self.node_id or '?'} asked for the creative context on a "
+                f"{self.run.stage.value} run. A creative node must declare "
+                "run_stage=RunStage.CREATIVE."
+            )
+        return self.creative
 
     def output_of(self, node_id: str) -> dict[str, Any]:
         """The output of a node this one depends on."""

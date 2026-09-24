@@ -7,8 +7,18 @@ from agent.llm.router import TaskClass
 
 
 def test_every_task_class_has_an_assumption() -> None:
-    """A class with no baseline would price to $0.00, which reads as free."""
-    assert set(ASSUMED) == set(TaskClass)
+    """A class with no baseline would price to $0.00, which reads as free.
+
+    The estimate prices a *research* run, so the classes that matter are the
+    ones research nodes declare — derived from the registry, not listed, so a
+    research node that starts using a new class fails here.
+    """
+    from agent.db.models import RunStage
+    from agent.orchestrator.registry import get_registry
+
+    research = {spec.task_class for spec in get_registry().for_stage(RunStage.RESEARCH).specs()}
+    assert research <= set(ASSUMED)
+    assert set(ASSUMED) <= set(TaskClass)
 
 
 def test_an_assumed_baseline_says_it_is_assumed() -> None:

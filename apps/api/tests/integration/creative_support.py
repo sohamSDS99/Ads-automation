@@ -135,7 +135,17 @@ async def seed_plan(
                 "accepted_by": str(actor),
                 "accepted_at": _now().isoformat(),
             },
-            "objectives": {"qualified_lead": {"required_signals": ["company email"]}},
+            "objectives": {
+                "north_star_metric": "qualified leads",
+                "campaign_objectives": [
+                    {
+                        "campaign_ref": "c-sds-us",
+                        "objective": "lead_gen",
+                        "primary_kpi": "cost per qualified lead",
+                    }
+                ],
+                "qualified_lead": {"required_signals": ["company email"]},
+            },
             "account_structure": {
                 "campaigns": [
                     {
@@ -245,13 +255,15 @@ async def seed_published(
         project_id=project_id,
         guideline_id=guideline.id,
         ruleset_version=f"{major}.0+{digest[:8]}",
-        compiled={
-            "schema_version": ruleset_schema,
-            "rules": [
-                {"rule_id": f"{category}.one.v1", "category": category} for category in categories
-            ],
-            **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),
-        },
+        compiled=compiled_ruleset(
+            ruleset_version=f"{major}.0+{digest[:8]}",
+            project_id=project_id,
+            guideline_id=guideline.id,
+            digest=digest,
+            categories=categories,
+            asset_specs=asset_specs,
+            schema_version=ruleset_schema,
+        ),
         compiler_version="test",
         constants_version="test",
         rule_count=len(categories),
@@ -265,6 +277,68 @@ async def seed_published(
     guideline.published_by = actor
     await db.flush()
     return guideline, ruleset
+
+
+#: The licensed claim `compiled_ruleset` carries, and one it does not license.
+LICENSED_CLAIM_ID = uuid.UUID("5f2504e0-4f89-11d3-9a0c-0305e82c3401")
+DRAFT_CLAIM_ID = uuid.UUID("5f2504e0-4f89-11d3-9a0c-0305e82c3402")
+
+
+def compiled_ruleset(
+    *,
+    ruleset_version: str,
+    project_id: uuid.UUID,
+    guideline_id: uuid.UUID,
+    digest: str,
+    categories: tuple[str, ...] = ALL_CATEGORIES,
+    asset_specs: dict[str, Any] | None = None,
+    schema_version: str = "1.0",
+) -> dict[str, Any]:
+    """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
+
+    One real rule per category — a banned term, so it compiles and can fire —
+    with the `{category}.one.v1` ids eligibility reads, plus one licensed and
+    one draft claim for the brief's proof points. A schema version other than
+    1.0 is written raw: the skew test needs a ruleset no code can parse.
+    """
+    from agent.guardrails.matchers.lexicon import banned_term
+    from agent.schemas.guardrails import Authority, ClaimRef, Rule, RuleSet
+
+    authority = Authority(source="brand", reference="rulebook", reviewed_at=_now().date())
+    rules = [
+        Rule(
+            rule_id=f"{category}.one.v1",
+            category=category,  # type: ignore[arg-type]
+            **banned_term(
+                ("guaranteed compliance",), authority=authority, message="Never promise it."
+            ).model_dump(exclude={"rule_id", "category"}),
+        )
+        for category in categories
+    ]
+    claims = [
+        ClaimRef(
+            claim_id=LICENSED_CLAIM_ID,
+            normalized_text="sds updates within 24 hours",
+            surface_forms=("SDS updates within 24 hours",),
+            status="approved",
+            signature_id=uuid.UUID("5f2504e0-4f89-11d3-9a0c-0305e82c3403"),
+        ),
+        ClaimRef(claim_id=DRAFT_CLAIM_ID, normalized_text="the fastest sds tool", status="draft"),
+    ]
+    compiled = RuleSet(
+        ruleset_version=ruleset_version,
+        project_id=project_id,
+        guideline_id=guideline_id,
+        compiler_version="test",
+        constants_version="test",
+        compiled_at=_now(),
+        rules=tuple(rules),
+        claims_index=tuple(claims),
+        **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),  # type: ignore[arg-type]
+        hash=digest,
+    ).model_dump(mode="json")
+    compiled["schema_version"] = schema_version
+    return compiled
 
 
 async def seed_signoff(

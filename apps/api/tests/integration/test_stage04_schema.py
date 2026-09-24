@@ -206,10 +206,36 @@ async def test_the_stage03_run_checks_are_untouched(db: AsyncSession) -> None:
         "ck_run_plan_has_source",
         "ck_run_guideline_has_bindings",
         "ck_run_creative_has_source",
+        # 0021 (S4-P4): additive, like the one before it.
+        "ck_run_creative_input_only_creative",
     }
     assert "stage <> 'plan'::run_stage" in rows["ck_run_plan_has_source"]
     assert "stage <> 'research'::run_stage" in rows["ck_run_plan_has_source"]
     assert "jsonb_typeof(bindings)" in rows["ck_run_guideline_has_bindings"]
+    assert "jsonb_typeof(creative_input)" in rows["ck_run_creative_input_only_creative"]
+
+
+@pytest.mark.parametrize(
+    ("stage", "value"),
+    [(RunStage.RESEARCH, "{}"), (RunStage.CREATIVE, '"not an object"')],
+)
+async def test_only_a_creative_run_carries_an_input_and_it_is_an_object(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    stage: RunStage,
+    value: str,
+) -> None:
+    """0021: `creative_input` is NULL, or a JSON object on a creative run."""
+    run = await _creative_run(db, workspace_id, project_id, admin_user.id)
+    target = run.id if stage is RunStage.CREATIVE else run.source_run_id
+    with pytest.raises(sa.exc.IntegrityError, match="ck_run_creative_input_only_creative"):
+        await db.execute(
+            sa.text("UPDATE run SET creative_input = CAST(:value AS jsonb) WHERE id = :id"),
+            {"value": value, "id": target},
+        )
+    await db.rollback()
 
 
 async def test_a_creative_run_with_a_source_inserts_and_carries_its_pins(

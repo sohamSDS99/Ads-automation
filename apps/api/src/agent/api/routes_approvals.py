@@ -41,6 +41,9 @@ from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
 from agent.calc.derived import DerivedWriter
 from agent.calc.registry import FORMULAS, CalcError
+from agent.creative import g7 as brief_gate
+from agent.creative.brief import BriefError
+from agent.creative.lint_adapter import LintAdapterError
 from agent.db.models import (
     Approval,
     ApprovalStatus,
@@ -169,6 +172,25 @@ async def decide_approval(
         _assert_resumable(approval.node_id, edited)
         _assert_envelope_balanced(approval, edited)
 
+    # G7 is hash-scoped (Stage 04 PRD §5.3): approving it writes
+    # `approved_hash = brief_hash` onto the brief, and an edit is revalidated
+    # and re-hashed first. What the gate's NodeRun then carries is the brief
+    # that was actually approved, so `edited` becomes that brief.
+    approved_brief_hash: str | None = None
+    if approval.gate_key == brief_gate.G7 and body.approved:
+        node_id = approval.node_id
+        try:
+            approved_brief = await brief_gate.approve(db, approval=approval, run=run, edited=edited)
+        except (BriefError, LintAdapterError) as exc:
+            await db.rollback()
+            field = getattr(exc, "field", "brief")
+            raise problems.unprocessable(
+                str(exc), title="Edited brief is invalid", node_id=node_id, field=field
+            ) from exc
+        if edited is not None:
+            edited = approved_brief.model_dump(mode="json")
+        approved_brief_hash = approved_brief.brief_hash
+
     try:
         decision = await gates.decide(
             db,
@@ -224,6 +246,7 @@ async def decide_approval(
             "node_id": approval.node_id,
             "decision": approval.status.value,
             "signoff_matrix_id": str(matrix.id) if matrix is not None else None,
+            "approved_hash": approved_brief_hash,
             "edited": body.edited_proposal is not None,
             "note": body.note,
         },

@@ -218,3 +218,72 @@ beyond what is described.
 7. **The project's saved default models and params are not prefilled** —
    there is no read for `Project.settings.media_models` (only `PATCH`). The
    dialog starts with no model chosen, which is also what law 36 asks.
+
+## S4-P4
+
+What S4-P4 had to decide that the PRD does not settle. Items 1 and 2 were put
+to Soham during the phase and answered; the rest want a ruling.
+
+1. **`CreativeInput` now lives on the run (migration 0021).** §4.3 rule 1
+   says it is "passed read-only to every node", but S4-P0 kept only its hash
+   and the worker cannot rebuild it (scope and media choices are request
+   parameters; offers, references and sign-off are live rows). Ruled: a
+   nullable `run.creative_input` jsonb, creative runs only (CHECK), written in
+   the run's INSERT and re-hashed against `input_hash` by the executor before
+   the first node. Creative runs started before 0021 fail with
+   `creative_input_missing` — there is nothing to backfill them from.
+2. **`extras.snippet_headers` / `extras.lead_form_question_types`.** §9.5
+   writes `value: [...]`. Ruled: Google's own lists, `source: unverified` as
+   §9.5 labels them — the 13 headers of Google Ads Help answer 6280012, and the
+   116 values of googleapis v25 `LeadFormFieldUserInputTypeEnum` less its
+   UNSPECIFIED/UNKNOWN sentinels. Nothing reads them before 4.3.1/4.3.3.
+3. **The VISION modality guard fails closed.** §9.6: "Router rejects a model
+   whose `input_modalities` lacks `image`". The text router has no catalogue,
+   so a `vision` override is refused outright and the seed
+   (`google/gemini-2.5-flash`, fallback `anthropic/claude-haiku-4.5`, both
+   image-capable) is used. The first VISION caller (4.4.2) should wire the
+   check against the live catalogue and then accept overrides.
+4. **`MediaPlanSummary.calc_evidence_ids` (plural).** §11 says "estimate
+   `calc_evidence_id`". The executor's citation check (Stage 02 §9.1 item 4)
+   only reads the plural field, so the singular would have gone unchecked. It
+   cites both calculations: `media.cost_estimate_v1` and `media.ratio_plan_v1`.
+5. **`AdGroupBrief.top_keywords` is the top 3 by search volume.** §12.1 names
+   the field, not the count, and §9.5 has no constant for it. Three keeps a
+   dozen ad groups on one page; the rule is `brief.TOP_KEYWORDS`. A constant in
+   `creative_constants.yaml` would need a §9.5 amendment.
+6. **`CreativeBrief.offer` is always `null` until S4-P8.** An `OfferBinding`
+   names an `offer_record_id`, and `CreativeInput.offer_records` are
+   guardrails `OfferRecord`s with no id. Binding needs S4-P8's `offers.py`
+   and either an id on the snapshot or the Evidence row id carried beside it.
+7. **What an approver may edit at G7.** §5.3 says the edit is "revalidated
+   against `CreativeBrief` and re-hashed". S4-P4 also refuses, as a 422 naming
+   the field: any change to what code wrote (`plan_ref`, `ruleset_ref`,
+   `offer`, `non_negotiables`, `visual_constraints`, `media_plan`); a change to
+   which ad groups exist or to their landing URL, keywords or KPI; a source
+   the brief did not already cite; a proof point the pin does not license at
+   decision time. The approver rewrites lines; they cannot introduce facts.
+8. **The spend gate reads the decision as well as the hash.** §8.3 says "G7
+   `approved` with `approved_hash == brief_hash`". `assert_g7_approved` now
+   requires the brief's `approval_id` to be an approved G7 row of that run;
+   S4-P1's fixture wrote a hash with no approval behind it, and now writes one.
+9. **G7/G8/G8b route to the *pinned* sign-off matrix** (`Run.creative_input.
+   signoff_matrix`), not `plan_approvers`. An owner who is inactive or lacks
+   the approver role falls back to any approver, as every gate does (Stage 01
+   §16) — so a performance owner who is an `operator` does not block G7.
+10. **A run's constants must still be the ones it started under.** If a
+    project's `creative_overrides` change while a run waits on G7, resuming it
+    fails with `creative_constants_changed` rather than silently producing
+    assets under thresholds its input does not name.
+11. **§8.1 says the one-DAG-per-node test "covers 84 nodes"; it is 85** on
+    main today (23 research + 20 plan + 18 guideline + 24 creative). The test
+    derives the set rather than counting, so it covers whatever is registered.
+12. **Stage 03's nodes never receive their `GuidelineInput`.** Found while
+    wiring `ctx.creative`: `nodes/content/stage_3_3.py` and `stage_3_4.py` read
+    `getattr(ctx, "guideline", None) or ctx.scratch.get("guideline_input")`,
+    and a grep of `src/` finds nothing that sets either — so those helpers
+    always see `None` (e.g. a bound plan's slate never scopes 3.4.1's spec
+    sheet). Not verified at runtime and not touched here: it is Stage 03's.
+13. **Migration number.** S4-P4 takes 0021. S4-P3 (#60) merged while this
+    phase was building and added no revision, so 0021 follows 0020 cleanly;
+    any other branch holding a 0021 must renumber — a duplicate alembic
+    revision is not a git conflict.

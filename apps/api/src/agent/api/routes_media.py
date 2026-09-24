@@ -44,6 +44,7 @@ from agent.auth.rbac import Permission
 from agent.calc.derived import DerivedWriter
 from agent.calc.media import cost_estimate_v1, ratio_plan_v1, scope_reduction
 from agent.config import get_settings
+from agent.creative.constants import creative_constants_for
 from agent.db.models import Project, Workspace
 from agent.db.repos import ProjectRepo
 from agent.db.session import get_session
@@ -398,7 +399,8 @@ async def creative_estimate(
         workspace_settings=workspace.settings if workspace else None,
         defaults=get_settings(),
     )
-    constants = media_constants()
+    # The project's own constants: the run it prices will execute under them.
+    constants = creative_constants_for(project).media_constants()
     priced = inputs.estimate_inputs(plan, pin, body.scope, choices, caps)
     try:
         estimate = cost_estimate_v1(**priced, constants=constants)
