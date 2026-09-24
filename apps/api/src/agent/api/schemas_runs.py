@@ -88,6 +88,24 @@ class DegradedSource(BaseModel):
     )
 
 
+class SpendMeter(BaseModel):
+    """One cap as the Creative Console draws it: spent and reserved, two segments."""
+
+    spent_usd: Decimal
+    reserved_usd: Decimal = Field(
+        description="Held for media jobs submitted but not yet reconciled to `usage.cost` (law 43)."
+    )
+    cap_usd: Decimal
+
+
+class CreativeSpend(BaseModel):
+    """Stage 04 law 43's two caps (PRD §15.4 C): `max_creative_cost_usd` over text
+    and media, `max_media_cost_usd` over media alone."""
+
+    total: SpendMeter
+    media: SpendMeter
+
+
 class RunResponse(BaseModel):
     """`GET /runs/{id}` — the full state of a run, including its DAG."""
 
@@ -147,6 +165,15 @@ class RunResponse(BaseModel):
             "Sources that did not fully answer. Derived from the nodes' own `coverage` "
             "output, so it is durable and survives a page reload — the SSE stream is not "
             "the only place this appears."
+        ),
+    )
+    creative_spend: CreativeSpend | None = Field(
+        default=None,
+        description=(
+            "A creative run's two meters, each spent + reserved against its cap — the three "
+            "numbers the budget script compares before it grants a media job, so the header "
+            "and the guard cannot disagree. Null on every other stage, and when Redis cannot "
+            "say what is reserved (the meters are then withheld rather than drawn low)."
         ),
     )
 

@@ -1,0 +1,46 @@
+{
+  "$defs": {
+    "GenerationStatus": {
+      "enum": [
+        "queued",
+        "submitting",
+        "submitted",
+        "in_progress",
+        "completed",
+        "failed",
+        "cancelled",
+        "expired",
+        "timed_out",
+        "blocked_by_budget",
+        "unknown_submit_state"
+      ],
+      "title": "GenerationStatus",
+      "type": "string"
+    }
+  },
+  "description": "`POST /generation-jobs/{id}/check` \u2014 queued for the worker, which re-polls.",
+  "properties": {
+    "job_id": {
+      "format": "uuid",
+      "title": "Job Id",
+      "type": "string"
+    },
+    "status": {
+      "$ref": "#/$defs/GenerationStatus",
+      "description": "The job's status when the check was queued."
+    },
+    "queued": {
+      "description": "False when an identical check is already waiting.",
+      "title": "Queued",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "job_id",
+    "status",
+    "queued"
+  ],
+  "title": "GenerationCheckAccepted",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

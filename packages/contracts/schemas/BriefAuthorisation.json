@@ -1,0 +1,42 @@
+{
+  "description": "What approving the brief authorises (PRD \u00a715.4 D, \u00a715.2 rule 8).",
+  "properties": {
+    "rsas": {
+      "description": "Two per Search ad group in the brief: RSA A (4.2.3) and B (4.2.4).",
+      "title": "Rsas",
+      "type": "integer"
+    },
+    "images": {
+      "description": "Image jobs in the brief's media plan.",
+      "title": "Images",
+      "type": "integer"
+    },
+    "videos": {
+      "description": "Video jobs in the brief's media plan.",
+      "title": "Videos",
+      "type": "integer"
+    },
+    "media_usd": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+          "type": "string"
+        }
+      ],
+      "description": "The media plan's estimate \u2014 what G7 authorises spend up to.",
+      "title": "Media Usd"
+    }
+  },
+  "required": [
+    "rsas",
+    "images",
+    "videos",
+    "media_usd"
+  ],
+  "title": "BriefAuthorisation",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -22,10 +22,13 @@ from arq.connections import RedisSettings
 
 from agent.config import get_settings
 from agent.creative.constants import get_creative_constants
+from agent.credentials import MissingCredential
+from agent.db.models import GenerationJob, Run
 from agent.db.session import dispose_engine, get_sessionmaker
 from agent.export.jobs import generate_export
 from agent.fileserver import FileServer
 from agent.logging_setup import configure_logging
+from agent.media import runtime as media_runtime
 from agent.orchestrator.executor import RunExecutor
 from agent.planning.constants import get_planning_constants
 from agent.redis_client import close_redis, get_redis
@@ -74,6 +77,35 @@ async def execute_run(ctx: dict[str, Any], run_id: str) -> dict[str, Any]:
         "cost_usd": str(result.cost_usd),
         "nodes_executed": result.nodes_executed,
     }
+
+
+async def check_generation_job(ctx: dict[str, Any], job_id: str) -> dict[str, Any]:
+    """ "Check again" on one generation job (Stage 04 PRD §16, §18).
+
+    `MediaJobs.check()` does the work: a timed-out video resumes polling with
+    a fresh window, an image whose submit state is unknown is POSTed again
+    under its own key. Anything else comes back unchanged — the route only
+    enqueues what `media.jobs.checkable` accepts, and this re-reads the row
+    rather than trusting that it is still in that state.
+    """
+    identifier = uuid.UUID(job_id)
+    async with get_sessionmaker()() as session:
+        row = await session.get(GenerationJob, identifier)
+        if row is None:
+            log.warning("generation_check.missing", generation_job_id=job_id)
+            return {"job_id": job_id, "status": None}
+        run = await session.get(Run, row.creative_run_id)
+        choice = media_runtime.choice_for(media_runtime.pinned_choices(run), row)
+        try:
+            jobs, client = await media_runtime.media_jobs(session, workspace_id=row.workspace_id)
+        except MissingCredential as exc:
+            log.warning("generation_check.no_credential", generation_job_id=job_id, reason=str(exc))
+            return {"job_id": job_id, "status": row.status.value}
+    try:
+        result = await jobs.check(identifier, choice=choice)
+    finally:
+        await client.aclose()
+    return {"job_id": job_id, "status": result.status.value}
 
 
 async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +206,7 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_run, generate_export, measure_image]
+    functions = [execute_run, generate_export, measure_image, check_generation_job]
     # Everything unattended. `run_at_startup` is off for all of them: startup
     # already reaps explicitly above, and firing a nightly backup on every
     # deploy would make a busy afternoon of releases into a busy afternoon of

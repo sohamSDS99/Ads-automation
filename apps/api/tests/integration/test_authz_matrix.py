@@ -487,6 +487,37 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         {"scope": {"images": False, "video": False, "concepts_per_campaign": 2}},
     ),
+    # Stage 04 (S4-P18): the Creative Console's reads are every role's (§15.3
+    # routes are "any"). "Check again" can re-submit an image, which can
+    # spend, so it is CREATIVE_EXECUTE like starting the run.
+    (
+        "GET",
+        "/creative-runs/{run_id}/brief",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/brief",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-runs/{run_id}/assets",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/assets",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-runs/{run_id}/generation-jobs",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/generation-jobs",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/generation-jobs/{job_id}/check",
+        "/generation-jobs/00000000-0000-4000-8000-000000000000/check",
+        Permission.CREATIVE_EXECUTE,
+        None,
+    ),
     (
         "GET",
         "/guidelines/published/creative-context",
