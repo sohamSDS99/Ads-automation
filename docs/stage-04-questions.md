@@ -48,3 +48,44 @@ phase. Nothing here was built.
 10. **`creative_constants_version` is a placeholder** (`"s4p0-unset"`) until
     `creative_constants.yaml` exists — the S3-P0 `content_constants_version`
     precedent.
+
+## S4-P2
+
+1. **Media API envelopes assumed by the web (S4-P1 to confirm or correct).**
+   S4-P1 builds the routes in parallel, so S4-P2 codes against PRD §16's
+   routes and the shapes §7 and the S4-P1 brief name, and fixes the two
+   envelopes they leave implicit (`apps/web/lib/api/media.ts`):
+   - `GET /media/catalogue?modality=` →
+     `{modality, models: CapabilityRecord[], catalogue_hash, warning?}`,
+     one record per model *per provider endpoint* (a model with three
+     `provider_tag`s is three records; the editor groups them and offers
+     the tags as the provider pin). `warning` carries §9.1 rule 1's
+     "last-good snapshot" sentence. A missing OpenRouter key is read as
+     `409`, as `GET /models` does today.
+   - `GET /settings/media` → `{media_allowlist: {image: [...], video: [...]}}`;
+     `PUT /settings/media` takes the same body and returns the saved value.
+   - `CapabilityRecord.pricing[].unit` for video is read as `second`.
+2. **Workspace default params and estimate accuracy are not built.**
+   §15.3 lists both under Media generation and §9.2 names "workspace default
+   params", but `Workspace.settings` (§7) stores only `media_allowlist`, and
+   no §16 route returns estimate accuracy. The params editor would also be
+   S4-P3's `CapabilityParams`. Needs a storage key and a read before a UI.
+3. **Three §15.4 A landing fields are not on the wire.**
+   `CreativePackageSummary` has no released-by name, no per-campaign launch
+   readiness (`ready` / `blocked: youtube_upload`) and no bound-offer end
+   date (so neither the landing's "offers ending soon" row nor the rail's
+   third amber reason can be drawn). Cost is joined from the package's run.
+   Proposed: `released_by_name`, `launch_readiness[]` and
+   `earliest_offer_end` on the summary, added with S4-P16's package.
+4. **A newest creative run that `failed` reads `Blocked` on the rail.**
+   §15.1 rule 2's vocabulary has no word for it; `Blocked` is the closest
+   true one. Ruling wanted.
+5. **Fixed four S4-P0 `fix_url`s that named pages the web app does not
+   have** (`/settings/sources`, `/projects/{id}/settings`, `/tasks`,
+   `/projects/{id}/documents` → connections, model settings, approvals,
+   business context). `tests/test_creative_fix_urls.py` now derives the real
+   route list from `apps/web/app`. S4-P1's CR-E8/E9 rewrite should keep
+   `media_*` blockers on `/settings/models`, which is where they are fixed.
+6. **The design laws apply to `components/creative/**` and the creative
+   route directory** — the route is a Stage 04 screen too. `components/ui/`
+   predates the law (e.g. `rounded-[var(--radius)]`) and is not rewritten.

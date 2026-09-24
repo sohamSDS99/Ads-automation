@@ -41,6 +41,7 @@ import {
   listGuidelines,
   publishGuideline,
 } from "@/lib/api/guidelines";
+import { getMediaCatalogue, getMediaSettings, type MediaModality } from "@/lib/api/media";
 import { getModels } from "@/lib/api/models";
 import {
   freezePlan,
@@ -112,6 +113,8 @@ export const keys = {
   creative: (projectId: string) => ["projects", projectId, "creative"] as const,
   creativeEligibility: (projectId: string) =>
     ["projects", projectId, "creative", "eligibility"] as const,
+  mediaSettings: ["settings", "media"] as const,
+  mediaCatalogue: (modality: MediaModality) => ["media", "catalogue", modality] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -486,6 +489,29 @@ export function useWorkspace() {
 
 export function useAudit(filters: AuditFilters) {
   return useQuery({ queryKey: keys.audit(filters), queryFn: () => listAudit(filters) });
+}
+
+/**
+ * The workspace's media allowlist (`GET /settings/media`, READ). The editor is
+ * admin-only, so the caller passes `enabled` rather than firing a read no
+ * control on the page will use.
+ */
+export function useMediaSettings(enabled: boolean) {
+  return useQuery({ queryKey: keys.mediaSettings, queryFn: getMediaSettings, enabled });
+}
+
+/**
+ * The full live media catalogue for one modality (`GET /media/catalogue`,
+ * SETTINGS_WRITE). `retry: false`: its interesting failures — no OpenRouter
+ * key, a catalogue too stale to serve — do not change on a second ask.
+ */
+export function useMediaCatalogue(modality: MediaModality, enabled: boolean) {
+  return useQuery({
+    queryKey: keys.mediaCatalogue(modality),
+    queryFn: () => getMediaCatalogue(modality),
+    enabled,
+    retry: false,
+  });
 }
 
 export function useSessions() {

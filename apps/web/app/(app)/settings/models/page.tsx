@@ -4,6 +4,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { useState } from "react";
 
+import { MediaAllowlistEditor } from "@/components/creative/media-allowlist-editor";
 import { ReadOnlyRouting, RoutingTable } from "@/components/settings/model-routing";
 import { ProjectForm } from "@/components/settings/project-form";
 import { ProjectScoped } from "@/components/settings/project-picker";
@@ -83,6 +84,11 @@ export default function ModelsPage() {
           canWrite={canWrite}
         />
       ) : null}
+
+      {/* Media generation (Stage 04 PRD §9.2, §15.3): admin only, and absent
+          rather than disabled for everyone else — its catalogue route refuses
+          them, so there is nothing a read-only copy could show. */}
+      {canWrite ? <MediaAllowlistEditor /> : null}
 
       <ProjectScoped
         projects={projects.data?.projects}
