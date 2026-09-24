@@ -15,6 +15,7 @@ import Link from "next/link";
 import { useState, type ReactNode } from "react";
 
 import { MonoId } from "@/components/creative/mono-id";
+import { StartCreativeDialog } from "@/components/creative/start-dialog";
 import { Alert } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -36,7 +37,7 @@ import {
 import type { HumanTask } from "@/lib/api/tasks";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, useCreativeStatus, useProject } from "@/lib/queries";
-import { useSession } from "@/lib/session";
+import { Can, useSession } from "@/lib/session";
 
 /**
  * `/projects/[id]/creative` — the Stage 04 landing (PRD §15.4 A).
@@ -94,6 +95,7 @@ export function CreativeLanding({ projectId }: { projectId: string }) {
       <StatusBlock overview={overview.data} chip={status.chip} pending={overview.isPending} />
 
       <ActionBlock
+        projectId={projectId}
         eligibility={eligibility.data}
         pending={eligibility.isPending}
         here={`/projects/${projectId}/creative`}
@@ -267,14 +269,18 @@ function StatusBlock({
  * is, and its text is read off that URL.
  *
  * When nothing blocks, the block says so and states what a run started now
- * would pin. The dialog that chooses scope and models and starts the run is
- * S4-P3's and mounts here.
+ * would pin. Below it, for whoever may start a run, the Start dialog — once
+ * both pins resolve, because a scope with no plan or no ruleset has nothing
+ * to price. The blockers above it are for the *default* scope; the dialog
+ * prices the scope actually chosen, and the start re-checks everything.
  */
 function ActionBlock({
+  projectId,
   eligibility,
   pending,
   here,
 }: {
+  projectId: string;
   eligibility?: CreativeEligibility;
   pending: boolean;
   /** This page's own path: a note whose fix is "here" gets no link to itself. */
@@ -317,6 +323,13 @@ function ActionBlock({
                 <Pins pins={eligibility.pins} />
               </div>
             )}
+
+            {typeof eligibility.pins.plan_run_id === "string" &&
+            typeof eligibility.pins.ruleset_version === "string" ? (
+              <Can permission="creative_execute">
+                <StartCreativeDialog projectId={projectId} pins={eligibility.pins} />
+              </Can>
+            ) : null}
 
             {eligibility.warnings.length > 0 ? (
               <ul className="flex flex-col divide-y rounded-token border">
