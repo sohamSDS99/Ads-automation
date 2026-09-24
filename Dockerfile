@@ -120,6 +120,39 @@ https://apt.postgresql.org/pub/repos/apt jammy-pgdg main" > /etc/apt/sources.lis
     && apt-get update && apt-get install -y --no-install-recommends postgresql-client-16 \
     && rm -rf /var/lib/apt/lists/*
 
+# Stage 04's deterministic post-production (Stage 04 PRD §9.4, §13, §22). WORKER
+# ONLY, like tesseract above: `api` never opens a media file.
+#
+#   ffmpeg                  video assembly, caption burn-in and renditions.
+#   libimage-exiftool-perl  `exiftool` writes, then RE-READS, the XMP
+#                           DigitalSourceType / MP4 comment provenance that §13
+#                           requires on every AI-made file.
+#   fonts-inter,
+#   fonts-noto-core         the faces captions, end cards and disclosure labels
+#                           are composited in. Named packages, not whatever the
+#                           base image happens to carry: a missing face falls back
+#                           SILENTLY to another, and a render that picks its own
+#                           font per deploy does not reproduce.
+#
+# Not version-pinned, for the reason the tesseract layer gives. Both versions are
+# printed into the build log, and the build FAILS if either binary or either face
+# is missing — here, rather than in a paid render at runtime. (The worker also
+# logs both versions at boot: see `startup` in `agent/worker.py`.)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg \
+        libimage-exiftool-perl \
+        fonts-inter \
+        fonts-noto-core \
+    && rm -rf /var/lib/apt/lists/* \
+    && ffmpeg -version \
+    && exiftool -ver \
+    && sh -euc 'for family in "Inter" "Noto Sans"; do \
+          if ! fc-list : family | grep -q "$family"; then \
+            echo "FATAL: font family \"$family\" is not installed."; exit 1; \
+          fi; \
+          echo "font family \"$family\" — present"; \
+        done'
+
 COPY apps/api/pyproject.toml apps/api/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
 

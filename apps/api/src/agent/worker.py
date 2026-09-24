@@ -126,6 +126,30 @@ async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[st
     return measurement.model_dump(mode="json")
 
 
+async def _tool_version(*argv: str) -> str | None:
+    """The first line `argv` prints, or None when the binary is absent or fails.
+
+    Never raises: this feeds a log line, and a host without ffmpeg (the test
+    suite, a laptop) must still be able to run `startup`.
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+    except OSError:
+        return None
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        return None
+    if process.returncode != 0:
+        return None
+    lines = stdout.decode(errors="replace").strip().splitlines()
+    return lines[0] if lines else None
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     configure_logging(settings)
@@ -147,6 +171,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     await file_server.start()
     ctx["file_server"] = file_server
 
+    # Stage 04's post-production shells out to both (§9.4, §13). The image build
+    # fails without them; logging the versions here is what proves the RUNNING
+    # container is that image — on Railway, a worker built from the wrong
+    # Dockerfile has reported SUCCESS before.
+    ffmpeg_version, exiftool_version = await asyncio.gather(
+        _tool_version("ffmpeg", "-version"), _tool_version("exiftool", "-ver")
+    )
+
     log.info(
         "worker.startup",
         storage_dir=settings.storage_dir,
@@ -154,6 +186,8 @@ async def startup(ctx: dict[str, Any]) -> None:
         planning_constants=constants.version,
         creative_constants=creative.version,
         file_server_port=settings.file_server_port,
+        ffmpeg=ffmpeg_version,
+        exiftool=exiftool_version,
     )
 
     # PRD §16 calls this a *startup* reaper, and the wording is the design: the
