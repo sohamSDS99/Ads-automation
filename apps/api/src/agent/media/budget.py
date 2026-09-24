@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass
-from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal
+from decimal import ROUND_CEILING, ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from agent.media.types import Modality
@@ -94,6 +94,33 @@ class BudgetCaps:
 class BudgetState:
     spent_usd: Decimal
     reserved_usd: Decimal
+
+
+def resolve_media_caps(
+    *,
+    project_settings: dict[str, Any] | None,
+    workspace_settings: dict[str, Any] | None,
+    defaults: Any,
+) -> BudgetCaps:
+    """Both caps, narrowest scope first: project, then workspace, then the
+    environment — the rule `orchestrator.budget.resolve_cost_cap` applies to
+    every other stage's cap, applied to the two keys Law 43 names."""
+
+    def cap(key: str) -> Decimal:
+        for settings in (project_settings, workspace_settings):
+            raw = (settings or {}).get(key)
+            if raw is None:
+                continue
+            try:
+                return Decimal(str(raw))
+            except (InvalidOperation, ValueError):
+                continue
+        return Decimal(str(getattr(defaults, key)))
+
+    return BudgetCaps(
+        max_creative_cost_usd=cap("max_creative_cost_usd"),
+        max_media_cost_usd=cap("max_media_cost_usd"),
+    )
 
 
 class MediaBudget:
