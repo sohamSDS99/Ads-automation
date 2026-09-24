@@ -255,7 +255,8 @@ def _asks(asset: Asset, verbs: frozenset[str]) -> frozenset[str]:
     return frozenset(asks)
 
 
-def _contains_phrase(text: str, phrase: str) -> bool:
+def contains_phrase(text: str, phrase: str) -> bool:
+    """Whether `phrase` occurs in `text` as whole words, after `metrics.normalize`."""
     tokens = metrics.normalize(text).split()
     needle = metrics.normalize(phrase).split()
     width = len(needle)
@@ -265,7 +266,7 @@ def _contains_phrase(text: str, phrase: str) -> bool:
 
 
 def _carries_again(carrier: Asset, other: Asset) -> bool:
-    return carrier.keyword_ref is not None and _contains_phrase(other.text, carrier.keyword_ref)
+    return carrier.keyword_ref is not None and contains_phrase(other.text, carrier.keyword_ref)
 
 
 # ---------------------------------------------------------------------------
