@@ -11,12 +11,12 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
 from agent.db.models import CreativePackageStatus, RunStatus
-from agent.schemas.creative_input import CreativeScope, MediaModelChoice
+from agent.schemas.creative_input import CreativeScope, MediaModelSelection
 
 CreativeBlockerCode = Literal[
     "no_frozen_plan",  # CR-E1
@@ -26,7 +26,13 @@ CreativeBlockerCode = Literal[
     "no_signoff_matrix",  # CR-E5
     "creative_in_flight",  # CR-E6
     "missing_credential",  # CR-E7
-    "media_not_configured",  # CR-E8/E9 until S4-P1
+    "media_model_unselected",  # CR-E8
+    "media_model_not_allowlisted",  # CR-E8
+    "media_model_unavailable",  # CR-E8
+    "capability_unsupported",  # CR-E8: a default the chosen model does not take
+    "media_model_out_of_scope",  # CR-E8: a model for a modality the scope has off
+    "estimate_exceeds_cap",  # CR-E9
+    "estimate_unavailable",  # CR-E9: a model whose price cannot be computed
     "zdr_blocks_video",  # CR-E10
     "storage_insufficient",  # CR-E11
     "missing_permission",  # CR-E15, on the read endpoint
@@ -46,6 +52,13 @@ class CreativeBlocker(BaseModel):
     detail: str
     #: Relative, always.
     fix_url: str
+    #: CR-E8: the modality the blocker is about.
+    modality: Literal["image", "video"] | None = None
+    #: CR-E9: the estimate, the caps it breaches, and the smallest
+    #: degrade-ladder reduction that fits (None when nothing does).
+    estimate: dict[str, Any] | None = None
+    cap: dict[str, float] | None = None
+    reduction: dict[str, Any] | None = None
 
 
 class CreativeWarning(BaseModel):
@@ -63,12 +76,15 @@ class CreativeEligibility(BaseModel):
     #: What a run started now would pin (§4.4): the plan, the ruleset and the
     #: creative context. Present only for the halves that resolved.
     pins: dict[str, str | int | None] = Field(default_factory=dict)
+    #: CR-E9's pre-flight estimate, when every enabled modality resolved.
+    estimate: dict[str, Any] | None = None
 
 
 class StartCreativeRequest(BaseModel):
     scope: CreativeScope
-    #: S4-P0 accepts `[]` only; anything else is a 422 `media_not_configured`.
-    media_models: list[MediaModelChoice] = Field(default_factory=list)
+    #: One selection per enabled modality; the server snapshots each one's
+    #: capability record from the live catalogue (Law 36).
+    media_models: list[MediaModelSelection] = Field(default_factory=list)
     reuse_cache: bool = True
 
 

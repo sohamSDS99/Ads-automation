@@ -21,13 +21,15 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from decimal import Decimal
+from typing import Any, Literal
 
 import sqlalchemy as sa
 import structlog
 from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.calc.media import TEXT_ESTIMATE_USD
 from agent.config import get_settings
 from agent.db.models import (
     CampaignPlan,
@@ -42,12 +44,17 @@ from agent.db.models import (
     Report,
     RuleSet,
     SignOffMatrix,
+    Workspace,
 )
 from agent.export.contract import ResearchReport
 from agent.export.plan_contract import CampaignPlan as PlanContract
 from agent.export.plan_contract import Dependency
 from agent.guidelines import versions
 from agent.guidelines.projection import project as project_context
+from agent.media.budget import BudgetCaps
+from agent.media.capability import capability_hash, validate
+from agent.media.catalogue import CatalogueUnavailable, MediaCatalogue
+from agent.media.types import CapabilityRecord, ImageRequest, MediaRequest, VideoRequest
 from agent.schemas.creative_input import (
     AudienceSlice,
     CreativeContextRef,
@@ -55,6 +62,7 @@ from agent.schemas.creative_input import (
     CreativeScope,
     DifferentiationClaim,
     MediaModelChoice,
+    MediaModelSelection,
     MediaReferenceRef,
     PlanRef,
     ResearchRef,
@@ -276,20 +284,302 @@ def campaign_refs(plan: PlanContract) -> list[str]:
 # ---------------------------------------------------------------------------
 
 
-def reject_media(scope: CreativeScope, media_models: list[MediaModelChoice]) -> None:
-    """S4-P0 accepts `media_models=[]` and a text-only scope, and nothing else.
+MEDIA_ALLOWLIST_SETTING = "media_allowlist"
+MEDIA_DEFAULTS_SETTING = "media_defaults"
+MEDIA_MODELS_SETTING = "media_models"
+_MODALITIES: tuple[Literal["image", "video"], ...] = ("image", "video")
+#: The request fields a default may set. Model, prompt, references and frames
+#: belong to a job, never to a default.
+DEFAULT_FIELDS: dict[str, frozenset[str]] = {
+    "image": frozenset(
+        {
+            "aspect_ratio",
+            "resolution",
+            "size",
+            "quality",
+            "output_format",
+            "background",
+            "output_compression",
+            "n",
+            "seed",
+        }
+    ),
+    "video": frozenset(
+        {"duration", "resolution", "aspect_ratio", "size", "generate_audio", "seed"}
+    ),
+}
 
-    There is no media gateway yet, so a requested model — or a scope that
-    would need one — is refused rather than accepted and silently ignored.
-    S4-P1 replaces this with allowlist, catalogue and capability validation
-    (law 36).
+
+def enabled_modalities(scope: CreativeScope) -> list[Literal["image", "video"]]:
+    return [m for m in _MODALITIES if (scope.images if m == "image" else scope.video)]
+
+
+def default_selections(project: Project) -> list[MediaModelSelection]:
+    """The project's default model per modality (`settings.media_models`)."""
+    media = (project.settings or {}).get(MEDIA_MODELS_SETTING) or {}
+    selections: list[MediaModelSelection] = []
+    if not isinstance(media, dict):
+        return selections
+    for modality in _MODALITIES:
+        entry = media.get(modality)
+        if isinstance(entry, dict) and entry.get("model_id"):
+            selections.append(
+                MediaModelSelection(
+                    modality=modality,
+                    model_id=str(entry["model_id"]),
+                    provider_tag=entry.get("provider_tag"),
+                    defaults=dict(entry.get("defaults") or {}),
+                )
+            )
+    return selections
+
+
+def allowlist(workspace: Workspace | None, modality: str) -> list[dict[str, Any]]:
+    raw = ((workspace.settings or {}) if workspace else {}).get(MEDIA_ALLOWLIST_SETTING) or {}
+    entries = raw.get(modality) if isinstance(raw, dict) else None
+    return [e for e in entries or [] if isinstance(e, dict)]
+
+
+async def resolve_media_models(
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    scope: CreativeScope,
+    selections: list[MediaModelSelection],
+    *,
+    catalogue: MediaCatalogue,
+) -> list[MediaModelChoice]:
+    """CR-E8 and Law 36: one selection per enabled modality, each on the
+    admin allowlist, present in the live catalogue, with defaults the pinned
+    capability record accepts. Returns the choices with their capability
+    snapshotted; raises `CreativeInputError` naming the modality otherwise.
     """
-    if media_models or scope.images or scope.video:
+    wanted = enabled_modalities(scope)
+    seen: set[str] = set()
+    for selection in selections:
+        if selection.modality not in wanted or selection.modality in seen:
+            raise CreativeInputError(
+                "media_model_out_of_scope",
+                f"A {selection.modality} model was selected, but this run's scope "
+                + (
+                    "already has one."
+                    if selection.modality in seen
+                    else f"has {selection.modality} off."
+                ),
+                modality=selection.modality,
+            )
+        seen.add(selection.modality)
+
+    workspace = await db.get(Workspace, workspace_id)
+    by_modality = {s.modality: s for s in selections}
+    choices: list[MediaModelChoice] = []
+    for modality in wanted:
+        chosen = by_modality.get(modality)
+        if chosen is None:
+            raise CreativeInputError(
+                "media_model_unselected",
+                f"{modality.capitalize()} is on for this run but no {modality} model is "
+                "selected. Choose one from the allowlist, or turn it off.",
+                modality=modality,
+            )
+        entry = next(
+            (
+                e
+                for e in allowlist(workspace, modality)
+                if e.get("enabled", True)
+                and e.get("model_id") == chosen.model_id
+                and (chosen.provider_tag is None or e.get("provider_tag") == chosen.provider_tag)
+            ),
+            None,
+        )
+        if entry is None:
+            raise CreativeInputError(
+                "media_model_not_allowlisted",
+                f"The {modality} model {chosen.model_id} is not on this workspace's "
+                f"{modality} allowlist. An admin adds it under Settings → Models → Media "
+                "generation, or choose one that is.",
+                modality=modality,
+                model_id=chosen.model_id,
+            )
+        provider_tag = entry.get("provider_tag")
+        try:
+            record = await catalogue.record_for(modality, chosen.model_id, provider_tag)
+        except CatalogueUnavailable as unavailable:
+            raise CreativeInputError(
+                "media_model_unavailable",
+                str(unavailable),
+                modality=modality,
+                model_id=chosen.model_id,
+            ) from unavailable
+        if record is None:
+            raise CreativeInputError(
+                "media_model_unavailable",
+                f"The {modality} model {chosen.model_id}"
+                + (f" on {provider_tag}" if provider_tag else "")
+                + " is not in OpenRouter's live catalogue any more. Choose another "
+                "allowlisted model; nothing is swapped automatically.",
+                modality=modality,
+                model_id=chosen.model_id,
+            )
+        defaults = _validated_defaults(modality, chosen.defaults, record)
+        choices.append(
+            MediaModelChoice(
+                modality=modality,
+                model_id=chosen.model_id,
+                provider_tag=provider_tag,
+                capability=record.model_dump(mode="json"),
+                capability_hash=capability_hash(record),
+                defaults=defaults,
+            )
+        )
+    return choices
+
+
+def _validated_defaults(
+    modality: str, defaults: dict[str, Any], record: CapabilityRecord
+) -> dict[str, Any]:
+    unknown = sorted(set(defaults) - DEFAULT_FIELDS[modality])
+    if unknown:
         raise CreativeInputError(
-            "media_not_configured",
-            "Image and video generation are not available yet: no media model can be "
-            "selected in this release. Start a text-only run (images and video off, no "
-            "media models).",
+            "capability_unsupported",
+            f"{unknown[0]!r} is not a {modality} default; defaults may set "
+            f"{', '.join(sorted(DEFAULT_FIELDS[modality]))}.",
+            field=unknown[0],
+            supported=[],
+            modality=modality,
+        )
+    probe: MediaRequest
+    try:
+        if modality == "image":
+            probe = ImageRequest(model=record.model_id, prompt="(defaults)", **defaults)
+        else:
+            probe = VideoRequest(model=record.model_id, prompt="(defaults)", **defaults)
+    except ValidationError as exc:
+        first = exc.errors()[0]
+        field = str(first["loc"][0]) if first.get("loc") else "defaults"
+        raise CreativeInputError(
+            "capability_unsupported",
+            f"{field}: {first['msg']}",
+            field=field,
+            supported=[],
+            modality=modality,
+        ) from exc
+    errors = validate(probe, record)
+    if errors:
+        first_error = errors[0]
+        raise CreativeInputError(
+            "capability_unsupported",
+            f"{record.model_id} does not support {first_error.field}={first_error.value!r}"
+            + (f"; it accepts {first_error.supported}." if first_error.supported else "."),
+            field=first_error.field,
+            supported=first_error.supported,
+            modality=modality,
+            errors=[e.model_dump(mode="json") for e in errors],
+        )
+    return dict(defaults)
+
+
+def required_ratios(pin: PublishedPin, campaign_type: str) -> tuple[list[str], list[str]]:
+    """`(image ratios, video ratios)` the pinned spec sheet requires for one
+    campaign type. A logo is fitted by padding (Law 38), never generated."""
+    specs = ((pin.ruleset.compiled or {}).get("asset_specs") or {}).get("specs") or {}
+    image: list[str] = []
+    video: list[str] = []
+    for asset_type, spec in (specs.get(campaign_type) or {}).items():
+        ratio = (spec or {}).get("ratio") if isinstance(spec, dict) else None
+        if not ratio or "logo" in asset_type:
+            continue
+        bucket = video if "video" in asset_type else image
+        if ratio not in bucket:
+            bucket.append(str(ratio))
+    return image, video
+
+
+def estimate_inputs(
+    plan: PlanContract,
+    pin: PublishedPin,
+    scope: CreativeScope,
+    choices: list[MediaModelChoice],
+    caps: BudgetCaps,
+) -> dict[str, Any]:
+    """The arguments `media.cost_estimate_v1` prices a scope from — gathered
+    here, computed in `calc/` (law 14)."""
+    wanted = set(scope.campaign_refs) or set(campaign_refs(plan))
+    campaigns = []
+    for campaign in plan.account_structure.campaigns:
+        ref = campaign.campaign_ref or campaign.name
+        if ref not in wanted:
+            continue
+        image_ratios, video_ratios = required_ratios(pin, campaign.type)
+        campaigns.append(
+            {"campaign_ref": ref, "image_ratios": image_ratios, "video_ratios": video_ratios}
+        )
+    by_modality = {c.modality: c for c in choices}
+
+    def model(modality: str) -> dict[str, Any] | None:
+        choice = by_modality.get(modality)  # type: ignore[call-overload]
+        if choice is None:
+            return None
+        return {"capability": choice.capability, "params": dict(choice.defaults)}
+
+    return {
+        "campaigns": campaigns,
+        "scope": {
+            "images": scope.images,
+            "video": scope.video,
+            "concepts_per_campaign": scope.concepts_per_campaign,
+        },
+        "image": model("image"),
+        "video": model("video"),
+        "text_usd": TEXT_ESTIMATE_USD,
+        "caps": {
+            "max_creative_cost_usd": str(caps.max_creative_cost_usd),
+            "max_media_cost_usd": str(caps.max_media_cost_usd),
+        },
+    }
+
+
+def ratio_inputs(
+    plan: PlanContract, pin: PublishedPin, scope: CreativeScope, choices: list[MediaModelChoice]
+) -> dict[str, Any]:
+    """The arguments of `media.ratio_plan_v1`: every ratio any campaign in
+    scope requires, against each chosen model."""
+    inputs = estimate_inputs(
+        plan,
+        pin,
+        scope,
+        choices,
+        BudgetCaps(max_creative_cost_usd=Decimal(0), max_media_cost_usd=Decimal(0)),
+    )
+    image: list[str] = []
+    video: list[str] = []
+    for campaign in inputs["campaigns"]:
+        image += [r for r in campaign["image_ratios"] if r not in image]
+        video += [r for r in campaign["video_ratios"] if r not in video]
+    by_modality = {c.modality: c.capability for c in choices}
+    return {
+        "image_ratios": image,
+        "video_ratios": video,
+        "image": by_modality.get("image"),
+        "video": by_modality.get("video"),
+    }
+
+
+def check_choices_cover(scope: CreativeScope, media_models: list[MediaModelChoice]) -> None:
+    """A `CreativeInput` carries exactly one choice per enabled modality."""
+    wanted = enabled_modalities(scope)
+    have = [choice.modality for choice in media_models]
+    if sorted(have) != sorted(wanted):
+        missing = sorted(set(wanted) - set(have))
+        if missing:
+            raise CreativeInputError(
+                "media_model_unselected",
+                f"{missing[0].capitalize()} is on for this run but no {missing[0]} model is "
+                "selected.",
+                modality=missing[0],
+            )
+        raise CreativeInputError(
+            "media_model_out_of_scope",
+            "A media model was chosen for a modality this run has off, or twice.",
         )
 
 
@@ -309,7 +599,7 @@ async def build_creative_input(
     input names its run and is hashed into that run's `input_hash`, so the id
     has to be known before either is written.
     """
-    reject_media(scope, media_models)
+    check_choices_cover(scope, media_models)
 
     project = (
         await db.execute(
@@ -410,7 +700,7 @@ async def build_creative_input(
         ),
         context_ref=CreativeContextRef(hash=context.hash),
         scope=scope.model_copy(update={"campaign_refs": wanted}),
-        media_models=[],
+        media_models=list(media_models),
         audience=AudienceSlice(
             best_customers=research.business_context.segments,
             not_wanted=research.business_context.exclusions,

@@ -33,7 +33,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal, InvalidOperation
-from typing import Any, Literal, Protocol
+from typing import Any, Literal
 
 import httpx
 import structlog
@@ -60,12 +60,6 @@ class CatalogueUnavailable(RuntimeError):
     """No usable catalogue: the read failed and no snapshot ≤ 24 h exists."""
 
 
-class _Redis(Protocol):
-    async def get(self, name: str) -> Any: ...
-
-    async def set(self, name: str, value: Any, ex: int | None = None) -> Any: ...
-
-
 @dataclass(frozen=True, slots=True)
 class CatalogueSnapshot:
     """One normalised catalogue read, as fresh as `fetched_at` says."""
@@ -85,7 +79,7 @@ class MediaCatalogue:
         self,
         *,
         client: httpx.AsyncClient,
-        redis: _Redis,
+        redis: Any,
         base_url: str,
         api_key: str | None = None,
         referer: str = "",
