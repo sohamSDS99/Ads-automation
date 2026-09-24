@@ -84,6 +84,12 @@ class LaunchRequest:
     #: there and forbidden elsewhere — `ck_run_guideline_has_bindings` is the
     #: backstop, and it insists on a JSON object rather than merely not-NULL.
     bindings: dict[str, str | int | None] | None = None
+    #: `stage=creative` only: the append-only `[{ruleset_version, reason, at}]`
+    #: the run is made under (Stage 04 PRD §4.4). NULL for every other stage.
+    pins: list[dict[str, str]] | None = None
+    #: A pre-minted id. Stage 04 needs it: `CreativeInput` names its run and
+    #: is hashed into that run's `input_hash`, so the id exists before the row.
+    run_id: uuid.UUID | None = None
     #: Extra fields folded into the audit row — how the scheduler records which
     #: schedule fired.
     audit_meta: dict[str, str | None] = field(default_factory=dict)
@@ -97,8 +103,10 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
     previous = await runs.latest_succeeded(project.id, stage=request.stage)
 
     run = Run(
+        **({"id": request.run_id} if request.run_id else {}),
         project_id=project.id,
         stage=request.stage,
+        pins=request.pins,
         source_run_id=request.source_run_id,
         input_hash=request.input_hash,
         bindings=request.bindings,
@@ -134,6 +142,7 @@ async def launch(db: AsyncSession, redis: Redis, request: LaunchRequest) -> Run:
         action={
             RunStage.PLAN: AuditAction.PLAN_STARTED,
             RunStage.GUIDELINE: AuditAction.GUIDELINE_STARTED,
+            RunStage.CREATIVE: AuditAction.CREATIVE_STARTED,
         }.get(request.stage, AuditAction.RUN_LAUNCHED),
         target_type=AuditTarget.RUN,
         target_id=run.id,
