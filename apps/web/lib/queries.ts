@@ -65,6 +65,13 @@ import type { PlanCalcRow } from "@/lib/api/plan";
 import { getProject, listProjectRuns, listProjects } from "@/lib/api/projects";
 import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
+import {
+  checkGenerationJob,
+  getCreativeBrief,
+  isJobInFlight,
+  listCreativeAssets,
+  listGenerationJobs,
+} from "@/lib/api/creative-runs";
 import { listUsers } from "@/lib/api/users";
 import { getRunDiff } from "@/lib/api/diff";
 import { listSchedules } from "@/lib/api/schedules";
@@ -130,6 +137,11 @@ export const keys = {
   creativeEstimate: (projectId: string, request: string) =>
     ["projects", projectId, "creative", "estimate", request] as const,
   planCampaigns: (planRunId: string) => ["plans", planRunId, "campaigns"] as const,
+  // A creative run's own reads, under `run(runId)`: whatever refreshes the run
+  // — an SSE reconnect, a decided gate — refreshes these with it.
+  creativeBrief: (runId: string) => ["runs", runId, "creative", "brief"] as const,
+  creativeAssets: (runId: string) => ["runs", runId, "creative", "assets"] as const,
+  generationJobs: (runId: string) => ["runs", runId, "creative", "generation-jobs"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -611,6 +623,56 @@ export function useSessions() {
   return useQuery({ queryKey: keys.sessions, queryFn: listSessions });
 }
 
+/** How often a creative console re-reads its run, and its jobs while one moves. */
+export const CREATIVE_POLL_MS = 5_000;
+
+/** The brief on record (Stage 04 PRD §15.4 D). A 404 means 4.1.1 has not written it yet. */
+export function useCreativeBrief(runId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.creativeBrief(runId),
+    queryFn: () => getCreativeBrief(runId),
+    enabled,
+    retry: false,
+  });
+}
+
+/** What the run wrote. The Assets tab filters it to one node for display. */
+export function useCreativeAssets(runId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.creativeAssets(runId),
+    queryFn: () => listCreativeAssets(runId),
+    enabled,
+  });
+}
+
+/**
+ * Every media request of the run. Polled while a job is in flight — a video
+ * moves on OpenRouter's side with no event of its own — or while a "Check
+ * again" is waiting for the worker (`watching`).
+ */
+export function useGenerationJobs(runId: string, options: { enabled?: boolean; watching?: boolean } = {}) {
+  return useQuery({
+    queryKey: keys.generationJobs(runId),
+    queryFn: () => listGenerationJobs(runId),
+    enabled: options.enabled ?? true,
+    refetchInterval: (query) =>
+      options.watching || query.state.data?.items.some((job) => isJobInFlight(job.status))
+        ? CREATIVE_POLL_MS
+        : false,
+  });
+}
+
+/** "Check again" (§16). The worker re-polls; the list is asked again at once. */
+export function useCheckGenerationJob(runId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: (jobId: string) => checkGenerationJob(jobId),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.generationJobs(runId) });
+    },
+  });
+}
+
 /** The one-line message for a failed query, without leaking a stack trace. */
 export function errorMessage(query: UseQueryResult<unknown, unknown>): string | null {
   if (!query.isError) return null;
@@ -625,8 +687,18 @@ export function errorMessage(query: UseQueryResult<unknown, unknown>): string | 
  * this on every reconnect. Polling as well would be a second source of truth
  * arriving at a different time.
  */
-export function useRun(runId: string) {
-  return useQuery({ queryKey: keys.run(runId), queryFn: () => getRun(runId) });
+export function useRun(runId: string, options: { pollMs?: number } = {}) {
+  return useQuery({
+    queryKey: keys.run(runId),
+    queryFn: () => getRun(runId),
+    // Polled only when asked, and only while the run is live: the creative
+    // console's spend meters move with media jobs, which the SSE feed does
+    // not announce. Every other console is kept current by the stream alone.
+    refetchInterval: (query) =>
+      options.pollMs && query.state.data && isLive(query.state.data.status)
+        ? options.pollMs
+        : false,
+  });
 }
 
 export function useNodeRun(runId: string, nodeId: string | null, enabled = true) {

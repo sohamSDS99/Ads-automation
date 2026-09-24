@@ -16,7 +16,17 @@ export type NodeStatus =
   | "failed"
   | "skipped";
 
-export type TaskClass = "extract" | "classify" | "synthesize" | "critique";
+export type TaskClass =
+  | "extract"
+  | "classify"
+  | "synthesize"
+  | "critique"
+  // Stage 04 (S4-P4): copy is written by `copywrite`, briefs are read by
+  // `vision`, and media nodes declare the two generation classes.
+  | "copywrite"
+  | "vision"
+  | "image_gen"
+  | "video_gen";
 
 export type NodeState = {
   id: string;
@@ -102,7 +112,18 @@ export type RunDetail = {
    * is still there after a reload, unlike anything only announced over SSE.
    */
   degraded_sources: DegradedSource[];
+  /**
+   * A creative run's two meters (Stage 04 PRD §15.4 C, law 43): total and
+   * media, each spent + reserved against its own cap — the numbers the
+   * reserve script compares before it grants a media job. Null on every other
+   * stage, and when the api cannot say what is reserved; optional because an
+   * api older than this build does not send it.
+   */
+  creative_spend?: CreativeSpend | null;
 };
+
+export type SpendMeter = { spent_usd: string; reserved_usd: string; cap_usd: string };
+export type CreativeSpend = { total: SpendMeter; media: SpendMeter };
 
 export type NodeRunDetail = {
   run_id: string;

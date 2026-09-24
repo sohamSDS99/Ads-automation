@@ -38,7 +38,25 @@ export const STAGE_TITLE: Record<string, string> = {
   "3.4": "Pin down the asset specs",
   "3.5": "Decide who signs off on what",
   "3.6": "Write the rulebook",
+
+  // Stage 04, the creative DAG (Stage 04 PRD §11), in §11's own headings. The
+  // rail lists them 4.1 → 4.7 even though 4.5 runs before 4.3: a person looks
+  // a stage up by its number, and the canvas is what shows the order.
+  "4.1": "Write the brief",
+  "4.2": "Write the search ads",
+  "4.3": "Write the extras",
+  "4.4": "Produce images and video",
+  "4.5": "Get the landing page right",
+  "4.6": "Check before anything goes live",
+  "4.7": "Package",
 };
+
+/**
+ * The creative DAG's media branch (§11 4.4): it runs beside the copy from the
+ * brief to the pre-flight checks, and the canvas draws it in its own lane so
+ * that reads as parallel rather than as rows interleaved with copy nodes.
+ */
+export const MEDIA_STAGE = "4.4";
 
 export function stageTitle(stage: string): string {
   return STAGE_TITLE[stage] ?? `Stage ${stage}`;

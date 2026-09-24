@@ -38,6 +38,12 @@
   --font-mono: var(--font-mono);
 
   --radius-token: var(--radius);
+
+  /* The height <main> gives a page: the viewport less the shell's h-14 top bar
+     and main's p-6 above and below (components/shell/app-shell.tsx, topbar.tsx).
+     A console sized to it fits the screen and scrolls inside its own rail and
+     panels, which is how its sticky stage headings are meant to work. `h-main`. */
+  --spacing-main: calc(100dvh - 6.5rem);
   --shadow-overlay: var(--shadow-overlay);
 }
 
@@ -192,4 +198,13 @@
     opacity: 0;
     transform: translateX(24px);
   }
+}
+
+/* React Flow's attribution is kept (dag-canvas.tsx), but its link is 11px text:
+   WCAG 2.2 AA 2.5.8 asks for a 24px target, and axe flags it on every canvas. */
+.react-flow__attribution a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 1.5rem;
+  padding-inline: 0.25rem;
 }

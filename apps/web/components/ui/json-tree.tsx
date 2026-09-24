@@ -51,7 +51,7 @@ function Node({ label, value, depth }: { label: string | null; value: unknown; d
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="flex w-full items-center gap-1 rounded-[calc(var(--radius)-6px)] text-left hover:bg-surface-hover"
+        className="flex min-h-6 w-full items-center gap-1 rounded-[calc(var(--radius)-6px)] text-left hover:bg-surface-hover"
       >
         <ChevronRight
           aria-hidden

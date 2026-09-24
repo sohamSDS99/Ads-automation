@@ -30,7 +30,7 @@ export function StageRail({
     <nav aria-label="Run nodes" className={cn("overflow-y-auto", className)}>
       {byStage(nodes).map(({ stage, nodes: group }) => (
         <section key={stage}>
-          <h3 className="sticky top-0 z-10 flex items-baseline gap-2 border-b bg-surface px-3 py-2 backdrop-blur">
+          <h3 className="sticky top-0 z-10 flex items-baseline gap-2 border-b bg-surface px-3 py-2">
             <span className="font-mono text-xs text-fg-subtle">{stage}</span>
             <span className="truncate text-xs font-medium text-fg-muted">{stageTitle(stage)}</span>
           </h3>
@@ -65,7 +65,16 @@ export function StageRail({
                       ) : null}
                     </span>
                     <span className="flex items-baseline gap-2">
-                      <span className="font-mono text-[0.6875rem] text-fg-subtle">{node.id}</span>
+                      {/* Muted, not subtle, on the selected row: fg-subtle on
+                          the accent tint is under 4.5:1 in both themes. */}
+                      <span
+                        className={cn(
+                          "font-mono text-[0.6875rem]",
+                          node.id === selected ? "text-fg-muted" : "text-fg-subtle",
+                        )}
+                      >
+                        {node.id}
+                      </span>
                       <NodeStatusLabel status={node.status} />
                     </span>
                   </span>

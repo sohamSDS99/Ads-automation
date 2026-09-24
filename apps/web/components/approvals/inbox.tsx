@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
+import { BriefGateSummary } from "@/components/creative/brief-gate-summary";
 import { Alert } from "@/components/ui/alert";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -138,24 +139,31 @@ function InboxRow({ approval, onDecided }: { approval: ApprovalItem; onDecided: 
 
       {open ? (
         <div className="border-t p-3">
-          <ApprovalCard
-            approval={approval}
-            onDecided={onDecided}
-            titled={false}
-            className="border-0"
-            header={
-              <p className="mt-0.5 text-xs text-fg-subtle">
-                <span className="font-mono">{approval.node_id}</span>
-                {" · "}
-                <Link
-                  href={`/projects/${approval.project_id}/runs/${approval.run_id}`}
-                  className="text-accent hover:underline"
-                >
-                  Open the run console
-                </Link>
-              </p>
-            }
-          />
+          {/* Stage 04's G7 is decided beside the brief it approves and the
+              spend it authorises (§15.4 D), so the inbox hands over to the
+              brief page instead of offering a decision without either. */}
+          {approval.gate_key === "G7" ? (
+            <BriefGateSummary approval={approval} projectId={approval.project_id} />
+          ) : (
+            <ApprovalCard
+              approval={approval}
+              onDecided={onDecided}
+              titled={false}
+              className="border-0"
+              header={
+                <p className="mt-0.5 text-xs text-fg-subtle">
+                  <span className="font-mono">{approval.node_id}</span>
+                  {" · "}
+                  <Link
+                    href={`/projects/${approval.project_id}/runs/${approval.run_id}`}
+                    className="text-accent hover:underline"
+                  >
+                    Open the run console
+                  </Link>
+                </p>
+              }
+            />
+          )}
         </div>
       ) : null}
     </div>

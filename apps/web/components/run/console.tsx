@@ -5,7 +5,8 @@ import { CalendarClock, FileText, LayoutGrid, List, Loader2, RefreshCw } from "l
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { DagCanvas } from "@/components/run/dag-canvas";
+import { SpendMeters } from "@/components/creative/spend-meters";
+import { DagCanvas, type Lane } from "@/components/run/dag-canvas";
 import { LogDrawer } from "@/components/run/log-drawer";
 import { NodeDot, NodeStatusLabel } from "@/components/run/node-status";
 import { NodePanel } from "@/components/run/node-panel";
@@ -13,19 +14,39 @@ import { DegradedBanner } from "@/components/run/degraded-banner";
 import { PresenceRow } from "@/components/run/presence-row";
 import { RunControls } from "@/components/run/run-controls";
 import { StageRail } from "@/components/run/stage-rail";
+import { MEDIA_STAGE } from "@/components/run/stages";
 import { Alert } from "@/components/ui/alert";
 import { Avatar } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StatusPill } from "@/components/ui/status-pill";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
-import { isLive, nodeLabel, type RunDetail, type RunStage } from "@/lib/api/runs";
+import { isLive, nodeLabel, type NodeState, type RunDetail, type RunStage } from "@/lib/api/runs";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
-import { errorMessage, keys, useApprovals, useRun } from "@/lib/queries";
+import { CREATIVE_POLL_MS, errorMessage, keys, useApprovals, useRun } from "@/lib/queries";
 import { describe, useRunStream, type RunEvent } from "@/lib/run-events";
 import { applyRunEvent } from "@/lib/run-reduce";
 import { useRunConsole } from "@/lib/stores/run-console";
 import { cn } from "@/lib/utils";
+
+/** Where each stage's console lives, and what a person calls that stage. */
+const CONSOLE: Record<RunStage, { name: string; path: string }> = {
+  research: { name: "research", path: "runs" },
+  plan: { name: "campaign planning", path: "plan/runs" },
+  guideline: { name: "content guidelines", path: "guidelines/runs" },
+  creative: { name: "copy & creative", path: "creative/runs" },
+};
+
+const MEDIA_LANE: Lane = {
+  id: "media",
+  label: "Media branch",
+  hint: "runs beside the copy, from the brief to the pre-flight checks",
+};
+
+/** Stage 04's media branch in its own lane (§15.4 C); everything else on the main line. */
+function creativeLane(node: NodeState): Lane | null {
+  return node.stage === MEDIA_STAGE ? MEDIA_LANE : null;
+}
 
 /**
  * The run console (PRD §13.4 B).
@@ -53,7 +74,9 @@ export function RunConsole({
   stage?: RunStage;
 }) {
   const queryClient = useQueryClient();
-  const run = useRun(runId);
+  // A creative run's meters move with media jobs, which the stream does not
+  // announce, so its console re-reads the run while it is live.
+  const run = useRun(runId, { pollMs: stage === "creative" ? CREATIVE_POLL_MS : undefined });
   const approvals = useApprovals({ run_id: runId });
   const [selected, setSelected] = useState<string | null>(null);
   const [view, setView] = useState<"canvas" | "list">("canvas");
@@ -162,16 +185,12 @@ export function RunConsole({
   // guard that treated "the api is older than this build" as "wrong stage"
   // would blank every console in the gap. Unknown is not mismatched.
   if (detail.stage !== undefined && detail.stage !== stage) {
-    const href =
-      detail.stage === "plan"
-        ? `/projects/${projectId}/plan/runs/${runId}`
-        : `/projects/${projectId}/runs/${runId}`;
+    const href = `/projects/${projectId}/${CONSOLE[detail.stage].path}/${runId}`;
     return (
-      <Alert tone="warning" title="This run belongs to the other stage">
+      <Alert tone="warning" title="This run belongs to another stage">
         <p>
-          {detail.stage === "plan"
-            ? "This is a campaign planning run, opened under the research console."
-            : "This is a research run, opened under the campaign planning console."}
+          This is a {CONSOLE[detail.stage].name} run, opened under the {CONSOLE[stage].name}{" "}
+          console.
         </p>
         <Link href={href} className="mt-2 inline-block text-accent hover:underline">
           Open it where it belongs
@@ -187,6 +206,7 @@ export function RunConsole({
           <StatusPill status={detail.status} />
           <Attribution run={detail} />
         </div>
+        {stage === "creative" ? <SpendMeters spend={detail.creative_spend} /> : null}
         <div className="flex items-center gap-3">
           <PresenceRow runId={runId} />
           <StreamState state={stream} live={live} />
@@ -209,6 +229,15 @@ export function RunConsole({
             >
               <FileText className="size-4" aria-hidden />
               Report
+            </Link>
+          ) : null}
+          {stage === "creative" ? (
+            <Link
+              href={`/projects/${projectId}/creative/runs/${runId}/brief`}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <FileText className="size-4" aria-hidden />
+              Brief
             </Link>
           ) : null}
         </div>
@@ -257,6 +286,7 @@ export function RunConsole({
               edges={detail.edges}
               selected={selected}
               onSelect={setSelected}
+              laneOf={stage === "creative" ? creativeLane : undefined}
             />
           ) : (
             <NodeTable nodes={nodes} selected={selected} onSelect={setSelected} />
@@ -289,7 +319,9 @@ export function RunConsole({
       </div>
 
       <LogDrawer />
-      <RunControls run={detail} />
+      {/* A creative run's spend is the header's two meters; a third, single
+          one here would be drawn against a cap the run is not held to. */}
+      <RunControls run={detail} showSpend={stage !== "creative"} />
     </div>
   );
 }

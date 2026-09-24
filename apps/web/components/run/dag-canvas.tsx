@@ -34,6 +34,13 @@ import { cn } from "@/lib/utils";
  */
 const COLUMN = 260;
 const ROW = 96;
+/** A node card's drawn size — `w-[200px]` and two lines of text. */
+const NODE_WIDTH = 200;
+const NODE_HEIGHT = 58;
+/** Air between two lanes, and a lane band's padding around its nodes. */
+const LANE_GAP = 72;
+const LANE_PAD = 16;
+const LANE_LABEL = 28;
 
 type FlowData = {
   node: NodeState;
@@ -43,24 +50,40 @@ type FlowData = {
 
 type FlowNode = Node<FlowData, "researchNode">;
 
+/**
+ * A lane a node is drawn in. Nodes of one lane share a band of rows, so a
+ * branch that runs beside the main line — Stage 04's media branch — reads as
+ * parallel instead of as rows interleaved with the copy nodes it runs beside.
+ * `null` is the main line, which gets no band.
+ */
+export type Lane = { id: string; label: string; hint: string };
+
+type LaneData = { label: string; hint: string };
+type LaneFlowNode = Node<LaneData, "lane">;
+
+type Band = { lane: Lane; x: number; y: number; width: number; height: number };
+
 export function DagCanvas({
   nodes,
   edges,
   selected,
   onSelect,
+  laneOf,
   className,
 }: {
   nodes: NodeState[];
   edges: DagEdge[];
   selected: string | null;
   onSelect: (nodeId: string) => void;
+  /** Which lane a node is drawn in; omitted, every node is on the main line. */
+  laneOf?: (node: NodeState) => Lane | null;
   className?: string;
 }) {
   const colorMode = useResolvedColorMode();
 
-  const flowNodes = useMemo<FlowNode[]>(() => {
-    const placed = layout(nodes, edges);
-    return nodes.map((node) => ({
+  const flowNodes = useMemo<(FlowNode | LaneFlowNode)[]>(() => {
+    const { placed, bands } = layout(nodes, edges, laneOf);
+    const cards: FlowNode[] = nodes.map((node) => ({
       id: node.id,
       type: "researchNode" as const,
       position: placed.get(node.id) ?? { x: 0, y: 0 },
@@ -69,7 +92,21 @@ export function DagCanvas({
       connectable: false,
       selectable: true,
     }));
-  }, [nodes, edges, selected, onSelect]);
+    // Bands go first and under everything: they are a place, not a node.
+    const lanes: LaneFlowNode[] = bands.map((band) => ({
+      id: `lane:${band.lane.id}`,
+      type: "lane" as const,
+      position: { x: band.x, y: band.y },
+      data: { label: band.lane.label, hint: band.lane.hint },
+      style: { width: band.width, height: band.height },
+      draggable: false,
+      connectable: false,
+      selectable: false,
+      focusable: false,
+      zIndex: -1,
+    }));
+    return [...lanes, ...cards];
+  }, [nodes, edges, selected, onSelect, laneOf]);
 
   const flowEdges = useMemo<Edge[]>(() => {
     const status = new Map(nodes.map((node) => [node.id, node.status]));
@@ -109,7 +146,9 @@ export function DagCanvas({
           const viewport = instance.getViewport();
           if (viewport.zoom <= 0.56) instance.setViewport({ ...viewport, x: 24 });
         }}
-        onNodeClick={(_, node) => onSelect(node.id)}
+        onNodeClick={(_, node) => {
+          if (node.type !== "lane") onSelect(node.id);
+        }}
         aria-label="Run graph"
       >
         <Background variant={BackgroundVariant.Dots} gap={18} size={1} color="var(--border)" />
@@ -151,15 +190,36 @@ function ResearchNode({ data }: NodeProps<FlowNode>) {
   );
 }
 
-const NODE_TYPES = { researchNode: ResearchNode };
+/** A lane's band: its name and what it runs beside, and nothing to click. */
+function LaneNode({ data }: NodeProps<LaneFlowNode>) {
+  return (
+    <div
+      aria-hidden
+      className="pointer-events-none h-full w-full rounded-token border bg-surface"
+    >
+      <p className="px-3 pt-2 text-xs">
+        <span className="font-medium text-fg-muted">{data.label}</span>
+        <span className="text-fg-subtle"> · {data.hint}</span>
+      </p>
+    </div>
+  );
+}
+
+const NODE_TYPES = { researchNode: ResearchNode, lane: LaneNode };
 
 /**
  * Column = longest path from a root; row = order within the column.
  *
  * Longest path rather than shortest: a node runs when its *last* dependency
- * finishes, so that is the column it is actually reached in.
+ * finishes, so that is the column it is actually reached in. With lanes, each
+ * lane is its own band of rows under the one before it, and the columns stay
+ * shared — so two branches in the same columns read as running side by side.
  */
-function layout(nodes: NodeState[], edges: DagEdge[]): Map<string, { x: number; y: number }> {
+function layout(
+  nodes: NodeState[],
+  edges: DagEdge[],
+  laneOf?: (node: NodeState) => Lane | null,
+): { placed: Map<string, { x: number; y: number }>; bands: Band[] } {
   const present = new Set(nodes.map((node) => node.id));
   const incoming = new Map<string, string[]>();
   for (const node of nodes) incoming.set(node.id, []);
@@ -184,23 +244,56 @@ function layout(nodes: NodeState[], edges: DagEdge[]): Map<string, { x: number; 
   };
   for (const node of nodes) resolve(node.id, new Set());
 
-  const columns = new Map<number, string[]>();
+  // Lanes in order of first appearance; the main line (no lane) first.
+  const MAIN = "";
+  const order: string[] = [MAIN];
+  const meta = new Map<string, Lane>();
+  const laneColumns = new Map<string, Map<number, string[]>>([[MAIN, new Map()]]);
   for (const node of nodes) {
+    const lane = laneOf?.(node) ?? null;
+    const key = lane?.id ?? MAIN;
+    if (lane && !meta.has(key)) {
+      meta.set(key, lane);
+      order.push(key);
+      laneColumns.set(key, new Map());
+    }
+    const columns = laneColumns.get(key)!;
     const column = depth.get(node.id) ?? 0;
     columns.set(column, [...(columns.get(column) ?? []), node.id]);
   }
 
-  const tallest = Math.max(...[...columns.values()].map((column) => column.length), 1);
   const placed = new Map<string, { x: number; y: number }>();
-  for (const [column, ids] of columns) {
-    // Columns are centred against the tallest one, so the graph reads as a
-    // spine rather than as a staircase hanging off the top edge.
-    const offset = ((tallest - ids.length) * ROW) / 2;
-    ids.forEach((id, index) => {
-      placed.set(id, { x: column * COLUMN, y: offset + index * ROW });
-    });
+  const bands: Band[] = [];
+  let top = 0;
+  for (const key of order) {
+    const columns = laneColumns.get(key)!;
+    if (columns.size === 0) continue;
+    const banded = meta.get(key);
+    if (banded && top > 0) top += LANE_GAP - (ROW - NODE_HEIGHT);
+    const laneTop = top + (banded ? LANE_LABEL : 0);
+    const tallest = Math.max(...[...columns.values()].map((column) => column.length), 1);
+    for (const [column, ids] of columns) {
+      // Columns are centred against the lane's tallest one, so each lane reads
+      // as a spine rather than as a staircase hanging off its top edge.
+      const offset = ((tallest - ids.length) * ROW) / 2;
+      ids.forEach((id, index) => {
+        placed.set(id, { x: column * COLUMN, y: laneTop + offset + index * ROW });
+      });
+    }
+    if (banded) {
+      const first = Math.min(...columns.keys());
+      const last = Math.max(...columns.keys());
+      bands.push({
+        lane: banded,
+        x: first * COLUMN - LANE_PAD,
+        y: top - LANE_PAD,
+        width: (last - first) * COLUMN + NODE_WIDTH + LANE_PAD * 2,
+        height: LANE_LABEL + (tallest - 1) * ROW + NODE_HEIGHT + LANE_PAD * 2,
+      });
+    }
+    top = laneTop + tallest * ROW;
   }
-  return placed;
+  return { placed, bands };
 }
 
 /**
