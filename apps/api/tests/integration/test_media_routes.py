@@ -448,3 +448,31 @@ async def test_an_allowlisted_media_run_is_eligible_and_its_input_pins_the_capab
     (pinned,) = built.media_models
     assert pinned.model_id == FLUX and pinned.capability["pricing"][0]["unit"] == "megapixel"
     assert len(pinned.capability_hash) == 64
+
+
+async def test_workspace_defaults_apply_under_a_project_choice_where_the_model_takes_them(
+    admin: ApiClient, db: AsyncSession, workspace_id: uuid.UUID
+) -> None:
+    from agent.api.schemas_media import MediaModelSelection
+    from agent.orchestrator.creative_input import resolve_media_models
+    from agent.schemas.creative_input import CreativeScope
+    from tests.media.replay import replay_catalogue
+
+    await _allowlist(admin)
+    saved = await admin.put(
+        "/settings/media",
+        json={"media_defaults": {"video": {"resolution": "720p", "size": "640x480"}, "image": {}}},
+    )
+    assert saved.status_code == 200, saved.text
+
+    (choice,) = await resolve_media_models(
+        db,
+        workspace_id,
+        CreativeScope(images=False, video=True, concepts_per_campaign=2),
+        [MediaModelSelection(modality="video", model_id=VEO, defaults={"duration": 4})],
+        catalogue=replay_catalogue(),
+    )
+
+    # 720p applies; veo-lite has no 640x480, so that workspace default does
+    # not apply to it — and the project's own duration wins over neither.
+    assert choice.defaults == {"resolution": "720p", "duration": 4}

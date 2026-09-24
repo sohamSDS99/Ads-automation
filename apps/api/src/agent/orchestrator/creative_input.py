@@ -420,7 +420,8 @@ async def resolve_media_models(
                 modality=modality,
                 model_id=chosen.model_id,
             )
-        defaults = _validated_defaults(modality, chosen.defaults, record)
+        inherited = _applicable(modality, workspace_defaults(workspace, modality), record)
+        defaults = _validated_defaults(modality, {**inherited, **chosen.defaults}, record)
         choices.append(
             MediaModelChoice(
                 modality=modality,
@@ -432,6 +433,35 @@ async def resolve_media_models(
             )
         )
     return choices
+
+
+def workspace_defaults(workspace: Workspace | None, modality: str) -> dict[str, Any]:
+    raw = ((workspace.settings or {}) if workspace else {}).get(MEDIA_DEFAULTS_SETTING) or {}
+    entry = raw.get(modality) if isinstance(raw, dict) else None
+    return dict(entry) if isinstance(entry, dict) else {}
+
+
+def _applicable(
+    modality: str, defaults: dict[str, Any], record: CapabilityRecord
+) -> dict[str, Any]:
+    """The workspace defaults this model takes. A workspace default is written
+    for every model at once, so one the chosen model does not support does not
+    apply to it; a project's own defaults are validated strictly instead."""
+    kept: dict[str, Any] = {}
+    for field, value in defaults.items():
+        if field not in DEFAULT_FIELDS[modality]:
+            continue
+        try:
+            probe: MediaRequest = (
+                ImageRequest(model=record.model_id, prompt="(defaults)", **{field: value})
+                if modality == "image"
+                else VideoRequest(model=record.model_id, prompt="(defaults)", **{field: value})
+            )
+        except ValidationError:
+            continue
+        if not validate(probe, record):
+            kept[field] = value
+    return kept
 
 
 def _validated_defaults(
