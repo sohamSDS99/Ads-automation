@@ -221,6 +221,7 @@ async def seed_published(
     ruleset_schema: str = "1.0",
     signature_stale: bool = False,
     asset_specs: dict[str, Any] | None = None,
+    image_rule: bool = False,
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -262,6 +263,7 @@ async def seed_published(
             digest=digest,
             categories=categories,
             asset_specs=asset_specs,
+            image_rule=image_rule,
             schema_version=ruleset_schema,
         ),
         compiler_version="test",
@@ -293,6 +295,7 @@ def compiled_ruleset(
     categories: tuple[str, ...] = ALL_CATEGORIES,
     asset_specs: dict[str, Any] | None = None,
     schema_version: str = "1.0",
+    image_rule: bool = False,
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -315,6 +318,19 @@ def compiled_ruleset(
         )
         for category in categories
     ]
+    if image_rule:
+        # S4-P9: Stage 03's own text-coverage rule, so a candidate image can fail.
+        from agent.guardrails.matchers.image import text_coverage
+
+        rules.append(
+            Rule(
+                rule_id="image.text_coverage.v1",
+                category="image",
+                **text_coverage(authority=authority, maximum=0.20).model_dump(
+                    exclude={"rule_id", "category"}
+                ),
+            )
+        )
     claims = [
         ClaimRef(
             claim_id=LICENSED_CLAIM_ID,

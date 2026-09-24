@@ -86,6 +86,13 @@ Surface = Literal[
     "structured_snippet",
     "business_name",
     "landing_page_section",
+    # Stage 04 PRD §7.1, "Stage 03 deltas": the image surfaces a creative
+    # candidate or rendition is linted as. Additive — no Stage 03 rule names
+    # them, so every existing scope matches exactly what it matched before.
+    "search_image",
+    "pmax_image",
+    "display_image",
+    "demand_gen_image",
 ]
 
 #: The claim-shaped-language families of PRD §9.3. A detector does not decide

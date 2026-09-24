@@ -41,6 +41,7 @@ from agent.db.models import (
     CreativeExceptionKind,
     CreativeExceptionStatus,
     MediaReference,
+    Project,
 )
 from agent.media.capability import accepts_master
 from agent.media.types import CapabilityRecord, ReferenceImage
@@ -131,6 +132,14 @@ class ReferenceFacts:
 def references_allowed(project_settings: Mapping[str, Any] | None) -> bool:
     """`project.settings.media_references_allowed`, false unless set true (§13)."""
     return (project_settings or {}).get(REFERENCES_ALLOWED) is True
+
+
+async def project_allows_references(db: AsyncSession, project_id: uuid.UUID) -> bool:
+    """The setting as it is now — not as the `Project` a long-lived session
+    loaded at start: Law 44 is judged at the moment of use, and an admin may
+    have turned references off since."""
+    settings = await db.scalar(sa.select(Project.settings).where(Project.id == project_id))
+    return references_allowed(settings)
 
 
 def accepts_image_input(capability: CapabilityRecord | None) -> bool:
@@ -249,6 +258,32 @@ def reference_limit(capability: CapabilityRecord | None) -> int:
     assert capability is not None  # noqa: S101 — accepts_image_input checked it
     descriptor = capability.params["input_references"]
     return max(0, descriptor.max or 0)
+
+
+async def live_facts(
+    db: AsyncSession, *, project_id: uuid.UUID, reference_ids: Sequence[uuid.UUID]
+) -> list[ReferenceFacts]:
+    """The live rows behind a run's snapshot, in the snapshot's order.
+
+    `CreativeInput.references` is fixed at start; whether each may still go is
+    not — a reference retired since is judged as retired.
+    """
+    if not reference_ids:
+        return []
+    rows = {
+        row.id: row
+        for row in (
+            await db.execute(
+                sa.select(MediaReference).where(
+                    MediaReference.id.in_(list(reference_ids)),
+                    MediaReference.project_id == project_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    }
+    return [ReferenceFacts.of_row(rows[rid]) for rid in reference_ids if rid in rows]
 
 
 # ---------------------------------------------------------------------------

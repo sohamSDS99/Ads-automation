@@ -33,7 +33,11 @@
               "callout",
               "structured_snippet",
               "business_name",
-              "landing_page_section"
+              "landing_page_section",
+              "search_image",
+              "pmax_image",
+              "display_image",
+              "demand_gen_image"
             ],
             "type": "string"
           },
