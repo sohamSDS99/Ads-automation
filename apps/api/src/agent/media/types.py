@@ -158,6 +158,15 @@ class VideoRequest(_Frozen):
 MediaRequest = ImageRequest | VideoRequest
 
 
+class StoredMedia(_Frozen):
+    """One file the gateway wrote to storage: where, how big, what hash."""
+
+    key: str
+    bytes: int
+    sha256: str
+    media_type: str
+
+
 def redacted(request: MediaRequest) -> dict[str, Any]:
     """The request as `GenerationJob.request` stores it: canonical, unset
     fields dropped, every image by sha256 and media type — never base64."""

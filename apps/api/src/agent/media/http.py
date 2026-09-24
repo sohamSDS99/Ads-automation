@@ -75,3 +75,11 @@ def message_of(body: Any) -> str:
         if error is not None:
             return str(error)
     return str(body)
+
+
+class JobNotFound(ProviderRejected):
+    """A poll or download for a job id OpenRouter does not know (its 404)."""
+
+    @property
+    def code(self) -> Literal["job_not_found"]:  # type: ignore[override]
+        return "job_not_found"
