@@ -31,6 +31,9 @@ class MediaConstants:
     degrade_ladder: tuple[str, ...]
     #: `video.generate_audio_default`.
     generate_audio_default: bool
+    #: `media.reference_max_bytes` — the cap on one reference, at upload and
+    #: again where its bytes are read to be sent (§9.1 item 5).
+    reference_max_bytes: int
 
 
 def media_constants() -> MediaConstants:

@@ -294,6 +294,7 @@ class CreativeConstants(BaseModel):
             video_job_timeout_s=float(media.video_job_timeout_s.value),
             degrade_ladder=media.degrade_ladder.value,
             generate_audio_default=self.video.generate_audio_default.value,
+            reference_max_bytes=media.reference_max_bytes.value,
         )
 
 

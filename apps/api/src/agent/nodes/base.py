@@ -25,13 +25,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.calc.registry import FORMULAS
 from agent.db.models import ApprovalRequiredRole, Evidence, EvidenceSource, Project, Run, RunStage
-from agent.llm.gateway import LLMGateway, StructuredCompletion
+from agent.llm.gateway import InlineImage, LLMGateway, StructuredCompletion
 from agent.llm.ledger import RunLedger
 from agent.llm.router import ModelRouter, TaskClass
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime, not at type time
     from agent.creative.constants import CreativeConstants
     from agent.creative.lint_adapter import PinnedLinter
+    from agent.media.jobs import MediaJobs
     from agent.orchestrator.plan_calc import PlanCalcRunner
     from agent.planning.constants import PlanningConstants
     from agent.schemas.creative_input import CreativeInput
@@ -360,6 +361,9 @@ class RunContext:
     #: Stage 04 only. None on every other stage; a creative run cannot start
     #: executing without it, so a creative node never sees the None.
     creative: CreativeResources | None = None
+    #: Stage 04's media gateway (`media/jobs.py`) — built by the executor for a
+    #: creative run, None for every other stage. Law 37 lives behind it.
+    media: MediaJobs | None = None
     _progress: Callable[[str, str], Awaitable[None]] | None = None
 
     def require_plan(self) -> PlanContext:
@@ -381,6 +385,13 @@ class RunContext:
                 "run_stage=RunStage.CREATIVE."
             )
         return self.creative
+
+    def require_media(self) -> MediaJobs:
+        if self.media is None:
+            raise NodeContractError(
+                f"node {self.node_id} submits media but this run has no media gateway"
+            )
+        return self.media
 
     def output_of(self, node_id: str) -> dict[str, Any]:
         """The output of a node this one depends on."""
@@ -404,6 +415,7 @@ class RunContext:
         system: str,
         user: str,
         task_class: TaskClass | None = None,
+        images: Sequence[InlineImage] = (),
     ) -> T:
         """The only way a node reaches a model.
 
@@ -417,6 +429,7 @@ class RunContext:
             user=user,
             choice=choice,
             on_progress=self.progress,
+            images=images,
         )
         self.telemetry.completions.append(completion)
         self.ledger.record(usage=completion.usage, cost=completion.cost_usd)

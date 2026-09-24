@@ -68,7 +68,9 @@ def test_an_image_is_never_re_submitted_against_a_different_capability(
     assert not checkable(row, choice)
 
 
-def test_an_image_with_references_waits_for_their_bytes() -> None:
+def test_an_image_with_references_is_checkable_its_bytes_are_re_read() -> None:
+    # S4-P9: `check()` re-reads the references' bytes by hash and re-judges them
+    # (Law 44) — so the control is offered; a refused reference changes nothing.
     row = _job(
         GenerationStatus.UNKNOWN_SUBMIT_STATE,
         GenerationModality.IMAGE,
@@ -78,7 +80,7 @@ def test_an_image_with_references_waits_for_their_bytes() -> None:
             "input_references": [{"sha256": "e" * 64, "media_type": "image/png"}],
         },
     )
-    assert not checkable(row, _choice())
+    assert checkable(row, _choice())
 
 
 def test_a_video_in_unknown_submit_state_is_never_re_posted() -> None:

@@ -394,6 +394,69 @@ ruling; items 1 and 2 are the ones that change behaviour outside this phase.
     and 4.2.3 writes an absolute state. A rollback in the executor before the
     failure is recorded would make every node safe by default (not built).
 
+## S4-P9
+
+Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`.
+
+1. **The PRD's `Dockerfile.worker` is the repo-root `Dockerfile`.** Railway on
+   this project honours only Root Directory + `Dockerfile` (see that file's
+   header), so the ffmpeg / exiftool / fonts layer went there. Verified on
+   Railway: deployment `744e354f` built from `Dockerfile` and logged
+   `ffmpeg version 4.4.2-0ubuntu0.22.04.1` and `exiftool=12.40` at build and
+   in `worker.startup`. That deploy was of this branch (`f6ae646b`): the next
+   merge to `main` redeploys `main`'s worker, without ffmpeg, until this PR
+   merges.
+2. **An `image_right` names its reference in `proposed`.** `creative_exception`
+   has no reference column; an H3 `image_right` about a reference is
+   `proposed = {basis, flag: "third_party_reference", reference_id}` —
+   `media/references.image_right_proposal` builds it, `cleared_image_rights`
+   reads it. 4.6.2 must write it through that constructor. A clearance counts
+   only with `status='cleared'` AND a `decided_by`, and only in its own run
+   (package-scoped, §8.6).
+3. **`composited_real` accepts any registered product photo, whatever its
+   origin.** §18 says "composited_real (if a real product photo is
+   registered)"; Law 44 governs what reaches a *provider*, and compositing is
+   local. If a third-party photo must also be cleared before it is composited
+   into an ad, that is a ruling — today such a concept resolves
+   `composited_real`, not `none`.
+4. **A model with neither `n` nor `seed` makes one candidate.** Law 37 keys a
+   job by its request, so identical requests are one job. `n` is used when the
+   model takes `candidates_per_concept` in one call; otherwise a derived seed.
+5. **VISION overrides stay refused.** `llm/router.py` expected "the first
+   VISION caller (4.4.2)" to wire the image-input check against the catalogue;
+   4.4.2 uses the seed VISION chain (gemini-2.5-flash, claude-haiku-4.5 — both
+   image-capable) and the router still refuses a VISION override. Not in the
+   phase's exit criteria.
+6. **Candidates and masters carry no XMP yet.** `MediaArtifact.disclosure` is
+   NULL on them; §13's stamping happens on renditions in `postprod/` (4.4.3,
+   S4-P10). Neither leaves the app.
+7. **Uploads are written by the worker.** `api` mounts no Volume, so
+   `POST /projects/{id}/media-references` hands the bytes to the worker's
+   `store_reference` job and writes no row unless it returns. The same issue
+   exists, unfixed, in `POST /human-tasks/{id}/attachments`, which writes
+   through `get_storage()` from `api` — on Railway that file lands on the api
+   container's ephemeral disk.
+8. **A retired reference cannot be re-registered.** The same bytes are a 409
+   naming the existing (retired) reference; the PRD has no un-retire.
+9. **Image lint targets use the Stage 03 image route's defaults** — `market or
+   "*"`, `language or "en"` from the plan campaign. Image rules are scoped by
+   campaign type, so neither changes an image verdict today.
+10. **Contract drift on `main`, not fixed here.** `TaskClassRouting`,
+    `ModelListResponse`, `NodeState` and `RunResponse` were not re-exported
+    after S4-P4 added `copywrite`/`vision`/`image_gen`/`video_gen`;
+    `scripts/export_schemas.py` rewrites them. This PR exports only its own
+    changes (`MediaReferenceOut`, the four image surfaces).
+11. **Reconciled with S4-P5 (#63) at merge.** 4.4.2 lints each candidate with
+    `PinnedLinter.lint_candidate` — per-target rules only — because a lone
+    image counted against the spec sheet's set rules is "0 of image_square"
+    and "0 of headline", which failed every candidate against a real
+    published ruleset (the hand-built fixture had no set rules, so nothing
+    saw it). The four image surfaces stay OUT of `SURFACE_ASSET_TYPES` on
+    purpose: one image surface is several spec-sheet asset types
+    (`image_landscape`/`image_square`/`image_portrait`, by ratio), and an
+    unmapped surface keeps every asset-typed rule applying. The 4.4.2 tests
+    now pin rules `guidelines/synthesis.py` itself compiles from the spec sheet.
+
 ## S4-P18
 
 1. **The console and the brief page had no reads to render.** §16 lists

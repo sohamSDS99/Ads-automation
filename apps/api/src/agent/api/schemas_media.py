@@ -9,6 +9,7 @@ could claim a model supports whatever it liked.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -171,3 +172,27 @@ class EstimateResponse(BaseModel):
     scope_reduction: ScopeReduction | None = None
     ratio_plan: dict[str, Any]
     ratio_plan_evidence_id: uuid.UUID
+
+
+class MediaReferenceOut(BaseModel):
+    """One `MediaReference` (PRD §10.3). Its storage path is not part of it: the
+    Volume has no public address, and a reference reaches a provider only as the
+    bytes Law 44 lets through."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    project_id: uuid.UUID
+    kind: Literal["product_reference", "style_reference"]
+    origin: Literal["own", "licensed", "third_party"]
+    product_ref: str | None
+    rights_statement: str
+    attested_by: uuid.UUID
+    attested_at: datetime
+    retired_at: datetime | None
+    media_type: str
+    width: int
+    height: int
+    bytes: int
+    sha256: str
+    created_at: datetime

@@ -13,6 +13,8 @@ disagree about whether the Volume is mounted.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import re
 import uuid
 from typing import Any
 
@@ -39,6 +41,7 @@ from agent.scheduling.jobs import (
     poll_schedules_job,
     reap_stale_runs_job,
 )
+from agent.storage.backend import get_storage
 
 log = structlog.get_logger(__name__)
 
@@ -158,6 +161,63 @@ async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[st
     return measurement.model_dump(mode="json")
 
 
+#: `references/{project_id}/{sha256}.{ext}` (PRD §7.4) and nothing else.
+_REFERENCE_KEY = re.compile(
+    r"references/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/"
+    r"(?P<sha256>[0-9a-f]{64})\.(?:png|jpg|webp)"
+)
+
+
+async def store_reference(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Write one media reference to the Volume (Stage 04 PRD §10.3, §7.4).
+
+    Worker-only because the worker owns the Volume; `api` decodes and hashes the
+    upload, then enqueues this and waits (`queue.store_reference`). The bytes are
+    hashed again here and must match both the payload and the key, and the key
+    must be exactly a reference key — so this job can neither store bytes other
+    than the ones attested nor write anywhere else on the Volume.
+    """
+    key = str(payload["key"])
+    content = payload["content"]
+    if not isinstance(content, bytes | bytearray):
+        raise ValueError("store_reference needs the file's bytes")
+    match = _REFERENCE_KEY.fullmatch(key)
+    if match is None:
+        raise ValueError(f"refusing to store a reference under {key!r}")
+    digest = hashlib.sha256(content).hexdigest()
+    if digest != payload["sha256"] or digest != match["sha256"]:
+        raise ValueError("the reference bytes do not hash to the sha256 they were sent with")
+    await asyncio.to_thread(
+        get_storage().put, key, bytes(content), content_type=str(payload["content_type"])
+    )
+    log.info("media_reference.stored", key=key, bytes=len(content))
+    return {"key": key, "bytes": len(content), "sha256": digest}
+
+
+async def _tool_version(*argv: str) -> str | None:
+    """The first line `argv` prints, or None when the binary is absent or fails.
+
+    Never raises: this feeds a log line, and a host without ffmpeg (the test
+    suite, a laptop) must still be able to run `startup`.
+    """
+    try:
+        process = await asyncio.create_subprocess_exec(
+            *argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL
+        )
+    except OSError:
+        return None
+    try:
+        stdout, _ = await asyncio.wait_for(process.communicate(), timeout=10)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        return None
+    if process.returncode != 0:
+        return None
+    lines = stdout.decode(errors="replace").strip().splitlines()
+    return lines[0] if lines else None
+
+
 async def startup(ctx: dict[str, Any]) -> None:
     settings = get_settings()
     configure_logging(settings)
@@ -179,6 +239,14 @@ async def startup(ctx: dict[str, Any]) -> None:
     await file_server.start()
     ctx["file_server"] = file_server
 
+    # Stage 04's post-production shells out to both (§9.4, §13). The image build
+    # fails without them; logging the versions here is what proves the RUNNING
+    # container is that image — on Railway, a worker built from the wrong
+    # Dockerfile has reported SUCCESS before.
+    ffmpeg_version, exiftool_version = await asyncio.gather(
+        _tool_version("ffmpeg", "-version"), _tool_version("exiftool", "-ver")
+    )
+
     log.info(
         "worker.startup",
         storage_dir=settings.storage_dir,
@@ -186,6 +254,8 @@ async def startup(ctx: dict[str, Any]) -> None:
         planning_constants=constants.version,
         creative_constants=creative.version,
         file_server_port=settings.file_server_port,
+        ffmpeg=ffmpeg_version,
+        exiftool=exiftool_version,
     )
 
     # PRD §16 calls this a *startup* reaper, and the wording is the design: the
@@ -206,7 +276,13 @@ async def shutdown(ctx: dict[str, Any]) -> None:
 
 
 class WorkerSettings:
-    functions = [execute_run, generate_export, measure_image, check_generation_job]
+    functions = [
+        execute_run,
+        generate_export,
+        measure_image,
+        check_generation_job,
+        store_reference,
+    ]
     # Everything unattended. `run_at_startup` is off for all of them: startup
     # already reaps explicitly above, and firing a nightly backup on every
     # deploy would make a busy afternoon of releases into a busy afternoon of

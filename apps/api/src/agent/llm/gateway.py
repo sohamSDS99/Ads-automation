@@ -20,6 +20,7 @@ that will not validate. Below the ladder sit transport retries (429/5xx with
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import random
 import re
@@ -78,6 +79,18 @@ class Strategy(StrEnum):
     STRICT_SCHEMA = "strict_schema"
     TOOL_CALL = "tool_call"
     PROMPT_JSON = "prompt_json"
+
+
+@dataclass(frozen=True, slots=True)
+class InlineImage:
+    """An image shown to a vision model, sent inline as a base64 data URL.
+
+    Only its text parts ever reach the stored prompt (`_render_prompt`), so the
+    bytes never land in a node's prompt record or a log line.
+    """
+
+    media_type: str
+    data: bytes
 
 
 class LLMError(RuntimeError):
@@ -211,6 +224,7 @@ class LLMGateway:
         user: str,
         choice: ModelChoice,
         on_progress: Callable[[str], Awaitable[None]] | None = None,
+        images: Sequence[InlineImage] = (),
     ) -> StructuredCompletion[T]:
         """Return a validated `output_model`, or raise.
 
@@ -238,6 +252,7 @@ class LLMGateway:
                         system=system,
                         user=user,
                         choice=choice,
+                        images=images,
                     )
                 except _StrategyUnsupported as exc:
                     failures.append(f"{model}/{strategy.value}: unsupported ({exc})")
@@ -280,10 +295,11 @@ class LLMGateway:
         system: str,
         user: str,
         choice: ModelChoice,
+        images: Sequence[InlineImage] = (),
     ) -> StructuredCompletion[T]:
         schema = _strict_schema(output_model)
         messages = self._messages(
-            model=model, system=system, user=user, strategy=strategy, schema=schema
+            model=model, system=system, user=user, strategy=strategy, schema=schema, images=images
         )
         prompt_text = _render_prompt(messages)
 
@@ -386,7 +402,14 @@ class LLMGateway:
     # -- request shaping ---------------------------------------------------
 
     def _messages(
-        self, *, model: str, system: str, user: str, strategy: Strategy, schema: dict[str, Any]
+        self,
+        *,
+        model: str,
+        system: str,
+        user: str,
+        strategy: Strategy,
+        schema: dict[str, Any],
+        images: Sequence[InlineImage] = (),
     ) -> list[dict[str, Any]]:
         instruction = system
         if strategy is Strategy.PROMPT_JSON:
@@ -395,9 +418,26 @@ class LLMGateway:
                 f"no code fence. It must validate against this JSON Schema:\n"
                 f"{json.dumps(schema, separators=(',', ':'))}"
             )
+        content: Any = user
+        if images:
+            # A text part, then the images in order — the prompt names them by
+            # position, and a text-only caller's message stays a plain string.
+            content = [
+                {"type": "text", "text": user},
+                *(
+                    {
+                        "type": "image_url",
+                        "image_url": {
+                            "url": f"data:{image.media_type};base64,"
+                            + base64.b64encode(image.data).decode("ascii")
+                        },
+                    }
+                    for image in images
+                ),
+            ]
         return [
             {"role": "system", "content": _system_content(model, instruction)},
-            {"role": "user", "content": user},
+            {"role": "user", "content": content},
         ]
 
     def _payload(

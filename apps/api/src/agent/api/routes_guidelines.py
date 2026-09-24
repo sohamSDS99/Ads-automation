@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import uuid
 from datetime import UTC, datetime, timedelta
-from typing import Annotated, Any, Literal, get_args
+from typing import Annotated, Any, get_args
 
 import sqlalchemy as sa
 import structlog
@@ -101,6 +101,7 @@ from agent.evidence.store import EvidenceScopeError, EvidenceStore
 from agent.export.jobs import CONTENT_GUIDELINE_FORMATS, guideline_filename_for
 from agent.guardrails.compiler import compiler_version, ruleset_hash
 from agent.guardrails.linter import lint
+from agent.guardrails.verdicts import image_verdict
 from agent.guidelines import publish as publishing
 from agent.guidelines import versions
 from agent.guidelines.constants import get_content_constants
@@ -111,7 +112,7 @@ from agent.orchestrator.state import RunLock
 from agent.queue import enqueue_export
 from agent.redis_client import get_redis
 from agent.schemas.creative_input import CreativeContext
-from agent.schemas.guardrails import LintResult, LintTarget, LogoTemplate, Rule, Surface
+from agent.schemas.guardrails import LintTarget, LogoTemplate, Rule, Surface
 from agent.schemas.guardrails import RuleSet as RuleSetContract
 from agent.schemas.imaging import ImageMeasurement
 
@@ -819,7 +820,6 @@ async def _open_amendments(db: AsyncSession, workspace_id: uuid.UUID, project_id
 
 #: What Google accepts as an image asset, and therefore the only thing worth
 #: prechecking. Anything else is refused here rather than handed to a decoder.
-ImageVerdict = Literal["pass", "pass_with_warnings", "fail", "indeterminate"]
 
 IMAGE_MEDIA_TYPES = {"image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"}
 
@@ -1205,38 +1205,6 @@ def _measurement_from(
         working_width_px=1,
         measured_ms=0,
     )
-
-
-def image_verdict(result: LintResult) -> tuple[ImageVerdict, bool]:
-    """The image verdict, and whether anything went unchecked.
-
-    Law 31, spelled out rather than inherited. `LintResult.verdict` has only
-    `pass`, `pass_with_warnings` and `fail`; an `indeterminate` finding is
-    *neither* blocking nor warning, so it lands in `pass` — and a pass is
-    exactly what §18 forbids when a detector could not run. A green tick that
-    means "we could not check this" is worse than a red one, because nobody
-    looks at it again.
-
-    Public and separately tested because it is the one line in this route where
-    getting it wrong is silent: every other mistake here surfaces as an error,
-    and this one surfaces as an approval.
-
-    **A measured failure outranks an unmeasured check**, and that ordering was
-    wrong in the first draft of this function. Law 31 requires that
-    `indeterminate` never become `pass`; it says nothing about `fail`, and
-    between the two `fail` is both truthful and more useful. An image whose
-    coverage was measured at 31% against a 20% ceiling has definitely failed,
-    whatever else went unchecked — reporting `indeterminate` there would demote
-    a fact to a maybe and invite somebody to retry rather than fix it. The
-    `unchecked` flag still travels, so the response can say what was skipped
-    even when the verdict is `fail`.
-    """
-    unchecked = any(finding.indeterminate for finding in result.findings)
-    if any(f.severity == "blocking" and not f.indeterminate for f in result.findings):
-        return "fail", unchecked
-    if unchecked:
-        return "indeterminate", True
-    return result.verdict, False
 
 
 def _summary(measurement: ImageMeasurement) -> str:

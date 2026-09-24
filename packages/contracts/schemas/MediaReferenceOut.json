@@ -1,0 +1,114 @@
+{
+  "description": "One `MediaReference` (PRD \u00a710.3). Its storage path is not part of it: the\nVolume has no public address, and a reference reaches a provider only as the\nbytes Law 44 lets through.",
+  "properties": {
+    "id": {
+      "format": "uuid",
+      "title": "Id",
+      "type": "string"
+    },
+    "project_id": {
+      "format": "uuid",
+      "title": "Project Id",
+      "type": "string"
+    },
+    "kind": {
+      "enum": [
+        "product_reference",
+        "style_reference"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "origin": {
+      "enum": [
+        "own",
+        "licensed",
+        "third_party"
+      ],
+      "title": "Origin",
+      "type": "string"
+    },
+    "product_ref": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Product Ref"
+    },
+    "rights_statement": {
+      "title": "Rights Statement",
+      "type": "string"
+    },
+    "attested_by": {
+      "format": "uuid",
+      "title": "Attested By",
+      "type": "string"
+    },
+    "attested_at": {
+      "format": "date-time",
+      "title": "Attested At",
+      "type": "string"
+    },
+    "retired_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Retired At"
+    },
+    "media_type": {
+      "title": "Media Type",
+      "type": "string"
+    },
+    "width": {
+      "title": "Width",
+      "type": "integer"
+    },
+    "height": {
+      "title": "Height",
+      "type": "integer"
+    },
+    "bytes": {
+      "title": "Bytes",
+      "type": "integer"
+    },
+    "sha256": {
+      "title": "Sha256",
+      "type": "string"
+    },
+    "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "project_id",
+    "kind",
+    "origin",
+    "product_ref",
+    "rights_statement",
+    "attested_by",
+    "attested_at",
+    "retired_at",
+    "media_type",
+    "width",
+    "height",
+    "bytes",
+    "sha256",
+    "created_at"
+  ],
+  "title": "MediaReferenceOut",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -74,6 +74,11 @@ class AuditAction(StrEnum):
     PLAN_STARTED = "plan.started"
     GUIDELINE_STARTED = "guideline.started"
     CREATIVE_STARTED = "creative.started"
+    #: Stage 04 PRD §10.3. The upload IS the rights attestation, so this row is
+    #: who attested what; retiring is the only other thing that ever happens to
+    #: a reference — they are never deleted.
+    MEDIA_REFERENCE_UPLOADED = "media_reference.uploaded"
+    MEDIA_REFERENCE_RETIRED = "media_reference.retired"
     #: The seal. PS4 requires the freeze to write an audit row in the same
     #: transaction as the change, which is what makes "who agreed to spend
     #: this, on what basis, on what date" answerable without a thread.
@@ -173,6 +178,7 @@ class AuditTarget(StrEnum):
     SESSION = "session"
     RUN = "run"
     PROJECT = "project"
+    MEDIA_REFERENCE = "media_reference"
     SOURCE = "source"
     EVIDENCE = "evidence"
     EXPORT = "export"

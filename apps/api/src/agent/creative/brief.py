@@ -37,6 +37,9 @@ from uuid import UUID
 from jinja2 import Environment, FileSystemLoader, StrictUndefined
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, create_model
 
+from agent.media import references
+from agent.media.constants import media_constants
+from agent.media.types import CapabilityRecord
 from agent.schemas.creative_brief import (
     MAX_RENDERED_WORDS,
     AdGroupBrief,
@@ -59,7 +62,6 @@ TEMPLATE = "creative_brief.md.j2"
 TOP_KEYWORDS = 3
 
 #: `Project.settings` key (PRD §7.1, law 44).
-REFERENCES_ALLOWED = "media_references_allowed"
 
 
 class BriefError(ValueError):
@@ -291,27 +293,21 @@ def non_negotiables(inp: CreativeInput) -> NonNegotiables:
 def product_depiction(
     inp: CreativeInput, project_settings: Mapping[str, Any] | None
 ) -> Literal["reference_guided", "composited_real", "none"]:
-    """Law 44 and §10.3, in code: may a product reference reach the provider?
+    """Law 44 and §10.3, in code — through `media/references.py`, the one resolver.
 
-    `reference_guided` only when all hold: images are in scope, a product
-    reference exists, the project allows references to leave, it is not
-    third-party (no H3 `image_right` can have been cleared before the brief),
-    and the chosen image model accepts image input. A product reference that
-    may not leave is composited from the real asset instead. No product
-    reference means no product in the picture.
+    The brief sees the run's snapshot: no sizes, and no H3 `image_right` can
+    have been cleared before it (H3 runs after 4.6.2), so none is passed. 4.4.1
+    resolves again against live rows, with this run's clearances.
     """
-    products = [ref for ref in inp.references if ref.kind == "product_reference"]
-    if not inp.scope.images or not products:
-        return "none"
-    allowed = bool((project_settings or {}).get(REFERENCES_ALLOWED, False))
-    image_choice = next((c for c in inp.media_models if c.modality == "image"), None)
-    accepts_image = image_choice is not None and "image" in (
-        image_choice.capability.get("input_modalities") or []
+    choice = next((c for c in inp.media_models if c.modality == "image"), None)
+    return references.product_depiction(
+        [references.ReferenceFacts.of_snapshot(ref) for ref in inp.references],
+        images_in_scope=inp.scope.images,
+        allowed=references.references_allowed(project_settings),
+        capability=CapabilityRecord.model_validate(choice.capability) if choice else None,
+        cleared=frozenset(),
+        max_bytes=media_constants().reference_max_bytes,
     )
-    sendable = [ref for ref in products if ref.origin != "third_party"]
-    if allowed and accepts_image and sendable:
-        return "reference_guided"
-    return "composited_real"
 
 
 def visual_constraints(
