@@ -79,12 +79,6 @@ log = structlog.get_logger(__name__)
 NODE_ID = "4.4.2"
 CONCEPTS_NODE = "4.4.1"
 
-#: Request fields a model choice's defaults may set here. The rest — model,
-#: prompt, n, seed, references, provider — are this node's or the gateway's.
-_DEFAULT_FIELDS = frozenset(
-    {"aspect_ratio", "resolution", "size", "quality", "output_format", "background",
-     "output_compression"}
-)  # fmt: skip
 _FORMATS = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}
 
 
@@ -326,7 +320,9 @@ class _Mastering:
     ) -> tuple[list[_Judged], ConceptGap | None]:
         """One attempt's candidates, each linted. Jobs that did not complete
         contribute nothing; with no candidate at all the attempt is a gap."""
-        defaults = {k: v for k, v in self.choice.defaults.items() if k in _DEFAULT_FIELDS}
+        defaults = {
+            k: v for k, v in self.choice.defaults.items() if k in masters.REQUEST_DEFAULT_FIELDS
+        }
         prompt = masters.request_prompt(concept, ratio, strengthened=attempt == 2)
         made: list[_Judged] = []
         failures: list[str] = []

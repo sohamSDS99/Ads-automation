@@ -175,6 +175,9 @@ class VideoConstants(_Group):
 
 class LogoConstants(_Group):
     permitted_surfaces: ListConstant
+    #: The logo's width as a share of the rendition's width (§9.4 item 3 sets
+    #: only a floor, `min_width_px`).
+    width_ratio: FloatConstant
 
 
 class ExceptionsConstants(_Group):

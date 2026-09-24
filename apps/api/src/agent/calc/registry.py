@@ -55,6 +55,8 @@ CALC_KINDS = frozenset(
         # Stage 04 (PRD §7.3): the media estimate and the ratio plan.
         "calc_media_cost",
         "calc_ratio_plan",
+        # Stage 04 (PRD §9.4 item 1): where a crop goes, and whether it may.
+        "calc_crop_window",
     }
 )
 

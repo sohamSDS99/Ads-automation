@@ -113,15 +113,26 @@ def _without_source(key: str) -> str:
     return "\n".join(out) + "\n"
 
 
+#: Constants a build phase needed that §9.5 does not list — each one named in
+#: docs/stage-04-questions.md for a ruling, with the day it was added.
+BEYOND_9_5: dict[str, tuple[object, str, date]] = {
+    # S4-P10: §9.4 item 3 sets a logo's floor (`min_width_px`) but no size.
+    "logo.width_ratio": (0.2, "internal", date(2026, 9, 25)),
+}
+
+
 def test_the_shipped_file_is_exactly_section_9_5() -> None:
     constants = load_creative_constants()
-    assert constants.version == "2026.09.1"
+    assert constants.version == "2026.09.2"
     for key, (value, source) in EXPECTED.items():
         constant = constants.get(key)
         assert constant.value == value, key
         assert constant.source == source, key
         assert constant.reviewed_at == REVIEWED, key
-    assert set(constants.keys()) == set(EXPECTED) | {
+    for key, (value, source, reviewed) in BEYOND_9_5.items():
+        constant = constants.get(key)
+        assert (constant.value, constant.source, constant.reviewed_at) == (value, source, reviewed)
+    assert set(constants.keys()) == set(EXPECTED) | set(BEYOND_9_5) | {
         "extras.snippet_headers",
         "extras.lead_form_question_types",
     }

@@ -8,7 +8,7 @@
 #
 # One entry per line, on purpose: `tests/creative/test_creative_constants.py`
 # strips a `source` by line to prove startup names the key.
-version: "2026.09.1"
+version: "2026.09.2"
 copy:
   headline_pool_size:          { value: 25,   source: internal, reviewed_at: 2026-09-24 }
   headline_quotas:             { value: {keyword: 3, benefit: 3, offer: 2, proof: 2, objection: 2, cta: 2},
@@ -101,6 +101,10 @@ video:
 logo:
   permitted_surfaces:          { value: [pmax_image, display_image, demand_gen_image, video],
                                  source: unverified, reviewed_at: 2026-09-24 }
+  # The logo's width as a share of the rendition's width (S4-P10). §9.4 gives a
+  # floor (`min_width_px`), clear space and contrast, but no size; ours, pending
+  # a ruling (docs/stage-04-questions.md § S4-P10).
+  width_ratio:                 { value: 0.2,   source: internal, reviewed_at: 2026-09-25 }
 exceptions:
   max_exceptions_per_run:      { value: 20,    source: internal, reviewed_at: 2026-09-24 }
 retention:

@@ -187,15 +187,22 @@ async def start_image_run(
     capability: CapabilityRecord,
     refs: list[MediaReference] = (),  # type: ignore[assignment]
     allowed: bool = False,
+    campaign_type: str = "search",
+    specs: dict[str, Any] | None = None,
+    logo_templates: tuple[dict[str, Any], ...] = (),
+    logo_rules: dict[str, Any] | None = None,
 ) -> uuid.UUID:
-    await seed_plan(db, workspace_id, project_id, actor, campaign_type="search")
+    specs = SEARCH_SPECS if specs is None else specs
+    await seed_plan(db, workspace_id, project_id, actor, campaign_type=campaign_type)
     await seed_published(
         db,
         workspace_id,
         project_id,
         actor,
-        asset_specs=SEARCH_SPECS,
-        extra_rules=published_rules(SEARCH_SPECS),
+        asset_specs=specs,
+        extra_rules=published_rules(specs),
+        logo_templates=logo_templates,
+        logo_rules=logo_rules,
     )
     await seed_signoff(db, workspace_id, project_id, actor)
     await db.commit()
@@ -355,8 +362,9 @@ class Provider:
         return [c for c in self.chat if isinstance(c["messages"][-1]["content"], list)]
 
 
-async def run_until_done(run_id: uuid.UUID) -> None:
-    """Execute the chain under test — 4.1.1 (G7) → 4.4.1 → 4.4.2 — and only it.
+async def run_until_done(run_id: uuid.UUID, *, through: str = "4.4.2") -> None:
+    """Execute the chain under test — 4.1.1 (G7) → 4.4.1 → 4.4.2, and 4.4.3
+    when `through="4.4.3"` — and only it.
 
     The full creative DAG carries other phases' real nodes (4.2.x since S4-P5),
     whose answers this harness does not script; a failure there must not decide
@@ -368,7 +376,12 @@ async def run_until_done(run_id: uuid.UUID) -> None:
     from agent.orchestrator.dag import Dag
     from agent.orchestrator.registry import NodeRegistry
 
-    registry = NodeRegistry.of([CREATIVE_BRIEF, CREATIVE_CONCEPTS, IMAGE_MASTERS])
+    nodes: list[Any] = [CREATIVE_BRIEF, CREATIVE_CONCEPTS, IMAGE_MASTERS]
+    if through == "4.4.3":
+        from agent.nodes.creative.n4_4_3_image_renditions import IMAGE_RENDITIONS
+
+        nodes.append(IMAGE_RENDITIONS)
+    registry = NodeRegistry.of(nodes)
     async with httpx.AsyncClient() as client:
         await execute(
             run_id,
