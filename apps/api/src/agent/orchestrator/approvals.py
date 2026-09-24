@@ -43,6 +43,7 @@ from agent.db.models import (
     NodeRunStatus,
     Project,
     Run,
+    RunStage,
     RunStatus,
     User,
     UserRole,
@@ -127,6 +128,31 @@ def assignee_for(project: Project, node_id: str, gate_key: str | None = None) ->
     return _configured(settings.get(GATE_ASSIGNEES), node_id, where=GATE_ASSIGNEES)
 
 
+#: Stage 04 PRD §5.3: each creative gate's owner, by `SignOffMatrix` column.
+#: H3 is not here — it is a person-task, assigned to the legal owner by name.
+CREATIVE_GATE_OWNERS: dict[str, str] = {
+    "G7": "performance_owner_id",
+    "G8": "brand_owner_id",
+    "G8b": "brand_owner_id",
+}
+
+
+def creative_owner(run: Run, gate_key: str | None) -> uuid.UUID | None:
+    """The owner the run's *pinned* sign-off matrix names for a creative gate.
+
+    Read from `Run.creative_input.signoff_matrix` — the matrix the run was
+    started under (CR-E5) — rather than from project settings: the brief is
+    signed by the performance owner of record, not by whoever a settings map
+    names today. The usual fallback applies after this: an owner who is
+    inactive or cannot decide the gate's role leaves the card to any approver.
+    """
+    column = CREATIVE_GATE_OWNERS.get(gate_key or "")
+    if column is None:
+        return None
+    matrix = (run.creative_input or {}).get("signoff_matrix")
+    return _configured(matrix, column, where="creative_input.signoff_matrix")
+
+
 def _configured(mapping: Any, key: str, *, where: str) -> uuid.UUID | None:
     """One user id out of a free-form settings map, or None if it is not usable."""
     if not isinstance(mapping, dict):
@@ -161,7 +187,7 @@ async def open_gate(
     if existing is not None:
         return existing
 
-    assignee_id = await _valid_assignee(db, project, node_id, required_role, gate_key)
+    assignee_id = await _valid_assignee(db, project, node_id, required_role, gate_key, run=run)
     approval = Approval(
         run_id=run.id,
         node_id=node_id,
@@ -223,6 +249,8 @@ async def _valid_assignee(
     node_id: str,
     required_role: ApprovalRequiredRole,
     gate_key: str | None = None,
+    *,
+    run: Run | None = None,
 ) -> uuid.UUID | None:
     """The configured assignee, but only if they can still decide this gate.
 
@@ -231,7 +259,11 @@ async def _valid_assignee(
     the fallback happens when the gate opens, not when someone finally notices
     the card is addressed to a deactivated account.
     """
-    configured = assignee_for(project, node_id, gate_key)
+    configured = (
+        creative_owner(run, gate_key)
+        if run is not None and run.stage is RunStage.CREATIVE
+        else assignee_for(project, node_id, gate_key)
+    )
     if configured is None:
         return None
     # Read through the membership: the question is whether this person can

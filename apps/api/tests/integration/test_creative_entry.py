@@ -10,7 +10,6 @@ A warning that shows up under `blockers` is the defect this stage cannot have.
 from __future__ import annotations
 
 import asyncio
-import json
 import os
 import sys
 import uuid
@@ -26,6 +25,7 @@ from agent.db.models import (
     AmendmentChangeKind,
     AmendmentOrigin,
     AmendmentStatus,
+    Approval,
     CampaignPlanStatus,
     CreativePackage,
     CreativePackageStatus,
@@ -53,7 +53,7 @@ from tests.integration.creative_support import (
     seed_signoff,
 )
 from tests.integration.runs_support import execute
-from tests.openrouter_fake import FakeOpenRouter
+from tests.integration.test_s4p4_brief_g7 import _scripted as brief_writer
 
 pytestmark = pytest.mark.asyncio
 
@@ -478,7 +478,7 @@ async def _creative_runs(db: AsyncSession, project_id: uuid.UUID) -> int:
     )
 
 
-async def test_both_starts_a_run_and_the_dummy_dag_reaches_its_terminal_node_over_sse(
+async def test_both_starts_a_run_that_writes_the_brief_and_halts_on_g7(
     admin: ApiClient,
     db: AsyncSession,
     workspace_id: uuid.UUID,
@@ -502,25 +502,17 @@ async def test_both_starts_a_run_and_the_dummy_dag_reaches_its_terminal_node_ove
     assert run.pins[0]["ruleset_version"] == ruleset.ruleset_version
     assert run.pins[0]["reason"] == "start"
 
-    result = await execute(run_id, FakeOpenRouter())
-    assert result.status is RunStatus.SUCCEEDED
+    # S4-P4 replaced the two-node dummy DAG with the real 24: the brief is
+    # written and the run halts on G7 (tests/integration/test_s4p4_brief_g7.py
+    # covers the brief itself).
+    result = await execute(run_id, brief_writer())
+    assert result.status is RunStatus.AWAITING_APPROVAL
 
-    stream = await admin.get(f"/runs/{run_id}/events")
-    assert stream.status_code == 200
-    events = [
-        (block.split("event: ", 1)[1].splitlines()[0], block)
-        for block in stream.text.split("\n\n")
-        if "event: " in block
-    ]
-    names = [name for name, _ in events]
-    completed = [
-        json.loads(block.split("data: ", 1)[1])["node_id"]
-        for name, block in events
-        if name == "node.completed"
-    ]
-    assert completed == ["4.0.1", "4.0.2"]
-    assert names[-1] == "run.completed"
-    assert '"succeeded"' in events[-1][1]
+    # Paused, not finished: the SSE stream of a run waiting on a gate stays
+    # open (heartbeats), so the halt is asserted where it is recorded.
+    assert result.awaiting == ("4.1.1",)
+    gate = (await db.execute(sa.select(Approval).where(Approval.run_id == run_id))).scalar_one()
+    assert gate.node_id == "4.1.1" and gate.gate_key == "G7"
 
     overview = (await admin.get(f"/projects/{project_id}/creative")).json()
     assert [r["run_id"] for r in overview["runs"]] == [str(run_id)]

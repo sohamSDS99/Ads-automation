@@ -51,6 +51,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.db.models import (
+    Approval,
+    ApprovalStatus,
     CreativeBrief,
     GenerationJob,
     GenerationModality,
@@ -78,6 +80,9 @@ from agent.schemas.creative_input import MediaModelChoice
 from agent.storage.backend import StorageBackend
 
 log = structlog.get_logger(__name__)
+
+#: The brief gate (Stage 04 PRD §5.3). `Approval.gate_key` of node 4.1.1.
+G7 = "G7"
 
 #: `submit_or_resume` returns these unchanged.
 TERMINAL = frozenset(
@@ -120,6 +125,17 @@ _EXTENSIONS = {
 
 Checkpoint = Callable[[str], None]
 Progress = Callable[[GenerationJob, Poll | None], Awaitable[None]]
+
+
+class MediaNotDeclared(RuntimeError):
+    """A node submitted a modality its `NodeSpec.media` does not list (§8.1 item 2)."""
+
+    def __init__(self, node_id: str, modality: str, declared: tuple[str, ...]) -> None:
+        super().__init__(
+            f"Node {node_id} may submit {list(declared) or 'no media'}, not {modality}."
+        )
+        self.node_id = node_id
+        self.modality = modality
 
 
 class BriefNotApproved(RuntimeError):
@@ -212,6 +228,7 @@ class MediaJobs:
         estimate_usd: Decimal,
         ledger: RunLedger | None = None,
     ) -> GenerationJob:
+        _assert_declared(node_id, choice.modality)
         capability = _capability(choice)
         # Law 36, before a row exists and before a cent is reserved.
         errors = validate(request, capability)
@@ -503,13 +520,30 @@ class MediaJobs:
     # -- G7 ------------------------------------------------------------------
 
     async def assert_g7_approved(self, run_id: uuid.UUID) -> None:
+        """The spend gate (§8.3): G7 `approved`, and `approved_hash == brief_hash`.
+
+        Both halves, because each alone is forgeable by a bug: a hash with no
+        decided approval behind it is a brief nobody signed, and an approval
+        whose hash no longer matches is a brief edited after it was signed.
+        """
         async with self._session() as session:
             brief = await session.scalar(
                 sa.select(CreativeBrief).where(CreativeBrief.creative_run_id == run_id)
             )
+            approval = (
+                await session.get(Approval, brief.approval_id)
+                if brief is not None and brief.approval_id is not None
+                else None
+            )
         if brief is None:
             raise BriefNotApproved(run_id, f"Run {run_id} has no brief yet; G7 comes first.")
-        if brief.approved_hash is None:
+        if (
+            approval is None
+            or approval.run_id != run_id
+            or approval.gate_key != G7
+            or approval.status is not ApprovalStatus.APPROVED
+            or brief.approved_hash is None
+        ):
             raise BriefNotApproved(run_id, f"The brief for run {run_id} is not approved (G7).")
         if brief.approved_hash != brief.brief_hash:
             raise BriefNotApproved(
@@ -592,6 +626,23 @@ class MediaJobs:
     async def _session(self) -> AsyncIterator[AsyncSession]:
         async with self._sessions() as session:
             yield session
+
+
+def _assert_declared(node_id: str, modality: str) -> None:
+    """A submit outside the node's `NodeSpec.media` raises (§8.1 item 2).
+
+    Read from the registry rather than passed in, so a caller cannot widen its
+    own permission; an unregistered node declares nothing and may submit
+    nothing.
+    """
+    from agent.orchestrator.registry import RegistryError, get_registry
+
+    try:
+        declared = get_registry().spec(node_id).media
+    except RegistryError:
+        declared = ()
+    if modality not in declared:
+        raise MediaNotDeclared(node_id, modality, tuple(declared))
 
 
 def _capability(choice: MediaModelChoice) -> CapabilityRecord:
