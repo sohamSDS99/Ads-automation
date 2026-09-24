@@ -39,6 +39,18 @@
   --status-failed: #f43f5e;
   --status-skipped: #a1a1aa;
 
+  /* chart series, in fixed order — never cycled, never re-ranked. The first
+     three slots of the dataviz reference palette, validated all-pairs against
+     --surface-raised in each theme (light: CVD ΔE ≥ 9.2, normal ≥ 24.0; dark:
+     CVD ΔE ≥ 9.4, normal ≥ 20.9). Slot 3 is 2.8:1 on white, so a chart that
+     uses it must also print its values (a legend table), never colour alone. */
+  --series-1: #2a78d6;
+  --series-2: #eb6834;
+  --series-3: #1baf7a;
+
+  /* the page behind a sheet or dialog: a flat scrim, never a blur */
+  --scrim: rgb(9 9 11 / 0.4);
+
   /* type scale: 12 / 14 / 16 / 20 / 28 / 36 */
   --text-xs: 0.75rem;
   --text-sm: 0.875rem;
@@ -83,4 +95,10 @@
   --accent-soft-fg: #60a5fa;
 
   --shadow-overlay: 0 10px 30px -10px rgb(0 0 0 / 0.6);
+
+  --series-1: #3987e5;
+  --series-2: #d95926;
+  --series-3: #199e70;
+
+  --scrim: rgb(0 0 0 / 0.6);
 }
