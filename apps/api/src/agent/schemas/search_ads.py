@@ -1,4 +1,4 @@
-"""Search-ad contracts — nodes 4.2.1 to 4.2.4 (Stage 04 PRD §11 4.2, §12.2).
+"""Stage 4.2's contracts — nodes 4.2.1 to 4.2.5 (Stage 04 PRD §11 4.2, §12.2).
 
 * `HeadlineSpreadOutput` — 4.2.1: per ad group, the pool the model wrote
   (`copy.headline_pool_size` candidates, each linted at creation), the ≤ 15
@@ -14,6 +14,11 @@
   4.2.1–4.2.3 path from the brief's `angle_b`. **A B that paraphrases A fails
   validation**: `distinctness_vs_a` under `variant_min_distance` is a schema
   error. `ResponsiveSearchAd` is §12.2's, and B's is the first built.
+* `AssetGroupTextOutput` — 4.2.5: per Performance Max / Demand Gen / Display
+  asset group, headlines, long headlines, descriptions and the business name,
+  all linted; `not_required` when the slate has none of those types. A
+  description is claim-bound wherever it runs (law 34, §12.2 `min 1 for
+  kind='description'`), through the same validator as 4.2.2's.
 
 Dynamic keyword insertion is part of the contract because the PRD makes it one:
 "DKI `{KeyWord:default}` validated on the **default text's** length". A
@@ -235,6 +240,20 @@ class HeadlineSpreadOutput(_Frozen):
 # ---------------------------------------------------------------------------
 
 
+def licensed_at_pin(value: list[UUID], info: ValidationInfo) -> list[UUID]:
+    """`claim_ids ⊆ licensed(pin)`, against the pin's ids in the validation context."""
+    licensed = (info.context or {}).get("licensed_claim_ids")
+    if licensed is None:
+        raise ValueError(
+            "validate with context={'licensed_claim_ids': ...}: claim_ids ⊆ licensed(pin) "
+            "is a validator, and there is no pin to check against"
+        )
+    unlicensed = [str(claim) for claim in value if claim not in licensed]
+    if unlicensed:
+        raise ValueError(f"claim(s) {', '.join(unlicensed)} are not licensed at the pin")
+    return value
+
+
 class DescriptionItem(_Frozen):
     asset_id: UUID
     text: str = Field(min_length=1)
@@ -247,16 +266,7 @@ class DescriptionItem(_Frozen):
     @field_validator("claim_ids")
     @classmethod
     def _licensed(cls, value: list[UUID], info: ValidationInfo) -> list[UUID]:
-        licensed = (info.context or {}).get("licensed_claim_ids")
-        if licensed is None:
-            raise ValueError(
-                "validate with context={'licensed_claim_ids': ...}: claim_ids ⊆ licensed(pin) "
-                "is a validator, and there is no pin to check against"
-            )
-        unlicensed = [str(claim) for claim in value if claim not in licensed]
-        if unlicensed:
-            raise ValueError(f"claim(s) {', '.join(unlicensed)} are not licensed at the pin")
-        return value
+        return licensed_at_pin(value, info)
 
     @model_validator(mode="after")
     def _span_and_lint(self) -> DescriptionItem:
@@ -487,3 +497,66 @@ class VariantBOutput(_Frozen):
     schema_version: Literal["1.0"] = SEARCH_ADS_SCHEMA_VERSION
     #: One per Search ad group in scope; empty when the slate has none.
     ad_groups: list[VariantBGroup] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# 4.2.5 asset_group_text
+# ---------------------------------------------------------------------------
+
+AssetGroupType = Literal["performance_max", "demand_gen", "display"]
+
+
+class AssetGroupLine(_Frozen):
+    """One line of asset-group text, linted at creation (law 33)."""
+
+    asset_id: UUID
+    text: str = Field(min_length=1)
+    lint: LintRef
+
+    @model_validator(mode="after")
+    def _passed(self) -> AssetGroupLine:
+        if self.lint.verdict not in PASSING:
+            raise ValueError("asset-group text must have passed lint")
+        return self
+
+
+class AssetGroupDescription(AssetGroupLine):
+    #: Law 34 and §12.2: a description carries a licensed claim wherever it runs.
+    claim_ids: list[UUID] = Field(min_length=1)
+
+    @field_validator("claim_ids")
+    @classmethod
+    def _licensed(cls, value: list[UUID], info: ValidationInfo) -> list[UUID]:
+        return licensed_at_pin(value, info)
+
+
+class AssetGroupText(_Frozen):
+    campaign_ref: str = Field(min_length=1)
+    #: The plan's name for the asset group (a Search ad group's twin).
+    ad_group_ref: str = Field(min_length=1)
+    campaign_type: AssetGroupType
+    market: str = Field(min_length=1)
+    language: str = Field(min_length=1)
+    headlines: list[AssetGroupLine] = Field(min_length=1)
+    #: Counted against the spec's `min_count`, which may be zero for a type.
+    long_headlines: list[AssetGroupLine] = Field(default_factory=list)
+    descriptions: list[AssetGroupDescription] = Field(min_length=1)
+    business_name: AssetGroupLine
+    exception_candidates: list[ExceptionCandidate] = Field(default_factory=list)
+
+
+class AssetGroupTextOutput(_Frozen):
+    schema_version: Literal["1.0"] = SEARCH_ADS_SCHEMA_VERSION
+    #: `not_required` is a complete, normal outcome: nothing on the slate
+    #: takes asset-group text.
+    status: Literal["not_required", "required"]
+    why: str = Field(min_length=1)
+    asset_groups: list[AssetGroupText] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _status_matches(self) -> AssetGroupTextOutput:
+        if self.status == "not_required" and self.asset_groups:
+            raise ValueError("a not_required output writes no asset group")
+        if self.status == "required" and not self.asset_groups:
+            raise ValueError("a required output writes at least one asset group")
+        return self

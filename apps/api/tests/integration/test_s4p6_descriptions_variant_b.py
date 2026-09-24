@@ -1,8 +1,8 @@
-"""S4-P6 exit criteria — 4.2.2 `claim_bound_descriptions` and 4.2.4 `variant_b`, end to end.
+"""S4-P6 exit criteria — 4.2.2, 4.2.4 and 4.2.5, end to end.
 
 A creative run is started through the API, halts on G7, is approved, and runs
-on through the real 4.2.1, 4.2.2, 4.2.3 and 4.2.4 (scripted COPYWRITE and
-CLASSIFY answers), then the rest of the DAG.
+on through the real 4.2.1, 4.2.2, 4.2.3, 4.2.4 and 4.2.5 (scripted COPYWRITE
+and CLASSIFY answers), then the rest of the DAG.
 
 **The pin carries Stage 03's real claim-licence rule and the shipped
 detectors**, beside the spec-sheet rules synthesis emits. So "#1" is found by
@@ -150,6 +150,78 @@ DESCRIPTIONS_A: dict[str, Any] = {
 assert len(DESCRIPTIONS_A["descriptions"]) == 8
 
 
+def _brief(schema: dict[str, Any]) -> dict[str, Any]:
+    """`_instance`'s brief, with every ad group in scope briefed once (4.1.1's rule)."""
+    answer = _instance(schema, schema)
+    slot = schema["$defs"]["AdGroupDraft"]["properties"]["slot"]
+    keys = slot.get("enum") or [slot["const"]]
+    answer["ad_groups"] = [{**answer["ad_groups"][0], "slot": key} for key in keys]
+    return answer
+
+
+PMAX = {
+    "name": "PMax - SDS - US",
+    "campaign_ref": "c-pmax-us",
+    "type": "performance_max",
+    "ad_groups": [
+        {
+            "name": "sds asset group",
+            "theme": "SDS management",
+            "landing_url": "https://example.com/sds",
+            "primary_message": "Keep every SDS current",
+        }
+    ],
+}
+SEARCH_ONLY = {
+    "slate": [{"campaign_type": "search", "market": "US", "campaign_refs": ["c-sds-us"]}]
+}
+WITH_PMAX = {
+    "slate": [
+        *SEARCH_ONLY["slate"],
+        {"campaign_type": "performance_max", "market": "US", "campaign_refs": ["c-pmax-us"]},
+    ]
+}
+#: 36 characters: fails the Performance Max headline limit, and stays draft.
+PMAX_TOO_LONG = "Keep Every Safety Data Sheet Current"
+PMAX_UNLICENSED = f"The #1 SDS library for every site, with {CLAIM_TEXT}."
+#: As COPYWRITE answers 4.2.5's schema for the Performance Max asset group:
+#: the spec's max counts — 15 headlines, 5 long headlines, 5 descriptions.
+ASSET_GROUP: dict[str, Any] = {
+    "headlines": [
+        "Chemical Records, Sorted",
+        "Every Site, One Library",
+        "Sheets Your Crews Can Find",
+        "Hazard Data At Hand",
+        "Less Binder Work",
+        "Answers For Inspectors",
+        "Plain Steps For Spills",
+        "One Login, Every Site",
+        "Current Sheets, Always",
+        "Labels From The Latest",
+        "Built For EHS Teams",
+        "Set Up In An Afternoon",
+        "See A Guided Tour",
+        "Start With One Site",
+        PMAX_TOO_LONG,
+    ],
+    "long_headlines": [
+        "Keep every safety data sheet on every site current",
+        "One searchable library for every chemical you store",
+        "Hazard, first-aid and spill steps where your crews work",
+        "Chemical records that are ready when an inspector asks",
+        "Move off binders without losing a single sheet",
+    ],
+    "descriptions": [
+        {"text": f"Every sheet stays current: {CLAIM_TEXT}.", "claim_ids": [CLAIM]},
+        {"text": f"One library for every site, with {CLAIM_TEXT}.", "claim_ids": [CLAIM]},
+        {"text": PMAX_UNLICENSED, "claim_ids": [CLAIM]},
+        {"text": f"Crews find the right sheet fast. {CLAIM_TEXT}.", "claim_ids": [CLAIM]},
+        {"text": f"{CLAIM_TEXT}, from the supplier to the shop floor.", "claim_ids": [CLAIM]},
+    ],
+    "business_name": "Example SDS",
+}
+
+
 def _paraphrase(text: str) -> str:
     """A's copy said again in other words — the B 4.2.4 must refuse."""
     for old, new in (("Your", "The"), ("Every", "Each"), ("every", "each"), ("stays", "is kept")):
@@ -185,7 +257,9 @@ class _Script:
         name, schema = schema_spec["name"], schema_spec["schema"]
         self.requests.setdefault(name, []).append(body)
         if name == "CreativeBriefDraft":
-            return completion(_instance(schema, schema), model=body["model"])
+            return completion(_brief(schema), model=body["model"])
+        if name == "AssetGroupTextDraft":
+            return completion(ASSET_GROUP, model=body["model"])
         if name in ("HeadlinePoolDraft", "DescriptionPoolDraft") and is_variant_b(body):
             self.requests.setdefault(f"{name}:B", []).append(body)
             if name == "HeadlinePoolDraft":
@@ -208,8 +282,27 @@ def _registry() -> NodeRegistry:
     return get_registry().for_stage(RunStage.CREATIVE)
 
 
-async def _seed(db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID) -> None:
+async def _seed(
+    db: AsyncSession,
+    ws: uuid.UUID,
+    project_id: uuid.UUID,
+    actor: uuid.UUID,
+    *,
+    pmax: bool = False,
+    business_name_spec: bool = True,
+) -> None:
     sheet = get_content_constants().asset_sheet()
+    if pmax and business_name_spec:
+        # The shipped sheet has no Performance Max business name; a pin that
+        # carries one is what 4.2.5 needs before it can write that asset group.
+        raw = sheet.model_dump(mode="json")
+        raw["specs"]["performance_max"]["business_name"] = {
+            "max_chars": 25,
+            "max_count": 1,
+            "source": "unverified",
+            "reviewed_at": "2026-09-25",
+        }
+        sheet = type(sheet).model_validate(raw)
     specs = tuple(_asset_rules(AssetSpecs(sheet=sheet, scope="unscoped"), lambda _why: None))
     constants = load_content_constants()
     detectors = constants.detectors()
@@ -220,7 +313,16 @@ async def _seed(db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: u
         ),
         match_threshold=float(constants.value("claims.match_threshold")),
     )
-    await seed_plan(db, ws, project_id, actor, campaign_type="search", keywords=KEYWORDS)
+    await seed_plan(
+        db,
+        ws,
+        project_id,
+        actor,
+        campaign_type="search",
+        keywords=KEYWORDS,
+        extra_campaigns=[PMAX] if pmax else [],
+        channel_slate=WITH_PMAX if pmax else SEARCH_ONLY,
+    )
     await seed_published(
         db,
         ws,
@@ -242,9 +344,11 @@ async def _run(
     actor: uuid.UUID,
     *,
     paraphrase: bool = False,
+    pmax: bool = False,
+    business_name_spec: bool = True,
 ) -> tuple[uuid.UUID, _Script, RunStatus]:
     """A creative run started, halted on G7, approved, and run to its end."""
-    await _seed(db, ws, project_id, actor)
+    await _seed(db, ws, project_id, actor, pmax=pmax, business_name_spec=business_name_spec)
     started = await admin.post(
         f"/projects/{project_id}/creative/runs", json={"scope": TEXT_ONLY, "media_models": []}
     )
@@ -319,6 +423,19 @@ async def test_every_description_stands_on_a_licensed_claim_and_no_unlicensed_sp
     assert all(a.node_id == "4.2.2" and a.variant.value == "A" for a in descriptions.values())  # type: ignore[union-attr]
     paths = {a.text: a.status for a in a_rows if a.kind is CreativeAssetKind.PATH}
     assert paths == {"sds": CreativeAssetStatus.LINTED, "software": CreativeAssetStatus.LINTED}
+
+    # --- 4.2.5 is not_required on a search-only slate --------------------------
+    assert await _output(db, run_id, "4.2.5") == {
+        "schema_version": "1.0",
+        "status": "not_required",
+        "why": (
+            "the channel slate has no Performance Max, Demand Gen or Display campaign, so "
+            "there is no asset group to write text for"
+        ),
+        "asset_groups": [],
+    }
+    assert "AssetGroupTextDraft" not in script.requests, "no model asked"
+    assert not [a for a in assets.values() if a.node_id == "4.2.5"]
 
     # --- 4.2.3 consumed the real 4.2.2 ----------------------------------------
     (ad,) = (await _output(db, run_id, "4.2.3"))["ads"]
@@ -416,3 +533,103 @@ async def test_a_b_that_paraphrases_a_fails_validation(
     assert not [row for row in assets.values() if row.variant and row.variant.value == "B"]
     (a,) = (await _output(db, run_id, "4.2.3"))["ads"]
     assert {assets[uuid.UUID(x)].status for x in a["headlines"]} == {CreativeAssetStatus.LINTED}
+
+
+async def test_a_performance_max_asset_group_gets_its_text_all_linted(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+) -> None:
+    run_id, script, status = await _run(
+        admin, db, workspace_id, project_id, admin_user.id, pmax=True
+    )
+    assert status is RunStatus.SUCCEEDED
+
+    # --- the spec's counts, and only licensed claims, on the menu -------------
+    (request,) = script.requests["AssetGroupTextDraft"]
+    schema = request["response_format"]["json_schema"]["schema"]
+    for field, count in (("headlines", 15), ("long_headlines", 5), ("descriptions", 5)):
+        assert (
+            schema["properties"][field]["minItems"]
+            == schema["properties"][field]["maxItems"]
+            == count
+        )
+    claim_ids = schema["$defs"]["AssetGroupDescriptionDraft"]["properties"]["claim_ids"]
+    assert claim_ids["items"].get("enum", [claim_ids["items"].get("const")]) == [CLAIM]
+    system = request["messages"][0]["content"]
+    system = system if isinstance(system, str) else system[0]["text"]
+    assert "Performance Max" in system and "at most 25 characters" in system
+
+    output = await _output(db, run_id, "4.2.5")
+    assert output["status"] == "required"
+    (group,) = output["asset_groups"]
+    assert (group["campaign_ref"], group["ad_group_ref"], group["campaign_type"]) == (
+        "c-pmax-us",
+        "sds asset group",
+        "performance_max",
+    )
+    assert [line["text"] for line in group["headlines"]] == ASSET_GROUP["headlines"][:14]
+    assert [line["text"] for line in group["long_headlines"]] == ASSET_GROUP["long_headlines"]
+    assert group["business_name"]["text"] == "Example SDS"
+    lines = [
+        *group["headlines"],
+        *group["long_headlines"],
+        *group["descriptions"],
+        group["business_name"],
+    ]
+    assert {line["lint"]["verdict"] for line in lines} == {"pass"}, "all linted, all passed"
+
+    # --- a description is claim-bound here too; "#1" is withheld -------------
+    assert len(group["descriptions"]) == 4
+    assert all(line["claim_ids"] == [CLAIM] for line in group["descriptions"])
+    assert group["exception_candidates"] == [{"span": "#1", "occurrences": 1}]
+
+    # --- the rows: linted as Performance Max text, the failure left draft ----
+    assets = await _assets(db, run_id)
+    rows = [a for a in assets.values() if a.node_id == "4.2.5"]
+    assert not [a for a in rows if a.text and "#1" in a.text], "never an asset"
+    surfaces = {(a.kind, a.surface) for a in rows}
+    assert surfaces == {
+        (CreativeAssetKind.HEADLINE, "pmax_headline"),
+        (CreativeAssetKind.LONG_HEADLINE, "long_headline"),
+        (CreativeAssetKind.DESCRIPTION, "pmax_description"),
+        (CreativeAssetKind.BUSINESS_NAME, "business_name"),
+    }
+    by_text = {a.text: a for a in rows}
+    assert by_text[PMAX_TOO_LONG].status is CreativeAssetStatus.DRAFT
+    assert [f["rule_id"] for f in by_text[PMAX_TOO_LONG].lint["findings"]] == [  # type: ignore[index]
+        "asset_spec.length.v1"
+    ]
+    assert {a.status for a in rows if a.text != PMAX_TOO_LONG} == {CreativeAssetStatus.LINTED}
+    assert len(rows) == 15 + 5 + 4 + 1
+    assert all(a.variant is None and a.campaign_ref == "c-pmax-us" for a in rows)
+
+    # The Search ad group was written as before, beside it.
+    (search,) = (await _output(db, run_id, "4.2.2"))["ad_groups"]
+    assert search["campaign_ref"] == "c-sds-us"
+
+
+async def test_a_pin_without_the_asset_groups_specs_fails_naming_them(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+) -> None:
+    """The shipped sheet has no Performance Max business name: spec_missing, never a guess."""
+    run_id, script, status = await _run(
+        admin, db, workspace_id, project_id, admin_user.id, pmax=True, business_name_spec=False
+    )
+    assert status is RunStatus.FAILED
+    node = (
+        await db.execute(
+            sa.select(NodeRun).where(NodeRun.run_id == run_id, NodeRun.node_id == "4.2.5")
+        )
+    ).scalar_one()
+    assert node.status is NodeRunStatus.FAILED
+    error = json.dumps(node.error)
+    assert "spec_missing" in error and "asset_specs.performance_max.business_name" in error
+    assert "AssetGroupTextDraft" not in script.requests, "no model is asked to guess"
+    assert not [a for a in (await _assets(db, run_id)).values() if a.node_id == "4.2.5"]
