@@ -35,7 +35,7 @@ import asyncio
 import re
 import time
 import weakref
-from collections.abc import AsyncIterator, Mapping, Sequence
+from collections.abc import AsyncIterator, Iterable, Mapping, Sequence
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Final, Literal
 
@@ -43,6 +43,8 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.connectors.browser import LAUNCH_ARGS, USER_AGENT, BrowserUnavailable
+from agent.db.models import EvidenceSource
+from agent.evidence.normalize import MAX_CONTENT_TEXT, EvidenceDraft
 from agent.schemas.landing import Box, Device
 
 if TYPE_CHECKING:
@@ -175,6 +177,90 @@ class LandingRender(_Model):
 
     def device(self, device: Device) -> DeviceRender:
         return self.mobile if device == "mobile" else self.desktop
+
+
+# ---------------------------------------------------------------------------
+# Evidence (§10.2: "DOM facts become Evidence(source='web', kind='landing_dom')")
+# ---------------------------------------------------------------------------
+
+RENDER_KIND: Final = "landing_render"
+DOM_KIND: Final = "landing_dom"
+#: What `landing_render` carries: how the page answered. `landing_dom` carries
+#: what was on it. Together they rebuild the `DeviceRender`, bar the pixels.
+_RENDER_FIELDS: Final = frozenset(
+    {
+        "device", "viewport", "user_agent", "reached", "error", "final_url", "http_status",
+        "settled", "fold_px", "overlays", "obscured_by_overlay", "blocked", "get_requests",
+    }
+)  # fmt: skip
+_DOM_FIELDS: Final = frozenset({"device", "h1", "text_nodes", "text_nodes_truncated", "controls"})
+
+
+def evidence_drafts(
+    render: LandingRender, screenshots: Mapping[Device, str | None]
+) -> list[EvidenceDraft]:
+    """Two drafts per device: `landing_render` (with the screenshot's storage
+    key) and `landing_dom`."""
+    drafts: list[EvidenceDraft] = []
+    for device in DEVICES:
+        rendered = render.device(device)
+        facts = rendered.model_dump(mode="json")
+        status = (
+            f"HTTP {rendered.http_status} at {rendered.final_url}"
+            if rendered.reached
+            else f"no answer ({rendered.error})"
+        )
+        drafts.append(
+            EvidenceDraft(
+                source=EvidenceSource.WEB,
+                kind=RENDER_KIND,
+                source_url=render.url,
+                payload={
+                    "url": render.url,
+                    "screenshot": screenshots.get(device),
+                    **{key: facts[key] for key in sorted(_RENDER_FIELDS)},
+                },
+                content_text=f"Landing page {render.url} on {device}: {status}.",
+            )
+        )
+        text = " ".join(node.text for node in rendered.text_nodes)
+        drafts.append(
+            EvidenceDraft(
+                source=EvidenceSource.WEB,
+                kind=DOM_KIND,
+                source_url=render.url,
+                payload={"url": render.url, **{key: facts[key] for key in sorted(_DOM_FIELDS)}},
+                content_text=f"{rendered.h1 or ''}\n{text}".strip()[:MAX_CONTENT_TEXT] or None,
+            )
+        )
+    return drafts
+
+
+def from_evidence(rows: Iterable[tuple[str, Mapping[str, Any]]]) -> dict[str, LandingRender]:
+    """`(kind, payload)` rows back into renders, by URL. A URL missing either
+    kind for either device is not rebuilt: half a render is not a render."""
+    parts: dict[tuple[str, str], dict[str, Any]] = {}
+    for kind, payload in rows:
+        if kind not in (RENDER_KIND, DOM_KIND):
+            continue
+        fields = _RENDER_FIELDS if kind == RENDER_KIND else _DOM_FIELDS
+        key = (str(payload["url"]), str(payload["device"]))
+        parts.setdefault(key, {"kinds": set()})["kinds"].add(kind)
+        parts[key].update({name: payload[name] for name in fields if name in payload})
+    renders: dict[str, LandingRender] = {}
+    for url in dict.fromkeys(url for url, _ in parts):
+        devices = {device: parts.get((url, device)) for device in DEVICES}
+        if not all(item and item["kinds"] == {RENDER_KIND, DOM_KIND} for item in devices.values()):
+            continue
+        built = {
+            device: DeviceRender.model_validate(
+                {name: value for name, value in item.items() if name != "kinds"}
+            )
+            for device, item in devices.items()
+            if item is not None
+        }
+        renders[url] = LandingRender(url=url, mobile=built["mobile"], desktop=built["desktop"])
+    return renders
 
 
 #: One evaluate call: every fact is read from the same DOM state.

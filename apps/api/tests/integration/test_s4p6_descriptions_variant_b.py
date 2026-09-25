@@ -290,6 +290,7 @@ async def _seed(
     *,
     pmax: bool = False,
     business_name_spec: bool = True,
+    plan: dict[str, Any] | None = None,
 ) -> None:
     sheet = get_content_constants().asset_sheet()
     if pmax and business_name_spec:
@@ -322,6 +323,7 @@ async def _seed(
         keywords=KEYWORDS,
         extra_campaigns=[PMAX] if pmax else [],
         channel_slate=WITH_PMAX if pmax else SEARCH_ONLY,
+        **(plan or {}),
     )
     await seed_published(
         db,

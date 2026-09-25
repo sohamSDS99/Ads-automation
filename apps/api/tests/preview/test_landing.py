@@ -212,3 +212,25 @@ async def test_renders_run_one_at_a_time() -> None:
     )
     assert len(order) == 8 and set(first) != set(second)
     assert all(a.finished <= b.started for a, b in zip(hits, hits[1:], strict=False))
+
+
+async def test_the_render_round_trips_through_its_two_evidence_kinds() -> None:
+    """4.5.2 judges the stored `landing_dom` / `landing_render` rows, never a re-render."""
+    with fixture_server() as server:
+        (page,) = await _render(server, NINE_FIELD_FORM)
+    drafts = landing.evidence_drafts(page, {"mobile": "k/mobile.png", "desktop": None})
+    assert [(d.source, d.kind) for d in drafts] == [
+        ("web", "landing_render"),
+        ("web", "landing_dom"),
+    ] * 2
+    assert drafts[0].payload["screenshot"] == "k/mobile.png"
+    assert "screenshot" not in drafts[1].payload
+    rebuilt = landing.from_evidence([(d.kind, d.payload) for d in drafts])
+    assert rebuilt[page.url] == page.model_copy(
+        update={
+            "mobile": page.mobile.model_copy(update={"screenshot": None}),
+            "desktop": page.desktop.model_copy(update={"screenshot": None}),
+        }
+    )
+    # Half a render is not a render.
+    assert landing.from_evidence([(d.kind, d.payload) for d in drafts[:3]]) == {}
