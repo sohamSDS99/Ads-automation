@@ -60,10 +60,12 @@ from agent.db.models import (  # noqa: E402
     NodeRun,
     NodeRunStatus,
     Project,
+    Run,
     User,
 )
 from agent.db.session import get_sessionmaker  # noqa: E402
 from agent.postprod.image import TRAINED  # noqa: E402
+from agent.schemas.creative_input import CreativeInput  # noqa: E402
 from agent.schemas.creative_media import CreativeConcepts, ImageMasters, ImageRenditions  # noqa: E402
 from agent.storage.local import LocalStorage  # noqa: E402
 from tests.integration.conftest import build_client  # noqa: E402
@@ -75,6 +77,7 @@ from tests.integration.s4p9_support import (  # noqa: E402
     SPEC,
     approve_g7,
     image_model,
+    model_choice,
     run_until_done,
     start_image_run,
 )
@@ -222,6 +225,21 @@ async def scale_run(admin: Any, workspace_id: uuid.UUID, actor: uuid.UUID, stora
     )
     assert started.status_code == 202, started.text
     run_id = uuid.UUID(started.json()["run_id"])
+    # As a real image run is pinned: images on, the fixture image model chosen
+    # (`start_image_run` widens its run the same way), so the drawer can price
+    # a regeneration of any tile.
+    async with get_sessionmaker()() as db:
+        run = await db.get(Run, run_id)
+        stored = CreativeInput.model_validate(run.creative_input)
+        widened = stored.model_copy(
+            update={
+                "scope": stored.scope.model_copy(update={"images": True}),
+                "media_models": [model_choice(image_model(image_input=True))],
+            }
+        )
+        run.creative_input = widened.model_dump(mode="json", by_alias=True)
+        run.input_hash = widened.content_hash()
+        await db.commit()
 
     now = datetime.now(UTC)
     version = "1.0"

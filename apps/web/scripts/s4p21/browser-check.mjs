@@ -130,23 +130,37 @@ async function open(browser, { email, theme = "light", size = "desktop", reduced
     viewport: WIDTHS[size],
     colorScheme: theme,
     reducedMotion: reduced ? "reduce" : "no-preference",
+    // The production CSP ends in `upgrade-insecure-requests`, and this harness
+    // serves plain http: Chromium upgrades the FOLLOWED redirect of
+    // /api/v1/media/{id}/content to https://127.0.0.1/files/… (a direct /files
+    // load is not upgraded — measured), which has no TLS here. On Railway the
+    // origin is https and nothing is upgraded. The CSP itself is asserted
+    // separately below, un-bypassed.
+    bypassCSP: true,
   });
   await context.addInitScript((value) => window.localStorage.setItem("theme", value), theme);
   const page = await context.newPage();
   const problems = [];
   const requests = [];
+  // A node that has not run, or a run without a brief, answers 404 — the
+  // api's "not yet", which the library renders as an empty state.
+  const notYet = (url) => /\/runs\/[^/]+\/nodes\/4\.4\.[1-4]$/.test(url) || /\/creative-runs\/[^/]+\/brief$/.test(url);
   page.on("console", (message) => {
     if (message.type() !== "error") return;
     const where = message.location().url ?? "";
-    if (where.endsWith("/favicon.ico")) return;
+    if (where.endsWith("/favicon.ico") || notYet(where)) return;
     problems.push(`${message.text()} @ ${where}`);
   });
   page.on("request", (request) => requests.push({ url: request.url(), range: request.headers()["range"] ?? null }));
   const responses = [];
   page.on("response", (response) => {
     const url = response.url();
-    responses.push({ url, status: response.status(), range: response.request().headers()["range"] ?? null, type: response.headers()["content-type"] ?? "" });
-    if (response.status() < 400 || url.endsWith("/favicon.ico")) return;
+    // `headers()` is Chromium's provisional set — a media request's Range is
+    // added below it; `headerValue` reads what was actually sent.
+    const entry = { url, status: response.status(), range: null, type: response.headers()["content-type"] ?? "", contentRange: response.headers()["content-range"] ?? null };
+    responses.push(entry);
+    response.request().headerValue("range").then((value) => (entry.range = value), () => {});
+    if (response.status() < 400 || url.endsWith("/favicon.ico") || (response.status() === 404 && notYet(url))) return;
     // S4-P13 owns POST /creative-assets/{id}/regenerate; this check answers it.
     problems.push(`${response.status()} ${url}`);
   });
@@ -163,8 +177,15 @@ function library(project, run, tab) {
 }
 
 async function loaded(page) {
+  // Only what is on screen: a lazy image below the fold never starts loading.
   await page.waitForFunction(
-    () => [...document.querySelectorAll("img")].every((image) => image.complete),
+    () =>
+      [...document.querySelectorAll("img")]
+        .filter((image) => {
+          const box = image.getBoundingClientRect();
+          return box.width > 0 && box.bottom > 0 && box.top < window.innerHeight;
+        })
+        .every((image) => image.complete),
     undefined,
     { timeout: 20_000 },
   );
@@ -293,6 +314,12 @@ try {
   const viewer = await member(admin, "viewer", `viewer-${Date.now()}@example.com`);
   const { image_project_id: imageProject, image_run_id: imageRun, video_project_id: videoProject, video_run_id: videoRun, scale_project_id: scaleProject, scale_run_id: scaleRun } = SEED;
 
+  /* 0. The CSP the harness bypasses still lets the page load /files. ------ */
+  {
+    const csp = (await fetch(`${BASE}/login`)).headers.get("content-security-policy") ?? "";
+    check("the document CSP allows same-origin media (img-src 'self', media via default-src 'self')", /img-src 'self'/.test(csp) && /default-src 'self'/.test(csp) && !/media-src/.test(csp), csp);
+  }
+
   /* 1. 500 tiles, the trace, aspect-true, proxies only. ------------------ */
   {
     const { context, page, problems, requests } = await open(browser, { email: ADMIN.email });
@@ -320,11 +347,9 @@ try {
         const step = (now) => {
           deltas.push(now - last);
           last = now;
-          for (const tile of panel.querySelectorAll("[data-tile]")) {
-            seen.add(tile.dataset.key);
-            const image = tile.querySelector("img");
-            if (image && getComputedStyle(image).objectFit === "cover") bad.push(tile.dataset.key);
-          }
+          // Keys only: a style read here would force a style recalc every
+          // frame and bill the harness's work to the grid.
+          for (const tile of panel.querySelectorAll("[data-tile]")) seen.add(tile.dataset.key);
           const t = Math.min(1, (now - t0) / durationMs);
           panel.scrollTop = max * t;
           if (t >= 1) resolve();
@@ -341,7 +366,16 @@ try {
     const trace = JSON.parse((await browser.stopTracing()).toString());
     const events = trace.traceEvents ?? trace;
     const main = new Set(events.filter((e) => e.ph === "M" && e.name === "thread_name" && e.args?.name === "CrRendererMain").map((e) => `${e.pid}:${e.tid}`));
-    const tasks = events.filter((e) => e.ph === "X" && (e.name === "RunTask" || e.name === "ThreadControllerImpl::RunTask") && main.has(`${e.pid}:${e.tid}`));
+    // Outermost tasks only: `RunTask` and `ThreadControllerImpl::RunTask` nest.
+    const nested = events
+      .filter((e) => e.ph === "X" && (e.name === "RunTask" || e.name === "ThreadControllerImpl::RunTask") && main.has(`${e.pid}:${e.tid}`))
+      .sort((a, b) => a.ts - b.ts || b.dur - a.dur);
+    const tasks = [];
+    for (const e of nested) {
+      const last = tasks.at(-1);
+      if (last && e.ts >= last.ts && e.ts + e.dur <= last.ts + last.dur) continue;
+      tasks.push(e);
+    }
     const longest = tasks.reduce((most, e) => Math.max(most, (e.dur ?? 0) / 1000), 0);
     const over = tasks.filter((e) => (e.dur ?? 0) / 1000 > FRAME_BUDGET_MS).length;
     const draws = events.filter((e) => e.name === "DrawFrame").length;
@@ -353,7 +387,13 @@ try {
       `trace at ${SHOTS}/grid-trace.json; ${over} task(s) over budget; rAF p95 ${scrolled.p95.toFixed(1)} ms over ${scrolled.frames} frames`,
     );
     console.log(`      rAF p95 ${scrolled.p95.toFixed(1)} ms over ${scrolled.frames} frames (informational)`);
-    check("no tile was ever object-cover", scrolled.bad.length === 0);
+    const middle = await page.getByTestId("media-panel").evaluate((panel) => {
+      panel.scrollTop = panel.scrollHeight / 2;
+    });
+    await page.waitForTimeout(400);
+    const mid = await aspectReport(page);
+    check("renditions: mid-scroll is aspect-true, and nothing is object-cover", mid.bad.length === 0 && mid.files > 0, mid.bad.slice(0, 5).join("; "));
+    void middle;
     const bottom = await aspectReport(page);
     check("renditions: the last screen is aspect-true, gaps included", bottom.bad.length === 0 && bottom.gaps + bottom.files > 0, bottom.bad.slice(0, 5).join("; "));
 
@@ -396,7 +436,7 @@ try {
     await tile.click();
     const panel = page.getByTestId("generation-panel");
     await panel.waitFor({ timeout: 10_000 });
-    const cost = page.getByTestId("regeneration-cost").locator("p").first();
+    const cost = page.getByTestId("regeneration-cost").locator("p[data-fits]");
     await cost.waitFor({ timeout: 15_000 });
     const shown = (await cost.innerText()).replace(/\s+/g, " ");
     const mediaId = await tile.getAttribute("data-key");
@@ -440,7 +480,7 @@ try {
     const player = page.getByTestId("video-player").first();
     await player.waitFor({ timeout: 30_000 });
     const video = player.locator("video");
-    await video.evaluate((node) => (node.readyState >= 1 ? true : new Promise((resolve) => node.addEventListener("loadedmetadata", resolve, { once: true }))));
+    await page.waitForFunction(() => document.querySelector('[data-testid="video-player"] video')?.readyState >= 1, undefined, { timeout: 20_000 });
     const state = await video.evaluate((node) => ({ muted: node.muted, defaultMuted: node.defaultMuted, preload: node.preload, src: node.getAttribute("src"), duration: node.duration }));
     check("the player is muted by default", state.muted && state.defaultMuted, JSON.stringify(state));
     check('the player preloads metadata only and plays the proxy (variant=preview)', state.preload === "metadata" && state.src.includes("variant=preview"), state.src);
@@ -470,7 +510,10 @@ try {
     const now = await video.evaluate((node) => node.currentTime);
     const proxy = responses.filter((r) => new URL(r.url).pathname.endsWith("_preview.mp4"));
     const ranged = proxy.filter((r) => r.status === 206);
-    check(`the proxy is served by Range: ${ranged.length} × 206 (${ranged.map((r) => r.range).join(", ")})`, ranged.length > 0 && ranged.every((r) => r.type === "video/mp4"));
+    check(
+      `the proxy is served by Range: ${ranged.length} × 206 (${ranged.map((r) => `${r.range} → ${r.contentRange}`).join(", ")})`,
+      ranged.length > 0 && ranged.every((r) => r.type === "video/mp4" && /^bytes \d+-\d+\/\d+$/.test(r.contentRange ?? "")),
+    );
     const afterSeek = responses.slice(before).filter((r) => new URL(r.url).pathname.endsWith("_preview.mp4"));
     console.log(`      seek to ${now.toFixed(2)} s: ${afterSeek.length ? afterSeek.map((r) => `${r.status} ${r.range}`).join(", ") : "served from what was already fetched"}`);
     check("seeking moves the video", now > 1);

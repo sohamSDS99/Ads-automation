@@ -101,6 +101,14 @@ export const DERIVATION_LABEL: Record<Derivation, string> = {
   composited: "Fitted logo",
 };
 
+/** The same, short enough for two chips on one row of a grid tile. */
+export const DERIVATION_CHIP: Record<Derivation, string> = {
+  native: "Native",
+  relaid: "Relaid",
+  crop: "Crop",
+  composited: "Logo",
+};
+
 export type FileTile = {
   kind: "file";
   key: string;

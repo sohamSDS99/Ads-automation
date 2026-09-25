@@ -284,7 +284,9 @@ function Timeline({
             dragging.current = false;
           }}
           className={cn(
-            "relative flex min-w-0 flex-1 cursor-pointer touch-none select-none flex-col justify-around gap-1",
+            // `overflow-hidden`: a mark at 0 or 100% is centred on its time,
+            // and half of it would otherwise widen the page at 390 px.
+            "relative flex min-w-0 flex-1 cursor-pointer touch-none select-none flex-col justify-around gap-1 overflow-hidden",
             "rounded-token border bg-surface px-0 py-1",
             "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
           )}
@@ -315,7 +317,8 @@ function Timeline({
                 title={`${secondsLabel(frame.t_ms)}: logo ${frame.detected ? "found" : "not found"}, score ${frame.score.toFixed(2)}`}
                 className={cn(
                   "absolute bottom-0 w-1 -translate-x-1/2 rounded-sm",
-                  frame.detected ? "h-4 bg-fg" : "h-2 border border-fg-muted bg-surface",
+                  // Shape, not only colour: found is tall and thick, not found short and thin.
+                  frame.detected ? "h-4 bg-fg" : "h-1.5 w-0.5 bg-fg-muted",
                 )}
                 style={{ left: `${atPercent(frame.t_ms, durationMs)}%` }}
               />
@@ -337,9 +340,10 @@ function Timeline({
                 }`}
                 className={cn(
                   "absolute inset-y-0 overflow-hidden rounded-sm px-1 text-xs leading-5 tabular-nums",
+                  // Text on a tint uses the tint's own ink token (AA in both themes).
                   caption.ocr && !caption.ocr.passed
-                    ? "border border-dashed border-status-failed text-status-failed-ink"
-                    : "bg-series-1 text-accent-fg",
+                    ? "border border-dashed border-status-failed bg-surface text-status-failed-ink"
+                    : "border border-accent bg-accent-soft text-accent-soft-fg",
                 )}
                 style={{
                   left: `${atPercent(caption.startMs, durationMs)}%`,
@@ -357,7 +361,7 @@ function Timeline({
                 data-mark="end-card"
                 data-start-ms={endCard.startMs}
                 data-end-ms={endCard.endMs}
-                className="absolute inset-y-0 overflow-hidden rounded-sm border border-border-strong bg-surface-hover px-1 text-xs leading-5 text-fg-muted"
+                className="absolute inset-y-0 overflow-hidden rounded-sm border border-border-strong bg-surface-hover px-1 text-xs leading-5 text-fg"
                 style={{
                   left: `${atPercent(endCard.startMs, durationMs)}%`,
                   width: `${atPercent(endCard.endMs, durationMs) - atPercent(endCard.startMs, durationMs)}%`,
@@ -377,11 +381,15 @@ function Timeline({
       </div>
       <div aria-hidden className="flex gap-3">
         <span className="w-16 shrink-0" />
-        <div className="relative h-4 flex-1 text-xs tabular-nums text-fg-subtle">
+        <div className="relative h-4 min-w-0 flex-1 overflow-hidden text-xs tabular-nums text-fg-subtle">
           {Array.from({ length: Math.floor(seconds / every) + 1 }, (_, i) => i * every * 1000).map((ms) => (
             <span
               key={ms}
-              className="absolute -translate-x-1/2"
+              // Centred on its second, except at the ends, where it keeps inside the track.
+              className={cn(
+                "absolute",
+                ms === 0 ? "" : atPercent(ms, durationMs) > 96 ? "-translate-x-full" : "-translate-x-1/2",
+              )}
               style={{ left: `${atPercent(ms, durationMs)}%` }}
             >
               {ms / 1000}

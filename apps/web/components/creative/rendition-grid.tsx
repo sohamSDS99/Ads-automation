@@ -9,6 +9,7 @@ import { LetterboxFrame } from "@/components/creative/media-frame";
 import { Badge } from "@/components/ui/badge";
 import { mediaContentUrl } from "@/lib/api/media-library";
 import {
+  DERIVATION_CHIP,
   DERIVATION_LABEL,
   bytesOfLimit,
   columnsFor,
@@ -91,6 +92,10 @@ export function RenditionGrid({
     overscan: 4,
     scrollMargin: margin,
     getItemKey: (index) => rows[index]?.key ?? index,
+    // Let React batch the rows a scroll reveals instead of rendering them
+    // synchronously inside the scroll event (measured: 6.9 ms of a 17 ms
+    // frame went to the flushSync render).
+    useFlushSync: false,
   });
 
   useLayoutEffect(() => {
@@ -207,7 +212,9 @@ const FileTileView = memo(function FileTileView({
           {bytesOfLimit(tile.bytes, tile.maxBytes)}
         </span>
         <span className="flex flex-wrap items-center gap-1">
-          <Badge>{DERIVATION_LABEL[tile.derivation]}</Badge>
+          <span title={DERIVATION_LABEL[tile.derivation]} className="inline-flex">
+            <Badge>{DERIVATION_CHIP[tile.derivation]}</Badge>
+          </span>
           <LintChip verdict={tile.lint} />
           {tile.generated ? <AiGeneratedChip model={model} /> : null}
         </span>

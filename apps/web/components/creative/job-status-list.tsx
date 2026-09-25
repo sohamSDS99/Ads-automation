@@ -109,22 +109,29 @@ export function JobStatusList({
                   <Td>
                     <MonoId value={job.id} label="Job id" />
                   </Td>
-                  <Td className="max-w-48">
+                  <Td>
+                    {/* A fixed width that truncates: the shared Table is
+                        `min-w-max`, so a cell's max-width alone lets the text
+                        run into the next column. */}
                     {job.asset_id && onOpenAsset ? (
                       <button
                         type="button"
                         onClick={() => onOpenAsset(job.asset_id as string)}
-                        className="truncate text-left text-accent underline-offset-2 hover:underline"
+                        title={label ?? undefined}
+                        className="block w-48 truncate text-left text-accent underline-offset-2 hover:underline"
                       >
                         {label ?? `${job.modality} asset`}
                       </button>
                     ) : (
-                      <span className="text-fg-muted">{label ?? "—"}</span>
+                      <span className="block w-48 truncate text-fg-muted">{label ?? "—"}</span>
                     )}
                     <span className="block font-mono text-xs text-fg-subtle">{job.node_id}</span>
                   </Td>
                   <Td>
-                    <span className="font-mono text-xs text-fg" title={job.provider_tag ?? "any provider"}>
+                    <span
+                      className="block w-56 truncate font-mono text-xs text-fg"
+                      title={`${job.model_id} · ${job.provider_tag ?? "any provider"}`}
+                    >
                       {job.model_id}
                     </span>
                   </Td>
