@@ -1,0 +1,140 @@
+{
+  "$defs": {
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "mapped_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mapped Signal"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "required"
+      ],
+      "title": "FormField",
+      "type": "object"
+    },
+    "KeepReason": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "required_signal",
+            "consent",
+            "privacy",
+            "routing_contact"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "signal": {
+          "minLength": 1,
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "signal"
+      ],
+      "title": "KeepReason",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The form a visitor fills in, and the smallest form that still qualifies a lead.\n\n`minimal_set` is computed in code (\u00a711 4.5.2): the fields mapped to\n`lead_definition.required_signals`, \u222a consent / privacy, \u222a the one routing\ncontact field. The model only labels fields; it cannot keep one.",
+  "properties": {
+    "form_index": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Form Index"
+    },
+    "fields": {
+      "items": {
+        "$ref": "#/$defs/FormField"
+      },
+      "title": "Fields",
+      "type": "array"
+    },
+    "minimal_set": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Minimal Set",
+      "type": "array"
+    },
+    "remove": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Remove",
+      "type": "array"
+    },
+    "keep_reason": {
+      "items": {
+        "$ref": "#/$defs/KeepReason"
+      },
+      "title": "Keep Reason",
+      "type": "array"
+    },
+    "missing_signals": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Signals",
+      "type": "array"
+    }
+  },
+  "title": "FormAudit",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

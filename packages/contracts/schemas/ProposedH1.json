@@ -1,0 +1,63 @@
+{
+  "$defs": {
+    "LintRef": {
+      "additionalProperties": false,
+      "description": "The asset's `LintResult`, by verdict. The full result is on the asset row.",
+      "properties": {
+        "verdict": {
+          "enum": [
+            "pass",
+            "pass_with_warnings",
+            "fail"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "ruleset_version": {
+          "minLength": 1,
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "verdict",
+        "ruleset_version"
+      ],
+      "title": "LintRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A replacement H1, written by COPYWRITE, linted at the pin, scored by code.",
+  "properties": {
+    "text": {
+      "minLength": 1,
+      "title": "Text",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "lint": {
+      "$ref": "#/$defs/LintRef"
+    }
+  },
+  "required": [
+    "text",
+    "score",
+    "lint"
+  ],
+  "title": "ProposedH1",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

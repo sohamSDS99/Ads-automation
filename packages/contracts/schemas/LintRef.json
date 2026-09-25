@@ -1,0 +1,34 @@
+{
+  "additionalProperties": false,
+  "description": "The asset's `LintResult`, by verdict. The full result is on the asset row.",
+  "properties": {
+    "verdict": {
+      "enum": [
+        "pass",
+        "pass_with_warnings",
+        "fail"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "ruleset_version": {
+      "minLength": 1,
+      "title": "Ruleset Version",
+      "type": "string"
+    },
+    "rule_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Rule Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "verdict",
+    "ruleset_version"
+  ],
+  "title": "LintRef",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}
