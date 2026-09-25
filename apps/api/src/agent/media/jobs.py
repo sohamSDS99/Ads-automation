@@ -433,11 +433,20 @@ class MediaJobs:
     # -- wait --------------------------------------------------------------
 
     async def await_video(
-        self, job_id: uuid.UUID, *, since: datetime | None = None
+        self,
+        job_id: uuid.UUID,
+        *,
+        since: datetime | None = None,
+        progress: Progress | None = None,
     ) -> GenerationJob:
         """Poll until the job ends or `video_job_timeout_s` passes since
         `since` (default: when it was submitted). Re-entrant: a resumed worker
-        calls it again on the same row and carries on polling."""
+        calls it again on the same row and carries on polling.
+
+        `progress` (else the instance's) hears every poll — the last one too,
+        and one OpenRouter could not answer (`poll=None`) — after the row has
+        counted it (§8.4: "node.progress on every poll")."""
+        report = progress or self._progress
         row = await self._load(job_id)
         if row.status in FINISHED or row.openrouter_job_id is None:
             return row
@@ -466,10 +475,10 @@ class MediaJobs:
                 await session.commit()
             if poll is not None and poll.status == "in_progress":
                 self._checkpoint("in_progress")
+            if report is not None:
+                await report(row, poll)
             if poll is not None and poll.terminal:
                 return await self._conclude(row, poll)
-            if self._progress is not None:
-                await self._progress(row, poll)
             await self._sleep(interval * (1 + random.random() * POLL_JITTER))  # noqa: S311
             interval = min(interval * POLL_GROWTH, self._constants.video_poll_max_s)
 
