@@ -2,10 +2,11 @@ import { CircleCheck, CircleDashed, CircleX, TriangleAlert, type LucideIcon } fr
 
 import { Badge } from "@/components/ui/badge";
 import type { LintVerdict } from "@/lib/api/creative-runs";
+import type { ImageLintVerdict } from "@/lib/api/media-library";
 import { cn } from "@/lib/utils";
 
 const VERDICT: Record<
-  LintVerdict,
+  ImageLintVerdict,
   { label: string; icon: LucideIcon; tone: "neutral" | "warning" | "danger"; ink: string }
 > = {
   pass: { label: "Passes lint", icon: CircleCheck, tone: "neutral", ink: "text-status-success" },
@@ -16,6 +17,13 @@ const VERDICT: Record<
     ink: "text-status-gate",
   },
   fail: { label: "Fails lint", icon: CircleX, tone: "danger", ink: "text-status-failed" },
+  // Image lint only (`image_verdict()`): a rule could not be measured on the file.
+  indeterminate: {
+    label: "Lint indeterminate",
+    icon: CircleDashed,
+    tone: "warning",
+    ink: "text-status-gate",
+  },
 };
 
 /**
@@ -25,7 +33,13 @@ const VERDICT: Record<
  * (`pending` until it has). This only says the verdict, in words and an icon,
  * never by colour alone (§15.2 rule 14); it decides nothing.
  */
-export function LintChip({ verdict, pending = false }: { verdict: LintVerdict | null; pending?: boolean }) {
+export function LintChip({
+  verdict,
+  pending = false,
+}: {
+  verdict: LintVerdict | ImageLintVerdict | null;
+  pending?: boolean;
+}) {
   if (pending) {
     return (
       <Badge className="whitespace-nowrap" data-verdict="pending">
