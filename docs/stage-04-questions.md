@@ -707,3 +707,100 @@ Rulings owed on what S4-P10 decided where §9.4, §11 (4.4.3) and §21.3 are sil
     `test_nfr_stage_02.py` read an unset `FILE_TOKEN_SECRET` and the
     Makefile: the test service sets the one and mounts neither. They pass on
     the host; everything else ran in the worker image (exiftool, tesseract).
+
+## S4-P11
+
+Rulings owed on what S4-P11 decided where §8.4, §9.4 video 1–2, §11 (4.4.4)
+and §21.3 are silent.
+
+1. **`AssetSpec` gained a duration window (Stage 03, additive).** §9.5 says a
+   surface lacking "video durations" is `spec_missing` until a Stage 03
+   amendment adds the spec — but `AssetSpec` forbade the keys, so no amendment
+   could. `min_duration_s` / `max_duration_s` are optional and omitted from the
+   dump when unset, so every existing spec sheet and ruleset hash is byte for
+   byte unchanged (a test pins it). **No Google number was added**: the shipped
+   `content_constants.yaml` has no video asset type at all, so on every real
+   ruleset today 4.4.4 is `not_required` ("no video surface"). The
+   performance owner adds video specs (ratio + window) to make video possible.
+2. **How the length is chosen inside the window.** With a minimum: the
+   shortest length ≥ it (and ≤ any maximum) the model's durations sum to —
+   the least footage and spend the spec allows. With only a maximum: the
+   longest ≤ it (a bumper is made at its cap). A campaign's video types must
+   share one window (their intersection); disjoint windows are
+   `conflicting_duration_specs`. Rule on "shortest", and on whether a length
+   should instead be a creative choice the brief records.
+3. **The shot plan's tie-breaks.** Fewest clips (fewest seams and per-job
+   minimums), then the most even split (20 s from 4/6/8 is 8+6+6, not 8+8+4),
+   then longest first. A length the durations cannot sum to exactly is a
+   `CalcError`, never a trimmed clip.
+4. **The estimate G7 approved can under-count video.** `cost_estimate_v1`
+   (S4-P1) prices one job per video ratio at the chosen `duration` (or the
+   longest supported). The shot plan makes N clips summing to the spec's
+   length, so a 10 s video from 4/6/8 s clips is two jobs, not one. The caps
+   still hold (a refused reservation is `blocked_by_budget`), but G7's
+   "authorises the estimated spend" does not. Proposed: price the shot plan in
+   the estimate — it needs the spec window at estimate time, which
+   `estimate_inputs` can read from the pin. Not built (S4-P1's formula).
+5. **One script and one concept per campaign.** The estimate counts one video
+   per ratio per campaign, so 4.4.4 makes one: from the campaign's first 4.4.1
+   concept, one script serving every ratio. Rule if a video per concept is
+   wanted (it multiplies video spend by `concepts_per_campaign`).
+6. **The model never times anything.** It writes one shot per clip (visual,
+   voiceover, on-screen text) and the CTA; `t0`/`t1` are the shot plan's, and
+   captions are the voiceover — one per voiced beat — so every voiceover
+   interval is captioned by construction. `VideoScript` still validates it
+   (and a draft that never shows the CTA is refused before it is timed).
+7. **The script is committed before any clip is submitted, and reused on
+   resume.** A resumed or retried 4.4.4 reads back its `video_script` asset
+   instead of asking `COPYWRITE` again: a new script is new prompts, new
+   idempotency keys and a second bill for every clip. The kill test asserts
+   the script is asked for once (the POST count alone cannot prove it — the
+   test's schema-filled answers are identical every time; a mutation proved
+   the script-count assertion catches it).
+8. **`youtube_script` → `video_script` in `SURFACE_ASSET_TYPES` (Stage 03).**
+   Unmapped, every `headline`-scoped rule reached every voiceover line: against
+   a real Performance Max ruleset every script failed "36 chars; the limit is
+   30". Mapped, headline limits stay on headlines; unscoped rules (never terms,
+   claims, policy) still reach the script, and a future `video_script` spec
+   would. Each line is linted alone with `lint_candidate` (set rules are the
+   assembled ad's).
+9. **Every clip prompt forbids the product, even for `reference_guided`.**
+   §11 gives 4.4.4 no `references` input and 4.4.4 depends on 4.4.1 only (not
+   4.4.2), so no reference or master reaches the video model and nothing
+   composites a product into a clip — a depicted product could only be an
+   invented one (Law 38). Also forbidden: text and logos (captions, logo and
+   end card are code's). A `relaid` ratio is painted from the prompt at that
+   ratio (text-to-video), as the estimate priced it.
+10. **A crop ratio is P12's; without a painted source it is a gap.** A required
+    video ratio the model does not paint but can crop from a ratio this video
+    *is* made at is recorded `{"plan": "crop", "from": …}`; otherwise
+    `no_source_ratio` — the estimate priced no clip to crop it from.
+11. **`timed_out` fails the node; failed / expired / cancelled /
+    `unknown_submit_state` are gaps.** A timed-out job is still alive, so it is
+    not a gap: the node fails naming each job and "Check again". Check again
+    (S4-P18's route and worker, unchanged) finishes and downloads it; the
+    operator then retries 4.4.4, which finds the clip done with no POST. Check
+    again does not retry the node by itself — rule if it should.
+    `unknown_submit_state` for a video stays a person's decision (409 on
+    Check again); there is no "Submit again (may double-bill)" route yet
+    (§18 names one, §16 lists none).
+12. **Budget exhaustion mid-video leaves paid clips of an incomplete ratio.**
+    Reservations are per job, so when the cap refuses clip k of a ratio, clips
+    before it are spent and the ratio is a `blocked_by_budget` gap; no later
+    clip of any campaign is submitted, and the rung taken is recorded
+    (`video`, or `video_square` for 1:1 — square is made last so the ladder's
+    first video rung is what runs out). Reserving a whole ratio's clips at once
+    needs a group reservation in `budget.py`.
+13. **The video asset's surface is `video_frame`** (§7.1's delta name); it is
+    not yet in the `Surface` literal because nothing lints a frame before
+    S4-P12. The asset stays `draft` until P12 renders and lints it.
+14. **`generate_audio`** is sent as the run's choice, else
+    `video.generate_audio_default` (false, Q9) whenever the model takes the
+    field; `size` is never sent (it would contradict the ratio being made).
+15. **`duration_s` is the finished video's length.** Whether P12's end card
+    overlays the last `end_card_ms` of the final clip or is appended (which
+    would push the total past a maximum) is P12's to decide against the spec.
+16. **Clips are recorded as `MediaArtifact(role=clip)` from ffprobe's
+    reading** (`postprod.probe_video`, packets counted so a cut-short download
+    fails), `aspect_ratio` = the ratio requested. P12 checks the pixels match
+    it; the recorded clip OpenRouter returned is 1280×720 whatever was asked.
