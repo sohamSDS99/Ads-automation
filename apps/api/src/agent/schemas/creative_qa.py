@@ -14,11 +14,61 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+
 ExceptionKind = Literal["new_claim", "disclaimer", "image_right"]
 
 
 class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+# ---------------------------------------------------------------------------
+# 4.6.1 spec conformance
+# ---------------------------------------------------------------------------
+
+ConformanceSource = Literal["lint", "pillow", "ffprobe"]
+Constraint = Literal[
+    "max_chars",
+    "min_px",
+    "ratio",
+    "max_bytes",
+    "format",
+    "min_duration_s",
+    "max_duration_s",
+    "fps",
+    "codec",
+    "audio_codec",
+]
+
+
+class ConformanceCheck(_Frozen):
+    """One measured constraint of one asset (a text line, a rendition, a video file)."""
+
+    asset_id: uuid.UUID
+    #: The rendition or video file measured; None for a text line.
+    media_id: uuid.UUID | None = None
+    constraint: Constraint
+    expected: str | int | float
+    measured: str | int | float
+    #: Who measured it: the linter's own counter, Pillow's decode, or ffprobe.
+    source: ConformanceSource
+    verdict: Literal["pass", "fail"]
+
+
+class Unchecked(_Frozen):
+    """An asset (or file) with nothing to conform to — named, never skipped silently."""
+
+    asset_id: uuid.UUID
+    media_id: uuid.UUID | None = None
+    reason: Literal["spec_missing", "file_missing", "file_unreadable"]
+    detail: str = Field(min_length=1)
+
+
+class SpecConformance(_Frozen):
+    ruleset_version: str
+    checks: list[ConformanceCheck] = Field(default_factory=list)
+    unchecked: list[Unchecked] = Field(default_factory=list)
+    failed: int = Field(ge=0)
 
 
 # ---------------------------------------------------------------------------
