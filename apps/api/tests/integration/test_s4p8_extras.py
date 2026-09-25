@@ -28,6 +28,7 @@ from typing import Any
 
 import httpx
 import pytest
+import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.creative import offers
@@ -36,12 +37,18 @@ from agent.db.models import (
     CreativeAssetStatus,
     Evidence,
     EvidenceSource,
+    PlanCalc,
     RunStatus,
 )
 from agent.orchestrator.dag import Dag
-from agent.preview import urlcheck
-from agent.schemas.extras import OfferAssetsOutput, SitelinksCalloutsSnippetsOutput
+from agent.preview import landing, urlcheck
+from agent.schemas.extras import (
+    LeadFormOutput,
+    OfferAssetsOutput,
+    SitelinksCalloutsSnippetsOutput,
+)
 from agent.schemas.guardrails import OfferRecord
+from agent.schemas.landing import Box
 from tests.integration.conftest import ApiClient
 from tests.integration.creative_support import TEXT_ONLY
 from tests.integration.runs_support import execute
@@ -90,6 +97,15 @@ OFFER_SPECS: dict[str, dict[str, Any]] = {
     "promotion": {"max_chars": 20, "max_count": 2, **SPEC},
     "price": {"max_chars": 25, "min_count": 3, "max_count": 8, **SPEC},
 }
+LEAD_FORM_SPECS: dict[str, dict[str, Any]] = {
+    "lead_form": {"max_chars": 30, "max_count": 5, **SPEC},
+}
+#: 2.1.4's qualified lead, and what sales agreed makes a lead junk.
+REQUIRED = ["job title", "company size"]
+DISQUALIFIERS = ["student"]
+#: The audited landing form: seven fields, one required signal (`job title`),
+#: routed by email — S4-P7's CLASSIFY labels (`test_s4p7_landing.LABELS`).
+FORM = ["first_name", "last_name", "email", "phone", "company", "job_title", "country"]
 CALLOUTS = ["Audit-ready SDS library", "Free onboarding", "Chemical inventory"]
 SNIPPET = {"header": "Types", "values": ["Safety data sheets", "Chemical labels", "Inventory"]}
 
@@ -167,6 +183,22 @@ class _Script(_LandingScript):
                     },
                 }
             return completion(answer, model=body["model"])
+        if name == "LeadFormDraft":
+            self.requests.setdefault(name, []).append(body)
+            schema = body["response_format"]["json_schema"]["schema"]
+            keys = list(schema["$defs"]["LeadFormQuestionsDraft"]["properties"])
+            types = {"signal_1": "JOB_TITLE", "signal_2": "COMPANY_SIZE"}
+            return completion(
+                {
+                    "headline": "Get an SDS demo",
+                    "description": "Tell us about your EHS team",
+                    "cta": "REQUEST_DEMO",
+                    "questions": {
+                        key: {"type": types[key], "text": None, "options": []} for key in keys
+                    },
+                },
+                model=body["model"],
+            )
         return super()._respond(request)
 
 
@@ -214,6 +246,72 @@ async def _offers(db: AsyncSession, project_id: uuid.UUID, rows: list[dict[str, 
     await db.commit()
 
 
+@pytest.fixture
+def rendered_form(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every landing page renders, carrying the seven-field form (no browser needed)."""
+
+    async def render(
+        urls: Any, *, viewports: Any, timeout_ms: int = landing.NETWORKIDLE_TIMEOUT_MS
+    ) -> list[landing.LandingRender]:
+        def device(name: landing.Device, url: str) -> landing.DeviceRender:
+            return landing.DeviceRender(
+                device=name,
+                viewport=viewports[name],
+                user_agent="integration-suite",
+                reached=True,
+                final_url=url,
+                http_status=200,
+                settled=True,
+                fold_px=viewports[name].height,
+                h1="Keep every SDS current",
+                text_nodes=[
+                    landing.TextNode(
+                        text="Keep every SDS current", box=Box(x=0, y=40, width=300, height=40)
+                    )
+                ],
+                controls=[
+                    landing.FormControl(
+                        form=0,
+                        tag="input",
+                        name=field,
+                        id=None,
+                        label=field.replace("_", " "),
+                        type="email" if field == "email" else "text",
+                        required=field == "email",
+                        visible=True,
+                    )
+                    for field in FORM
+                ],
+            )
+
+        return [
+            landing.LandingRender(
+                url=url, mobile=device("mobile", url), desktop=device("desktop", url)
+            )
+            for url in urls
+        ]
+
+    monkeypatch.setattr(landing, "render_pages", render)
+
+
+async def _crm(db: AsyncSession, project_id: uuid.UUID) -> None:
+    """100 historical deals: 30 won, 40 lost to a student, 30 lost on price."""
+    rows = [("crm_won", f"won-{n}", None) for n in range(30)]
+    rows += [("crm_lost", f"student-{n}", "Student project") for n in range(40)]
+    rows += [("crm_lost", f"price-{n}", "Price") for n in range(30)]
+    for kind, account, reason in rows:
+        db.add(
+            Evidence(
+                project_id=project_id,
+                source=EvidenceSource.CSV,
+                kind=kind,
+                payload={"account_name": account, "close_reason": reason},
+                hash=f"{kind}-{account}",
+            )
+        )
+    await db.commit()
+
+
 async def _crawl(db: AsyncSession, project_id: uuid.UUID, urls: list[str]) -> None:
     """The project's crawled pages, as `web_crawler` stores them."""
     for url in urls:
@@ -238,9 +336,10 @@ async def _run(
     actor: uuid.UUID,
     *,
     extra_specs: dict[str, dict[str, Any]] | None = None,
+    plan: dict[str, Any] | None = None,
 ) -> tuple[uuid.UUID, _Script, RunStatus]:
     """A creative run started, approved at G7, and run to its end."""
-    await _seed(db, ws, project_id, actor, extra_specs={"search": extra_specs or {}})
+    await _seed(db, ws, project_id, actor, extra_specs={"search": extra_specs or {}}, plan=plan)
     started = await admin.post(
         f"/projects/{project_id}/creative/runs", json={"scope": TEXT_ONLY, "media_models": []}
     )
@@ -455,3 +554,144 @@ async def test_stale_offers_are_not_required_and_ask_no_model(
     assert "OfferAssetsDraft" not in script.requests
     rows = await _assets(db, run_id)
     assert not [row for row in rows.values() if row.node_id == "4.3.2"]
+
+
+# ---------------------------------------------------------------------------
+# 4.3.3
+# ---------------------------------------------------------------------------
+
+
+async def test_the_lead_form_has_a_resolving_privacy_url_and_the_tradeoff_writes_evidence(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    rendered_form: None,
+) -> None:
+    await _crawl(db, project_id, CRAWLED)
+    await _crm(db, project_id)
+    run_id, script, _ = await _run(
+        admin,
+        db,
+        workspace_id,
+        project_id,
+        admin_user.id,
+        extra_specs=LEAD_FORM_SPECS,
+        plan={"required_signals": REQUIRED, "disqualifiers": DISQUALIFIERS},
+    )
+    output = LeadFormOutput.model_validate(await _output(db, run_id, "4.3.3"))
+    assert output.status == "required"
+    (campaign,) = output.campaigns
+    assert campaign.campaign_ref == "c-sds-us"
+    assert campaign.gaps == []
+    form, tradeoff = campaign.form, campaign.tradeoff
+    assert form is not None and tradeoff is not None
+
+    # --- the privacy URL resolved 2xx on-domain ------------------------------
+    assert form.privacy_policy_url == f"{SITE}/privacy"
+    assert form.privacy_url_check.status == "ok"
+    assert form.privacy_url_check.http_status == 200
+    assert [str(r.url) for r in web.requests] == [f"{SITE}/privacy"]
+
+    # --- the contact and the chosen signals, nothing else; no Art. 9 ---------
+    assert [(q.type, q.qualifies_signal) for q in form.questions] == [
+        ("EMAIL", None),
+        ("JOB_TITLE", "job title"),
+        ("COMPANY_SIZE", "company size"),
+    ]
+    (request,) = script.requests["LeadFormDraft"]
+    user = next(m["content"] for m in request["messages"] if m["role"] == "user")
+    assert _sections(user)["QUESTIONS"] == {"signal_1": "job title", "signal_2": "company size"}
+    assert "Student project" not in user  # CRM aggregates never reach a prompt
+
+    # --- the trade-off is a calc/ result with PlanCalc + derived Evidence ----
+    assert (tradeoff.fields_n, tradeoff.expected_leads, tradeoff.expected_qualified) == (
+        3,
+        152.42,
+        152.42,
+    )
+    (evidence_id,) = tradeoff.calc_evidence_ids
+    calc = (
+        await db.execute(sa.select(PlanCalc).where(PlanCalc.evidence_id == evidence_id))
+    ).scalar_one()
+    assert (calc.plan_run_id, calc.node_id, calc.formula_id) == (
+        run_id,
+        "4.3.3",
+        "leadform.field_tradeoff_v1",
+    )
+    assert calc.inputs["history_fields_n"] == len(FORM)
+    assert calc.inputs["history_signals_n"] == 1
+    assert calc.inputs["lost_reasons"] == {"Price": 30, "Student project": 40}
+    assert [option["fields_n"] for option in calc.result["options"]] == [2, 3]
+    evidence = await db.get(Evidence, evidence_id)
+    assert evidence is not None
+    assert (evidence.source, evidence.kind) == (EvidenceSource.DERIVED, "calc_leadform")
+    assert evidence.payload["result"]["chosen"]["fields_n"] == 3
+
+    # --- one row, linted at creation ----------------------------------------
+    (row,) = [r for r in (await _assets(db, run_id)).values() if r.node_id == "4.3.3"]
+    assert row.kind is CreativeAssetKind.LEAD_FORM
+    assert row.status is CreativeAssetStatus.LINTED
+    assert row.fields["privacy_url_check"]["status"] == "ok"
+    assert row.fields["tradeoff"]["calc_evidence_ids"] == [str(evidence_id)]
+
+
+async def test_no_privacy_url_no_form_and_an_article_9_signal_is_never_asked(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+) -> None:
+    web.pages[f"{SITE}/privacy"] = (404, None)
+    await _crawl(db, project_id, CRAWLED)
+    run_id, script, _ = await _run(
+        admin,
+        db,
+        workspace_id,
+        project_id,
+        admin_user.id,
+        extra_specs=LEAD_FORM_SPECS,
+        plan={"required_signals": ["job title", "health condition"]},
+    )
+    output = LeadFormOutput.model_validate(await _output(db, run_id, "4.3.3"))
+    assert output.status == "required"
+    (campaign,) = output.campaigns
+    assert campaign.form is None
+    assert campaign.tradeoff is None
+    reasons = {gap.reason: gap.detail for gap in campaign.gaps}
+    assert set(reasons) == {"art9_signal", "no_crm_history", "no_privacy_policy_url"}
+    assert "health condition" in reasons["art9_signal"]
+    assert (
+        "404" in reasons["no_privacy_policy_url"]
+        or "http_error" in reasons["no_privacy_policy_url"]
+    )
+    assert "LeadFormDraft" not in script.requests
+    rows = await _assets(db, run_id)
+    assert not [row for row in rows.values() if row.node_id == "4.3.3"]
+
+
+async def test_the_lead_form_is_not_required_without_a_lead_gen_objective(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+) -> None:
+    run_id, script, _ = await _run(
+        admin,
+        db,
+        workspace_id,
+        project_id,
+        admin_user.id,
+        extra_specs=LEAD_FORM_SPECS,
+        plan={"objective": "awareness"},
+    )
+    output = LeadFormOutput.model_validate(await _output(db, run_id, "4.3.3"))
+    assert output.status == "not_required"
+    assert output.campaigns == []
+    assert "LeadFormDraft" not in script.requests

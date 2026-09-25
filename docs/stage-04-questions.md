@@ -965,3 +965,96 @@ and §21.3 are silent.
 15. **Nothing shows who edited a headline or when.** `CreativeAssetItem` has
     `lineage.by_user` but no `updated_at`, and the matrix does not render
     either. Wanted?
+
+## S4-P8
+
+What S4-P8 had to decide that the PRD does not settle. Items 1, 2 and 6 are
+the ones a ruling most changes; item 3 is a Stage 02 gap S4-P8 did not close.
+
+1. **Every extra is `spec_missing` on every live run today.** The shipped
+   spec sheet (`content_constants.yaml`) has no `sitelink`, `callout`,
+   `structured_snippet`, `promotion`, `price` or `lead_form` entry, so until
+   the performance owner adds them (or 3.4.1's sheet carries them) 4.3.1,
+   4.3.2 and 4.3.3 record `spec_missing` and ask no model. §9.5 makes this
+   explicit for promotion, price and lead form; 4.3.1 and 4.3.3 follow it. A
+   missing spec is an output **status** (and a per-campaign gap), not a node
+   failure as in 4.2.5: the extras are the campaign's to launch without, and
+   failing the node would stop every creative run at 4.3.1.
+2. **One surface per extra carries one character limit.** Stage 03 names one
+   surface per extra (§7.1), so a sitelink's two description lines, a price
+   item's description and a lead form's description and custom questions are
+   linted on the same surface — the spec's `max_chars` applies to every line
+   of the asset. Conservative (Google allows 35 for a sitelink line where the
+   link text allows 25), never over-limit, no limit reimplemented in Stage 04
+   (law 33). A per-field limit needs a Stage 03 surface per field. Ruling owed.
+3. **Stage 02's Art. 9 blocklist never existed.** Stage 02 §13 says 2.1.4's
+   `scoring[].signal` is "rejected at schema level via a blocklist"; no such
+   validator is in `nodes/plan/stage_2_1.py`. S4-P8 built the list
+   (`planning/sensitive_categories.py`: the eight Art. 9(1) categories, whole
+   words, with "health and safety" and "European Union" exempted as phrases)
+   and applies it to 4.3.3's signals, questions and options. **2.1.4 is not
+   wired to it** — that is a Stage 02 change, outside this phase.
+4. **An offer's `offer_record_id` is a UUIDv5 of product set, SKU and market.**
+   `OfferRecord` has no id and the snapshot is rebuilt from evidence at every
+   run start, so the natural key is the identity: it survives a price change,
+   which is exactly the drift S4-P16's release re-resolution must catch.
+5. **Freshness is `observed_at` within `offer_max_age_days` of the run's start,
+   and live then.** An offer with no `observed_at` is stale (its age is
+   unknown); a timezone-less `observed_at` or window is read as UTC (a zone
+   cannot move a seven-day window); a timezone-less *deadline* is never bound
+   (`unbindable_offer`). A campaign with no market takes every offer.
+6. **Percentages and amounts off are derived in `creative/offers.py`, exactly
+   as Stage 03's offer matchers derive them** — `percent_off` needs a
+   documented `reference_price` and is floored to a whole percent (the ad
+   never claims more than the offer gives); `money_off` is the saving on the
+   reference price, else the list price. The binding names them as derived
+   references (`OfferRef`), so release re-derives them from the live row.
+   §9.1 principle 2 says discounts "come from calc/ and OfferRecord": these are
+   not `@formula`s with `PlanCalc` rows. Ruling owed.
+7. **`promo_code`, `orders_over`, `occasion`, `unit` and `qualifier` are never
+   set.** `OfferRecord` carries none of them and the model may not choose
+   them; a price item is one record's exact current price, so no "from", "up
+   to" or "average" is true of it.
+8. **Promotions and prices are one row per promotion and one row per price
+   item** (`fields.price_asset_id` groups a price asset's items), so each row
+   holds exactly one `OfferBinding` for release to re-resolve. A price asset
+   with fewer passing items than the spec's `min_count` leaves every item
+   `draft`.
+9. **The model never sees a figure.** 4.3.2's prompt lists each offer by
+   product set, SKU and the kind of discount; its draft schema has no number,
+   no date and no string that may carry a digit (`^\D*$`, Unicode-aware). A
+   product whose name contains a digit cannot be named in these assets.
+10. **New constants (unverified / internal):** `extras.price_types` and
+    `extras.lead_form_cta_types` (googleapis v25 enums, less their sentinels,
+    `unverified` like the two extras lists before them), and
+    `extras.lead_form_field_retention` = 0.9, `source: internal` — completions
+    kept per lead-form question added. It is ours: nothing measured it.
+11. **`leadform.field_tradeoff_v1` is anchored on one observation.** §10.1
+    names "CRM junk-lead rates by form length"; `csv_ingest` records no form
+    length. So the history is the audited landing form (4.5.2): its field
+    count, and how many required signals it asked. A junk lead is a lost deal
+    whose `close_reason` names a `lead_definition.disqualifiers` entry (every
+    word). The observed junk is attributed evenly to the required signals the
+    form did not ask; completions scale by the retention constant per field
+    from the observed length. It never recommends asking fewer signals than
+    the history asked (never observed). No CRM rows, no audited form or no lead
+    definition ⇒ no trade-off (a gap says which) and the form asks every
+    required signal. Ruling owed on the model and on adding a form-length
+    column to the CRM mapping.
+12. **The lead form asks the routing contact and the chosen required signals,
+    nothing else** (§13) — the contact from 4.5.2's routing contact (email,
+    else phone; email when no form was audited). Scoring signals are not
+    asked: §13 allows only `required_signals` ∪ routing contact ∪ consent.
+13. **`privacy_policy_url` is one of the project's crawled pages** whose path
+    or title says "privacy", on-domain, shortest path first, and the first to
+    resolve 2xx on-domain wins. None ⇒ no form (`no_privacy_policy_url`),
+    and no model is asked. Checked before the model call.
+14. **`calc_evidence_ids`, not §11's `calc_evidence_id`**, on the trade-off —
+    the same deviation as `MediaPlanSummary`, so the executor checks it is a
+    `derived` row this node produced.
+15. **Sitelink URLs come only from crawled `web` pages and 4.5.1's reachable
+    landing pages on the project domain**, one per page; the model picks from
+    that enum. URLs are checked by hand-followed redirects (≤ 5 hops, 10 s,
+    GET only, each hop on-domain *before* it is requested), and "unique per
+    campaign" compares the page after redirects (no scheme, `www.`, fragment
+    or trailing slash; query and path case kept).

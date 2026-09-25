@@ -55,6 +55,7 @@ __all__ = [
     "forecast",
     "formula",
     "inputs_hash",
+    "leadform",
     "measurement",
     "media",
     "power",

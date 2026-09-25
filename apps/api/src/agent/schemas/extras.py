@@ -40,6 +40,7 @@ GapReason = Literal[
     "spec_missing",
     "no_candidate_urls",
     "below_min_count",
+    "over_max_count",
     "no_landing_url",
     "no_fresh_offer_in_market",
     "no_discount",
