@@ -59,6 +59,8 @@ CALC_KINDS = frozenset(
         "calc_crop_window",
         # Stage 04 (PRD §9.4 video 2): a video's length cut into clips.
         "calc_shot_plan",
+        # Stage 04 (PRD §7.3, §11 4.3.3): the lead form's length trade-off.
+        "calc_leadform",
     }
 )
 

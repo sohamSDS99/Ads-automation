@@ -102,6 +102,12 @@ Surface = Literal[
     "pmax_image",
     "display_image",
     "demand_gen_image",
+    # Stage 04 PRD §7.1, the same delta: the extras 4.3.2 and 4.3.3 write
+    # (S4-P8). `video_frame` is the fourth literal §7.1 names; it ships with
+    # the phase that lints a frame.
+    "promotion",
+    "price",
+    "lead_form",
 ]
 
 #: The spec-sheet asset type (`AssetSpecSheet.specs[campaign_type][asset_type]`)
@@ -135,6 +141,12 @@ SURFACE_ASSET_TYPES: Final[Mapping[str, str]] = MappingProxyType(
         # description spec. Unmapped, every `headline`-scoped rule reached
         # every voiceover line and failed any longer than 30 characters.
         "youtube_script": "video_script",
+        # S4-P8: each extra is written against its own spec. Unmapped, a
+        # promotion would fall into the unknown-surface fallback and meet every
+        # asset-typed limit at once — a 15-character path limit included.
+        "promotion": "promotion",
+        "price": "price",
+        "lead_form": "lead_form",
     }
 )
 

@@ -64,13 +64,15 @@ BEYOND_THE_PRD = {
 }
 
 #: The Stage 04 PRD names its own (§9.2 ratio coverage, §9.3 the estimate,
-#: §23.1 item 8; §9.4 the saliency crop window and video 2 the shot plan).
+#: §23.1 item 8; §9.4 the saliency crop window and video 2 the shot plan; §11
+#: 4.3.3 the lead form's field trade-off).
 STAGE04_FORMULAS = frozenset(
     {
         "media.cost_estimate_v1",
         "media.ratio_plan_v1",
         "media.crop_window_v1",
         "media.shot_plan_v1",
+        "leadform.field_tradeoff_v1",
     }
 )
 

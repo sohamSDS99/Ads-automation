@@ -126,8 +126,12 @@ def text_asset(
     claim_ids: Iterable[uuid.UUID],
     status: CreativeAssetStatus,
     lint: LintResult,
+    offer_binding: Mapping[str, Any] | None = None,
 ) -> CreativeAsset:
-    """A model-written text asset, linted against the run's current pin (law 33)."""
+    """A model-written text asset, linted against the run's current pin (law 33).
+
+    `offer_binding` is a promotion's or price item's `OfferBinding` (law 35).
+    """
     claims = list(claim_ids)
     return CreativeAsset(
         id=asset_id,
@@ -144,12 +148,18 @@ def text_asset(
         text=text,
         fields=dict(fields),
         claim_ids=claims,
+        offer_binding=dict(offer_binding) if offer_binding is not None else None,
         generated_by_ai=True,
         status=status,
         lint=lint.model_dump(mode="json"),
         ruleset_version=lint.ruleset_version,
         lineage=generated_lineage(node_id),
         content_hash=content_hash(
-            kind=kind, surface=surface, text=text, fields=fields, claim_ids=claims
+            kind=kind,
+            surface=surface,
+            text=text,
+            fields=fields,
+            claim_ids=claims,
+            offer_binding=offer_binding,
         ),
     )

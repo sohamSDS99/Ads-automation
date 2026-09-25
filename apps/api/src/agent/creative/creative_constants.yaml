@@ -76,6 +76,22 @@ extras:
                                      DEPARTURE_DATE, RETURN_DATE, NUMBER_OF_TRAVELERS,
                                      TRAVEL_BUDGET, TRAVEL_ACCOMMODATION],
                                  source: unverified, reviewed_at: 2026-09-24 }
+  # S4-P8, resolved the same way and kept `unverified`: googleapis
+  # `PriceExtensionTypeEnum` and `LeadFormCallToActionTypeEnum`
+  # (google/ads/googleads/v25), less their UNSPECIFIED/UNKNOWN sentinels.
+  price_types:                 { value: [BRANDS, EVENTS, LOCATIONS, NEIGHBORHOODS,
+                                         PRODUCT_CATEGORIES, PRODUCT_TIERS, SERVICES,
+                                         SERVICE_CATEGORIES, SERVICE_TIERS],
+                                 source: unverified, reviewed_at: 2026-09-25 }
+  lead_form_cta_types:         { value: [LEARN_MORE, GET_QUOTE, APPLY_NOW, SIGN_UP, CONTACT_US,
+                                         SUBSCRIBE, DOWNLOAD, BOOK_NOW, GET_OFFER, REGISTER,
+                                         GET_INFO, REQUEST_DEMO, JOIN_NOW, GET_STARTED],
+                                 source: unverified, reviewed_at: 2026-09-25 }
+  # Beyond §9.5 (S4-P8): the share of form completions kept per question added,
+  # for `leadform.field_tradeoff_v1`. OURS — `csv_ingest` records no form
+  # length, so there is nothing to measure it from yet
+  # (docs/stage-04-questions.md § S4-P8).
+  lead_form_field_retention:   { value: 0.9,  source: internal, reviewed_at: 2026-09-25 }
 media:
   candidates_per_concept:      { value: 2,     source: internal, reviewed_at: 2026-09-24 }
   ratio_tolerance:             { value: 0.005, source: internal, reviewed_at: 2026-09-24 }
