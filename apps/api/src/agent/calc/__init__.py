@@ -22,6 +22,7 @@ from agent.calc import (
     economics,
     experiments,
     forecast,
+    leadform,
     measurement,
     media,
     power,
