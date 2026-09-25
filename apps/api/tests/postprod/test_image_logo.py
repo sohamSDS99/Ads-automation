@@ -136,6 +136,20 @@ def test_the_least_salient_corner_wins() -> None:
     assert outcome.placement.corner == "bottom_left"
 
 
+def test_a_caller_can_reserve_corners() -> None:
+    """A video keeps the bottom for its captions: only the top corners are
+    candidates, and a background that fails 3:1 there fails, whatever the
+    bottom corners hold."""
+    frame = _frame((235, 235, 235))
+    frame.paste((20, 20, 20), (0, 0, 1200, 200))  # a dark band across the top
+    outcome = _place(frame, [_logo((10, 10, 10))], corners=("top_right", "top_left"))
+    assert outcome.placement is None
+    assert outcome.reason is not None and "permitted corner" in outcome.reason
+    assert _place(frame, [_logo((10, 10, 10))]).placement is not None  # bottom corners would do
+    top = _place(_frame((235, 235, 235)), [_logo((10, 10, 10))], corners=("top_right", "top_left"))
+    assert top.placement is not None and top.placement.corner == "top_right"
+
+
 def test_a_logo_is_fitted_by_padding_never_stretched() -> None:
     fitted = fit_by_padding(_logo((10, 10, 10)).image, 256, 256)
     assert fitted.size == (256, 256)

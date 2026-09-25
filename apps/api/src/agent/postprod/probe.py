@@ -103,6 +103,11 @@ class VideoFacts:
     has_audio: bool
     bytes: int
     sha256: str
+    #: The video stream's codec profile as ffprobe names it (`High`).
+    profile: str | None = None
+    audio_codec: str | None = None
+    #: The container's `comment` tag — where a master carries its disclosure.
+    comment: str | None = None
 
     def as_json(self) -> dict[str, Any]:
         return asdict(self)
@@ -163,6 +168,8 @@ def probe_video(content: bytes) -> VideoFacts:
             f"not a whole video: {width}x{height}, {duration or 0} s, {packets} packets"
         )
     container = str(fmt.get("format_name") or "").split(",")[0]
+    audio = next((s for s in streams if s.get("codec_type") == "audio"), None)
+    tags = {str(k).lower(): v for k, v in (fmt.get("tags") or {}).items()}
     return VideoFacts(
         container=container,
         media_type=_VIDEO_TYPES.get(container, "application/octet-stream"),
@@ -173,9 +180,12 @@ def probe_video(content: bytes) -> VideoFacts:
         duration_ms=round(duration * 1000),
         fps=_rate(video.get("avg_frame_rate")),
         packets=packets,
-        has_audio=any(s.get("codec_type") == "audio" for s in streams),
+        has_audio=audio is not None,
         bytes=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
+        profile=video.get("profile"),
+        audio_codec=audio.get("codec_name") if audio is not None else None,
+        comment=tags.get("comment"),
     )
 
 

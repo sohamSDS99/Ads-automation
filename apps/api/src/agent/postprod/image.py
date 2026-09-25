@@ -332,11 +332,14 @@ def place_logo(
     min_width_px: int | None,
     width_ratio: float,
     saliency: np.ndarray | None,
+    corners: Sequence[Corner] = CORNERS,
 ) -> LogoOutcome:
     """Where the logo goes and which variant, or why none does.
 
-    Corners are ranked by the saliency their footprint would cover (least
-    first — the logo never sits on the subject), then in `CORNERS` order. In
+    Corners (`corners`, all four unless a caller reserves some — a video keeps
+    the bottom for its captions) are ranked by the saliency their footprint
+    would cover (least first — the logo never sits on the subject), then in
+    `CORNERS` order. In
     the first corner where any variant reaches 3:1 against the measured
     background, the variant with the highest contrast is placed.
     """
@@ -375,7 +378,7 @@ def place_logo(
         return float(saliency[y0 : y0 + footprint_h, x0 : x0 + footprint_w].sum())
 
     best = 0.0
-    for corner in sorted(CORNERS, key=lambda c: (corner_mass(c), CORNERS.index(c))):
+    for corner in sorted(corners, key=lambda c: (corner_mass(c), CORNERS.index(c))):
         candidates = []
         for logo, logo_h, clear in sized:
             x0, y0 = _corner_origin(corner, width, height, logo_w, logo_h, clear)
@@ -391,7 +394,8 @@ def place_logo(
             return LogoOutcome(LogoPlacement(logo, corner, box, clear, background, ratio))
     return LogoOutcome(
         None,
-        f"no registered logo reaches 3:1 contrast in any corner (best {best:.2f}:1)",
+        f"no registered logo reaches 3:1 contrast in any "
+        f"{'corner' if tuple(corners) == CORNERS else 'permitted corner'} (best {best:.2f}:1)",
     )
 
 
