@@ -111,6 +111,14 @@ async def check_generation_job(ctx: dict[str, Any], job_id: str) -> dict[str, An
     return {"job_id": job_id, "status": result.status.value}
 
 
+async def regenerate_asset(ctx: dict[str, Any], asset_id: str) -> dict[str, Any]:
+    """An operator's media regeneration before G8 (Stage 04 PRD §16), through
+    node 4.4.6's own code (`orchestrator/regeneration.py`)."""
+    from agent.orchestrator.regeneration import run_regeneration
+
+    return await run_regeneration(uuid.UUID(asset_id))
+
+
 async def measure_image(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
     """Measure one image for the precheck (PRD §9.5). Worker-only, by design.
 
@@ -281,6 +289,7 @@ class WorkerSettings:
         generate_export,
         measure_image,
         check_generation_job,
+        regenerate_asset,
         store_reference,
     ]
     # Everything unattended. `run_at_startup` is off for all of them: startup

@@ -9,6 +9,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.db.models import ApprovalRequiredRole, ApprovalStatus, RunStatus
+from agent.schemas.creative_review import ReviewDraft
 
 
 class ApprovalItem(BaseModel):
@@ -38,6 +39,9 @@ class ApprovalItem(BaseModel):
     #: route persists this for exactly that reason; without it here the column
     #: is written and never read.
     recalc_state: dict[str, Any] | None = None
+    #: G8/G8b only: the reviewer's autosaved, unsubmitted decisions
+    #: (`PUT /approvals/{id}/draft`), so a reload lands where they left off.
+    draft_state: dict[str, Any] | None = None
     decision_note: str | None = None
     decided_by: uuid.UUID | None = None
     decided_at: datetime | None = None
@@ -182,3 +186,14 @@ class ApprovalDecisionResponse(BaseModel):
     approval: ApprovalItem
     run_status: RunStatus
     resumed: bool = Field(description="True when the decision re-queued the run.")
+
+
+class ApprovalDraftRequest(BaseModel):
+    """`PUT /approvals/{id}/draft` — G8/G8b decisions in progress (Stage 04 §15.4 H)."""
+
+    draft_state: ReviewDraft
+
+
+class ApprovalDraftResponse(BaseModel):
+    approval_id: uuid.UUID
+    draft_state: dict[str, Any]

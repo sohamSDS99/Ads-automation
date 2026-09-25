@@ -178,6 +178,13 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.APPROVAL_DECIDE,
         {"assignee_id": None},
     ),
+    (
+        "PUT",
+        "/approvals/{approval_id}/draft",
+        "/approvals/{run}/draft",
+        Permission.APPROVAL_DECIDE,
+        {"draft_state": {"items": []}},
+    ),
     # The budget what-if is `READ`, not `APPROVAL_DECIDE`, and deliberately so:
     # it advances nothing, calls no model and changes no plan, so a `viewer`
     # may follow the working behind a decision it cannot make. Deciding the
@@ -597,6 +604,13 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         "/creative-assets/00000000-0000-4000-8000-000000000000/swap",
         Permission.CREATIVE_EXECUTE,
         {"with_reserve_id": "00000000-0000-4000-8000-000000000001"},
+    ),
+    (
+        "POST",
+        "/creative-assets/{asset_id}/regenerate",
+        "/creative-assets/00000000-0000-4000-8000-000000000000/regenerate",
+        Permission.CREATIVE_EXECUTE,
+        {"note": "Warmer light."},
     ),
     (
         "GET",

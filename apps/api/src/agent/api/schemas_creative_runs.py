@@ -170,6 +170,39 @@ class GenerationCheckAccepted(BaseModel):
     queued: bool = Field(description="False when an identical check is already waiting.")
 
 
+class RegenerateRequest(BaseModel):
+    """`POST /creative-assets/{id}/regenerate` — an operator's, before G8 (§16)."""
+
+    model_config = {"extra": "forbid"}
+
+    note: str = Field(
+        min_length=1, max_length=2000, description="What the regeneration should change."
+    )
+    model_override: str | None = Field(
+        default=None, min_length=1, description="Another allowlisted model of the asset's modality."
+    )
+    params_override: dict[str, Any] | None = Field(
+        default=None, description="Default params for this regeneration, capability-validated."
+    )
+
+
+class RegenerateAccepted(BaseModel):
+    """Queued. The new asset is produced by the worker through node 4.4.6's code;
+    its generation jobs appear under `GET /creative-runs/{id}/generation-jobs`
+    with `asset_id` = `asset_id` below, and it takes the old one's place on the
+    G8 card when it has something to review."""
+
+    job_id: str | None = Field(description="The queue job; null when it was already queued.")
+    asset_id: uuid.UUID = Field(description="The regenerated asset being produced.")
+    parent_asset_id: uuid.UUID
+    model_id: str
+    estimate_usd: Decimal
+    media_remaining_usd: Decimal = Field(description="Media budget left before this regeneration.")
+    total_remaining_usd: Decimal = Field(
+        description="Creative budget left before this regeneration."
+    )
+
+
 class LandingAuditItem(BaseModel):
     """One landing URL as 4.5.1 and 4.5.2 audited it (PRD §15.4 J).
 

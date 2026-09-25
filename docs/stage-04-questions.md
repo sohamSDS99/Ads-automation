@@ -1177,6 +1177,109 @@ the ones a ruling most changes; item 3 is a Stage 02 gap S4-P8 did not close.
     campaign" compares the page after redirects (no scheme, `www.`, fragment
     or trailing slash; query and path case kept).
 
+## S4-P13
+
+Rulings owed on what S4-P13 decided where §8.5, §11 4.4.5–4.4.7 and §16 are
+silent.
+
+1. **A regeneration writes a new asset; it does not repaint the old one.**
+   `lineage = {origin: regenerated, parent_id: <old>, by_user, node_id:
+   4.4.6}`, `fields.regenerated_from`, and `fields.regeneration` = the note,
+   who asked, the round and the full `MediaModelChoice` it was made with
+   (§9.2 "recorded in provenance"). Reasons: the files a reviewer looked at
+   stay what they were (the G8 card's renditions still resolve), the
+   §15.4 G lineage tree has both, and rendition keys and video media ids are
+   keyed by asset id, so in-place regeneration would have overwritten the
+   round-1 files under their recorded sha256. `GenerationJob.round` is 2 for
+   4.4.6, and `AssetDecision.round` is 1 at G8 and 2 at G8b.
+2. **Statuses.** G8: approve ⇒ `approved`, reject ⇒ `rejected`, regenerate ⇒
+   `rejected` (the brand owner declined that version; its successor is a new
+   row). G8b: approve ⇒ `approved`, reject ⇒ `dropped` (§8.5). An operator's
+   pre-G8 regeneration that succeeds leaves the old asset `dropped`
+   (superseded before review). The card's assets move to `awaiting_review`
+   when 4.4.5 opens G8.
+3. **A regeneration that ends in a gap stays `draft`** with `fields.state =
+   gap` and the reason. `creative_run.assert_node_contract` refuses any 4.4.6
+   asset past draft without a passing lint at the pin, and a failed attempt
+   is not emitted (Law 33). 4.4.7 lists only regenerations that produced a
+   rendition; if none did, G8b is `not_required` (as well as when 4.4.6 was).
+4. **A video asset carries its script's `LintResult`** when it leaves draft
+   (4.4.5 for 4.4.4's videos, 4.4.6 for regenerated ones): the words a video
+   says are the script's, burned in as captions, and 4.4.4 left the video row
+   `draft` with no lint. Pictures are judged by post-production's
+   verification, which is unchanged.
+5. **The G8/G8b decision is the existing `POST /approvals/{id}`**, not a new
+   `/decide` path (§16 says "reuse the approvals surface"). Approving the
+   gate submits `edited_proposal.items[]`; the server merges each decision
+   into the card and that decided card is what the NodeRun carries — the
+   client never re-sends renditions. A gate-level `reject` still fails the
+   branch, as every gate does; the review UI submits per-item rejections
+   through `approve`. Ruling owed on whether a gate-level reject should be
+   refused on G8/G8b.
+6. **Item rules beyond §8.5's four:** every card item decided exactly once, no
+   asset not on the card; `regenerate` needs a non-blank note (§11's
+   `regenerate(note, model?, params?)`); `model_override` / `params_override`
+   on approve or reject is refused rather than ignored; checklist values are
+   strict booleans (`1` is not a tick); an override model must be on the
+   allowlist *of the asset's modality* and live in the catalogue (the Start
+   dialog's `resolve_choice`, extracted and shared); `params_override` without
+   a model override is validated against the run's pinned capability record.
+7. **The regeneration's model is snapshotted onto the decided item**
+   (`regeneration_choice`), so 4.4.6 re-reads neither the allowlist nor the
+   catalogue: it spends against exactly the record the decision validated.
+8. **The reviewer's note is not sent to the media model.** §11 does not say it
+   is, and a free-text note is the one field of a regeneration no code
+   checks (Law 44). It is recorded (AssetDecision, provenance); the
+   regeneration differs by seed (round 2 derives new seeds; round 1's are
+   unchanged) and by any model/params override. Ruling owed.
+9. **`POST /creative-assets/{id}/regenerate` is "before G8" = while G8 is
+   pending and the asset is on its card.** Refused (409) before G8 opens —
+   the nodes are still producing that media — and after it is decided. The
+   202 carries the new asset id and the queue job id, not a
+   `GenerationJob` id: an image regeneration is several jobs, all visible
+   under `/creative-runs/{id}/generation-jobs` by `asset_id`. The budget check
+   uses S4-P21's `media.regeneration_price` — the function the Generation
+   panel's `/regeneration-estimate` shows — so the number checked is the
+   number shown, priced from the asset's own jobs' requests (master ratio;
+   every clip's ratio and length). It is compared with both caps' headroom
+   as the reserve script reads them and refused with 409
+   `estimate_exceeds_budget`. **Ruling owed on the price itself:**
+   `regeneration_price` counts an image as ONE request, but a regeneration
+   submits `candidates_per_concept` candidates plus one relay per other
+   painted ratio (what `media.cost_estimate_v1` counts for the Start
+   dialog), so the shown and checked figure under-states an image
+   regeneration; each submit's reservation (Law 43) is the hard guard. It
+   also refuses a video model that cannot cut the stored clip lengths, while
+   4.4.6 re-plans the shots for the model it regenerates with.
+10. **A pre-G8 regeneration runs outside the executor** (worker task
+    `regenerate_asset`), in a `RunContext` built from the same pieces the
+    executor builds: key, router, ledger, pinned resources, media gateway,
+    succeeded outputs. Its spend is added to `Run.cost_usd` as an increment.
+    When it succeeds it replaces the old item on the pending G8 card in
+    place (and the 4.4.5 NodeRun output, and drops the old asset's draft
+    entry), under the approval row lock `review.decide` also takes; a G8
+    decision is refused (422 `regeneration_in_progress`) while one of its
+    items is being regenerated. The same request re-sent while it is still
+    running re-queues it (a dead worker's recovery; jobs resume, Law 37);
+    a different one is 409.
+11. **Known gap: a pre-G8 regeneration whose clip times out ends as a gap.**
+    The OpenRouter job is alive and "Check again" recovers it, but the
+    regeneration must be asked again, which is a new asset and new jobs.
+    Ruling owed on keeping such an attempt `running` for a re-drive instead.
+12. **"Check again" does not reach a job made with an override model**:
+    `media.runtime.choice_for` looks only at the run's pinned choices. An
+    `unknown_submit_state` image from an override is therefore not
+    checkable. Out of this phase's files; ruling owed.
+13. **4.4.2's ranking and 4.4.4's script now name their node's task class**
+    on `ctx.complete`: `complete()` routes by the *running* node's class, so
+    inside 4.4.6 (VISION) the video script would otherwise have gone to the
+    VISION model instead of COPYWRITE. No change for 4.4.2/4.4.4 themselves.
+14. **Draft state** (`PUT /approvals/{id}/draft`) is one per approval, shape-
+    checked only (`ReviewDraft`: items with every field optional, a cursor),
+    refused for an asset not on the card and for `regenerate` at G8b, and
+    stamped `saved_by`/`saved_at`. It is returned on `ApprovalItem.draft_state`
+    to every reader of the inbox. No `If-Match`: last write wins.
+
 ## S4-P20
 
 Extras (`…/runs/[runId]/extras`, §15.4 F) and the Landing audit

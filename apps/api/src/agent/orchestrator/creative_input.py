@@ -382,58 +382,82 @@ async def resolve_media_models(
                 "selected. Choose one from the allowlist, or turn it off.",
                 modality=modality,
             )
-        entry = next(
-            (
-                e
-                for e in allowlist(workspace, modality)
-                if e.get("enabled", True)
-                and e.get("model_id") == chosen.model_id
-                and (chosen.provider_tag is None or e.get("provider_tag") == chosen.provider_tag)
-            ),
-            None,
-        )
-        if entry is None:
-            raise CreativeInputError(
-                "media_model_not_allowlisted",
-                f"The {modality} model {chosen.model_id} is not on this workspace's "
-                f"{modality} allowlist. An admin adds it under Settings → Models → Media "
-                "generation, or choose one that is.",
-                modality=modality,
-                model_id=chosen.model_id,
-            )
-        provider_tag = entry.get("provider_tag")
-        try:
-            record = await catalogue.record_for(modality, chosen.model_id, provider_tag)
-        except CatalogueUnavailable as unavailable:
-            raise CreativeInputError(
-                "media_model_unavailable",
-                str(unavailable),
-                modality=modality,
-                model_id=chosen.model_id,
-            ) from unavailable
-        if record is None:
-            raise CreativeInputError(
-                "media_model_unavailable",
-                f"The {modality} model {chosen.model_id}"
-                + (f" on {provider_tag}" if provider_tag else "")
-                + " is not in OpenRouter's live catalogue any more. Choose another "
-                "allowlisted model; nothing is swapped automatically.",
-                modality=modality,
-                model_id=chosen.model_id,
-            )
-        inherited = _applicable(modality, workspace_defaults(workspace, modality), record)
-        defaults = _validated_defaults(modality, {**inherited, **chosen.defaults}, record)
-        choices.append(
-            MediaModelChoice(
-                modality=modality,
-                model_id=chosen.model_id,
-                provider_tag=provider_tag,
-                capability=record.model_dump(mode="json"),
-                capability_hash=capability_hash(record),
-                defaults=defaults,
-            )
-        )
+        choices.append(await resolve_choice(workspace, chosen, catalogue=catalogue))
     return choices
+
+
+async def resolve_choice(
+    workspace: Workspace | None,
+    chosen: MediaModelSelection,
+    *,
+    catalogue: MediaCatalogue,
+) -> MediaModelChoice:
+    """One selection, judged as the Start dialog judges it (CR-E8, Law 36): on
+    the workspace's allowlist for its modality, present in the live catalogue,
+    with defaults the snapshotted capability record accepts.
+
+    Shared by run creation and by a media regeneration's `model_override`
+    (Stage 04 PRD §9.2 "Regenerate"), so an override is refused for exactly
+    the reasons a start would be. Raises `CreativeInputError` otherwise.
+    """
+    modality = chosen.modality
+    entry = next(
+        (
+            e
+            for e in allowlist(workspace, modality)
+            if e.get("enabled", True)
+            and e.get("model_id") == chosen.model_id
+            and (chosen.provider_tag is None or e.get("provider_tag") == chosen.provider_tag)
+        ),
+        None,
+    )
+    if entry is None:
+        raise CreativeInputError(
+            "media_model_not_allowlisted",
+            f"The {modality} model {chosen.model_id} is not on this workspace's "
+            f"{modality} allowlist. An admin adds it under Settings → Models → Media "
+            "generation, or choose one that is.",
+            modality=modality,
+            model_id=chosen.model_id,
+        )
+    provider_tag = entry.get("provider_tag")
+    try:
+        record = await catalogue.record_for(modality, chosen.model_id, provider_tag)
+    except CatalogueUnavailable as unavailable:
+        raise CreativeInputError(
+            "media_model_unavailable",
+            str(unavailable),
+            modality=modality,
+            model_id=chosen.model_id,
+        ) from unavailable
+    if record is None:
+        raise CreativeInputError(
+            "media_model_unavailable",
+            f"The {modality} model {chosen.model_id}"
+            + (f" on {provider_tag}" if provider_tag else "")
+            + " is not in OpenRouter's live catalogue any more. Choose another "
+            "allowlisted model; nothing is swapped automatically.",
+            modality=modality,
+            model_id=chosen.model_id,
+        )
+    inherited = _applicable(modality, workspace_defaults(workspace, modality), record)
+    defaults = _validated_defaults(modality, {**inherited, **chosen.defaults}, record)
+    return MediaModelChoice(
+        modality=modality,
+        model_id=chosen.model_id,
+        provider_tag=provider_tag,
+        capability=record.model_dump(mode="json"),
+        capability_hash=capability_hash(record),
+        defaults=defaults,
+    )
+
+
+def validated_defaults(
+    modality: str, defaults: dict[str, Any], record: CapabilityRecord
+) -> dict[str, Any]:
+    """`_validated_defaults`, for a caller outside run creation: a
+    regeneration's `params_override` on the run's own pinned model."""
+    return _validated_defaults(modality, defaults, record)
 
 
 def workspace_defaults(workspace: Workspace | None, modality: str) -> dict[str, Any]:

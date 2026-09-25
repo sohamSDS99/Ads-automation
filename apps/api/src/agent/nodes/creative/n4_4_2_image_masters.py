@@ -158,9 +158,16 @@ class _Mastering:
     count: int
     max_bytes: int
     templates: tuple[Any, ...]
+    #: Whose jobs these are, and which review round. 4.4.6 (and an operator's
+    #: regeneration before G8) masters through this same code as node 4.4.6,
+    #: round 2 at G8 — so every job is its own and every key is new.
+    node_id: str = NODE_ID
+    round: int = 1
 
     @classmethod
-    async def start(cls, ctx: RunContext, choice: MediaModelChoice) -> _Mastering:
+    async def start(
+        cls, ctx: RunContext, choice: MediaModelChoice, *, node_id: str = NODE_ID, round: int = 1
+    ) -> _Mastering:
         creative = ctx.require_creative()
         constants = creative.constants.media_constants()
         return cls(
@@ -178,6 +185,8 @@ class _Mastering:
             count=constants.candidates_per_concept,
             max_bytes=constants.reference_max_bytes,
             templates=masters.logo_templates(creative.linter.ruleset),
+            node_id=node_id,
+            round=round,
         )
 
     # -- one concept ---------------------------------------------------------
@@ -190,8 +199,11 @@ class _Mastering:
         market: str,
         language: str,
         image_ratios: list[str],
+        asset: CreativeAsset | None = None,
     ) -> ConceptMasters:
-        asset = await self._asset(concept)
+        """`asset`: the row to master into — a regeneration's own new asset,
+        committed by its caller. None: this node's asset for the concept."""
+        asset = asset or await self._asset(concept)
         sent = await self._references(concept)
         ratio = masters.master_ratio(image_ratios, self.capability) or self.choice.defaults.get(
             "aspect_ratio"
@@ -334,6 +346,7 @@ class _Mastering:
             run_id=self.ctx.run.id,
             concept_id=concept.id,
             attempt=attempt,
+            round=self.round,
         ):
             request = ImageRequest(
                 **{**defaults, "aspect_ratio": ratio, **fields},
@@ -349,9 +362,9 @@ class _Mastering:
             ).usd
             job = await self.media.submit_or_resume(
                 run_id=self.ctx.run.id,
-                node_id=NODE_ID,
+                node_id=self.node_id,
                 asset_id=asset.id,
-                round=1,
+                round=self.round,
                 request=request,
                 choice=self.choice,
                 estimate_usd=estimate,
@@ -515,6 +528,8 @@ class _Mastering:
                 masters.ranking_model(keys),
                 system=masters.VISION_SYSTEM,
                 user=_vision_prompt(concept, keys),
+                # This node's class, named: 4.4.6 regenerates through this code.
+                task_class=ImageMastersNode.spec.task_class,
                 images=[
                     InlineImage(media_type=item.artifact.media_type, data=item.content)
                     for item in passing
