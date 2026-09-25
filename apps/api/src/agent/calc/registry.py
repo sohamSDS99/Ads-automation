@@ -57,6 +57,8 @@ CALC_KINDS = frozenset(
         "calc_ratio_plan",
         # Stage 04 (PRD §9.4 item 1): where a crop goes, and whether it may.
         "calc_crop_window",
+        # Stage 04 (PRD §9.4 video 2): a video's length cut into clips.
+        "calc_shot_plan",
     }
 )
 

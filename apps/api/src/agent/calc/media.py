@@ -14,6 +14,11 @@
   clears `crop_min_saliency_retained` (§9.4 item 1): below it the rendition is
   a recorded gap, never a bad crop (Law 39). It re-decides on pixels what the
   ratio plan could only bound by frame area.
+* `media.shot_plan_v1` — a video's length cut into back-to-back clips whose
+  durations are all in the model's `supported_durations` (§9.4 video 2): the
+  fewest clips, then the most even split, then the longest first. A length
+  they cannot sum to exactly is a `CalcError`, never a clip trimmed to fit.
+  `video_duration` is the length a spec window allows, for the plan to cut.
 
 Pure, like every formula here: records, numbers and bytes in, a `CalcDraft` out.
 
@@ -39,6 +44,7 @@ number nobody can compute (Law 43).
 from __future__ import annotations
 
 import hashlib
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Literal
@@ -541,6 +547,157 @@ def best_window(
     x0 = min(float(x), max(0.0, width - window_w))
     y0 = min(float(y), max(0.0, height - window_h))
     return x0, y0, min(1.0, best / total)
+
+
+# ---------------------------------------------------------------------------
+# the shot plan
+# ---------------------------------------------------------------------------
+
+
+@formula("media.shot_plan_v1", kind="calc_shot_plan")
+def shot_plan_v1(
+    *, duration_s: int, supported_durations: list[int], constants: MediaConstants
+) -> CalcDraft:
+    """`duration_s` as back-to-back clips, every one of a duration the model's
+    catalogue record lists in `supported_durations` — and nothing else (§9.4
+    video 2).
+
+    The fewest clips, because every seam is a cut the viewer sees and every
+    job can carry a minimum charge; among those the most even split (the
+    smallest longest-minus-shortest), so no shot is a flash between two long
+    ones; among those the longest clips first. The same length and catalogue
+    always give the same plan.
+    """
+    values = _clip_durations(supported_durations)
+    if duration_s < 1:
+        raise CalcError(f"shot_plan_v1: a video of {duration_s} s has nothing to cut")
+    parts = partition(duration_s, values)
+    if parts is None:
+        raise CalcError(
+            f"shot_plan_v1: no clips of {', '.join(f'{value} s' for value in values)} add up "
+            f"to exactly {duration_s} s"
+        )
+    clips: list[dict[str, int]] = []
+    start = 0
+    for index, length in enumerate(parts):
+        clips.append({"index": index, "t0": start, "t1": start + length, "duration_s": length})
+        start += length
+    return CalcDraft(
+        inputs={"duration_s": duration_s, "supported_durations": values},
+        result={"duration_s": duration_s, "clips": clips},
+        summary=f"{duration_s} s as {len(parts)} clip{'' if len(parts) == 1 else 's'}: "
+        + " + ".join(f"{length} s" for length in parts),
+        constants_version=constants.version,
+    )
+
+
+def partition(duration: int, supported: Sequence[int]) -> tuple[int, ...] | None:
+    """`duration` as a longest-first tuple of `supported` values summing to it
+    exactly — fewest parts, then the smallest spread, then lexicographically
+    largest — or None when no such tuple exists."""
+    values = sorted({value for value in supported if value > 0})
+    if duration < 1 or not values:
+        return None
+    fewest = _fewest_parts(duration, values)
+    if fewest is None:
+        return None
+    windows = sorted(
+        ((low, high) for low in values for high in values if low <= high),
+        key=lambda window: window[1] - window[0],
+    )
+    best: tuple[int, ...] | None = None
+    spread: int | None = None
+    for low, high in windows:
+        if spread is not None and high - low > spread:
+            break
+        window = tuple(value for value in values if low <= value <= high)
+        if not _sums_to(duration, fewest, window):
+            continue
+        spread = high - low
+        found = _largest_first(duration, fewest, window)
+        if found is not None and (best is None or found > best):
+            best = found
+    return best
+
+
+def video_duration(*, min_s: int | None, max_s: int | None, supported: Sequence[int]) -> int | None:
+    """The finished video's length inside a spec's duration window, or None
+    when no length in it can be cut from `supported` clip durations.
+
+    With a minimum: the shortest length at or above it (and within any
+    maximum) — the least footage, and the least spend, the spec allows. With
+    only a maximum: the longest length within it — a capped format such as a
+    bumper is made at the length its cap gives it. With neither: `ValueError`,
+    because Stage 04 never guesses a length (Q6).
+    """
+    if min_s is None and max_s is None:
+        raise ValueError("the spec gives neither a minimum nor a maximum duration")
+    values = sorted({value for value in supported if value > 0})
+    if not values:
+        return None
+    if min_s is not None:
+        # Past the largest Frobenius number of these durations every multiple
+        # of their gcd can be cut, so a length exists within max(values)^2.
+        top = max_s if max_s is not None else max(min_s, 1) + max(values) ** 2
+        reachable = _reachable_lengths(top, values)
+        return next((d for d in range(max(min_s, 1), top + 1) if reachable[d]), None)
+    assert max_s is not None  # noqa: S101 — the both-None case raised above
+    reachable = _reachable_lengths(max_s, values)
+    return next((d for d in range(max_s, 0, -1) if reachable[d]), None)
+
+
+def _clip_durations(supported: Sequence[int]) -> list[int]:
+    if not supported:
+        raise CalcError("shot_plan_v1: the model publishes no clip durations to plan with")
+    bad = [value for value in supported if int(value) != value or value <= 0]
+    if bad:
+        raise CalcError(f"shot_plan_v1: {bad} are not clip durations in whole seconds")
+    return sorted({int(value) for value in supported})
+
+
+def _reachable_lengths(top: int, values: Sequence[int]) -> list[bool]:
+    reachable = [False] * (max(top, 0) + 1)
+    if top >= 0:
+        reachable[0] = True
+    for length in range(1, top + 1):
+        reachable[length] = any(v <= length and reachable[length - v] for v in values)
+    return reachable
+
+
+def _fewest_parts(total: int, values: Sequence[int]) -> int | None:
+    fewest: list[int | None] = [0] + [None] * total
+    for length in range(1, total + 1):
+        options = [fewest[length - v] for v in values if v <= length]
+        counts = [count for count in options if count is not None]
+        fewest[length] = min(counts) + 1 if counts else None
+    return fewest[total]
+
+
+def _sums_to(total: int, parts: int, values: tuple[int, ...]) -> bool:
+    """Whether exactly `parts` of `values` (repeats allowed) sum to `total`."""
+    reach = {0}
+    for _ in range(parts):
+        reach = {s + v for s in reach for v in values if s + v <= total}
+    return total in reach
+
+
+def _largest_first(total: int, parts: int, window: tuple[int, ...]) -> tuple[int, ...] | None:
+    """The lexicographically largest non-increasing `parts`-tuple of `window`
+    values summing to `total`: the largest value that still leaves the rest
+    reachable, at every position."""
+    chosen: list[int] = []
+    remaining, cap = total, max(window)
+    for left in range(parts, 0, -1):
+        for value in sorted((v for v in window if v <= cap), reverse=True):
+            smaller = tuple(v for v in window if v <= value)
+            if value <= remaining and _sums_to(remaining - value, left - 1, smaller):
+                chosen.append(value)
+                remaining -= value
+                cap = value
+                break
+        else:
+            return None
+    return tuple(chosen)
 
 
 # ---------------------------------------------------------------------------
