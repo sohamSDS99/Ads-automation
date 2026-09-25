@@ -67,10 +67,13 @@ import { getReport } from "@/lib/api/reports";
 import { getNodeRun, getRun, isLive } from "@/lib/api/runs";
 import {
   checkGenerationJob,
+  editCreativeAsset,
   getCreativeBrief,
   isJobInFlight,
   listCreativeAssets,
   listGenerationJobs,
+  swapCreativeAsset,
+  type CreativeAssetItem,
 } from "@/lib/api/creative-runs";
 import { listUsers } from "@/lib/api/users";
 import { getRunDiff } from "@/lib/api/diff";
@@ -252,6 +255,20 @@ export function usePublishedRuleSet(projectId: string) {
     queryKey: keys.publishedRuleSet(projectId),
     queryFn: () => getPublishedRuleSet(projectId),
     enabled: Boolean(projectId),
+    retry: false,
+  });
+}
+
+/**
+ * The ruleset at one exact pin — a creative run's, say — rather than whichever
+ * is governing now. A pinned version never changes, so it is never re-read.
+ */
+export function usePinnedRuleSet(projectId: string, pin: string | null) {
+  return useQuery({
+    queryKey: [...keys.publishedRuleSet(projectId), "pin", pin ?? ""] as const,
+    queryFn: () => getPublishedRuleSet(projectId, pin as string),
+    enabled: Boolean(projectId) && Boolean(pin),
+    staleTime: Infinity,
     retry: false,
   });
 }
@@ -671,6 +688,43 @@ export function useCheckGenerationJob(runId: string) {
       void client.invalidateQueries({ queryKey: keys.generationJobs(runId) });
     },
   });
+}
+
+/** Put the rows a write returned into the run's asset list, then re-read it. */
+function useAssetWrite<Args, Result>(
+  runId: string,
+  write: (args: Args) => Promise<Result>,
+  rows: (result: Result) => CreativeAssetItem[],
+) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: write,
+    onSuccess: (result) => {
+      const changed = new Map(rows(result).map((row) => [row.id, row]));
+      client.setQueryData<{ items: CreativeAssetItem[] }>(keys.creativeAssets(runId), (current) =>
+        current ? { items: current.items.map((row) => changed.get(row.id) ?? row) } : current,
+      );
+      void client.invalidateQueries({ queryKey: keys.creativeAssets(runId) });
+    },
+  });
+}
+
+/** A person's rewrite of one headline or description (§16 PATCH /creative-assets/{id}). */
+export function useEditCreativeAsset(runId: string) {
+  return useAssetWrite(
+    runId,
+    ({ assetId, text }: { assetId: string; text: string }) => editCreativeAsset(assetId, text),
+    (row) => [row],
+  );
+}
+
+/** A reserve into the ad in place of one it carries (§16 POST /creative-assets/{id}/swap). */
+export function useSwapCreativeAsset(runId: string) {
+  return useAssetWrite(
+    runId,
+    ({ assetId, reserveId }: { assetId: string; reserveId: string }) => swapCreativeAsset(assetId, reserveId),
+    (result) => [result.out, result.into],
+  );
 }
 
 /** The one-line message for a failed query, without leaking a stack trace. */

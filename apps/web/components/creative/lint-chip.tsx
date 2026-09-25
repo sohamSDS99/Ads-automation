@@ -19,14 +19,24 @@ const VERDICT: Record<
 };
 
 /**
- * `LintChip` — the verdict an asset was stored with (law 33: nothing leaves
- * `draft` unlinted). The verdict is the linter's, carried on the asset; this
- * only says it, in words and an icon, never by colour alone (§15.2 rule 14).
+ * `LintChip` — the linter's verdict: the one an asset was stored with (law 33:
+ * nothing leaves `draft` unlinted), or, beside an edit, the one
+ * `POST /creative-runs/{id}/lint-preview` returned for the text as typed
+ * (`pending` until it has). This only says the verdict, in words and an icon,
+ * never by colour alone (§15.2 rule 14); it decides nothing.
  */
-export function LintChip({ verdict }: { verdict: LintVerdict | null }) {
+export function LintChip({ verdict, pending = false }: { verdict: LintVerdict | null; pending?: boolean }) {
+  if (pending) {
+    return (
+      <Badge className="whitespace-nowrap" data-verdict="pending">
+        <CircleDashed className="size-3" aria-hidden />
+        Checking
+      </Badge>
+    );
+  }
   if (verdict === null) {
     return (
-      <Badge>
+      <Badge data-verdict="none">
         <CircleDashed className="size-3" aria-hidden />
         Not linted
       </Badge>
@@ -34,7 +44,7 @@ export function LintChip({ verdict }: { verdict: LintVerdict | null }) {
   }
   const { label, icon: Icon, tone, ink } = VERDICT[verdict];
   return (
-    <Badge tone={tone}>
+    <Badge tone={tone} data-verdict={verdict} className="whitespace-nowrap">
       <Icon className={cn("size-3", ink)} aria-hidden />
       {label}
     </Badge>

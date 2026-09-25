@@ -1,6 +1,7 @@
 /**
  * A creative run's own reads (Stage 04 PRD §16): the brief, what the run
- * wrote, its generation jobs, and "Check again".
+ * wrote, its generation jobs, and "Check again" — and the Ad Studio's lint
+ * preview, edit and reserve swap.
  *
  * Mirrors `agent.api.schemas_creative_runs` and `agent.schemas.creative_brief`.
  * Nothing here decides anything. `authorises` is G7's own reading of the brief
@@ -9,6 +10,7 @@
  * approvals surface — the brief page reads it from there, never from here.
  */
 import { apiFetch } from "@/lib/api";
+import type { LintResult } from "@/lib/api/lint";
 
 export type SourceStage = "S1" | "S2" | "S3";
 
@@ -295,4 +297,156 @@ export function applyBriefEdits(
     }
   }
   return next;
+}
+
+// ---------------------------------------------------------------------------
+// the Ad Studio (§15.4 E): what 4.2.1–4.2.4 judged, and the three writes
+// ---------------------------------------------------------------------------
+
+/** Mirrors `agent.schemas.search_ads`. Read from the nodes' stored outputs. */
+export type HeadlineCategory = "keyword" | "benefit" | "offer" | "proof" | "objection" | "cta";
+export type PairKind = "HH" | "HD" | "DD";
+export type PairFlag =
+  | "duplicate"
+  | "near_duplicate"
+  | "offer_conflict"
+  | "cta_collision"
+  | "claim_conflict"
+  | "keyword_stuffing";
+export type PairLabel = "reads_well" | "redundant" | "contradictory" | "order_dependent";
+export type PinPosition = "H1" | "H2" | "H3" | "D1" | "D2";
+
+export type LintRef = { verdict: LintVerdict; ruleset_version: string; rule_ids: string[] };
+
+export type HeadlineCandidate = {
+  asset_id: string;
+  text: string;
+  default_text: string;
+  category: HeadlineCategory;
+  keyword_ref: string | null;
+  claim_ids: string[];
+  dki: boolean;
+  lint: LintRef;
+  outcome: "selected" | "reserve" | "dropped" | "failed_lint";
+  reason: string | null;
+};
+
+export type QuotaLine = { category: string; required: number; selected: number; available: number };
+
+export type HeadlineGroup = {
+  campaign_ref: string;
+  ad_group_ref: string;
+  campaign_type: string;
+  market: string;
+  language: string;
+  variant: "A" | "B";
+  candidates: HeadlineCandidate[];
+  selected: string[];
+  reserve: string[];
+  quota_report: { lines: QuotaLine[]; limit: number; selected: number; met: boolean };
+  near_duplicate_trigram: number;
+};
+
+export type DescriptionItem = {
+  asset_id: string;
+  text: string;
+  claim_ids: string[];
+  claim_span: [number, number];
+  lint: LintRef;
+};
+
+export type DescriptionGroup = {
+  campaign_ref: string;
+  ad_group_ref: string;
+  variant: "A" | "B";
+  descriptions: DescriptionItem[];
+  paths: [string | null, string | null];
+  reserve: DescriptionItem[];
+};
+
+export type Pair = { a: string; b: string; kind: PairKind; flags: PairFlag[]; label: PairLabel };
+
+export type PairReport = {
+  campaign_ref: string;
+  ad_group_ref: string;
+  variant: "A" | "B";
+  headlines: string[];
+  descriptions: string[];
+  pairs: Pair[];
+  swaps: { out: string; in_from_reserve: string; why: string }[];
+  pins: { asset_id: string; position: PinPosition; why: string }[];
+  repair_rounds: number;
+  unresolved: [string, string][];
+};
+
+export type ResponsiveSearchAd = {
+  ad_ref: string;
+  campaign_ref: string;
+  ad_group_ref: string;
+  variant: "A" | "B";
+  angle: string;
+  hypothesis: string | null;
+  headlines: string[];
+  descriptions: string[];
+  paths: [string | null, string | null];
+  final_url: string;
+  pair_report: PairReport;
+  distinctness_vs_a: number | null;
+};
+
+export type VariantBGroup = {
+  campaign_ref: string;
+  ad_group_ref: string;
+  headlines: HeadlineGroup;
+  descriptions: DescriptionGroup;
+  ad_b: ResponsiveSearchAd;
+  distinctness_vs_a: number;
+  variant_min_distance: number;
+  distinctness_metric: string;
+  hypothesis: string;
+  primary_metric: string;
+};
+
+export type HeadlineSpreadOutput = { ad_groups: HeadlineGroup[] };
+export type ClaimBoundDescriptionsOutput = { ad_groups: DescriptionGroup[] };
+export type CombinationCoherenceOutput = { ads: PairReport[] };
+export type VariantBOutput = { ad_groups: VariantBGroup[] };
+
+/** `agent.schemas.guardrails.LintTarget` — what the lint preview is asked about. */
+export type CreativeLintTarget = {
+  ref: string;
+  surface: string;
+  campaign_type: string;
+  market: string;
+  language: string;
+  text: string;
+  generated_by_ai: boolean;
+};
+
+/**
+ * The pinned linter's verdict on text nobody has saved (§16). No side effects,
+ * so it runs on a debounce; `signal` aborts the one a newer keystroke replaced,
+ * or a stale answer would overwrite a fresher one.
+ */
+export function lintPreview(runId: string, targets: CreativeLintTarget[], signal?: AbortSignal) {
+  return apiFetch<LintResult>(`/creative-runs/${runId}/lint-preview`, {
+    method: "POST",
+    body: JSON.stringify({ targets }),
+    signal,
+  });
+}
+
+/** A person's rewrite (§16): stored only if its node's checks and the pin pass. */
+export function editCreativeAsset(assetId: string, text: string): Promise<CreativeAssetItem> {
+  return apiFetch(`/creative-assets/${assetId}`, { method: "PATCH", body: JSON.stringify({ text }) });
+}
+
+export type ReserveSwapResult = { out: CreativeAssetItem; into: CreativeAssetItem };
+
+/** A reserve into the ad in place of `assetId`, re-linted at the pin first (§16). */
+export function swapCreativeAsset(assetId: string, reserveId: string): Promise<ReserveSwapResult> {
+  return apiFetch(`/creative-assets/${assetId}/swap`, {
+    method: "POST",
+    body: JSON.stringify({ with_reserve_id: reserveId }),
+  });
 }
