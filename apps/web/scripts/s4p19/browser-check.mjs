@@ -304,7 +304,17 @@ const g7 = (await admin.call("GET", `/approvals?run_id=${runId}`)).body.items.fi
 const decided = await admin.call("POST", `/approvals/${g7.id}`, { decision: "approve" });
 check("G7 is approved through the api", decided.status === 200, JSON.stringify(decided.body));
 const finished = seed("execute", runId);
-check(`the run finishes through 4.2.1–4.2.4 (${finished.status})`, finished.status === "succeeded", JSON.stringify(finished.error));
+// What the Ad Studio reads is 4.2.1–4.2.4. The rest of the DAG is other
+// phases' — S4-P7's 4.5.1 launches Chromium, which only the worker image
+// carries, so a run executed in the api container ends `failed` there, after
+// every copy node has succeeded. Held to the four nodes, and the run's own
+// status is reported, not asserted.
+const copyNodes = (await admin.call("GET", `/runs/${runId}`)).body.nodes.filter((n) => /^4\.2\.[1-4]$/.test(n.id));
+check(
+  `4.2.1–4.2.4 all succeed (run ${finished.status}${finished.error ? `: ${finished.error.message}` : ""})`,
+  copyNodes.length === 4 && copyNodes.every((n) => n.status === "succeeded"),
+  JSON.stringify(copyNodes.map((n) => [n.id, n.status])),
+);
 
 const initial = await assets(admin, runId);
 const pinned = initial.filter((a) => a.kind === "headline" && a.pin_position);
