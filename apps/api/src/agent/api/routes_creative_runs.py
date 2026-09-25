@@ -28,12 +28,20 @@ The Ad Studio (§15.4 E) writes through three more:
   `lineage.origin = 'human_edit'`.
 - `POST /creative-assets/{id}/swap` — a reserve into the ad in place of the
   asset named, re-checked and re-linted at the current pin first.
+
+The Media Library (§15.4 G) regenerates through one more:
+
+- `POST /creative-assets/{id}/regenerate` — an operator's, while G8 is still
+  pending: the model (allowlisted), its params (capability-validated) and the
+  budget are checked before the 202, the new asset is committed, and the
+  worker produces it through node 4.4.6's code (`orchestrator/regeneration.py`).
 """
 
 from __future__ import annotations
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
@@ -43,6 +51,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
+from agent.api.routes_media import Catalogue
 from agent.api.schemas_creative_runs import (
     AssetTextEdit,
     BriefAuthorisation,
@@ -55,15 +64,19 @@ from agent.api.schemas_creative_runs import (
     LandingAuditItem,
     LandingAuditListResponse,
     LintPreviewRequest,
+    RegenerateAccepted,
+    RegenerateRequest,
     ReserveSwap,
     ReserveSwapResponse,
 )
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
+from agent.config import get_settings
 from agent.creative import brief as briefs
-from agent.creative import edits, g7
+from agent.creative import edits, g7, review
 from agent.db.models import (
     Approval,
+    ApprovalStatus,
     CreativeAsset,
     CreativeAssetKind,
     CreativeAssetStatus,
@@ -72,18 +85,28 @@ from agent.db.models import (
     Project,
     Run,
     RunStage,
+    Workspace,
 )
 from agent.db.models import CreativeBrief as CreativeBriefRow
-from agent.db.session import get_session
+from agent.db.session import get_session, get_sessionmaker
 from agent.media import runtime as media_runtime
+from agent.media.budget import MediaBudget, resolve_media_caps, run_spend
 from agent.media.jobs import checkable
 from agent.nodes.base import CreativeResources, NodeContractError
 from agent.nodes.creative._ad_groups import Slot, search_slots
+from agent.nodes.creative._regenerate import (
+    MEDIA_KINDS,
+    RegenerationRequest,
+    estimate_usd,
+    open_child,
+)
 from agent.nodes.creative._text_assets import content_hash
 from agent.orchestrator.creative_run import CreativeRunError, load_resources
-from agent.queue import enqueue_generation_check
+from agent.queue import enqueue_generation_check, enqueue_regeneration
+from agent.redis_client import get_redis
 from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief
 from agent.schemas.creative_input import CreativeInput
+from agent.schemas.creative_review import G8, AiAssetReview, ReviewDecisionItem
 from agent.schemas.guardrails import LintResult, LintTarget
 from agent.schemas.landing import LandingPagePatch
 from agent.schemas.search_ads import PASSING
@@ -701,3 +724,245 @@ async def swap_asset(
         by=str(me.user.id),
     )
     return ReserveSwapResponse(out=_asset(out), into=_asset(into))
+
+
+# ---------------------------------------------------------------------------
+# media regeneration before G8 (§16, §9.2)
+# ---------------------------------------------------------------------------
+
+
+@router.post(
+    "/creative-assets/{asset_id}/regenerate",
+    response_model=RegenerateAccepted,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Regenerate an AI image or video before G8: model, params and budget checked first",
+)
+async def regenerate_asset(
+    asset_id: uuid.UUID, body: RegenerateRequest, me: CreativeOperator, db: Db, catalogue: Catalogue
+) -> RegenerateAccepted:
+    """§5.2: an operator regenerates media *before G8* — while it waits on the
+    card, undecided. At G8 the brand owner regenerates through the review
+    itself (4.4.6), and after it there is no route back: G8b has no
+    regeneration (§8.5)."""
+    parent = await db.scalar(
+        sa.select(CreativeAsset)
+        .where(CreativeAsset.id == asset_id, CreativeAsset.workspace_id == me.workspace_id)
+        .with_for_update()
+    )
+    if parent is None:
+        raise problems.not_found(f"No creative asset {asset_id}.")
+    if parent.kind not in MEDIA_KINDS or not parent.generated_by_ai:
+        raise problems.unprocessable(
+            f"Asset {asset_id} is a {parent.kind.value.replace('_', ' ')}; only an AI-made image "
+            "or video is regenerated. Copy is edited in the Ad Studio.",
+            title="Not regenerable",
+            code="kind_not_regenerable",
+        )
+    if parent.frozen_at is not None:
+        raise problems.conflict(
+            f"Asset {asset_id} was frozen when its package was released (law 42).",
+            title="Asset frozen",
+            code="asset_frozen",
+        )
+    run = await db.get(Run, parent.creative_run_id)
+    if run is None:  # pragma: no cover — FK
+        raise problems.not_found(f"No creative run {parent.creative_run_id}.")
+    card = await _pending_g8(db, run, parent)
+
+    item = next(i for i in card.items if i.asset_id == parent.id)
+    sent = ReviewDecisionItem(
+        asset_id=parent.id,
+        decision="regenerate",
+        note=body.note,
+        model_override=body.model_override,
+        params_override=body.params_override,
+    )
+    workspace = await db.get(Workspace, run.workspace_id)
+    pinned = media_runtime.pinned_choices(run)
+    try:
+        choice = await review.regeneration_choice(
+            item, sent, pinned=pinned, workspace=workspace, catalogue=catalogue
+        )
+    except review.ReviewRefused as exc:
+        raise problems.unprocessable(
+            str(exc),
+            title="This regeneration cannot be made",
+            asset_id=str(parent.id),
+            field=exc.field,
+            code=exc.code,
+            **{k: v for k, v in exc.extra.items() if k not in {"asset_id", "field", "code"}},
+        ) from exc
+
+    request = RegenerationRequest(
+        parent_id=parent.id, choice=choice, note=body.note.strip(), by_user=me.user.id, round=1
+    )
+    project = await db.get(Project, run.project_id)
+    resources = await _resources(db, run)
+    specs = resources.linter.ruleset.asset_specs.model_dump(mode="json").get("specs") or {}
+    caps = resolve_media_caps(
+        project_settings=project.settings if project else None,
+        workspace_settings=workspace.settings if workspace else None,
+        defaults=get_settings(),
+    )
+    estimate = estimate_usd(
+        resources.input,
+        specs,
+        parent,
+        choice,
+        caps=caps,
+        constants=resources.constants.media_constants(),
+    )
+    media_left, total_left = await _remaining(db, run, caps)
+    busy = await review.running_children(db, [parent.id])
+    if busy:
+        return await _redrive(
+            busy[0], parent, request, estimate=estimate, remaining=(media_left, total_left)
+        )
+    if estimate > media_left or estimate > total_left:
+        raise problems.conflict(
+            f"Regenerating this {parent.kind.value} spends ≈ ${estimate:.2f}; "
+            f"${media_left:.2f} of the media budget and ${total_left:.2f} of the creative "
+            "budget remain. Raise the cap in project settings, or choose a cheaper model or "
+            "params.",
+            title="Over budget",
+            code="estimate_exceeds_budget",
+            estimate_usd=str(estimate),
+            media_remaining_usd=str(media_left),
+            total_remaining_usd=str(total_left),
+        )
+
+    child_id = await open_child(get_sessionmaker(), parent, request)
+    await db.commit()
+    queued = await _enqueue(child_id, redrive=False)
+    log.info(
+        "creative_asset.regeneration_requested",
+        run_id=str(run.id),
+        parent=str(parent.id),
+        asset=str(child_id),
+        model=choice.model_id,
+        estimate_usd=str(estimate),
+        by=str(me.user.id),
+    )
+    return RegenerateAccepted(
+        job_id=queued,
+        asset_id=child_id,
+        parent_asset_id=parent.id,
+        model_id=choice.model_id,
+        estimate_usd=estimate,
+        media_remaining_usd=media_left,
+        total_remaining_usd=total_left,
+    )
+
+
+async def _pending_g8(db: AsyncSession, run: Run, parent: CreativeAsset) -> AiAssetReview:
+    """The pending G8 card this asset waits on — refused otherwise, saying why."""
+    approval = await db.scalar(
+        sa.select(Approval)
+        .where(Approval.run_id == run.id, Approval.gate_key == G8)
+        .order_by(Approval.created_at.desc())
+    )
+    if approval is None:
+        raise problems.conflict(
+            "This run's media is still being produced; regenerate from the G8 review once it "
+            "opens.",
+            title="G8 is not open yet",
+            code="review_not_open",
+        )
+    if approval.status is not ApprovalStatus.PENDING:
+        raise problems.conflict(
+            f"G8 was {approval.status.value}. An operator regenerates before G8 is decided; "
+            "after it, regeneration is the brand owner's, through the review (and G8b offers "
+            "none).",
+            title="G8 already decided",
+            code="review_decided",
+            status=approval.status.value,
+        )
+    card = AiAssetReview.model_validate(approval.proposal)
+    if parent.id not in {item.asset_id for item in card.items}:
+        raise problems.conflict(
+            f"Asset {parent.id} is not on the G8 card"
+            + (
+                f" — it is {parent.status.value}."
+                if parent.status.value != "awaiting_review"
+                else "."
+            ),
+            title="Not awaiting review",
+            code="not_on_card",
+            asset_status=parent.status.value,
+        )
+    return card
+
+
+async def _redrive(
+    child: CreativeAsset,
+    parent: CreativeAsset,
+    request: RegenerationRequest,
+    *,
+    estimate: Decimal,
+    remaining: tuple[Decimal, Decimal],
+) -> RegenerateAccepted:
+    """The same regeneration asked again while it is still `running` — how a
+    worker that died mid-way is recovered: it is queued again under a fresh id
+    and resumes from its committed jobs (Law 37). A different request for the
+    same asset waits for the first."""
+    recorded = RegenerationRequest.of(child)
+    if (recorded.choice, recorded.note) != (request.choice, request.note):
+        raise problems.conflict(
+            f"Asset {parent.id} is already being regenerated (new asset {child.id}) with "
+            f"{recorded.choice.model_id}. Wait for it to finish, then regenerate that one.",
+            title="Already regenerating",
+            code="regeneration_in_progress",
+            regenerated_asset_id=str(child.id),
+        )
+    queued = await _enqueue(child.id, redrive=True)
+    return RegenerateAccepted(
+        job_id=queued,
+        asset_id=child.id,
+        parent_asset_id=parent.id,
+        model_id=recorded.choice.model_id,
+        estimate_usd=estimate,
+        media_remaining_usd=remaining[0],
+        total_remaining_usd=remaining[1],
+    )
+
+
+async def _enqueue(asset_id: uuid.UUID, *, redrive: bool) -> str | None:
+    try:
+        return await enqueue_regeneration(asset_id, redrive=redrive)
+    except (RedisError, OSError) as exc:
+        raise problems.Problem(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            title="Queue unavailable",
+            detail=f"Regeneration {asset_id} is recorded but could not be queued. Ask again once "
+            "Redis is back; it resumes where it is.",
+        ) from exc
+
+
+async def _remaining(db: AsyncSession, run: Run, caps: Any) -> tuple[Decimal, Decimal]:
+    """Law 43's two meters' headroom, read from the three places the reserve
+    script reads — caps, committed media, Redis's reservations — so the check
+    before the 202 and the guard at submit agree about "how close"."""
+    committed = await db.scalar(
+        sa.select(sa.func.coalesce(sa.func.sum(GenerationJob.cost_usd), 0)).where(
+            GenerationJob.creative_run_id == run.id, GenerationJob.cost_usd.is_not(None)
+        )
+    )
+    try:
+        state = await MediaBudget(get_redis()).state(run.id)
+    except (RedisError, OSError) as exc:
+        raise problems.Problem(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            title="Budget unavailable",
+            detail="Reserved spend lives in Redis, which is unreachable; nothing is regenerated "
+            "without knowing what remains. Try again once it is back.",
+        ) from exc
+    spend = run_spend(
+        caps=caps,
+        run_cost_usd=run.cost_usd,
+        media_committed_usd=Decimal(committed or 0),
+        state=state,
+    )
+    return (
+        spend.media.cap_usd - spend.media.spent_usd - spend.media.reserved_usd,
+        spend.total.cap_usd - spend.total.spent_usd - spend.total.reserved_usd,
+    )

@@ -22,6 +22,7 @@ GENERATE_EXPORT = "generate_export"
 MEASURE_IMAGE = "measure_image"
 STORE_REFERENCE = "store_reference"
 CHECK_GENERATION_JOB = "check_generation_job"
+REGENERATE_ASSET = "regenerate_asset"
 
 #: How long `POST /lint/image` waits for the worker before giving up. §17 CF5
 #: budgets the measurement itself at 3 s p95; the rest is queue time behind
@@ -108,6 +109,24 @@ async def enqueue_generation_check(job_id: uuid.UUID, *, state: str) -> str | No
         log.info("generation_check.enqueue_deduped", generation_job_id=str(job_id), job_id=arq_id)
         return None
     log.info("generation_check.enqueued", generation_job_id=str(job_id), job_id=job.job_id)
+    return str(job.job_id)
+
+
+async def enqueue_regeneration(asset_id: uuid.UUID, *, redrive: bool = False) -> str | None:
+    """Queue an operator's regeneration before G8 (Stage 04 PRD §16).
+
+    The job id is derived from the new asset, so a double-click enqueues once.
+    `redrive` re-queues one whose worker died mid-way: arq keeps a job id for
+    an hour, and the regeneration resumes from its committed jobs (Law 37),
+    so a second id is safe and the first would be dropped without a word.
+    """
+    pool = await get_arq_pool()
+    arq_id = f"regenerate:{asset_id}" + (f":{uuid.uuid4().hex[:8]}" if redrive else "")
+    job = await pool.enqueue_job(REGENERATE_ASSET, str(asset_id), _job_id=arq_id)
+    if job is None:
+        log.info("regeneration.enqueue_deduped", asset_id=str(asset_id), job_id=arq_id)
+        return None
+    log.info("regeneration.enqueued", asset_id=str(asset_id), job_id=job.job_id)
     return str(job.job_id)
 
 
