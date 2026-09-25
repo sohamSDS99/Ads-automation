@@ -13,6 +13,8 @@ There is no second regeneration: 4.4.7 offers approve or reject only.
 
 from __future__ import annotations
 
+import uuid
+
 import sqlalchemy as sa
 from pydantic import BaseModel
 
@@ -22,7 +24,14 @@ from agent.db.models import Approval, ApprovalStatus, CreativeAsset, Evidence, R
 from agent.db.session import get_sessionmaker
 from agent.llm.router import TaskClass
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
-from agent.nodes.creative._regenerate import RegenerationRequest, open_child, regenerate
+from agent.nodes.creative._regenerate import (
+    RegenerationRequest,
+    VideoPlan,
+    open_child,
+    plan_evidence_id,
+    plan_video,
+    regenerate,
+)
 from agent.schemas.creative_input import CreativeInput
 from agent.schemas.creative_review import G8, ROUND, AiAssetReview, AssetRegeneration
 
@@ -45,7 +54,24 @@ class AssetRegenerationNode:
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        return []
+        """Each regenerated video's shot plan, for its regeneration model, as a
+        `derived` row this node computed — as 4.4.4's `gather()` does — so the
+        output may cite it."""
+        decided = AiAssetReview.model_validate(ctx.output_of(REVIEW_NODE))
+        plans: dict[uuid.UUID, VideoPlan] = {}
+        for item in review.regenerate_items(decided):
+            choice = item.decision.regeneration_choice if item.decision else None
+            if item.kind != "video" or choice is None:
+                continue
+            parent = await ctx.db.get(CreativeAsset, item.asset_id)
+            if parent is not None:
+                plans[item.asset_id] = await plan_video(ctx, parent, choice)
+        ctx.scratch[NODE_ID] = plans
+        ids = [i for i in map(plan_evidence_id, plans.values()) if i is not None]
+        if not ids:
+            return []
+        rows = await ctx.db.execute(sa.select(Evidence).where(Evidence.id.in_(ids)))
+        return list(rows.scalars().all())
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         decided = AiAssetReview.model_validate(ctx.output_of(REVIEW_NODE))
@@ -64,6 +90,7 @@ class AssetRegenerationNode:
                 Approval.status == ApprovalStatus.APPROVED,
             )
         )
+        plans: dict[uuid.UUID, VideoPlan] = ctx.scratch.get(NODE_ID) or {}
         made = []
         for item in wanted:
             decision = item.decision
@@ -88,7 +115,7 @@ class AssetRegenerationNode:
             await ctx.progress(
                 f"Regenerating {item.kind} {parent.id} with {request.choice.model_id}"
             )
-            made.append(await regenerate(ctx, parent, child, request))
+            made.append(await regenerate(ctx, parent, child, request, planned=plans.get(parent.id)))
         return AssetRegeneration(status="regenerated", items=made)
 
 

@@ -152,14 +152,26 @@ async def open_child(
 
 
 async def regenerate(
-    ctx: RunContext, parent: CreativeAsset, child: CreativeAsset, request: RegenerationRequest
+    ctx: RunContext,
+    parent: CreativeAsset,
+    child: CreativeAsset,
+    request: RegenerationRequest,
+    *,
+    planned: VideoPlan | None = None,
 ) -> RegeneratedAsset:
     """Produce `child` through the pipeline, then leave it `awaiting_review`
-    (something to look at) or `draft` with `state=gap` (nothing to look at)."""
+    (something to look at) or `draft` with `state=gap` (nothing to look at).
+
+    `planned`: a video's plan made in the node's `gather()` (`plan_video`),
+    whose shot-plan row the output then cites — the executor accepts a calc
+    citation only for a `derived` row the node gathered (law 14). Made here
+    when there is no node (an operator's regeneration before G8)."""
     if parent.kind is CreativeAssetKind.IMAGE:
         made = await _image(ctx, parent, child, request)
     elif parent.kind is CreativeAssetKind.VIDEO:
-        made = await _video(ctx, parent, child, request)
+        if planned is None:
+            planned = await plan_video(ctx, parent, request.choice)
+        made = await _video(ctx, parent, child, request, planned)
     else:  # pragma: no cover — callers accept media only
         raise NodeContractError(f"asset {parent.id} is {parent.kind.value}, not media")
     fresh = await ctx.db.get(CreativeAsset, child.id, populate_existing=True)
@@ -247,12 +259,18 @@ async def _image(
 # ---------------------------------------------------------------------------
 
 
-async def _video(
-    ctx: RunContext, parent: CreativeAsset, child: CreativeAsset, request: RegenerationRequest
-) -> RegeneratedAsset:
+#: What `plan_video` gives back: 4.4.4's campaign plan, a gap, or None when
+#: the pinned spec sheet has no video surface for the campaign any more.
+VideoPlan = Any
+
+
+async def plan_video(ctx: RunContext, parent: CreativeAsset, choice: MediaModelChoice) -> VideoPlan:
+    """The regenerated video's length and shot plan, for the model it is
+    regenerated with (an override may cut other clip lengths) — 4.4.4's own
+    `plan_campaign`, its shot plan recorded as a `derived` row of 4.4.6."""
     creative = ctx.require_creative()
     campaign, concept = _concept(ctx, parent)
-    capability = CapabilityRecord.model_validate(request.choice.capability)
+    capability = CapabilityRecord.model_validate(choice.capability)
     supported = list((capability.video.durations if capability.video else []) or [])
     specs = creative.linter.ruleset.asset_specs.model_dump(mode="json").get("specs") or {}
     writer = DerivedWriter(
@@ -261,9 +279,9 @@ async def _video(
         project_id=ctx.project.id,
         plan_run_id=ctx.run.id,
     )
-    planned = await n444.plan_campaign(
+    return await n444.plan_campaign(
         creative,
-        request.choice,
+        choice,
         campaign.model_copy(update={"concepts": [concept]}),
         writer=writer,
         supported=supported,
@@ -271,6 +289,20 @@ async def _video(
         end_card_s=-(-creative.constants.video.end_card_ms.value // 1000),
         node_id=REGENERATION_NODE,
     )
+
+
+def plan_evidence_id(planned: VideoPlan) -> uuid.UUID | None:
+    return planned.evidence_id if isinstance(planned, n444._CampaignPlan) else None
+
+
+async def _video(
+    ctx: RunContext,
+    parent: CreativeAsset,
+    child: CreativeAsset,
+    request: RegenerationRequest,
+    planned: VideoPlan,
+) -> RegeneratedAsset:
+    campaign, concept = _concept(ctx, parent)
     base = {
         "parent_asset_id": parent.id,
         "asset_id": child.id,
