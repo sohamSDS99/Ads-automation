@@ -70,7 +70,7 @@ from agent.nodes.creative._ad_groups import (
 )
 from agent.nodes.creative._text_assets import clear_earlier_attempts, lint_ref, text_asset
 from agent.nodes.creative.n4_2_2_claim_bound_descriptions import screen
-from agent.nodes.creative.n4_3_1_sitelinks_callouts_snippets import WEB_PAGE_KIND
+from agent.nodes.creative.n4_3_1_sitelinks_callouts_snippets import WEB_PAGE_KIND, spec_gap
 from agent.planning.crm import CRM_LOST, CRM_WON
 from agent.planning.sensitive_categories import article_9_category
 from agent.preview import urlcheck
@@ -433,8 +433,7 @@ def _prepare(ctx: RunContext) -> list[_Prepared]:
                 _gap(
                     slot,
                     "spec_missing",
-                    f"ruleset {ruleset.ruleset_version} has no "
-                    f"asset_specs.{slot.campaign_type}.{', '.join(missing)}",
+                    spec_gap(ruleset.ruleset_version, slot, missing),
                 )
             )
         else:

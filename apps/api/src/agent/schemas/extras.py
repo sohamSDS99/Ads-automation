@@ -129,7 +129,8 @@ class StructuredSnippet(_Frozen):
 
 class CampaignExtras(_Frozen):
     campaign_ref: str = Field(min_length=1)
-    campaign_type: str = Field(min_length=1)
+    #: The frozen plan's type; "" when it names none, and then no spec applies.
+    campaign_type: str
     market: str = Field(min_length=1)
     language: str = Field(min_length=1)
     sitelinks: list[Sitelink] = Field(default_factory=list)
@@ -396,7 +397,8 @@ class LeadFormTradeoff(_Frozen):
 
 class CampaignLeadForm(_Frozen):
     campaign_ref: str = Field(min_length=1)
-    campaign_type: str = Field(min_length=1)
+    #: The frozen plan's type; "" when it names none, and then no spec applies.
+    campaign_type: str
     form: LeadForm | None = None
     #: None when there is no history to weigh (the gap says which input); the
     #: form then asks every required signal — the lead definition itself.

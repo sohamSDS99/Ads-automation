@@ -99,6 +99,7 @@ def every_formula_result() -> list[Any]:
         economics,
         experiments,
         forecast,
+        leadform,
         measurement,
         media,
         power,
@@ -252,6 +253,16 @@ def every_formula_result() -> list[Any]:
         media.crop_window_v1(image=_crop_frame(), ratio="1:1", constants=media_constants()),
         media.shot_plan_v1(
             duration_s=14, supported_durations=[4, 6, 8], constants=media_constants()
+        ),
+        leadform.field_tradeoff_v1(
+            won=30,
+            lost_reasons={"Student project": 40, "Price": 30},
+            disqualifiers=["student"],
+            signals=["job title", "company size"],
+            history_fields_n=7,
+            history_signals_n=1,
+            retention_per_field=0.9,
+            constants_version="2026.09.2",
         ),
     ]
 

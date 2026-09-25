@@ -61,7 +61,7 @@ from agent.nodes.creative._ad_groups import (
 )
 from agent.nodes.creative._text_assets import clear_earlier_attempts, lint_ref, text_asset
 from agent.nodes.creative.n4_2_2_claim_bound_descriptions import screen
-from agent.nodes.creative.n4_3_1_sitelinks_callouts_snippets import campaign_slots
+from agent.nodes.creative.n4_3_1_sitelinks_callouts_snippets import campaign_slots, spec_gap
 from agent.schemas.creative_brief import CreativeBrief, OfferBinding
 from agent.schemas.extras import (
     ExtraGap,
@@ -325,8 +325,7 @@ async def _write(
             gap(
                 asset_type,
                 "spec_missing",
-                f"ruleset {ruleset.ruleset_version} has no "
-                f"asset_specs.{slot.campaign_type}.{', '.join(missing)}",
+                spec_gap(ruleset.ruleset_version, slot, missing),
             )
         else:
             specs[asset_type] = sheet[asset_type]

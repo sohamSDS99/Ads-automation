@@ -177,6 +177,16 @@ def draft_model(pool: Sequence[str], counts: Counts, *, headers: Sequence[str]) 
     return create_model("SitelinksCalloutsSnippetsDraft", __base__=_Draft, **fields)
 
 
+def spec_gap(ruleset_version: str, slot: Slot, missing: Sequence[str]) -> str:
+    """Why a campaign has no spec for an extra — including a plan that named no type."""
+    if not slot.campaign_type:
+        return (
+            f"the frozen plan names no campaign type for {slot.brief.campaign_ref}, so no spec "
+            "applies"
+        )
+    return f"ruleset {ruleset_version} has no asset_specs.{slot.campaign_type}.{', '.join(missing)}"
+
+
 def campaign_slots(brief: CreativeBrief, slots_: Sequence[Slot]) -> list[Slot]:
     """One slot per campaign the brief covers — its first ad group — in brief order."""
     firsts: dict[str, Slot] = {}
@@ -290,10 +300,7 @@ def _specs(ctx: RunContext, slot: Slot) -> tuple[dict[str, AssetSpec], list[Extr
                     campaign_ref=slot.brief.campaign_ref,
                     asset_type=asset_type,
                     reason="spec_missing",
-                    detail=(
-                        f"ruleset {ruleset.ruleset_version} has no "
-                        f"asset_specs.{slot.campaign_type}.{', '.join(missing)}"
-                    ),
+                    detail=spec_gap(ruleset.ruleset_version, slot, missing),
                 )
             )
             continue

@@ -355,3 +355,21 @@ def test_a_tradeoff_cites_its_calculation() -> None:
 def test_offer_binding_is_the_brief_contract() -> None:
     # §12.2 defines one OfferBinding; the brief and the extras share it.
     assert Promotion.model_fields["offer_binding"].annotation is OfferBinding
+
+
+def test_a_campaign_the_plan_gave_no_type_is_still_reported() -> None:
+    # `PlannedCampaign.type` defaults to "": no spec applies, and the gap says so.
+    gap = {
+        "campaign_ref": "c-sds-us",
+        "asset_type": "sitelink",
+        "reason": "spec_missing",
+        "detail": "the frozen plan names no campaign type for c-sds-us, so no spec applies",
+    }
+    CampaignExtras.model_validate(_campaign(campaign_type="", gaps=[gap]))
+    CampaignLeadForm.model_validate(
+        {
+            "campaign_ref": "c-sds-us",
+            "campaign_type": "",
+            "gaps": [{**gap, "asset_type": "lead_form"}],
+        }
+    )
