@@ -1,7 +1,7 @@
 "use client";
 
 import { Monitor, Scissors, Smartphone } from "lucide-react";
-import { Fragment, useLayoutEffect, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 
 import { SegmentedControl } from "@/components/ui/segmented";
 import { measuredText } from "@/lib/creative/char-count";
@@ -36,6 +36,7 @@ export function SerpPreview({
   finalUrl,
   paths,
   caption,
+  extensions,
 }: {
   device: Device;
   onDevice: (device: Device) => void;
@@ -45,6 +46,8 @@ export function SerpPreview({
   paths: [string | null, string | null];
   /** What is being shown, in words: "Combination 1" or "H3 with H7 from the pair grid". */
   caption: string;
+  /** Drawn inside the frame under the descriptions — the Extras screen's `ExtensionsPreview`. */
+  extensions?: ReactNode;
 }) {
   const titleRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -146,6 +149,7 @@ export function SerpPreview({
                 </Fragment>
               ))}
             </div>
+            {extensions}
           </div>
           {/* The gutter: one mark per cut line, level with it. */}
           <div aria-hidden className="flex w-6 shrink-0 flex-col gap-1 pt-12 text-status-failed-ink">

@@ -74,11 +74,15 @@ import {
   checkGenerationJob,
   editCreativeAsset,
   getCreativeBrief,
+  getLandingPatch,
+  getLandingPatchHtml,
   isJobInFlight,
   listCreativeAssets,
   listGenerationJobs,
+  listLandingAudits,
   swapCreativeAsset,
   type CreativeAssetItem,
+  type LandingPagePatch,
 } from "@/lib/api/creative-runs";
 import { listUsers } from "@/lib/api/users";
 import { getRunDiff } from "@/lib/api/diff";
@@ -149,6 +153,8 @@ export const keys = {
   // — an SSE reconnect, a decided gate — refreshes these with it.
   creativeBrief: (runId: string) => ["runs", runId, "creative", "brief"] as const,
   creativeAssets: (runId: string) => ["runs", runId, "creative", "assets"] as const,
+  landingAudits: (runId: string) => ["runs", runId, "creative", "landing-audits"] as const,
+  landingPatch: (auditId: string, format: "html" | "json") => ["landing-audits", auditId, "patch", format] as const,
   generationJobs: (runId: string) => ["runs", runId, "creative", "generation-jobs"] as const,
   regenerationEstimate: (assetId: string, request: string) =>
     ["creative-assets", assetId, "regeneration-estimate", request] as const,
@@ -661,6 +667,23 @@ export function useCreativeBrief(runId: string, enabled = true) {
 }
 
 /** What the run wrote. The Assets tab filters it to one node for display. */
+/** Every landing URL 4.5.1/4.5.2 audited for a run (PRD §15.4 J). */
+export function useLandingAudits(runId: string) {
+  return useQuery({ queryKey: keys.landingAudits(runId), queryFn: () => listLandingAudits(runId), retry: false });
+}
+
+/** A landing patch, as the site owner gets it: markup, or the structured change. */
+export function useLandingPatch(auditId: string, format: "html" | "json", enabled = true) {
+  return useQuery({
+    queryKey: keys.landingPatch(auditId, format),
+    queryFn: (): Promise<string | LandingPagePatch> =>
+      format === "html" ? getLandingPatchHtml(auditId) : getLandingPatch(auditId),
+    enabled,
+    staleTime: Infinity,
+    retry: false,
+  });
+}
+
 export function useCreativeAssets(runId: string, enabled = true) {
   return useQuery({
     queryKey: keys.creativeAssets(runId),
