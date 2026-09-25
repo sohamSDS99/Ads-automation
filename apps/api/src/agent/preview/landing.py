@@ -43,13 +43,13 @@ import structlog
 from pydantic import BaseModel, ConfigDict, Field
 
 from agent.connectors.browser import LAUNCH_ARGS, USER_AGENT, BrowserUnavailable
+from agent.schemas.landing import Box, Device
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Route
 
 log = structlog.get_logger(__name__)
 
-Device = Literal["mobile", "desktop"]
 DEVICES: Final[tuple[Device, ...]] = ("mobile", "desktop")
 
 #: §10.2: "waits for `networkidle` (timeout 20 s)".
@@ -89,15 +89,6 @@ def parse_viewport(value: str) -> Viewport:
     if match is None:
         raise ValueError(f"viewport {value!r} is not WIDTHxHEIGHT")
     return Viewport(width=int(match[1]), height=int(match[2]))
-
-
-class Box(_Model):
-    """A DOM box in page coordinates at scroll 0: `y` is distance from the top."""
-
-    x: float
-    y: float
-    width: float
-    height: float
 
 
 class TextNode(_Model):
