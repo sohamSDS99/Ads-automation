@@ -1424,3 +1424,102 @@ Rulings owed on what S4-P21 (the Media Library) had to decide or build where
     on the Volume, outputs validated by the node schemas) because no fixture
     model paints 475 files; the image and video runs in the same harness are
     the real 4.4.1–4.4.4 pipeline.
+
+## S4-P14
+
+Rulings owed on what S4-P14 (conformance, exceptions, H3, repin) had to decide
+where §8.6, §11 4.6.1–4.6.3 and §16 H3 are silent, or where earlier phases
+built something H3 could not use. Items 1, 4 and 5 decide whether H3 is safe.
+
+1. **An exception candidate is the claim's clause, not its trigger (defect
+   fix in S4-P5/S4-P6 code).** `exceptions.unlicensed_spans` returned the
+   detector's bare match (`#1`, `best`). Stage 03 licenses by comparing a
+   claim's forms against the span *and the clause around it*
+   (`matchers.claims.sentence_around`, threshold 0.88), so a legal owner
+   clearing `the #1 SDS platform` would not license the copy it came from,
+   and clearing `#1` would license every `#1` anyone ever writes. It now
+   returns the clause, once per clause, through Stage 03's own
+   `sentence_around`. S4-P6's test expected `#1` ×2; those were two different
+   claims (`The #1 SDS software, with …` / `… from the #1 team in chemical
+   safety`) and are now two exceptions.
+2. **`publish.mint_minor(origin=, reviewed_by=)` does not exist.** The MINOR
+   minter is `policy/lifecycle.mint_minor(db, guideline, constants, now)`,
+   with no origin or reviewer. H3 calls the new
+   `lifecycle.mint_reviewed_minor`, which mints and records a
+   `PolicyAmendment(origin=creative_exception, change_kind=substantive,
+   status=applied, reviewed_by=signer)` — a licence appeared, so it is
+   substantive; `applied` + `reviewed_by` is what keeps it out of the inbox,
+   which is `needs_review` and nothing else.
+3. **The MINOR is minted from the run's pinned guideline**, not the latest
+   published one, so the run stays reproducible against the rules it was made
+   under plus what H3 licensed. If a newer MAJOR was published since the run
+   started, this mints a MINOR of the older major.
+4. **`new_claim` means no register row at all.** A clause matching a current
+   `ClaimRecord` of any status (unsupported, pending, rejected, expired,
+   revoked, or approved but out of scope) is Stage 03's to decide: 4.6.2
+   reports it in `not_raised[]` (`in_register`), and `clear` refuses with
+   `409 claim_in_register` — before any proof is spent — if one appears
+   between 4.6.2 and the clear. Superseding the row inside H3 is impossible
+   anyway: `uq_claim_record_current` and the `superseded_by` FK are not
+   deferrable.
+5. **Who may clear: CLAIM_SIGN, then H3's assignee *and* the current
+   `signoff_matrix.legal_owner`.** Admin holds no CLAIM_SIGN (403 by the
+   guard). A matrix reassignment without an H3 handover leaves nobody able to
+   clear — failing closed. `routes_tasks._dependents` voids signatures on
+   reassignment only for H1; H3 writes nothing until it is decided whole, so
+   §4.5's "voiding any partial signature" has nothing to void.
+6. **H3 is decided whole.** One `clear` carries a decision for every
+   exception in the set (422 otherwise), because the set hash covers the set.
+   After it, a different decision set is `409 already_decided`; the same
+   decisions (with a fresh proof) return the stored receipt (`resumed: false`).
+7. **What a refusal does, and where.** §8.6 step 5 gives the swap to 4.6.4;
+   the phase's exit criteria require it of H3, so `clear` (for rejections)
+   and `withdraw` do it in their own transaction: each tied asset drops, and
+   each one that was being carried (linted / awaiting review / approved) is
+   replaced 1:1 by a same-slot `reserve` fallback (`lineage.origin =
+   reserve_swap`). A tied draft was never carried, so it just drops. The
+   promoted reserve keeps its creation lint until 4.6.4 re-lints at the final
+   pin (S4-P15). A frozen tied asset refuses the decision (409).
+8. **`fallback_asset_ids` of a withheld clause** is the carried copy already
+   filling that slot — what ships instead. Nothing swaps for it.
+9. **4.6.2 does not re-lint.** Its "full LintResult per target" is each
+   asset's own result at the pin: law 33 linted every target there with every
+   per-target rule, no repin can precede H3, and recomputing would need a
+   second definition of each node's lint lines (a price row does not even keep
+   the description it was linted with). No result at the pin is `unlinted`.
+   Time-dependent validity is re-checked at release (§12.4); 4.6.4 re-lints.
+10. **`awaiting_exception` is still unused.** A carried asset tied to an open
+    exception keeps its status until H3 decides. S4-P16's release must block
+    on open exceptions.
+11. **A cleared claim's licence is exactly where it was seen**:
+    `market_scope`/`languages` are the markets and languages of its sightings,
+    and `*` literally when the plan names no market — which licenses only
+    copy linted for `*`, never "unrestricted". 4.3.2 collects across its
+    campaigns, so its clauses carry all of those campaigns' markets.
+12. **Fields H3 cannot fill.** `risk_tier` stays the default (`medium`),
+    `observed_on` empty, `substantiation` null, `evidence_ids` empty: no node
+    keeps evidence for copy it withheld. `claim_type` is the family of the
+    first of the pin's detectors that matches the clause; a clause matching two
+    families gets the first.
+13. **A third-party reference's image right cannot take effect in its own
+    run** — 4.4.1/4.4.2 already ran — but §10.3 and §13 name 4.6.2 as where it
+    is raised, and `references.image_right_proposal` was built for it. It is
+    raised and recorded, package-scoped.
+14. **What clearing a `disclaimer` means for the copy is unspecified.** 4.6.2
+    raises one per blocking disclosure finding (the text and placement the rule
+    requires); H3 records the decision, package-scoped. Whether a cleared
+    disclaimer is added to the copy or waives it is 4.6.4's (S4-P15) to rule.
+15. **4.6.1's `format` is the file against its row's declared media type** —
+    the spec sheet names no format. `codec` is `h264/high/yuv420p` and
+    `audio_codec` is `aac`, the encoder's promises (now named constants in
+    `postprod/verify`); a video with no spec still gets fps, codec and format.
+    `unchecked[]{reason: spec_missing | file_missing | file_unreadable}` is not
+    in §11. Asset *counts* (min/max_count) are not in §11's list for 4.6.1;
+    they are the linter's set rules, for the assembled ad.
+16. **`GET /creative-runs/{id}/exceptions`** returns
+    `{set_hash, exceptions[], task}`; §16 names the route only.
+    `GET /creative-runs/{id}/conformance` is in §16's QA block but not in
+    S4-P14's row, so it is not built.
+17. **Test support:** `creative_support.guideline_payload` gained a `rules`
+    list (`seed_published(payload_rules=)`). Without one the seeded payload
+    never compiled, so no test could mint a MINOR from it.
