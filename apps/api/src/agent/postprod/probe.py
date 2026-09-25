@@ -13,7 +13,6 @@ from __future__ import annotations
 import hashlib
 import io
 import json
-import shutil
 import subprocess  # noqa: S404 — ffprobe, with a fixed argv
 import tempfile
 from dataclasses import asdict, dataclass
@@ -82,6 +81,8 @@ def probe_image(content: bytes) -> ImageFacts:
 
 #: A probe never waits longer than this on one file.
 FFPROBE_TIMEOUT_S = 60
+#: Resolved on PATH by the process, as `worker.py` runs its tools.
+FFPROBE = "ffprobe"
 
 _VIDEO_TYPES = {"mov": "video/mp4", "mp4": "video/mp4", "webm": "video/webm"}
 
@@ -122,7 +123,7 @@ def probe_video(content: bytes) -> VideoFacts:
         try:
             completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
                 [
-                    _ffprobe(),
+                    FFPROBE,
                     "-v",
                     "error",
                     "-count_packets",
@@ -138,6 +139,10 @@ def probe_video(content: bytes) -> VideoFacts:
             )
         except subprocess.TimeoutExpired as exc:
             raise ProbeError(f"ffprobe took longer than {FFPROBE_TIMEOUT_S} s") from exc
+        except FileNotFoundError as exc:
+            raise ProbeError(
+                "ffprobe is not installed; video is probed in the worker image"
+            ) from exc
     errors = completed.stderr.decode("utf-8", "replace").strip()
     if completed.returncode != 0 or errors:
         raise ProbeError(f"not a whole video: {errors or f'ffprobe exited {completed.returncode}'}")
@@ -172,13 +177,6 @@ def probe_video(content: bytes) -> VideoFacts:
         bytes=len(content),
         sha256=hashlib.sha256(content).hexdigest(),
     )
-
-
-def _ffprobe() -> str:
-    found = shutil.which("ffprobe")
-    if found is None:
-        raise ProbeError("ffprobe is not installed; video is probed in the worker image")
-    return found
 
 
 def _seconds(value: Any) -> float | None:

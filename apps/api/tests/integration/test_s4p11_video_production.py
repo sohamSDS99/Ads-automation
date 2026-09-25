@@ -17,6 +17,7 @@ What is proven here, each against real Postgres and Redis and a respx OpenRouter
 
 from __future__ import annotations
 
+import json
 import uuid
 from pathlib import Path
 from typing import Any
@@ -193,12 +194,19 @@ async def test_one_clip_per_shot_per_ratio_is_submitted_polled_and_downloaded(
     assert evidence is not None and evidence.kind == "calc_shot_plan"
 
     # node.progress on every poll (§8.4).
-    stream = frames((await admin.get(f"/runs/{run_id}/events")).text)
+    raw = (await admin.get(f"/runs/{run_id}/events")).text
+    stream = frames(raw)
     progress = [
         e for e in stream if e["event"] == "node.progress" and e["data"].get("node_id") == "4.4.4"
     ]
     polls = sum(videos.polls.values())
     assert len([e for e in progress if "poll" in e["data"]["message"]]) == polls
+
+    # An unsigned URL carries the key's authority: never in an output, an event or a row.
+    for job in await _jobs(db, run_id):
+        assert "/content" not in json.dumps(job.request) and "/content" not in str(job.error)
+    assert "/content" not in json.dumps(output)
+    assert "/content" not in raw
 
 
 async def test_kill_while_polling_resumes_without_a_second_post_or_a_new_script(
