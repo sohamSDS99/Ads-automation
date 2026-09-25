@@ -489,6 +489,40 @@ async def test_a_timed_out_video_completes_and_downloads_on_check_again(
     assert routes["submit"].call_count == 1
 
 
+async def test_await_video_reports_progress_on_every_poll_including_the_last(
+    router: respx.Router, world: World
+) -> None:
+    routes = mock_video_job(
+        router,
+        "video_poll_pending.json",
+        "video_poll_in_progress.json",
+        "video_poll_completed.json",
+    )
+    jobs = world.jobs()
+    job = await jobs.submit_or_resume(
+        run_id=world.run_id,
+        node_id="4.4.4",
+        asset_id=None,
+        round=1,
+        request=VIDEO,
+        choice=choice(veo()),
+        estimate_usd=Decimal("0.12"),
+    )
+    seen: list[tuple[str | None, int]] = []
+
+    async def report(row: GenerationJob, poll: Any) -> None:
+        seen.append((poll.status if poll is not None else None, row.polls))
+
+    done = await jobs.await_video(job.id, progress=report)
+
+    assert done.status == GenerationStatus.COMPLETED
+    assert seen == [("pending", 1), ("in_progress", 2), ("completed", 3)]
+    assert len(seen) == routes["poll"].call_count
+    # 10 s, then growing toward 30 s, each with up to 20% jitter on top.
+    assert CONSTANTS.video_poll_initial_s <= world.slept[0] <= CONSTANTS.video_poll_initial_s * 1.2
+    assert world.slept[1] > world.slept[0] * 1.2
+
+
 @pytest.mark.parametrize(
     ("state", "message"),
     [

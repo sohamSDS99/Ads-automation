@@ -1,4 +1,5 @@
-"""The Pillow facts of one image file (Stage 04 PRD §9.4) — `MediaArtifact.probe`.
+"""The Pillow facts of one image file, and the ffprobe facts of one video file
+(Stage 04 PRD §9.4) — `MediaArtifact.probe`.
 
 What a file IS, read from its bytes, never from what the request asked for or
 what a provider said it returned: its container format, its pixel size and
@@ -11,6 +12,10 @@ from __future__ import annotations
 
 import hashlib
 import io
+import json
+import shutil
+import subprocess  # noqa: S404 — ffprobe, with a fixed argv
+import tempfile
 from dataclasses import asdict, dataclass
 from typing import Any
 
@@ -69,3 +74,125 @@ def probe_image(content: bytes) -> ImageFacts:
     except (OSError, SyntaxError, ValueError, UnidentifiedImageError,
             Image.DecompressionBombError) as exc:  # fmt: skip
         raise ProbeError(f"not a decodable image: {exc}") from exc
+
+
+# ---------------------------------------------------------------------------
+# video — ffprobe (PRD §9.4 video 4)
+# ---------------------------------------------------------------------------
+
+#: A probe never waits longer than this on one file.
+FFPROBE_TIMEOUT_S = 60
+
+_VIDEO_TYPES = {"mov": "video/mp4", "mp4": "video/mp4", "webm": "video/webm"}
+
+
+@dataclass(frozen=True, slots=True)
+class VideoFacts:
+    """What one video file is, read from its bytes by ffprobe."""
+
+    container: str
+    media_type: str
+    codec: str
+    pix_fmt: str | None
+    width: int
+    height: int
+    duration_ms: int
+    fps: float | None
+    packets: int
+    has_audio: bool
+    bytes: int
+    sha256: str
+
+    def as_json(self) -> dict[str, Any]:
+        return asdict(self)
+
+
+def probe_video(content: bytes) -> VideoFacts:
+    """ffprobe the bytes, counting every packet, so a download cut short fails
+    here instead of in an encoder later.
+
+    The bytes go through a temporary file rather than a pipe: an MP4 whose
+    index (`moov`) sits at the end cannot be read from a stream it cannot seek.
+    """
+    if not content:
+        raise ProbeError("not a video: the file is empty")
+    with tempfile.NamedTemporaryFile(suffix=".bin") as handle:
+        handle.write(content)
+        handle.flush()
+        try:
+            completed = subprocess.run(  # noqa: S603 — fixed argv, no shell
+                [
+                    _ffprobe(),
+                    "-v",
+                    "error",
+                    "-count_packets",
+                    "-print_format",
+                    "json",
+                    "-show_format",
+                    "-show_streams",
+                    handle.name,
+                ],
+                capture_output=True,
+                timeout=FFPROBE_TIMEOUT_S,
+                check=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise ProbeError(f"ffprobe took longer than {FFPROBE_TIMEOUT_S} s") from exc
+    errors = completed.stderr.decode("utf-8", "replace").strip()
+    if completed.returncode != 0 or errors:
+        raise ProbeError(f"not a whole video: {errors or f'ffprobe exited {completed.returncode}'}")
+    try:
+        report = json.loads(completed.stdout)
+    except ValueError as exc:
+        raise ProbeError(f"ffprobe returned no report: {exc}") from exc
+    streams = report.get("streams") or []
+    video = next((s for s in streams if s.get("codec_type") == "video"), None)
+    if video is None:
+        raise ProbeError("not a video: the file has no video stream")
+    fmt = report.get("format") or {}
+    duration = _seconds(fmt.get("duration")) or _seconds(video.get("duration"))
+    width, height = int(video.get("width") or 0), int(video.get("height") or 0)
+    packets = int(video.get("nb_read_packets") or 0)
+    if not duration or width <= 0 or height <= 0 or packets <= 0:
+        raise ProbeError(
+            f"not a whole video: {width}x{height}, {duration or 0} s, {packets} packets"
+        )
+    container = str(fmt.get("format_name") or "").split(",")[0]
+    return VideoFacts(
+        container=container,
+        media_type=_VIDEO_TYPES.get(container, "application/octet-stream"),
+        codec=str(video.get("codec_name") or ""),
+        pix_fmt=video.get("pix_fmt"),
+        width=width,
+        height=height,
+        duration_ms=round(duration * 1000),
+        fps=_rate(video.get("avg_frame_rate")),
+        packets=packets,
+        has_audio=any(s.get("codec_type") == "audio" for s in streams),
+        bytes=len(content),
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
+
+
+def _ffprobe() -> str:
+    found = shutil.which("ffprobe")
+    if found is None:
+        raise ProbeError("ffprobe is not installed; video is probed in the worker image")
+    return found
+
+
+def _seconds(value: Any) -> float | None:
+    try:
+        seconds = float(value)
+    except (TypeError, ValueError):
+        return None
+    return seconds if seconds > 0 else None
+
+
+def _rate(value: Any) -> float | None:
+    """`24/1` → 24.0; `0/0` (unknown) → None."""
+    try:
+        numerator, denominator = (int(part) for part in str(value).split("/"))
+    except (TypeError, ValueError):
+        return None
+    return numerator / denominator if denominator else None
