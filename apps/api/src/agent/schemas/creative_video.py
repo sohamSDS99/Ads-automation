@@ -1,4 +1,5 @@
-"""The contracts of 4.4.4 `video_production` (Stage 04 PRD §9.4 video 1–2, §11).
+"""The contracts of 4.4.4 `video_production` (Stage 04 PRD §9.4 video 1–2, §11):
+the script, and the node's output up to downloaded clips.
 
 `VideoScript` is written before a clip is paid for, and "works with sound off"
 is its validator, not a review note: every `voiceover` interval is fully
@@ -13,7 +14,9 @@ a caption ending at 4.0 and one starting at 4.0000001 are touching, not a gap.
 from __future__ import annotations
 
 import re
+import uuid
 from collections.abc import Iterable
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -183,3 +186,108 @@ def _uncovered(
     if cursor < t1 - EPSILON_S:
         gaps.append((cursor, t1))
     return gaps
+
+
+# ---------------------------------------------------------------------------
+# 4.4.4 video_production — up to downloaded clips (S4-P11)
+# ---------------------------------------------------------------------------
+
+#: Why a campaign's video, a ratio of it or one clip was not made.
+VideoGapReason = Literal[
+    "spec_missing",
+    "conflicting_duration_specs",
+    "no_plannable_duration",
+    "ratio_unsupported",
+    "no_source_ratio",
+    "script_failed_lint",
+    "blocked_by_budget",
+    "generation_failed",
+    "unknown_submit_state",
+    "undecodable_clip",
+]
+
+#: A clip that timed out is not here: its OpenRouter job is still alive, so
+#: the node fails and names it for Check again instead of calling it a gap.
+ClipStatus = Literal[
+    "completed",
+    "failed",
+    "cancelled",
+    "expired",
+    "unknown_submit_state",
+    "blocked_by_budget",
+    "undecodable",
+]
+
+
+class DurationWindowOut(_Frozen):
+    asset_types: list[str]
+    min_s: int | None
+    max_s: int | None
+
+
+class PlannedClip(_Frozen):
+    index: int = Field(ge=0)
+    t0: int = Field(ge=0)
+    t1: int = Field(ge=1)
+    duration_s: int = Field(ge=1)
+
+
+class ShotPlanOut(_Frozen):
+    clips: list[PlannedClip] = Field(min_length=1)
+    #: The `media.shot_plan_v1` row this node computed (Law 14).
+    calc_evidence_ids: list[uuid.UUID] = Field(min_length=1)
+
+
+class ScriptLint(_Frozen):
+    verdict: str
+    ruleset_version: str
+    rule_ids: list[str] = Field(default_factory=list)
+
+
+class VideoClip(_Frozen):
+    ratio: str = Field(min_length=1)
+    index: int = Field(ge=0)
+    t0: int = Field(ge=0)
+    t1: int = Field(ge=1)
+    duration_s: int = Field(ge=1)
+    job_id: uuid.UUID
+    status: ClipStatus
+    #: The `MediaArtifact(role=clip)` of the downloaded file.
+    media_id: uuid.UUID | None = None
+
+
+class CampaignVideo(_Frozen):
+    campaign_ref: str = Field(min_length=1)
+    campaign_type: str = Field(min_length=1)
+    concept_id: str = Field(min_length=1)
+    #: The `video` asset every clip job and clip artifact belongs to.
+    asset_id: uuid.UUID
+    #: The `video_script` asset: committed, linted, before any clip was paid for.
+    script_asset_id: uuid.UUID
+    duration_s: int = Field(ge=1)
+    duration_window: DurationWindowOut
+    script: VideoScript
+    script_lint: ScriptLint
+    shot_plan: ShotPlanOut
+    #: Per required ratio: `{"plan": "native"}` or `{"plan": "crop", "from": …}`
+    #: (a crop is made in post-production from a generated ratio).
+    ratio_plan: dict[str, dict[str, str]]
+    clips: list[VideoClip] = Field(default_factory=list)
+    #: Degrade-ladder rungs taken because the media cap refused a clip (§9.3).
+    degraded: list[str] = Field(default_factory=list)
+
+
+class VideoGap(_Frozen):
+    campaign_ref: str = Field(min_length=1)
+    reason: VideoGapReason
+    detail: str = Field(min_length=1)
+    ratio: str | None = None
+    clip_index: int | None = None
+    job_id: uuid.UUID | None = None
+
+
+class VideoProduction(_Frozen):
+    status: Literal["produced", "not_required"]
+    why: str | None = None
+    videos: list[CampaignVideo] = Field(default_factory=list)
+    gaps: list[VideoGap] = Field(default_factory=list)
