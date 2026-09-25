@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import io
+import re
 from collections.abc import AsyncIterator, Iterator
 from typing import IO, Any
 
@@ -40,17 +42,62 @@ log = structlog.get_logger(__name__)
 #: memory for as long as the slowest client takes to accept it.
 CHUNK_BYTES = 64 * 1024
 
+#: One byte range, RFC 9110 §14.1.2: `first-last`, `first-` or `-suffix`.
+_BYTE_RANGE = re.compile(r"(\d*)-(\d*)")
 
-async def _iter_file(handle: IO[bytes]) -> AsyncIterator[bytes]:
-    """Read a sync file object without blocking the loop the worker runs jobs on."""
+
+class Unsatisfiable(ValueError):
+    """A valid range that selects no byte of the file — a `416`."""
+
+
+async def _iter_file(handle: IO[bytes], length: int | None = None) -> AsyncIterator[bytes]:
+    """Read a sync file object without blocking the loop the worker runs jobs on
+    — to its end, or `length` bytes from where it is positioned."""
+    remaining = length
     try:
-        while True:
-            chunk = await asyncio.to_thread(handle.read, CHUNK_BYTES)
+        while remaining is None or remaining > 0:
+            size = CHUNK_BYTES if remaining is None else min(CHUNK_BYTES, remaining)
+            chunk = await asyncio.to_thread(handle.read, size)
             if not chunk:
                 return
+            if remaining is not None:
+                remaining -= len(chunk)
             yield chunk
     finally:
         await asyncio.to_thread(handle.close)
+
+
+def byte_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """The one range `header` asks for, as inclusive `(first, last)` clamped to
+    a `size`-byte file (RFC 9110 §14.1.2, §14.2).
+
+    None when the header is absent or is one this server ignores — another
+    unit, bad syntax, `last < first`, or several ranges: a `multipart/byteranges`
+    answer is not what a `<video>` element asks for, and the RFC lets a server
+    serve the whole file instead. Raises `Unsatisfiable` when the range is
+    valid but starts past the end, or is a zero-length suffix.
+    """
+    if header is None:
+        return None
+    unit, _, spec = header.strip().partition("=")
+    if unit.strip().lower() != "bytes" or "," in spec:
+        return None
+    match = _BYTE_RANGE.fullmatch(spec.strip())
+    if match is None or match.group(0) == "-":
+        return None
+    first, last = match.group(1), match.group(2)
+    if not first:  # `-suffix`: the last `suffix` bytes
+        suffix = int(last)
+        if suffix == 0 or size == 0:
+            raise Unsatisfiable(f"a {suffix}-byte suffix of a {size}-byte file")
+        return max(0, size - suffix), size - 1
+    start = int(first)
+    end = int(last) if last else size - 1
+    if last and end < start:
+        return None
+    if start >= size:
+        raise Unsatisfiable(f"byte {start} of a {size}-byte file")
+    return start, min(end, size - 1)
 
 
 def create_file_server(
@@ -105,13 +152,39 @@ def create_file_server(
             log.warning("fileserver.missing", key=key, error=str(exc))
             return JSONResponse({"detail": "No such object."}, status_code=404)
 
-        log.info("fileserver.served", key=key)
+        # The filename a user sees is decided by `api` on the public hop; this
+        # one is a byte pipe and says nothing about presentation.
+        headers = {"Cache-Control": "no-store", "Accept-Ranges": "bytes"}
+        size = await asyncio.to_thread(handle.seek, 0, io.SEEK_END)
+        try:
+            wanted = byte_range(request.headers.get("range"), size)
+        except Unsatisfiable as exc:
+            await asyncio.to_thread(handle.close)
+            log.info("fileserver.unsatisfiable", key=key, reason=str(exc))
+            return Response(
+                status_code=416, headers={**headers, "Content-Range": f"bytes */{size}"}
+            )
+        if wanted is None:
+            await asyncio.to_thread(handle.seek, 0)
+            log.info("fileserver.served", key=key)
+            return StreamingResponse(
+                _iter_file(handle),
+                media_type="application/octet-stream",
+                headers={**headers, "Content-Length": str(size)},
+            )
+        # A `<video>` element seeks by asking for byte ranges (PRD §6, §22).
+        start, end = wanted
+        await asyncio.to_thread(handle.seek, start)
+        log.info("fileserver.served_range", key=key, start=start, end=end)
         return StreamingResponse(
-            _iter_file(handle),
+            _iter_file(handle, end - start + 1),
+            status_code=206,
             media_type="application/octet-stream",
-            # The filename a user sees is decided by `api` on the public hop;
-            # this one is a byte pipe and says nothing about presentation.
-            headers={"Cache-Control": "no-store"},
+            headers={
+                **headers,
+                "Content-Range": f"bytes {start}-{end}/{size}",
+                "Content-Length": str(end - start + 1),
+            },
         )
 
     return Starlette(
