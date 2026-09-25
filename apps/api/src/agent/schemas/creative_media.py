@@ -158,6 +158,10 @@ class Rendition(_Frozen):
     #: Why no logo was composited, when none was — recorded, never silent.
     logo_note: str | None = None
     bytes: int = Field(ge=1)
+    #: The slot's byte limit — the smallest `max_bytes` of the spec-sheet asset
+    #: types asking for this ratio; None when none sets one. What the Media
+    #: Library prints beside `bytes` (§15.4 G). None on runs before S4-P21.
+    max_bytes: int | None = None
     lint: CandidateLint
     #: `{xmp_digital_source_type, visible_labels[]}` — read back from the file.
     disclosure: dict[str, Any]
@@ -175,6 +179,10 @@ class FittedLogo(_Frozen):
     media_id: uuid.UUID
     scale: Scale
     bytes: int = Field(ge=1)
+    #: The campaign's image surface and the slot's byte limit, as on a
+    #: `Rendition`. None on runs before S4-P21.
+    surface: str | None = None
+    max_bytes: int | None = None
     lint: CandidateLint
 
 
