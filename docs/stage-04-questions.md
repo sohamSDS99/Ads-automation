@@ -1058,3 +1058,70 @@ the ones a ruling most changes; item 3 is a Stage 02 gap S4-P8 did not close.
     GET only, each hop on-domain *before* it is requested), and "unique per
     campaign" compares the page after redirects (no scheme, `www.`, fragment
     or trailing slash; query and path case kept).
+
+## S4-P20
+
+Extras (`…/runs/[runId]/extras`, §15.4 F) and the Landing audit
+(`…/runs/[runId]/landing`, §15.4 J). Rulings owed:
+
+1. **Two reads no phase owned, added here.** Neither is in §16 and no §21.3
+   row owns them; without them F and J cannot be drawn.
+   - `GET /creative-runs/{id}/assets` carries `offer_binding` and `offer`: the
+     `OfferRecord` observation the binding was rendered from, found in the
+     run's **pinned snapshot** (`CreativeInput.offer_records`) as the record
+     with the binding's identity that renders exactly the bound figures
+     (`offers.rendered_from`), latest `observed_at` first. The window shown is
+     therefore the one the asset was written against, never today's; a price
+     or date that moved since is release's 409 (S4-P16), not a silent re-read.
+     `offer.evidence_id` is the `offer_record` evidence row that observation
+     came from, for the link; None once that row is deleted (the window
+     stays). `OfferRecord` has no id of its own (S4-P8 ruling), so "a link to
+     the `OfferRecord`" is a link to that evidence row
+     (`/projects/{id}/evidence?ids=`).
+   - `GET /landing-audits/{id}/screenshot?device=mobile|desktop` streams the
+     capture 4.5.1 stored, through `worker_files` exactly as
+     `/evidence/{id}/screenshot` does. `LandingAuditItem.screenshots` holds
+     storage keys, which a browser cannot fetch, and the evidence route reads
+     `screenshot_path` while `landing_render` rows write `screenshot`.
+2. **`obscured_by_overlay` is marked from the flag, not the overlay's box.**
+   The audit row carries the per-device flag; the overlay boxes live only on
+   the `landing_render` evidence rows. The first screen (0 → fold) is
+   hatched and labelled when the flag is set. Drawing the overlay's own box
+   would need those boxes on `LandingAuditItem`, and a full-page capture
+   draws a `position: fixed` element wherever the enlarged viewport puts it,
+   not where the visitor saw it.
+3. **The fold overlay assumes one capture pixel is one CSS px.** The renderer
+   sets no device scale factor (`preview/landing.py`), so the SVG is laid
+   over the capture in its own pixel space. If a scale factor is ever set,
+   `LandingAuditItem` needs the render's viewport and scale.
+4. **Offer windows count calendar days in the reader's time zone** (`ends 12
+   Oct 2026 · 18 days`, `ends today`, `ended 3 days ago`). The date is the
+   record's `ends_at`, else `effective_to`. Display only; liveness at release
+   is the server's.
+5. **`WordDiff` compares the page's weakest pair** — the ad group and device
+   whose score is the page's (`MessageMatch.score` is the minimum): that
+   ad group's `best_headline` against the H1 on that device. Words are
+   compared case-folded with punctuation dropped, longest common subsequence.
+   It is a reading aid; the number beside it is `match.token_trigram_v1`.
+   When the node records no `best_headline`, the card says so and draws no
+   diff.
+6. **The trade-off curve is read from the calc evidence row**
+   (`result.options` of `leadform.field_tradeoff_v1`), the chosen point from
+   4.3.3's `tradeoff`. If the row is deleted the chart says so and prints the
+   chosen point in words. A table view carries every figure (dataviz: a table
+   view exists for every chart).
+7. **The Extras preview shows every extension the run wrote**, inside the
+   SERP frame under the campaign's first Search ad (variant A, the Ad
+   Studio's first combination), and says that which ones Google shows is
+   decided per auction. Sitelink descriptions are drawn on desktop only, as
+   Google's mobile layout omits them. A campaign with no Search ad lists its
+   extras without a preview.
+8. **Rejected sitelinks are rows in the sitelink table** (struck through,
+   "Not written: its URL failed the check", no lint) — 4.3.1 writes them only
+   into its output, never as assets, so the node output is the source for
+   them, as it is for `spec_missing`, `why` and gaps.
+9. **4.1.1 still writes `offer: null`**, so on a real run 4.5.2 has no phrase
+   to look for and draws no offer box. The harness supplies fixture A's offer
+   text as `landing_audit.offer_phrase`, exactly as S4-P7's own test does;
+   every box, fold and verdict it then shows is the renderer's and the node's.
+   Binding the brief's offer is owed to a later phase.

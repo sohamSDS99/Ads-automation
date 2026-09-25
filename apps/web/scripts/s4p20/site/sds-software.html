@@ -1,0 +1,62 @@
+<!doctype html>
+<!--
+  S4-P20 fixture A — the page the Landing audit's first card is about.
+
+  - The H1 shares one word with the ads, so 4.5.1 scores it below the
+    threshold and proposes a replacement.
+  - The offer ("Get 20% off the first year") is one magenta text run. The
+    browser check finds those pixels in the stored capture and holds the
+    FoldOverlay's offer box to them, on both devices. On a 390x844 phone the
+    1000px hero pushes it below the fold; on a 1280x800 desktop the hero is
+    160px and the offer sits in the first screen.
+  - A cookie banner is fixed to the bottom: 40% of the phone's screen (it
+    obscures), 25% of the desktop's (it does not).
+  - S4-P7's lead form without its two qualifying fields (job title, company
+    size): seven fields, asking none of the lead definition's two signals. So
+    4.5.2 has fields to keep and remove and two signals to name as missing, and
+    4.3.3's trade-off weighs asking 0, 1 or 2 of them — a curve, not a point.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDS platform</title>
+<style>
+  body { margin: 0; font: 16px/1.5 sans-serif; color: #222; }
+  h1 { font-size: 32px; margin: 0; padding: 24px; }
+  .hero { height: 160px; background: #e8e8e8; }
+  .offer { padding: 24px; font-size: 22px; margin: 0; }
+  .probe { background: #ff00ff; color: #ffffff; padding: 0; }
+  main { padding: 0 24px 400px; }
+  label { display: block; margin-top: 8px; }
+  #cookie-banner { position: fixed; left: 0; right: 0; bottom: 0; height: 200px; box-sizing: border-box;
+                   background: #222; color: #fff; padding: 16px; }
+  @media (max-width: 600px) { .hero { height: 1000px; } #cookie-banner { height: 337.6px; } }
+</style>
+</head>
+<body>
+<h1>Welcome to our SDS platform</h1>
+<div class="hero" aria-hidden="true"></div>
+<p class="offer"><mark class="probe">Get 20% off the first year</mark></p>
+<main>
+  <form id="lead" method="post" action="/lead">
+    <label for="first_name">First name</label>
+    <input id="first_name" name="first_name" type="text" required>
+    <label for="last_name">Last name</label>
+    <input id="last_name" name="last_name" type="text" required>
+    <label for="email">Work email</label>
+    <input id="email" name="email" type="email" required>
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" type="tel">
+    <label for="company">Company</label>
+    <input id="company" name="company" type="text">
+    <label for="country">Country</label>
+    <select id="country" name="country"><option>US</option><option>DE</option></select>
+    <label><input name="consent" type="checkbox" required>
+      I agree to the privacy policy and to being contacted about this request</label>
+    <button type="submit">Book a demo</button>
+  </form>
+</main>
+<div id="cookie-banner">We use cookies. <button type="button">Accept</button></div>
+</body>
+</html>
