@@ -14,6 +14,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from agent.schemas.guardrails import LintResult
 
 ExceptionKind = Literal["new_claim", "disclaimer", "image_right"]
 
@@ -69,6 +70,56 @@ class SpecConformance(_Frozen):
     checks: list[ConformanceCheck] = Field(default_factory=list)
     unchecked: list[Unchecked] = Field(default_factory=list)
     failed: int = Field(ge=0)
+
+
+# ---------------------------------------------------------------------------
+# 4.6.2 editorial lint and exceptions
+# ---------------------------------------------------------------------------
+
+
+class TargetLint(_Frozen):
+    """One asset's full `LintResult` at the pin — every editorial, policy,
+    lexicon, claim and disclosure rule the RuleSet carries — or `unlinted`
+    when it has none at this pin (law 31: indeterminate is never a pass)."""
+
+    asset_id: uuid.UUID
+    kind: str
+    surface: str
+    status: str
+    verdict: Literal["pass", "pass_with_warnings", "fail", "unlinted"]
+    lint: LintResult | None = None
+
+
+class ExceptionItem(_Frozen):
+    """One `creative_exception` row as 4.6.2 raised it (§11 4.6.2)."""
+
+    exception_id: uuid.UUID
+    kind: ExceptionKind
+    subject: str
+    asset_ids: list[uuid.UUID] = Field(default_factory=list)
+    occurrences: int = Field(ge=1)
+    evidence_ids: list[uuid.UUID] = Field(default_factory=list)
+    proposed: dict[str, Any] = Field(default_factory=dict)
+    fallback_asset_ids: list[uuid.UUID] = Field(default_factory=list)
+
+
+class NotRaised(_Frozen):
+    """Something that is not put to H3, and why — never a silent drop."""
+
+    kind: ExceptionKind
+    subject: str
+    occurrences: int = Field(ge=1)
+    reason: Literal["over_cap", "in_register", "already_cleared"]
+    detail: str = Field(min_length=1)
+
+
+class EditorialLint(_Frozen):
+    ruleset_version: str
+    targets: list[TargetLint] = Field(default_factory=list)
+    #: Ranked by occurrences, at most `cap`.
+    exceptions: list[ExceptionItem] = Field(default_factory=list)
+    not_raised: list[NotRaised] = Field(default_factory=list)
+    cap: int = Field(ge=1)
 
 
 # ---------------------------------------------------------------------------
