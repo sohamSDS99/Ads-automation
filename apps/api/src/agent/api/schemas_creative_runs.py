@@ -21,9 +21,20 @@ from agent.db.models import (
     CreativeAssetVariant,
     GenerationModality,
     GenerationStatus,
+    LandingAuditVerdict,
 )
 from agent.schemas.creative_brief import CreativeBrief
 from agent.schemas.guardrails import LintTarget
+from agent.schemas.landing import (
+    DeviceFlag,
+    DevicePx,
+    DeviceText,
+    FormAudit,
+    MessageMatch,
+    OfferAboveFold,
+    ProposedH1,
+    Screenshots,
+)
 
 
 class BriefAuthorisation(BaseModel):
@@ -129,6 +140,42 @@ class GenerationCheckAccepted(BaseModel):
     job_id: uuid.UUID
     status: GenerationStatus = Field(description="The job's status when the check was queued.")
     queued: bool = Field(description="False when an identical check is already waiting.")
+
+
+class LandingAuditItem(BaseModel):
+    """One landing URL as 4.5.1 and 4.5.2 audited it (PRD §15.4 J).
+
+    Read from the stored `landing_page_audit` row; the verdict and every score
+    are the nodes', never re-derived. `has_patch` says whether
+    `GET /landing-audits/{id}/patch` has anything to return.
+    """
+
+    id: uuid.UUID
+    creative_run_id: uuid.UUID
+    url: str
+    final_url: str | None
+    http_status: int | None
+    ad_group_refs: list[str]
+    verdict: LandingAuditVerdict
+    reasons: list[str] = Field(default_factory=list)
+    h1: DeviceText
+    fold_px: DevicePx
+    obscured_by_overlay: DeviceFlag
+    message_match: MessageMatch | None = None
+    proposed_h1: ProposedH1 | None = None
+    proposed_h1_note: str | None = None
+    offer_above_fold: list[OfferAboveFold] = Field(default_factory=list)
+    form: FormAudit | None = None
+    screenshots: Screenshots = Field(
+        description="StorageBackend keys of the full-page screenshots, per device."
+    )
+    has_patch: bool
+    evidence_ids: list[uuid.UUID]
+    created_at: datetime
+
+
+class LandingAuditListResponse(BaseModel):
+    items: list[LandingAuditItem]
 
 
 # ---------------------------------------------------------------------------

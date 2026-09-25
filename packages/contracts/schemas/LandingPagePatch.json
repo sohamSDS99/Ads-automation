@@ -1,0 +1,78 @@
+{
+  "$defs": {
+    "OfferBlock": {
+      "additionalProperties": false,
+      "description": "Put the offer above the fold on these devices. The phrase is the brief's\noffer as code rendered it (law 35) \u2014 never model-written.",
+      "properties": {
+        "phrase": {
+          "minLength": 1,
+          "title": "Phrase",
+          "type": "string"
+        },
+        "devices": {
+          "items": {
+            "enum": [
+              "mobile",
+              "desktop"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Devices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "phrase",
+        "devices"
+      ],
+      "title": "OfferBlock",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "A proposal for the site owner (\u00a710.4, law 41). Stage 04 deploys nothing.",
+  "properties": {
+    "h1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "H1"
+    },
+    "offer_block": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OfferBlock"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "remove_fields": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Remove Fields",
+      "type": "array"
+    },
+    "html_snippet": {
+      "minLength": 1,
+      "title": "Html Snippet",
+      "type": "string"
+    }
+  },
+  "required": [
+    "html_snippet"
+  ],
+  "title": "LandingPagePatch",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,30 @@
+{
+  "additionalProperties": false,
+  "description": "Put the offer above the fold on these devices. The phrase is the brief's\noffer as code rendered it (law 35) \u2014 never model-written.",
+  "properties": {
+    "phrase": {
+      "minLength": 1,
+      "title": "Phrase",
+      "type": "string"
+    },
+    "devices": {
+      "items": {
+        "enum": [
+          "mobile",
+          "desktop"
+        ],
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "Devices",
+      "type": "array"
+    }
+  },
+  "required": [
+    "phrase",
+    "devices"
+  ],
+  "title": "OfferBlock",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,32 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "mobile": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mobile"
+    },
+    "desktop": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Desktop"
+    }
+  },
+  "title": "DevicePx",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

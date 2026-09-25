@@ -62,12 +62,44 @@ def test_a_path_length_rule_does_not_apply_to_a_headline() -> None:
 def test_an_asset_type_rule_still_applies_to_a_surface_with_no_asset_type() -> None:
     """Narrowing is only done where the surface's asset type is known.
 
-    `landing_page_section` has no spec-sheet asset type; a rule scoped to one
-    keeps applying to it, because an unknown mapping must not switch a rule off.
+    `display_text` has no spec-sheet asset type; a rule scoped to one keeps
+    applying to it, because an unknown mapping must not switch a rule off.
     """
     scope = RuleScope(campaign_types=("search",), asset_types=("headline",))
-    assert "landing_page_section" not in SURFACE_ASSET_TYPES
-    assert scope.matches(target("Anything at all", surface="landing_page_section"))
+    assert "display_text" not in SURFACE_ASSET_TYPES
+    assert scope.matches(target("Anything at all", surface="display_text"))
+
+
+def test_a_landing_page_section_is_not_an_ad_asset() -> None:
+    """S4-P7: a landing page H1 is linted as `landing_page_section`, which the
+    spec sheet does not describe — no ad length applies to it, while a rule
+    that is not asset-typed (a banned term, a claim) still does."""
+    assert SURFACE_ASSET_TYPES["landing_page_section"] == "landing_page_section"
+    page = target(
+        "SDS Management Software for chemical safety teams", surface="landing_page_section"
+    )
+    assert not RuleScope(campaign_types=("search",), asset_types=("path",)).matches(page)
+    assert not RuleScope(campaign_types=("search",), asset_types=("headline",)).matches(page)
+    assert RuleScope(campaign_types=("search",)).matches(page)
+    assert RuleScope().matches(page)
+
+
+def test_a_video_script_line_is_not_a_headline() -> None:
+    """S4-P11: `youtube_script` is written against its own asset type.
+
+    Unmapped, a rule scoped to `headline` applied to every voiceover line of a
+    Performance Max video — "36 chars; the limit is 30" — and failed every
+    script. Mapped, headline limits stay on headlines while a rule with no
+    asset type (a never term, a claim, a policy) still reaches the script.
+    """
+    assert SURFACE_ASSET_TYPES["youtube_script"] == "video_script"
+    line = target("Keep every safety data sheet current", surface="youtube_script")
+    line = line.model_copy(update={"campaign_type": "performance_max"})
+    headline_only = RuleScope(campaign_types=("performance_max",), asset_types=("headline",))
+    everything = RuleScope(campaign_types=("performance_max",))
+    assert not headline_only.matches(line)
+    assert everything.matches(line)
+    assert RuleScope(asset_types=("video_script",)).matches(line)
 
 
 def test_every_rsa_and_pmax_text_surface_names_its_spec_sheet_asset_type() -> None:

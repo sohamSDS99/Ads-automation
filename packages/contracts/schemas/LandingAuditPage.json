@@ -1,0 +1,362 @@
+{
+  "$defs": {
+    "Box": {
+      "additionalProperties": false,
+      "description": "A DOM box in page coordinates at scroll 0: `y` is distance from the top.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "FormAudit": {
+      "additionalProperties": false,
+      "description": "The form a visitor fills in, and the smallest form that still qualifies a lead.\n\n`minimal_set` is computed in code (\u00a711 4.5.2): the fields mapped to\n`lead_definition.required_signals`, \u222a consent / privacy, \u222a the one routing\ncontact field. The model only labels fields; it cannot keep one.",
+      "properties": {
+        "form_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Form Index"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "minimal_set": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Minimal Set",
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove",
+          "type": "array"
+        },
+        "keep_reason": {
+          "items": {
+            "$ref": "#/$defs/KeepReason"
+          },
+          "title": "Keep Reason",
+          "type": "array"
+        },
+        "missing_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Signals",
+          "type": "array"
+        }
+      },
+      "title": "FormAudit",
+      "type": "object"
+    },
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "mapped_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mapped Signal"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "required"
+      ],
+      "title": "FormField",
+      "type": "object"
+    },
+    "KeepReason": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "required_signal",
+            "consent",
+            "privacy",
+            "routing_contact"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "signal": {
+          "minLength": 1,
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "signal"
+      ],
+      "title": "KeepReason",
+      "type": "object"
+    },
+    "LandingPagePatch": {
+      "additionalProperties": false,
+      "description": "A proposal for the site owner (\u00a710.4, law 41). Stage 04 deploys nothing.",
+      "properties": {
+        "h1": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "H1"
+        },
+        "offer_block": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OfferBlock"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "remove_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove Fields",
+          "type": "array"
+        },
+        "html_snippet": {
+          "minLength": 1,
+          "title": "Html Snippet",
+          "type": "string"
+        }
+      },
+      "required": [
+        "html_snippet"
+      ],
+      "title": "LandingPagePatch",
+      "type": "object"
+    },
+    "OfferAboveFold": {
+      "additionalProperties": false,
+      "description": "\u00a711 4.5.2: the offer is a normalised exact phrase in a text node whose\nbox top is above the fold \u2014 judged on each device separately.",
+      "properties": {
+        "phrase": {
+          "minLength": 1,
+          "title": "Phrase",
+          "type": "string"
+        },
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "device": {
+          "enum": [
+            "mobile",
+            "desktop"
+          ],
+          "title": "Device",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phrase",
+        "found",
+        "device"
+      ],
+      "title": "OfferAboveFold",
+      "type": "object"
+    },
+    "OfferBlock": {
+      "additionalProperties": false,
+      "description": "Put the offer above the fold on these devices. The phrase is the brief's\noffer as code rendered it (law 35) \u2014 never model-written.",
+      "properties": {
+        "phrase": {
+          "minLength": 1,
+          "title": "Phrase",
+          "type": "string"
+        },
+        "devices": {
+          "items": {
+            "enum": [
+              "mobile",
+              "desktop"
+            ],
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Devices",
+          "type": "array"
+        }
+      },
+      "required": [
+        "phrase",
+        "devices"
+      ],
+      "title": "OfferBlock",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "audit_id": {
+      "format": "uuid",
+      "title": "Audit Id",
+      "type": "string"
+    },
+    "url": {
+      "minLength": 1,
+      "title": "Url",
+      "type": "string"
+    },
+    "offer_above_fold": {
+      "items": {
+        "$ref": "#/$defs/OfferAboveFold"
+      },
+      "title": "Offer Above Fold",
+      "type": "array"
+    },
+    "form": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FormAudit"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "patch": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/LandingPagePatch"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "verdict": {
+      "enum": [
+        "ok",
+        "needs_change",
+        "blocking_for_launch",
+        "unreachable"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "audit_id",
+    "url",
+    "verdict"
+  ],
+  "title": "LandingAuditPage",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

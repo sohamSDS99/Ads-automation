@@ -250,6 +250,9 @@ def every_formula_result() -> list[Any]:
             constants=media_constants(),
         ),
         media.crop_window_v1(image=_crop_frame(), ratio="1:1", constants=media_constants()),
+        media.shot_plan_v1(
+            duration_s=14, supported_durations=[4, 6, 8], constants=media_constants()
+        ),
     ]
 
 

@@ -708,6 +708,191 @@ Rulings owed on what S4-P10 decided where §9.4, §11 (4.4.3) and §21.3 are sil
     Makefile: the test service sets the one and mounts neither. They pass on
     the host; everything else ran in the worker image (exiftool, tesseract).
 
+## S4-P7
+
+What S4-P7 had to decide that the PRD does not settle. Item 1 changed Stage 03
+code; items 4, 5 and 14 are the ones a ruling most changes.
+
+1. **`landing_page_section` is now its own asset type (Stage 03 change).**
+   Unmapped in `SURFACE_ASSET_TYPES`, it fell into the unknown-surface
+   fallback, so every asset-typed spec rule applied to it:
+   `asset_spec.length.v1` failed a 22-character H1 against the 15-character
+   path limit, and **no proposed H1 could ever pass lint.** It maps to
+   `landing_page_section`, which no spec-sheet entry names; brand, claim and
+   policy rules (not asset-typed) still apply. S4-P5's fail-closed test used
+   this surface as its example; it now uses `display_text`, the principle
+   unchanged. Stage 03's own landing-page-section lints lose the ad length
+   limits too, which I believe is right. Ruling owed.
+2. **`match.token_trigram_v1` is defined as token-aligned trigrams.** Per
+   headline: each distinct word is matched to its closest H1 word by
+   `copy.trigram_v1`'s trigram Dice and the headline scores the mean (the
+   share of the ad's words the page repeats, so a longer H1 loses nothing).
+   An ad group scores its best-echoed final A headline (Google may serve any
+   of 15 deliberately different ones); the page scores its weakest (ad group,
+   device). A device that did not render is left out; neither ⇒ `unavailable`.
+3. **The proposed H1 is one COPYWRITE call for 3 candidates.** Each is linted
+   with `lint_candidate` as `landing_page_section` in every (campaign type,
+   market, language) of the ad groups on the page, and the worst verdict
+   stands. Only a candidate that passes lint **and** reaches the threshold is
+   proposed; ties go to model order. None ⇒ `proposed_h1: null` with a note,
+   and no second call.
+4. **The offer phrase is `OfferBinding.resolved`'s first value — and it is
+   dormant today.** 4.1.1 writes `offer: null` into every brief until S4-P8's
+   `offers.py`, so live runs never check an offer; the node test supplies the
+   phrase. S4-P8 should confirm the first resolved value is the one an offer
+   leads with, or name the field.
+5. **"In a text node" is taken literally.** `<strong>20%</strong> off` is two
+   text nodes, so the phrase is not found and the page is
+   `blocking_for_launch`. Precise, but a false block on markup like that.
+   Ruling owed: literal text nodes, or the text of the nearest block element?
+6. **The audited form** is the desktop render's form with the most visible,
+   fillable fields (a footer newsletter loses); a tie goes to the first.
+   Hidden inputs, buttons and CSS-hidden honeypots are not fields, so they are
+   never proposed for removal. Radios and checkboxes sharing a name are one
+   field.
+7. **The routing contact field.** 2.1.4's `RoutingRule{segment, owner}` names
+   no channel, so the contact a lead is routed by is chosen in code: a field
+   the site already requires first, then email before phone, then document
+   order. CLASSIFY gives each field one label, so if a required signal is
+   itself a contact ("company email", as in the seed plan) the email is kept
+   for that signal and a phone field can still become the routing contact.
+8. **`missing_signals`** (required signals no field carries) is recorded on
+   the form and does not change the verdict. Ruling owed: should a form that
+   cannot capture a required signal be `needs_change`?
+9. **`obscured_by_overlay`** counts `position: fixed` elements only (§10.2
+   says "fixed"; a sticky header is not counted), per element rather than
+   their union, and it is recorded without changing the verdict.
+10. **Verdicts.** `unreachable` when either device did not answer 2xx; per Q10
+    that is blocking for launch, and it is its own verdict value. A missing
+    offer above the fold on any device ⇒ `blocking_for_launch`; a failed match
+    or fields beyond the minimal set ⇒ `needs_change`. 4.5.1 writes a
+    preliminary verdict on the row and 4.5.2 replaces it.
+11. **`networkidle` within 20 s** is one budget: `load` first, then
+    `networkidle` in what is left. A page that never idles (long-poll, chat
+    widget) is still measured and recorded `settled: false`, not unreachable.
+12. **A non-GET navigation is answered `204`, not aborted.** An aborted
+    navigation makes Chromium commit an error page over the document being
+    audited; `204` means "stay here". Fetches, XHRs and beacons are aborted.
+    Nothing non-GET reaches the network either way (asserted in the browser
+    and in the fixture server's log).
+13. **Screenshots are storage keys with no route.** §16 lists no landing
+    screenshot route, and `GET /media/{id}/content` belongs to media rows.
+    S4-P20's `FoldOverlay` needs one; not built here.
+14. **No private-address guard.** The renderer loads whatever `landing_url`
+    the frozen plan names, including a private or metadata address, as
+    `web_crawler` already does. The plan is operator input, but this is an
+    SSRF surface from the worker. Ruling owed: add an allowlist or
+    public-address check to both?
+15. **Concurrency 1 is per worker process** (a lock per event loop). Across
+    worker replicas it is not enforced; Railway runs one worker.
+16. **Tests need a browser.** The integration suite gets an autouse renderer
+    that returns unreached pages, so other phases' runs (pointed at
+    example.com, no Chromium in the default test image) record `unreachable`
+    and call no model. `test_s4p7_landing.py` renders for real and needs the
+    worker image; `tests/preview` and `tests/creative/test_landing_audit.py`
+    need `playwright install chromium-headless-shell` on the host.
+17. **`GET /landing-audits/{id}/patch?format=html`** is served inline as
+    `text/html` with `Content-Security-Policy: default-src 'none'; sandbox`:
+    every value is escaped when the patch is built, and a browser that opens
+    it still runs nothing. `404` when the audit proposes no change.
+
+## S4-P11
+
+Rulings owed on what S4-P11 decided where §8.4, §9.4 video 1–2, §11 (4.4.4)
+and §21.3 are silent.
+
+1. **`AssetSpec` gained a duration window (Stage 03, additive).** §9.5 says a
+   surface lacking "video durations" is `spec_missing` until a Stage 03
+   amendment adds the spec — but `AssetSpec` forbade the keys, so no amendment
+   could. `min_duration_s` / `max_duration_s` are optional and omitted from the
+   dump when unset, so every existing spec sheet and ruleset hash is byte for
+   byte unchanged (a test pins it). **No Google number was added**: the shipped
+   `content_constants.yaml` has no video asset type at all, so on every real
+   ruleset today 4.4.4 is `not_required` ("no video surface"). The
+   performance owner adds video specs (ratio + window) to make video possible.
+2. **How the length is chosen inside the window.** With a minimum: the
+   shortest length ≥ it (and ≤ any maximum) the model's durations sum to —
+   the least footage and spend the spec allows. With only a maximum: the
+   longest ≤ it (a bumper is made at its cap). A campaign's video types must
+   share one window (their intersection); disjoint windows are
+   `conflicting_duration_specs`. Rule on "shortest", and on whether a length
+   should instead be a creative choice the brief records.
+3. **The shot plan's tie-breaks.** Fewest clips (fewest seams and per-job
+   minimums), then the most even split (20 s from 4/6/8 is 8+6+6, not 8+8+4),
+   then longest first. A length the durations cannot sum to exactly is a
+   `CalcError`, never a trimmed clip.
+4. **The estimate G7 approved can under-count video.** `cost_estimate_v1`
+   (S4-P1) prices one job per video ratio at the chosen `duration` (or the
+   longest supported). The shot plan makes N clips summing to the spec's
+   length, so a 10 s video from 4/6/8 s clips is two jobs, not one. The caps
+   still hold (a refused reservation is `blocked_by_budget`), but G7's
+   "authorises the estimated spend" does not. Proposed: price the shot plan in
+   the estimate — it needs the spec window at estimate time, which
+   `estimate_inputs` can read from the pin. Not built (S4-P1's formula).
+5. **One script and one concept per campaign.** The estimate counts one video
+   per ratio per campaign, so 4.4.4 makes one: from the campaign's first 4.4.1
+   concept, one script serving every ratio. Rule if a video per concept is
+   wanted (it multiplies video spend by `concepts_per_campaign`).
+6. **The model never times anything.** It writes one shot per clip (visual,
+   voiceover, on-screen text) and the CTA; `t0`/`t1` are the shot plan's, and
+   captions are the voiceover — one per voiced beat — so every voiceover
+   interval is captioned by construction. `VideoScript` still validates it
+   (and a draft that never shows the CTA is refused before it is timed).
+7. **The script is committed before any clip is submitted, and reused on
+   resume.** A resumed or retried 4.4.4 reads back its `video_script` asset
+   instead of asking `COPYWRITE` again: a new script is new prompts, new
+   idempotency keys and a second bill for every clip. The kill test asserts
+   the script is asked for once (the POST count alone cannot prove it — the
+   test's schema-filled answers are identical every time; a mutation proved
+   the script-count assertion catches it).
+8. **`youtube_script` → `video_script` in `SURFACE_ASSET_TYPES` (Stage 03).**
+   Unmapped, every `headline`-scoped rule reached every voiceover line: against
+   a real Performance Max ruleset every script failed "36 chars; the limit is
+   30". Mapped, headline limits stay on headlines; unscoped rules (never terms,
+   claims, policy) still reach the script, and a future `video_script` spec
+   would. Each line is linted alone with `lint_candidate` (set rules are the
+   assembled ad's).
+9. **Every clip prompt forbids the product, even for `reference_guided`.**
+   §11 gives 4.4.4 no `references` input and 4.4.4 depends on 4.4.1 only (not
+   4.4.2), so no reference or master reaches the video model and nothing
+   composites a product into a clip — a depicted product could only be an
+   invented one (Law 38). Also forbidden: text and logos (captions, logo and
+   end card are code's). A `relaid` ratio is painted from the prompt at that
+   ratio (text-to-video), as the estimate priced it.
+10. **A crop ratio is P12's; without a painted source it is a gap.** A required
+    video ratio the model does not paint but can crop from a ratio this video
+    *is* made at is recorded `{"plan": "crop", "from": …}`; otherwise
+    `no_source_ratio` — the estimate priced no clip to crop it from.
+11. **`timed_out` fails the node; failed / expired / cancelled /
+    `unknown_submit_state` are gaps.** A timed-out job is still alive, so it is
+    not a gap: the node fails naming each job and "Check again". Check again
+    (S4-P18's route and worker, unchanged) finishes and downloads it; the
+    operator then retries 4.4.4, which finds the clip done with no POST. Check
+    again does not retry the node by itself — rule if it should.
+    `unknown_submit_state` for a video stays a person's decision (409 on
+    Check again); there is no "Submit again (may double-bill)" route yet
+    (§18 names one, §16 lists none).
+12. **Budget exhaustion mid-video leaves paid clips of an incomplete ratio.**
+    Reservations are per job, so when the cap refuses clip k of a ratio, clips
+    before it are spent and the ratio is a `blocked_by_budget` gap; no later
+    clip of any campaign is submitted, and the rung taken is recorded
+    (`video`, or `video_square` for 1:1 — square is made last so the ladder's
+    first video rung is what runs out). Reserving a whole ratio's clips at once
+    needs a group reservation in `budget.py`.
+13. **The video asset's surface is `video_frame`** (§7.1's delta name); it is
+    not yet in the `Surface` literal because nothing lints a frame before
+    S4-P12. The asset stays `draft` until P12 renders and lints it.
+14. **`generate_audio`** is sent as the run's choice, else
+    `video.generate_audio_default` (false, Q9) whenever the model takes the
+    field; `size` is never sent (it would contradict the ratio being made).
+15. **`duration_s` is the finished video's length.** Whether P12's end card
+    overlays the last `end_card_ms` of the final clip or is appended (which
+    would push the total past a maximum) is P12's to decide against the spec.
+16. **Clips are recorded as `MediaArtifact(role=clip)` from ffprobe's
+    reading** (`postprod.probe_video`, packets counted so a cut-short download
+    fails), `aspect_ratio` = the ratio requested. P12 checks the pixels match
+    it; the recorded clip OpenRouter returned is 1280×720 whatever was asked.
+
 ## S4-P19
 
 1. **The Ad Studio's three writes had no phase.** §16 lists
