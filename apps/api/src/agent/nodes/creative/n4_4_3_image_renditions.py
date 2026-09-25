@@ -49,6 +49,7 @@ from pydantic import BaseModel
 from agent.calc.media import crop_window_v1, image_job_price, spectral_residual
 from agent.creative import masters
 from agent.creative.concepts import IMAGE_SURFACES
+from agent.creative.previews import store_preview
 from agent.db.models import (
     CreativeAsset,
     CreativeAssetKind,
@@ -195,6 +196,7 @@ class _Fitted:
     probe: dict[str, Any]
     transform: dict[str, Any]
     scale: float
+    max_bytes: int | None
     result: LintResult
     lint: CandidateLint
 
@@ -635,6 +637,7 @@ class _Rendering:
                             "node_id": NODE_ID,
                         },  # fmt: skip
                         scale=float(scale),
+                        max_bytes=slot.max_bytes,
                         result=result,
                         lint=lint,
                     )
@@ -670,6 +673,8 @@ class _Rendering:
             )
             self.ctx.db.add(row)
             await self.ctx.db.flush()
+            # §15.5 item 2: the grid's tile is this proxy, never the file.
+            await store_preview(self.ctx.db, storage, row, made.content)
             out.append(
                 Rendition(
                     concept_id=made.concept.id,
@@ -686,6 +691,7 @@ class _Rendering:
                     logo_composited=made.composited,
                     logo_note=made.logo_note,
                     bytes=row.bytes,
+                    max_bytes=made.slot.max_bytes,
                     lint=made.lint,
                     disclosure=made.disclosure,
                 )
@@ -748,6 +754,7 @@ class _Rendering:
             )
             self.ctx.db.add(row)
             await self.ctx.db.flush()
+            await store_preview(self.ctx.db, storage, row, fitted.content)
             out.append(
                 FittedLogo(
                     campaign_ref=fitted.campaign_ref,
@@ -758,6 +765,8 @@ class _Rendering:
                     asset_id=asset.id,
                     media_id=row.id,
                     scale=Scale(sx=fitted.scale, sy=fitted.scale),
+                    surface=fitted.surface,
+                    max_bytes=fitted.max_bytes,
                     bytes=row.bytes,
                     lint=fitted.lint,
                 )

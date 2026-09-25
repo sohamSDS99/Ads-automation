@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-s4p18 browser-s4p19 browser-s4p20 browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-s4p18 browser-s4p19 browser-s4p20 browser-s4p21 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -190,6 +190,9 @@ browser-s4p19: ## Drive the Ad Studio against the REAL api on the isolated s4p19
 
 browser-s4p20: ## Drive Extras and the Landing audit against the REAL api + worker on the isolated s4p20 stack: read-only offers + window, the chosen trade-off point, fold overlay vs the capture's pixels on both devices, patch → clipboard, recharts on Extras only, axe, visual baselines at 1280/390 light/dark
 	cd $(WEB) && scripts/s4p20/run.sh
+
+browser-s4p21: ## Drive the Media Library against the REAL api + file server on the isolated s4p21 stack: 500 tiles in a perf trace, aspect-true, no master in the grid, regeneration cost before submit, muted proxy with the brand band and a 206, axe, visual baselines at 1280/390 light/dark
+	cd $(WEB) && scripts/s4p21/run.sh
 
 browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py

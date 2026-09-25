@@ -130,6 +130,14 @@ is the only reliable readout of what Railway chose.
 | `PORT` | — | injected by Railway |
 | `HOSTNAME` | fixed | `::` |
 | `API_INTERNAL_URL` | ref | `http://${{api.RAILWAY_PRIVATE_DOMAIN}}:8080` |
+| `WORKER_INTERNAL_URL` | ref | `http://${{worker.RAILWAY_PRIVATE_DOMAIN}}:8081` |
+
+`WORKER_INTERNAL_URL` is the target of the `/files/*` rewrite: the Media
+Library's `GET /media/{id}/content` answers `302 /files/…?token=…` (Stage 04
+PRD §16), and the browser fetches — and a `<video>` seeks, with `Range` — the
+worker's file server through `web`. Build time too, via `ARG WORKER_INTERNAL_URL`.
+Without it the rewrite targets `http://worker:8081`, which does not resolve on
+Railway, and every media tile and video is a 500.
 
 `API_INTERNAL_URL` is read by `next.config.ts` at **build** time, not at server
 start: `rewrites()` is resolved by `next build` and written into

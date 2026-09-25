@@ -310,6 +310,11 @@ class VideoRendition(_Frozen):
     #: The generated ratio a `crop` was made from.
     source_ratio: str
     brand_first_at_ms: int = Field(ge=0)
+    #: The window the brand had to appear in (`video.brand_within_ms`) and the
+    #: end card's length, as this file was made — what the Media Library's
+    #: timeline draws (§15.4 G). None on runs before S4-P21.
+    brand_window_ms: int | None = None
+    end_card_ms: int | None = None
     captions_burned: bool
     caption_ocr_min_similarity: float | None = None
     #: The clips carried sound (normalised to `loudness_lufs`). False: the file's

@@ -184,6 +184,7 @@ services:
     environment:
       PORT: 3000
       API_INTERNAL_URL: http://api:8000
+      WORKER_INTERNAL_URL: http://worker:8081
       WATCHPACK_POLLING: "true"
     volumes:
       - ./apps/web:/app

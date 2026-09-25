@@ -45,6 +45,26 @@ CHUNK_BYTES = 64 * 1024
 #: One byte range, RFC 9110 §14.1.2: `first-last`, `first-` or `-suffix`.
 _BYTE_RANGE = re.compile(r"(\d*)-(\d*)")
 
+#: The media the Media Library shows straight from here (Stage 04 PRD §16:
+#: `GET /media/{id}/content` redirects to this server). An `<img>` or a
+#: `<video>` reads its type from the response — Safari will not play an
+#: `application/octet-stream` video at all — so a known media suffix is served
+#: as what it is. Everything else (exports, uploads) stays a byte pipe.
+MEDIA_TYPES: dict[str, str] = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+    ".mp4": "video/mp4",
+}
+
+
+def media_type_for(key: str) -> str:
+    """The type a stored key is served as: its media type, or octet-stream."""
+    name = key.rsplit("/", 1)[-1].lower()
+    suffix = name[name.rfind(".") :] if "." in name else ""
+    return MEDIA_TYPES.get(suffix, "application/octet-stream")
+
 
 class Unsatisfiable(ValueError):
     """A valid range that selects no byte of the file — a `416`."""
@@ -169,7 +189,7 @@ def create_file_server(
             log.info("fileserver.served", key=key)
             return StreamingResponse(
                 _iter_file(handle),
-                media_type="application/octet-stream",
+                media_type=media_type_for(key),
                 headers={**headers, "Content-Length": str(size)},
             )
         # A `<video>` element seeks by asking for byte ranges (PRD §6, §22).
@@ -179,7 +199,7 @@ def create_file_server(
         return StreamingResponse(
             _iter_file(handle, end - start + 1),
             status_code=206,
-            media_type="application/octet-stream",
+            media_type=media_type_for(key),
             headers={
                 **headers,
                 "Content-Range": f"bytes {start}-{end}/{size}",

@@ -1243,3 +1243,81 @@ Extras (`…/runs/[runId]/extras`, §15.4 F) and the Landing audit
    text as `landing_audit.offer_phrase`, exactly as S4-P7's own test does;
    every box, fold and verdict it then shows is the renderer's and the node's.
    Binding the brief's offer is owed to a later phase.
+
+## S4-P21
+
+Rulings owed on what S4-P21 (the Media Library) had to decide or build where
+§15.4 G, §15.5 and §16 are silent or assume something no earlier phase made.
+
+1. **Nothing wrote a still-image preview.** §15.5 item 2 says grid tiles are
+   `preview` WebP proxies, and the enum has the role, but 4.4.2/4.4.3 wrote
+   none (4.4.4 writes the 480p video proxy). S4-P21 adds them:
+   `creative/previews.store_preview` writes `MediaArtifact(role=preview,
+   derivation=encoded, derived_from=<file>)` beside every master (4.4.2),
+   rendition and fitted logo (4.4.3) — WebP, 640 px on the long side, one
+   factor on both axes, no metadata, `disclosure = NULL` (a screen proxy that
+   is never shipped; the file it stands for carries the stamp). The size and
+   quality are module constants in `postprod/image.py` beside S4-P12's
+   `PROXY_SHORT_SIDE`, not creative constants — rule if they should be.
+   Runs before S4-P21 have no still previews: their tiles say "No preview
+   proxy" and never fall back to the master.
+2. **`GET /media/{id}/content` redirects to the file server through `web`.**
+   §16 says "302 -> HMAC file-server URL (TTL 300 s)" and rule 7 "content
+   routes redirect to the file server", but the file server is private (no
+   public domain) and every earlier file read is relayed by `api`. The route
+   answers `302 /files/<key>?token=…` (signed 300 s, `Cache-Control: private,
+   max-age=240`), and `web` rewrites `/files/*` to the worker over the
+   private network exactly as it rewrites `/api/v1/*` to `api`, so the browser
+   stays on one origin and `<video>` seeks the file server itself with
+   `Range`. **Deploy prerequisite:** Railway `web` needs
+   `WORKER_INTERNAL_URL=http://${{worker.RAILWAY_PRIVATE_DOMAIN}}:8081`
+   (build-time `ARG`, railway/variables.md) before this ships, or every tile
+   and video is a 500. The auth middleware skips `/files/` — the token is the
+   capability. Alternative if the rewrite is unwanted: `api` relays with
+   Range forwarded (`worker_files.open_upstream` treats 206 as an error today).
+3. **`variant` defaults to `preview`**, and a variant never made is a 404
+   `media_variant_missing` naming it — never the master in its place.
+4. **A signed URL outlives nothing past 300 s.** A `<video>` that seeks after
+   the token expires gets a 403 from the file server; the player re-signs
+   (re-requests the content route) up to twice and resumes where it was.
+5. **The file server now types media** (`.jpg .png .webp .mp4`); Safari
+   plays no `application/octet-stream` video. Every other key stays a byte
+   pipe.
+6. **`POST /creative-assets/{id}/regeneration-estimate` is not in §16.** Law 8
+   ("this costs ≈ $x · $y of $40.00 remains" before submit) and §15.5 item 1
+   (no numbers from TypeScript) need the server's price before the
+   regenerate POST exists to ask. READ, no writes, no reservation: the model
+   and params resolve as a start resolves them (allowlist ∩ live catalogue,
+   Law 36 422s), priced by `calc.media` via
+   `media.regeneration_price.regeneration_price`, against cap − spent −
+   reserved (the console meter's own numbers). **S4-P13's `regenerate` should
+   reserve with the same function**, or the number shown and the number held
+   can differ. A video is priced as one request per clip 4.4.4 made for it;
+   §16 says `regenerate` returns one `{job_id}` — rule what a video
+   regeneration submits.
+7. **Additive output fields** (optional, None on older runs; the UI says "not
+   recorded" rather than inventing a value): 4.4.3 `Rendition.max_bytes`,
+   `FittedLogo.surface` and `.max_bytes` (the tile's `bytes/limit`); 4.4.4
+   `VideoRendition.brand_window_ms` and `.end_card_ms` (the timeline's band
+   and end-card region).
+8. **The regenerate POST itself is S4-P13's.** `GenerationPanel` sends
+   `{note, model_override?, provider_tag?, params_override}`; `make
+   browser-s4p21` answers that route with `page.route` and says so.
+9. **`POST /generation-jobs/{id}/cancel`** (§16) is still unbuilt by any
+   phase; `JobStatusList` offers `Check again` only.
+10. **Frame samples are numbers, not files** (`frame_sample` is never
+    written). `FrameCheckStrip` draws each sampled second from the same 480p
+    proxy in the browser, beside the server's score.
+11. **Palette swatches** read `{name, hex}` from the pinned guideline's
+    `brand_rules.visual_identity.colour.tokens` (the brief's `ruleset_ref.
+    guideline_id`); `creative_context` is not exposed by any route. A token
+    with no colour on record is drawn dashed and says so.
+12. **A master's pixel size is not in 4.4.2's output**; the drawer measures
+    it off the loaded file, so "100%" is the file's own size.
+13. **The shared sheet overlay fades in over 180 ms** (`.dialog-overlay`),
+    over the 150 ms of §15.2 rule 12. Pre-existing and shared by every
+    dialog; not changed here.
+14. **The 500-tile harness run is seeded rows** (real JPEGs and real proxies
+    on the Volume, outputs validated by the node schemas) because no fixture
+    model paints 475 files; the image and video runs in the same harness are
+    the real 4.4.1–4.4.4 pipeline.

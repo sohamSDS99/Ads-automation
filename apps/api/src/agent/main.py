@@ -33,6 +33,7 @@ from agent.api.routes_guidelines import router as guidelines_router
 from agent.api.routes_health import router as health_router
 from agent.api.routes_invites import router as invites_router
 from agent.api.routes_media import router as media_router
+from agent.api.routes_media_library import router as media_library_router
 from agent.api.routes_models import router as models_router
 from agent.api.routes_plan import router as plan_router
 from agent.api.routes_platform import router as platform_router
@@ -159,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         creative_router,
         creative_runs_router,
         media_router,
+        media_library_router,
         claims_router,
         tasks_router,
         governance_router,

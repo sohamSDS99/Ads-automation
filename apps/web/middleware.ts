@@ -32,7 +32,10 @@ export function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Everything except Next's own assets, the API rewrite, and static files.
-    "/((?!api/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    // Everything except Next's own assets, the API rewrite, the file-server
+    // rewrite (each file there carries its own signed token, and a `<video>`'s
+    // range request must never be answered with a login redirect), and static
+    // files.
+    "/((?!api/|files/|_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

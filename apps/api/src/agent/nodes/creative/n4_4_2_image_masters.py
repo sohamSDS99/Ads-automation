@@ -38,6 +38,7 @@ from pydantic import BaseModel
 
 from agent.calc.media import image_job_price
 from agent.creative import masters
+from agent.creative.previews import store_preview
 from agent.db.models import (
     CreativeAsset,
     CreativeAssetKind,
@@ -549,6 +550,9 @@ class _Mastering:
         asset.content_hash = chosen.artifact.sha256
         asset.fields = {**(asset.fields or {}), "master_media_id": str(chosen.artifact.id)}
         await self.ctx.db.flush()
+        # The Concept Board shows the master through its proxy (§15.5 item 2);
+        # the full file loads only in the detail drawer.
+        await store_preview(self.ctx.db, self.media.storage, chosen.artifact, chosen.content)
 
 
 def _vision_prompt(concept: Concept, keys: list[str]) -> str:

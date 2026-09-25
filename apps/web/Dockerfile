@@ -28,6 +28,10 @@ FROM deps AS builder
 # a blank 500 page rather than anything that names the cause.
 ARG API_INTERNAL_URL
 ENV API_INTERNAL_URL=$API_INTERNAL_URL
+# The same, for the `/files/*` rewrite to the worker's file server (Stage 04
+# media: `GET /media/{id}/content` redirects there).
+ARG WORKER_INTERNAL_URL
+ENV WORKER_INTERNAL_URL=$WORKER_INTERNAL_URL
 
 RUN pnpm build
 
