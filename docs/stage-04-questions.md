@@ -708,6 +708,94 @@ Rulings owed on what S4-P10 decided where §9.4, §11 (4.4.3) and §21.3 are sil
     Makefile: the test service sets the one and mounts neither. They pass on
     the host; everything else ran in the worker image (exiftool, tesseract).
 
+## S4-P7
+
+What S4-P7 had to decide that the PRD does not settle. Item 1 changed Stage 03
+code; items 4, 5 and 14 are the ones a ruling most changes.
+
+1. **`landing_page_section` is now its own asset type (Stage 03 change).**
+   Unmapped in `SURFACE_ASSET_TYPES`, it fell into the unknown-surface
+   fallback, so every asset-typed spec rule applied to it:
+   `asset_spec.length.v1` failed a 22-character H1 against the 15-character
+   path limit, and **no proposed H1 could ever pass lint.** It maps to
+   `landing_page_section`, which no spec-sheet entry names; brand, claim and
+   policy rules (not asset-typed) still apply. S4-P5's fail-closed test used
+   this surface as its example; it now uses `display_text`, the principle
+   unchanged. Stage 03's own landing-page-section lints lose the ad length
+   limits too, which I believe is right. Ruling owed.
+2. **`match.token_trigram_v1` is defined as token-aligned trigrams.** Per
+   headline: each distinct word is matched to its closest H1 word by
+   `copy.trigram_v1`'s trigram Dice and the headline scores the mean (the
+   share of the ad's words the page repeats, so a longer H1 loses nothing).
+   An ad group scores its best-echoed final A headline (Google may serve any
+   of 15 deliberately different ones); the page scores its weakest (ad group,
+   device). A device that did not render is left out; neither ⇒ `unavailable`.
+3. **The proposed H1 is one COPYWRITE call for 3 candidates.** Each is linted
+   with `lint_candidate` as `landing_page_section` in every (campaign type,
+   market, language) of the ad groups on the page, and the worst verdict
+   stands. Only a candidate that passes lint **and** reaches the threshold is
+   proposed; ties go to model order. None ⇒ `proposed_h1: null` with a note,
+   and no second call.
+4. **The offer phrase is `OfferBinding.resolved`'s first value — and it is
+   dormant today.** 4.1.1 writes `offer: null` into every brief until S4-P8's
+   `offers.py`, so live runs never check an offer; the node test supplies the
+   phrase. S4-P8 should confirm the first resolved value is the one an offer
+   leads with, or name the field.
+5. **"In a text node" is taken literally.** `<strong>20%</strong> off` is two
+   text nodes, so the phrase is not found and the page is
+   `blocking_for_launch`. Precise, but a false block on markup like that.
+   Ruling owed: literal text nodes, or the text of the nearest block element?
+6. **The audited form** is the desktop render's form with the most visible,
+   fillable fields (a footer newsletter loses); a tie goes to the first.
+   Hidden inputs, buttons and CSS-hidden honeypots are not fields, so they are
+   never proposed for removal. Radios and checkboxes sharing a name are one
+   field.
+7. **The routing contact field.** 2.1.4's `RoutingRule{segment, owner}` names
+   no channel, so the contact a lead is routed by is chosen in code: a field
+   the site already requires first, then email before phone, then document
+   order. CLASSIFY gives each field one label, so if a required signal is
+   itself a contact ("company email", as in the seed plan) the email is kept
+   for that signal and a phone field can still become the routing contact.
+8. **`missing_signals`** (required signals no field carries) is recorded on
+   the form and does not change the verdict. Ruling owed: should a form that
+   cannot capture a required signal be `needs_change`?
+9. **`obscured_by_overlay`** counts `position: fixed` elements only (§10.2
+   says "fixed"; a sticky header is not counted), per element rather than
+   their union, and it is recorded without changing the verdict.
+10. **Verdicts.** `unreachable` when either device did not answer 2xx; per Q10
+    that is blocking for launch, and it is its own verdict value. A missing
+    offer above the fold on any device ⇒ `blocking_for_launch`; a failed match
+    or fields beyond the minimal set ⇒ `needs_change`. 4.5.1 writes a
+    preliminary verdict on the row and 4.5.2 replaces it.
+11. **`networkidle` within 20 s** is one budget: `load` first, then
+    `networkidle` in what is left. A page that never idles (long-poll, chat
+    widget) is still measured and recorded `settled: false`, not unreachable.
+12. **A non-GET navigation is answered `204`, not aborted.** An aborted
+    navigation makes Chromium commit an error page over the document being
+    audited; `204` means "stay here". Fetches, XHRs and beacons are aborted.
+    Nothing non-GET reaches the network either way (asserted in the browser
+    and in the fixture server's log).
+13. **Screenshots are storage keys with no route.** §16 lists no landing
+    screenshot route, and `GET /media/{id}/content` belongs to media rows.
+    S4-P20's `FoldOverlay` needs one; not built here.
+14. **No private-address guard.** The renderer loads whatever `landing_url`
+    the frozen plan names, including a private or metadata address, as
+    `web_crawler` already does. The plan is operator input, but this is an
+    SSRF surface from the worker. Ruling owed: add an allowlist or
+    public-address check to both?
+15. **Concurrency 1 is per worker process** (a lock per event loop). Across
+    worker replicas it is not enforced; Railway runs one worker.
+16. **Tests need a browser.** The integration suite gets an autouse renderer
+    that returns unreached pages, so other phases' runs (pointed at
+    example.com, no Chromium in the default test image) record `unreachable`
+    and call no model. `test_s4p7_landing.py` renders for real and needs the
+    worker image; `tests/preview` and `tests/creative/test_landing_audit.py`
+    need `playwright install chromium-headless-shell` on the host.
+17. **`GET /landing-audits/{id}/patch?format=html`** is served inline as
+    `text/html` with `Content-Security-Policy: default-src 'none'; sandbox`:
+    every value is escaped when the patch is built, and a browser that opens
+    it still runs nothing. `404` when the audit proposes no change.
+
 ## S4-P11
 
 Rulings owed on what S4-P11 decided where §8.4, §9.4 video 1–2, §11 (4.4.4)

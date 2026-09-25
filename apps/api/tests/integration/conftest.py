@@ -390,6 +390,39 @@ async def project(db: AsyncSession, admin_user: Any, workspace_id: uuid.UUID) ->
 
 
 @pytest.fixture(autouse=True)
+def unrendered_landing_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every landing page comes back unreached unless a test renders for real.
+
+    Node 4.5.1 renders each landing URL in Chromium (Stage 04 S4-P7). The
+    suite's creative runs point at `example.com`, and the default test image
+    has no browser, so without this every run past 4.2.3 would fail on
+    `BrowserUnavailable`. Unreached pages are recorded `unreachable` and ask no
+    model, which is exactly what 4.5.1 and 4.5.2 do for a real dead page.
+    `tests/integration/test_s4p7_landing.py` puts the real renderer back.
+    """
+    from agent.preview import landing
+
+    async def unreached(
+        urls: Any, *, viewports: Any, timeout_ms: int = landing.NETWORKIDLE_TIMEOUT_MS
+    ) -> list[landing.LandingRender]:
+        def device(name: landing.Device) -> landing.DeviceRender:
+            return landing.DeviceRender(
+                device=name,
+                viewport=viewports[name],
+                user_agent="integration-suite",
+                reached=False,
+                error="not rendered: this test does not drive a browser",
+            )
+
+        return [
+            landing.LandingRender(url=url, mobile=device("mobile"), desktop=device("desktop"))
+            for url in urls
+        ]
+
+    monkeypatch.setattr(landing, "render_pages", unreached)
+
+
+@pytest.fixture(autouse=True)
 def fast_llm_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     """Take the gateway's real rate limit out of the test clock.
 

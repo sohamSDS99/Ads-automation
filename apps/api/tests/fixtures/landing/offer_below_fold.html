@@ -1,0 +1,27 @@
+<!doctype html>
+<!--
+  S4-P7 fixture 2 of 3: the offer is above the fold on desktop and below it
+  on mobile. The hero is 1000px tall under 600px of width, so on a 390x844
+  phone the offer's text node starts below the 844px fold; on a 1280x800
+  desktop the hero is 160px and the offer sits well inside the first screen.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SDS Management Software</title>
+<style>
+  body { margin: 0; font: 16px/1.5 sans-serif; }
+  h1 { font-size: 32px; margin: 0; padding: 24px; }
+  .hero { height: 160px; background: #eee; }
+  .offer { padding: 24px; font-size: 20px; }
+  @media (max-width: 600px) { .hero { height: 1000px; } }
+</style>
+</head>
+<body>
+<h1>SDS Management Software for Chemical Safety</h1>
+<div class="hero" aria-hidden="true"></div>
+<p class="offer">Get 20% off the first year</p>
+<p>Keep every safety data sheet current, searchable and shared.</p>
+</body>
+</html>

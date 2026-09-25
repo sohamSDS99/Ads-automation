@@ -125,6 +125,12 @@ SURFACE_ASSET_TYPES: Final[Mapping[str, str]] = MappingProxyType(
         "callout": "callout",
         "structured_snippet": "structured_snippet",
         "business_name": "business_name",
+        # Not an ad asset (Stage 04 S4-P7): a landing page's copy has no entry
+        # in the spec sheet, so no Google length or count applies to it — only
+        # the rules that are not asset-typed (brand, claims, policy). Left out
+        # of this map it would fall into the unknown-surface fallback below and
+        # fail every H1 longer than a 15-character path.
+        "landing_page_section": "landing_page_section",
         # S4-P11: a video script's lines are written against no headline or
         # description spec. Unmapped, every `headline`-scoped rule reached
         # every voiceover line and failed any longer than 30 characters.

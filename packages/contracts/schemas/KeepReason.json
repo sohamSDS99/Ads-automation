@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "field": {
+      "minLength": 1,
+      "title": "Field",
+      "type": "string"
+    },
+    "reason": {
+      "enum": [
+        "required_signal",
+        "consent",
+        "privacy",
+        "routing_contact"
+      ],
+      "title": "Reason",
+      "type": "string"
+    },
+    "signal": {
+      "minLength": 1,
+      "title": "Signal",
+      "type": "string"
+    }
+  },
+  "required": [
+    "field",
+    "reason",
+    "signal"
+  ],
+  "title": "KeepReason",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

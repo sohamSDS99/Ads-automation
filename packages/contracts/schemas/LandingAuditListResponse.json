@@ -1,0 +1,678 @@
+{
+  "$defs": {
+    "Box": {
+      "additionalProperties": false,
+      "description": "A DOM box in page coordinates at scroll 0: `y` is distance from the top.",
+      "properties": {
+        "x": {
+          "title": "X",
+          "type": "number"
+        },
+        "y": {
+          "title": "Y",
+          "type": "number"
+        },
+        "width": {
+          "title": "Width",
+          "type": "number"
+        },
+        "height": {
+          "title": "Height",
+          "type": "number"
+        }
+      },
+      "required": [
+        "x",
+        "y",
+        "width",
+        "height"
+      ],
+      "title": "Box",
+      "type": "object"
+    },
+    "DeviceFlag": {
+      "additionalProperties": false,
+      "properties": {
+        "mobile": {
+          "default": false,
+          "title": "Mobile",
+          "type": "boolean"
+        },
+        "desktop": {
+          "default": false,
+          "title": "Desktop",
+          "type": "boolean"
+        }
+      },
+      "title": "DeviceFlag",
+      "type": "object"
+    },
+    "DevicePx": {
+      "additionalProperties": false,
+      "properties": {
+        "mobile": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile"
+        },
+        "desktop": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desktop"
+        }
+      },
+      "title": "DevicePx",
+      "type": "object"
+    },
+    "DeviceText": {
+      "additionalProperties": false,
+      "properties": {
+        "mobile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile"
+        },
+        "desktop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desktop"
+        }
+      },
+      "title": "DeviceText",
+      "type": "object"
+    },
+    "FormAudit": {
+      "additionalProperties": false,
+      "description": "The form a visitor fills in, and the smallest form that still qualifies a lead.\n\n`minimal_set` is computed in code (\u00a711 4.5.2): the fields mapped to\n`lead_definition.required_signals`, \u222a consent / privacy, \u222a the one routing\ncontact field. The model only labels fields; it cannot keep one.",
+      "properties": {
+        "form_index": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Form Index"
+        },
+        "fields": {
+          "items": {
+            "$ref": "#/$defs/FormField"
+          },
+          "title": "Fields",
+          "type": "array"
+        },
+        "minimal_set": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Minimal Set",
+          "type": "array"
+        },
+        "remove": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Remove",
+          "type": "array"
+        },
+        "keep_reason": {
+          "items": {
+            "$ref": "#/$defs/KeepReason"
+          },
+          "title": "Keep Reason",
+          "type": "array"
+        },
+        "missing_signals": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Signals",
+          "type": "array"
+        }
+      },
+      "title": "FormAudit",
+      "type": "object"
+    },
+    "FormField": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "minLength": 1,
+          "title": "Name",
+          "type": "string"
+        },
+        "label": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label"
+        },
+        "type": {
+          "minLength": 1,
+          "title": "Type",
+          "type": "string"
+        },
+        "required": {
+          "title": "Required",
+          "type": "boolean"
+        },
+        "mapped_signal": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mapped Signal"
+        }
+      },
+      "required": [
+        "name",
+        "type",
+        "required"
+      ],
+      "title": "FormField",
+      "type": "object"
+    },
+    "KeepReason": {
+      "additionalProperties": false,
+      "properties": {
+        "field": {
+          "minLength": 1,
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "required_signal",
+            "consent",
+            "privacy",
+            "routing_contact"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "signal": {
+          "minLength": 1,
+          "title": "Signal",
+          "type": "string"
+        }
+      },
+      "required": [
+        "field",
+        "reason",
+        "signal"
+      ],
+      "title": "KeepReason",
+      "type": "object"
+    },
+    "LandingAuditItem": {
+      "description": "One landing URL as 4.5.1 and 4.5.2 audited it (PRD \u00a715.4 J).\n\nRead from the stored `landing_page_audit` row; the verdict and every score\nare the nodes', never re-derived. `has_patch` says whether\n`GET /landing-audits/{id}/patch` has anything to return.",
+      "properties": {
+        "id": {
+          "format": "uuid",
+          "title": "Id",
+          "type": "string"
+        },
+        "creative_run_id": {
+          "format": "uuid",
+          "title": "Creative Run Id",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        },
+        "final_url": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Final Url"
+        },
+        "http_status": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Http Status"
+        },
+        "ad_group_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Ad Group Refs",
+          "type": "array"
+        },
+        "verdict": {
+          "$ref": "#/$defs/LandingAuditVerdict"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "h1": {
+          "$ref": "#/$defs/DeviceText"
+        },
+        "fold_px": {
+          "$ref": "#/$defs/DevicePx"
+        },
+        "obscured_by_overlay": {
+          "$ref": "#/$defs/DeviceFlag"
+        },
+        "message_match": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/MessageMatch"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proposed_h1": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProposedH1"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "proposed_h1_note": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Proposed H1 Note"
+        },
+        "offer_above_fold": {
+          "items": {
+            "$ref": "#/$defs/OfferAboveFold"
+          },
+          "title": "Offer Above Fold",
+          "type": "array"
+        },
+        "form": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FormAudit"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "screenshots": {
+          "$ref": "#/$defs/Screenshots",
+          "description": "StorageBackend keys of the full-page screenshots, per device."
+        },
+        "has_patch": {
+          "title": "Has Patch",
+          "type": "boolean"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        },
+        "created_at": {
+          "format": "date-time",
+          "title": "Created At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id",
+        "creative_run_id",
+        "url",
+        "final_url",
+        "http_status",
+        "ad_group_refs",
+        "verdict",
+        "h1",
+        "fold_px",
+        "obscured_by_overlay",
+        "screenshots",
+        "has_patch",
+        "evidence_ids",
+        "created_at"
+      ],
+      "title": "LandingAuditItem",
+      "type": "object"
+    },
+    "LandingAuditVerdict": {
+      "enum": [
+        "ok",
+        "needs_change",
+        "blocking_for_launch",
+        "unreachable"
+      ],
+      "title": "LandingAuditVerdict",
+      "type": "string"
+    },
+    "LintRef": {
+      "additionalProperties": false,
+      "description": "The asset's `LintResult`, by verdict. The full result is on the asset row.",
+      "properties": {
+        "verdict": {
+          "enum": [
+            "pass",
+            "pass_with_warnings",
+            "fail"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "ruleset_version": {
+          "minLength": 1,
+          "title": "Ruleset Version",
+          "type": "string"
+        },
+        "rule_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Rule Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "verdict",
+        "ruleset_version"
+      ],
+      "title": "LintRef",
+      "type": "object"
+    },
+    "MatchScore": {
+      "additionalProperties": false,
+      "description": "One ad group on one device: the H1 against that ad group's final A headlines.",
+      "properties": {
+        "campaign_ref": {
+          "minLength": 1,
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "ad_group_ref": {
+          "minLength": 1,
+          "title": "Ad Group Ref",
+          "type": "string"
+        },
+        "device": {
+          "enum": [
+            "mobile",
+            "desktop"
+          ],
+          "title": "Device",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "best_headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Headline"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "ad_group_ref",
+        "device",
+        "score"
+      ],
+      "title": "MatchScore",
+      "type": "object"
+    },
+    "MessageMatch": {
+      "additionalProperties": false,
+      "description": "The page's score is its weakest ad group on its weakest device.\n\nEvery ad group pointing here serves its ad on both devices, so a page that\nechoes one ad group on desktop and not another on mobile has failed that\nvisitor. `unavailable`: the page never rendered on either device.",
+      "properties": {
+        "score": {
+          "anyOf": [
+            {
+              "maximum": 1,
+              "minimum": 0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Score"
+        },
+        "metric": {
+          "const": "match.token_trigram_v1",
+          "default": "match.token_trigram_v1",
+          "title": "Metric",
+          "type": "string"
+        },
+        "threshold": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Threshold",
+          "type": "number"
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "unavailable"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "scores": {
+          "items": {
+            "$ref": "#/$defs/MatchScore"
+          },
+          "title": "Scores",
+          "type": "array"
+        },
+        "evidence_ids": {
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          },
+          "title": "Evidence Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "threshold",
+        "verdict"
+      ],
+      "title": "MessageMatch",
+      "type": "object"
+    },
+    "OfferAboveFold": {
+      "additionalProperties": false,
+      "description": "\u00a711 4.5.2: the offer is a normalised exact phrase in a text node whose\nbox top is above the fold \u2014 judged on each device separately.",
+      "properties": {
+        "phrase": {
+          "minLength": 1,
+          "title": "Phrase",
+          "type": "string"
+        },
+        "found": {
+          "title": "Found",
+          "type": "boolean"
+        },
+        "bbox": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Box"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "device": {
+          "enum": [
+            "mobile",
+            "desktop"
+          ],
+          "title": "Device",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phrase",
+        "found",
+        "device"
+      ],
+      "title": "OfferAboveFold",
+      "type": "object"
+    },
+    "ProposedH1": {
+      "additionalProperties": false,
+      "description": "A replacement H1, written by COPYWRITE, linted at the pin, scored by code.",
+      "properties": {
+        "text": {
+          "minLength": 1,
+          "title": "Text",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "lint": {
+          "$ref": "#/$defs/LintRef"
+        }
+      },
+      "required": [
+        "text",
+        "score",
+        "lint"
+      ],
+      "title": "ProposedH1",
+      "type": "object"
+    },
+    "Screenshots": {
+      "additionalProperties": false,
+      "description": "`StorageBackend` keys of the full-page PNGs; None where the page never answered.",
+      "properties": {
+        "mobile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Mobile"
+        },
+        "desktop": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Desktop"
+        }
+      },
+      "title": "Screenshots",
+      "type": "object"
+    }
+  },
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/LandingAuditItem"
+      },
+      "title": "Items",
+      "type": "array"
+    }
+  },
+  "required": [
+    "items"
+  ],
+  "title": "LandingAuditListResponse",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

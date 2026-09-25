@@ -1,0 +1,51 @@
+{
+  "additionalProperties": false,
+  "description": "One ad group on one device: the H1 against that ad group's final A headlines.",
+  "properties": {
+    "campaign_ref": {
+      "minLength": 1,
+      "title": "Campaign Ref",
+      "type": "string"
+    },
+    "ad_group_ref": {
+      "minLength": 1,
+      "title": "Ad Group Ref",
+      "type": "string"
+    },
+    "device": {
+      "enum": [
+        "mobile",
+        "desktop"
+      ],
+      "title": "Device",
+      "type": "string"
+    },
+    "score": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Score",
+      "type": "number"
+    },
+    "best_headline": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Best Headline"
+    }
+  },
+  "required": [
+    "campaign_ref",
+    "ad_group_ref",
+    "device",
+    "score"
+  ],
+  "title": "MatchScore",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -13,16 +13,20 @@ The Creative Console and the brief page (§15.4 C–D) are built on these:
 - `POST /generation-jobs/{id}/check` — queue `MediaJobs.check()` for a job it
   can act on. The re-poll waits out a video's poll window, so it runs in the
   worker; this route only decides whether there is anything to check.
+- `GET /creative-runs/{id}/landing-audits` — every landing URL 4.5.1/4.5.2
+  audited, with its verdict and the facts behind it.
+- `GET /landing-audits/{id}/patch?format=html|json` — the `LandingPagePatch`
+  for the site owner. Stage 04 deploys nothing (law 41); this is the handover.
 """
 
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Any, Literal
 
 import sqlalchemy as sa
 import structlog
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Query, Response, status
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +39,8 @@ from agent.api.schemas_creative_runs import (
     GenerationCheckAccepted,
     GenerationJobItem,
     GenerationJobListResponse,
+    LandingAuditItem,
+    LandingAuditListResponse,
 )
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
@@ -45,6 +51,7 @@ from agent.db.models import (
     CreativeAssetKind,
     CreativeAssetStatus,
     GenerationJob,
+    LandingPageAudit,
     Run,
     RunStage,
 )
@@ -55,6 +62,7 @@ from agent.media.jobs import checkable
 from agent.queue import enqueue_generation_check
 from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief
 from agent.schemas.creative_input import CreativeInput
+from agent.schemas.landing import LandingPagePatch
 
 log = structlog.get_logger(__name__)
 
@@ -292,3 +300,107 @@ async def check_generation_job(
         queued=queued is not None,
     )
     return GenerationCheckAccepted(job_id=row.id, status=row.status, queued=queued is not None)
+
+
+# ---------------------------------------------------------------------------
+# landing audits (4.5)
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/creative-runs/{run_id}/landing-audits",
+    response_model=LandingAuditListResponse,
+    summary="Every landing URL the run audited, with its verdict and the facts behind it",
+)
+async def list_landing_audits(run_id: uuid.UUID, me: AnyMember, db: Db) -> LandingAuditListResponse:
+    run = await _creative_run(db, me, run_id)
+    rows = (
+        (
+            await db.execute(
+                sa.select(LandingPageAudit)
+                .where(LandingPageAudit.creative_run_id == run.id)
+                .order_by(LandingPageAudit.created_at, LandingPageAudit.url)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return LandingAuditListResponse(items=[_landing(row) for row in rows])
+
+
+def _landing(row: LandingPageAudit) -> LandingAuditItem:
+    metrics: dict[str, Any] = row.metrics or {}
+    return LandingAuditItem.model_validate(
+        {
+            "id": row.id,
+            "creative_run_id": row.creative_run_id,
+            "url": row.url,
+            "final_url": row.final_url,
+            "http_status": row.http_status,
+            "ad_group_refs": list(row.ad_group_refs),
+            "verdict": row.verdict,
+            "reasons": metrics.get("reasons") or [],
+            "h1": metrics.get("h1") or {},
+            "fold_px": metrics.get("fold_px") or {},
+            "obscured_by_overlay": metrics.get("obscured_by_overlay") or {},
+            "message_match": metrics.get("message_match"),
+            "proposed_h1": metrics.get("proposed_h1"),
+            "proposed_h1_note": metrics.get("proposed_h1_note"),
+            "offer_above_fold": metrics.get("offer_above_fold") or [],
+            "form": metrics.get("form"),
+            "screenshots": row.screenshots or {},
+            "has_patch": row.patch is not None,
+            "evidence_ids": list(row.evidence_ids),
+            "created_at": row.created_at,
+        }
+    )
+
+
+#: The HTML patch is markup for someone else's site, served from ours: it may
+#: be read and copied, never run. Every value in it is escaped when it is
+#: built; this makes a browser that opens it directly render it inert too.
+_PATCH_HTML_HEADERS = {
+    "Content-Security-Policy": "default-src 'none'; sandbox",
+    "X-Content-Type-Options": "nosniff",
+}
+
+
+@router.get(
+    "/landing-audits/{audit_id}/patch",
+    response_model=LandingPagePatch,
+    responses={200: {"content": {"text/html": {}}}},
+    summary="The landing-page patch for the site owner, as JSON or as markup",
+)
+async def get_landing_patch(
+    audit_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    patch_format: Annotated[
+        Literal["html", "json"], Query(alias="format", description="html | json")
+    ] = "json",
+) -> Any:
+    row = await db.scalar(
+        sa.select(LandingPageAudit)
+        .join(Run, Run.id == LandingPageAudit.creative_run_id)
+        .where(LandingPageAudit.id == audit_id, Run.workspace_id == me.workspace_id)
+    )
+    if row is None:
+        raise problems.not_found(f"No landing audit {audit_id}.")
+    if row.patch is None:
+        raise problems.not_found(
+            f"The audit of {row.url} proposes no change: its verdict is "
+            f"{row.verdict.value}. A patch exists only when the H1, the offer or the "
+            "form needs one.",
+            title="No patch",
+        )
+    patch = LandingPagePatch.model_validate(row.patch)
+    if patch_format == "html":
+        return Response(
+            content=patch.html_snippet,
+            media_type="text/html; charset=utf-8",
+            headers={
+                **_PATCH_HTML_HEADERS,
+                "Content-Disposition": f'inline; filename="landing-patch-{row.id}.html"',
+            },
+        )
+    return patch
