@@ -33,7 +33,8 @@ import { absoluteTime, duration, usd } from "@/lib/format";
 import { errorMessage, useCheckGenerationJob, useGenerationJobs } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
-const STATUS: Record<
+/** Each job status in words and an icon (§15.2 rule 14); shared with the Media Library's job list. */
+export const STATUS: Record<
   GenerationStatus,
   { label: string; icon: LucideIcon; tone: "neutral" | "warning" | "danger"; ink: string; spin?: boolean }
 > = {
