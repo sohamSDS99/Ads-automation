@@ -594,6 +594,55 @@ def encode_jpeg(
 
 
 # ---------------------------------------------------------------------------
+# 4b. the Media Library's preview proxy
+# ---------------------------------------------------------------------------
+
+#: §15.5 item 2: the Media Library's grid shows a WebP proxy, never the file
+#: itself. 640 px on the long side covers a grid tile at 2x density; a smaller
+#: source is not enlarged.
+PREVIEW_LONG_SIDE = 640
+PREVIEW_WEBP_QUALITY = 80
+
+
+@dataclass(frozen=True, slots=True)
+class Preview:
+    content: bytes
+    width: int
+    height: int
+    #: One factor on both axes (Law 39 holds for a proxy as for a rendition).
+    scale: Fraction
+
+    @property
+    def transform(self) -> dict[str, Any]:
+        factor = float(self.scale)
+        return {
+            "sx": factor,
+            "sy": factor,
+            "encoder_args": {"format": "WEBP", "quality": PREVIEW_WEBP_QUALITY},
+        }
+
+
+def preview_webp(content: bytes) -> Preview:
+    """A WebP of `content` for the grid: scaled by one factor so its long side
+    is at most `PREVIEW_LONG_SIDE`, transparency kept, no metadata carried —
+    it is a display proxy that never leaves the app, not a deliverable."""
+    with Image.open(io.BytesIO(content)) as source:
+        source.load()
+        alpha = source.mode in ("RGBA", "LA") or (
+            source.mode == "P" and "transparency" in source.info
+        )
+        image = source.convert("RGBA" if alpha else "RGB")
+    long_side = max(image.size)
+    scale = Fraction(min(PREVIEW_LONG_SIDE, long_side), long_side)
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    if size != image.size:
+        image = image.resize(size, Image.Resampling.LANCZOS)
+    buffer = io.BytesIO()
+    image.save(buffer, format="WEBP", quality=PREVIEW_WEBP_QUALITY, method=4)
+    return Preview(buffer.getvalue(), size[0], size[1], scale)
+
+
+# ---------------------------------------------------------------------------
 # 5. the disclosure stamp
 # ---------------------------------------------------------------------------
 

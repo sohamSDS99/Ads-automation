@@ -8,6 +8,16 @@ import type { NextConfig } from "next";
  */
 const apiInternalUrl = process.env.API_INTERNAL_URL ?? "http://api:8000";
 
+/**
+ * The worker's file server (Stage 04 PRD §16: `GET /media/{id}/content` is a
+ * `302` to it). Media is served from there, signed per file for 300 s, and a
+ * `<video>` seeks it with `Range`; the api never reads the bytes. `/files/*`
+ * is proxied to it over the private network exactly as `/api/v1/*` is to the
+ * api, so the browser still sees one origin. Read at build time, like
+ * `API_INTERNAL_URL` (railway/variables.md).
+ */
+const workerInternalUrl = process.env.WORKER_INTERNAL_URL ?? "http://worker:8081";
+
 const isProduction = process.env.NODE_ENV === "production";
 
 /**
@@ -98,6 +108,10 @@ const nextConfig: NextConfig = {
       {
         source: "/api/v1/:path*",
         destination: `${apiInternalUrl}/api/v1/:path*`,
+      },
+      {
+        source: "/files/:path*",
+        destination: `${workerInternalUrl}/files/:path*`,
       },
     ];
   },

@@ -38,6 +38,11 @@ import {
 } from "@/lib/api/creative";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
+  estimateRegeneration,
+  regenerateAsset,
+  type RegenerationRequest,
+} from "@/lib/api/media-library";
+import {
   getGuideline,
   getGuidelineAttention,
   getGuidelineEligibility,
@@ -151,6 +156,8 @@ export const keys = {
   landingAudits: (runId: string) => ["runs", runId, "creative", "landing-audits"] as const,
   landingPatch: (auditId: string, format: "html" | "json") => ["landing-audits", auditId, "patch", format] as const,
   generationJobs: (runId: string) => ["runs", runId, "creative", "generation-jobs"] as const,
+  regenerationEstimate: (assetId: string, request: string) =>
+    ["creative-assets", assetId, "regeneration-estimate", request] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -709,6 +716,38 @@ export function useCheckGenerationJob(runId: string) {
     mutationFn: (jobId: string) => checkGenerationJob(jobId),
     onSuccess: () => {
       void client.invalidateQueries({ queryKey: keys.generationJobs(runId) });
+    },
+  });
+}
+
+/**
+ * What regenerating one media asset would cost, against what remains of the
+ * run's media cap (§15.2 rule 8) — asked of the server for exactly the model
+ * and parameters the panel would submit. The last answer stays on screen,
+ * marked as updating, while the next is priced.
+ */
+export function useRegenerationEstimate(assetId: string, request: RegenerationRequest | null) {
+  const serialised = request ? JSON.stringify(request) : "";
+  return useQuery({
+    queryKey: keys.regenerationEstimate(assetId, serialised),
+    queryFn: ({ signal }) => estimateRegeneration(assetId, request as RegenerationRequest, signal),
+    enabled: request !== null && Boolean(assetId),
+    retry: false,
+    staleTime: 15_000,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** `POST /creative-assets/{id}/regenerate`; the new job appears in the job list. */
+export function useRegenerateAsset(runId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ assetId, ...body }: RegenerationRequest & { assetId: string; note: string }) =>
+      regenerateAsset(assetId, body),
+    onSuccess: () => {
+      void client.invalidateQueries({ queryKey: keys.generationJobs(runId) });
+      void client.invalidateQueries({ queryKey: keys.creativeAssets(runId) });
+      void client.invalidateQueries({ queryKey: keys.run(runId) });
     },
   });
 }

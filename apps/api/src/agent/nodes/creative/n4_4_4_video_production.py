@@ -1242,6 +1242,8 @@ class _PostProduction:
             derivation="native" if source == ratio else "crop",
             source_ratio=source,
             brand_first_at_ms=verification.brand_first_at_ms,
+            brand_window_ms=self.ctx.require_creative().constants.video.brand_within_ms.value,
+            end_card_ms=round(result.prepared.assembly.end_card_s * 1000),
             captions_burned=bool(made.script.captions),
             caption_ocr_min_similarity=verification.caption_ocr_min_similarity,
             has_audio=result.prepared.assembly.has_source_audio,

@@ -212,3 +212,34 @@ async def test_curl_r_0_1023_over_a_real_socket_is_a_206(
     finally:
         server.should_exit = True
         await task
+
+
+@pytest.mark.parametrize(
+    ("key", "expected"),
+    [
+        ("creative/r/renditions/a/1x1_preview.webp", "image/webp"),
+        ("creative/r/renditions/a/1x1.jpg", "image/jpeg"),
+        ("creative/r/logos/l/c-logo.PNG", "image/png"),
+        ("creative/r/previews/m_preview.mp4", "video/mp4"),
+        ("exports/e/plan.pdf", "application/octet-stream"),
+        ("exports/e/no-suffix", "application/octet-stream"),
+        ("dotted.dir/file", "application/octet-stream"),
+    ],
+)
+async def test_a_media_key_is_served_as_its_type_and_anything_else_as_bytes(
+    tmp_path: Path, settings: Settings, key: str, expected: str
+) -> None:
+    """`<img>` and `<video>` read the type off the response (Safari plays no
+    octet-stream video), for the whole file and for a range alike."""
+    backend = LocalStorage(str(tmp_path), "http://worker:8081")
+    backend.put(key, PAYLOAD)
+    app = create_file_server(storage=backend, settings=settings)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://worker"
+    ) as http:
+        token = {"token": sign(key, settings=settings)}
+        whole = await http.get(f"/files/{key}", params=token)
+        part = await http.get(f"/files/{key}", params=token, headers={"Range": "bytes=0-9"})
+
+    assert whole.status_code == 200 and part.status_code == 206
+    assert whole.headers["content-type"] == part.headers["content-type"] == expected

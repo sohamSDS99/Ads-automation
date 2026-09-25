@@ -169,13 +169,19 @@ async def test_a_failing_candidate_is_discarded_before_ranking(
     assert asset.fields["master_media_id"] == c1["master"]["media_id"]
     roles = (
         await db.execute(
-            sa.select(MediaArtifact.id, MediaArtifact.role).where(
+            sa.select(MediaArtifact.id, MediaArtifact.role, MediaArtifact.derived_from).where(
                 MediaArtifact.asset_id == asset.id
             )
         )
     ).all()
-    assert sorted(role.value for _, role in roles) == ["candidate"] * 3 + ["master"]
-    assert {str(i) for i, r in roles if r is MediaArtifactRole.MASTER} == {c1["master"]["media_id"]}
+    # S4-P21: the master alone gets a WebP proxy, for the Concept Board.
+    assert sorted(role.value for _, role, _ in roles) == ["candidate"] * 3 + ["master", "preview"]
+    assert {str(i) for i, r, _ in roles if r is MediaArtifactRole.MASTER} == {
+        c1["master"]["media_id"]
+    }
+    assert {str(d) for _, r, d in roles if r is MediaArtifactRole.PREVIEW} == {
+        c1["master"]["media_id"]
+    }
 
 
 async def test_every_candidate_failing_twice_is_one_retry_then_a_gap(
