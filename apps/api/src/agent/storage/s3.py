@@ -44,3 +44,6 @@ class S3Storage:
 
     def usage(self) -> StorageUsage:
         raise NotImplementedError
+
+    def free_bytes(self) -> int | None:
+        raise NotImplementedError

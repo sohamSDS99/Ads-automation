@@ -966,6 +966,124 @@ and §21.3 are silent.
     `lineage.by_user` but no `updated_at`, and the matrix does not render
     either. Wanted?
 
+## S4-P12
+
+Rulings owed on what S4-P12 decided where §9.4 video 3–5, §18 and §21.3 are
+silent, and the defects it found in shipped code.
+
+1. **Verification measures the logo at the size the video shows it.** §9.4
+   video 4 says "sample frames … → Stage 03 logo metrics". The pinned
+   templates are built by 3.4.3 at `ocr_working_width_px` (1280). ORB matches
+   within about an octave of scale, so a logo at `logo.width_ratio` (20%) of a
+   1280 px frame — 256 px — scores as noise against them whether or not it is
+   there (measured: ~0.10–0.18 on frames with and without it, against the
+   0.62 floor). `verify.py` re-registers the SAME registered asset, fitted to
+   the placed box exactly as it was composited, through Stage 03's own
+   `template_from_bytes`, measures only the placed box (with its clear space)
+   through Stage 03's `measure`, and judges at the pinned template's own
+   `min_score`. A logo under 256 px is measured with template and crop
+   upscaled by one factor (ORB finds too few keypoints below that). Measured
+   on the fixtures: 0.83 (16:9) / 0.68 (9:16) while the logo is shown, 0 at
+   t = 0, < 0.12 after 4.5 s and for the variant not placed. **The same
+   defect makes Stage 03's `image.logo_match` unpassable for any 20%-width
+   logo on a still** — rule on whether 3.4.3 should also register templates
+   at the scale renditions use.
+2. **Stage 03 defect: a transparent logo registers as an empty template.**
+   `precheck._load` converts RGBA to RGB without compositing, so the
+   transparent field becomes black: a dark-ink logo on a transparent PNG is
+   dark-on-black — almost no ORB keypoints, and a polarity no frame shows.
+   Such a brand's videos can never pass verification (a blocking gap, never a
+   bad file). The fixtures use a logo on its own opaque plate. Not fixed here
+   (Stage 03 code, and it would change new registrations' hashes).
+3. **Single-pass `loudnorm` does not normalise behind a silent shot.** Its
+   dynamic mode sets gain from a 3 s window: a -52 LUFS tone after a silent
+   6 s shot came out at -50.9 LUFS. Assembly measures first (`print_format=
+   json`) and applies `loudnorm=I=-16:TP=-1.5` with the measurements and
+   `linear=true` — the same target, two passes. A clip set whose audio is all
+   below the gate is left silent.
+4. **The caption face is "Inter Semi Bold".** fontconfig's family name for
+   `fonts-inter`'s SemiBold face has a space. `Inter SemiBold` (as §9.4 spells
+   it) matches nothing, and libass then draws in DejaVu Sans with no warning.
+   The face libass selected is read from its `fontselect` log line; any other
+   face fails the assembly.
+5. **The safe zone is two new constants.** §9.4 puts the caption box "inside
+   the surface's safe zone"; no spec sheet or constant gives one.
+   `video.safe_zone_bottom_pct` = 0.20 (the bottom share kept clear for a
+   player's controls and a vertical feed's overlay; the captions' MarginV) and
+   `video.safe_zone_edge_pct` = 0.05 (title-safe at the other edges), both
+   `internal`; constants version 2026.09.3. Rule on the values, and on whether
+   they should differ by orientation.
+6. **The shot's `on_screen_text` is burned too.** §9.4 lists captions only,
+   but the script's `on_screen_text` is "text shown over the shot", and the
+   CTA is required to appear there so the ad "works with sound off" — unshown,
+   that check is empty. It is drawn top centre in the caption style, clear of
+   the logo's corner (margins = logo box + clear space + edge).
+7. **The logo sits in a top corner.** The bottom belongs to the captions, so
+   `place_logo` gained a `corners=` parameter; the corner and variant are
+   chosen on the mean of frames sampled across the logo window (0.5–4.5 s).
+   `logo.permitted_surfaces` names video as `video`, not 4.4.4's lint surface
+   `video_frame`; the logo check uses `video`.
+8. **The end card is appended, and a spec maximum keeps room for it.** The
+   file is script length + `end_card_ms`. With a spec maximum, 4.4.4's
+   `gather` now plans the script at ≤ max − ⌈end card⌉ (a 6 s bumper cap →
+   a 4 s script + 2 s card), since the finished file is what the spec
+   measures; a minimum is unchanged (a 10 s floor → 10 s + 2 s). Rule on
+   whether the end card should instead replace the last 2 s of footage.
+9. **The end card's colour.** "Brand colour token" = the first colour token
+   whose role says `primary`, else the first with a readable hex. With no
+   token the card is near-black (#111111), recorded as `colour_note`. The CTA
+   is white or near-black, whichever contrasts more, and must reach 4.5:1 or
+   the card is refused.
+10. **What "blocking" does.** A failed verification is a
+    `verification_failed` gap carrying the full verification (every logo and
+    caption frame, every failed fact); no file is stored. Masters that pass
+    are `role=rendition` (the detail drawer's `variant=master`), with a
+    `preview` (480p: short side 480, H.264 CRF 28) and a `poster` (the frame
+    at `brand_first_at_ms`), both `derived_from` it.
+11. **Stamp.** Every assembled video is `compositeWithTrainedAlgorithmicMedia`
+    — captions and the end card are code's marks on a model's footage even
+    when no logo could be placed. The MP4 `comment` reads "AI-generated video
+    (<model>); IPTC DigitalSourceType <uri>". The proxy and poster are stamped
+    too. The XMP write keeps `moov` before `mdat` (checked on every file).
+12. **Conservative encoder arguments** (§18 names none): one thread, preset
+    `veryfast`, bicubic scaling, a 4096-packet muxing queue. Codec, profile,
+    pixel format, CRF, frame rate and faststart never change — they are the
+    spec. The stderr tail kept is the last 4000 characters.
+13. **Free-space rule before each assembly.** CR-E11's factor: free ≥ 2 ×
+    the estimated footprint, where footprint = the clips' bytes × the frame's
+    pixel growth (≥ 1). Too little is a `storage_insufficient` gap naming both
+    numbers; ffmpeg does not run. A backend with no fixed size (`free_bytes()`
+    None) is not checked. `StorageBackend` gained `free_bytes()` (statvfs
+    `f_bavail`), which walks nothing, unlike `usage()`.
+14. **Where the stderr tail is stored.** §18 says "on the artifact". A run
+    that failed and was retried successfully stores it on the rendition's
+    `MediaArtifact.transform.ffmpeg_failures` (and `failed_attempts` in the
+    output); a rendition that failed twice has no artifact — `MediaArtifact`
+    has no status column and needs a file — so both tails ride on the
+    `assembly_failed` gap in the node output.
+15. **Rendition ids are deterministic** — `uuid5(asset_id, "4.4.4:<ratio>:<role>")`
+    — so a node that died after writing a file leaves it at the key the retry
+    overwrites (§7.4 keys files by media id), never an orphan. The retry
+    deletes the earlier attempt's rendition/preview/poster rows and files and
+    remakes them from the same clips; nothing is POSTed.
+16. **No disclosure label on video yet.** Law 38 composites disclosure labels
+    in postprod, but Stage 03's `DisclosureRule.surfaces` has no video surface,
+    so no pinned rule can require one; nothing is drawn. When Stage 03 adds it,
+    4.4.4 must burn the label.
+17. **`frame_check` / `media_probe` derived Evidence** (§7.3) are not written:
+    the verification lives in the node output and the probe on the artifact.
+    Rule on whether each rendition should cite a `frame_check` row.
+18. **Caption OCR reads the caption band twice.** The frame at each caption's
+    midpoint is cropped to the band libass draws captions in (from 3 lines
+    above the safe-zone margin to the box's bottom) and read inverted and
+    binarised on the captions' white; the better similarity is kept. The whole
+    bottom half let fractal footage garble a legible caption to 0.77. OCR runs
+    in English (`eng`); a non-English market's captions would need its
+    tesseract language — rule on the mapping.
+19. **Video frames are not linted as images yet.** §7.1 names `video_frame`
+    as the surface a video frame is linted as; nothing in §9.4 video says
+    which frames. Not built.
+
 ## S4-P8
 
 What S4-P8 had to decide that the PRD does not settle. Items 1, 2 and 6 are

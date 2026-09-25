@@ -1,5 +1,6 @@
-"""4.4.4 `video_production` — script, shot plan and clips, up to downloaded clips
-(Stage 04 PRD §11 4.4.4, §9.4 video 1–2, §8.4, §18).
+"""4.4.4 `video_production` — script, shot plan, clips, and the finished videos
+post-production makes from them (Stage 04 PRD §11 4.4.4, §9.4 video 1–5, §8.4,
+§18).
 
 `not_required` when video is off, or when no campaign in the slate has a video
 surface under the pinned spec sheet. Otherwise, per campaign that has one:
@@ -7,7 +8,9 @@ surface under the pinned spec sheet. Otherwise, per campaign that has one:
 1. **gather** — the length the spec's duration window allows
    (`video_duration`), cut by `media.shot_plan_v1` into clips of the model's
    `supported_durations` only, and recorded as a `derived` row. No duration in
-   the spec is `spec_missing`, never a guess (§9.5, Q6).
+   the spec is `spec_missing`, never a guess (§9.5, Q6). A spec maximum keeps
+   room for the end card post-production appends: the finished file is what
+   the spec measures.
 2. **The script** — one shot per clip, written by `COPYWRITE`, timed by the
    plan, captioned from its voiceover, validated as working with the sound off
    and linted at creation (Law 33) — then **committed on its own, before any
@@ -24,6 +27,16 @@ surface under the pinned spec sheet. Otherwise, per campaign that has one:
    jitter, `node.progress` on every poll) and downloaded in the worker. A
    finished clip becomes a `MediaArtifact(role=clip)` of what ffprobe reads back.
 
+5. **Post-production** — per required ratio, one at a time, the ratio's clips
+   (a crop takes the ratio it is cut from) go through `postprod/video.py`:
+   assembled, stamped, then verified by `postprod/verify.py` from the file
+   itself. Only a verified file becomes a `rendition` (with its 480p proxy and
+   poster); a failed verification is a blocking gap carrying what was read.
+   Free Volume space is re-checked before each assembly. ffmpeg exiting
+   non-zero keeps its stderr tail and is retried once with conservative
+   arguments, then is a gap with both tails (§18). A retried node clears the
+   renditions an earlier attempt wrote and makes them again from the clips.
+
 A clip that failed, was cancelled or expired, or whose submit state is unknown
 is a gap: nothing here POSTs a video twice, and `unknown_submit_state` is a
 human's decision (§18). A clip that **timed out** is not a gap — its OpenRouter
@@ -34,6 +47,7 @@ in the worker, and a retry of this node then finds the clip finished.
 from __future__ import annotations
 
 import asyncio
+import math
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -46,7 +60,7 @@ from pydantic import BaseModel
 
 from agent.calc.derived import DerivedWriter
 from agent.calc.media import shot_plan_v1, video_duration, video_job_price
-from agent.creative import video
+from agent.creative import masters, video
 from agent.db.models import (
     CreativeAsset,
     CreativeAssetKind,
@@ -69,25 +83,37 @@ from agent.media.videos import Poll
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
 from agent.nodes.creative._text_assets import content_hash, generated_lineage
 from agent.nodes.creative.n4_4_1_creative_concepts import approved_brief
+from agent.nodes.creative.n4_4_3_image_renditions import (
+    positive_float,
+    positive_int,
+    registered_logos,
+)
 from agent.orchestrator.creative_input import ratios_for
 from agent.orchestrator.creative_run import PASSING
+from agent.postprod import image as still
+from agent.postprod import verify as checks
+from agent.postprod import video as post
 from agent.postprod.image import supported_label
-from agent.postprod.probe import ProbeError, probe_video
+from agent.postprod.probe import ProbeError, VideoFacts, probe_image, probe_video
 from agent.schemas.creative_brief import CreativeBrief
 from agent.schemas.creative_input import CreativeInput, MediaModelChoice
 from agent.schemas.creative_media import CampaignConcepts, Concept, CreativeConcepts
 from agent.schemas.creative_video import (
     CampaignVideo,
     DurationWindowOut,
+    FfmpegAttempt,
     PlannedClip,
     ScriptLint,
     ShotPlanOut,
     VideoClip,
     VideoGap,
     VideoProduction,
+    VideoRendition,
     VideoScript,
+    VideoVerification,
 )
 from agent.schemas.guardrails import LintResult, LintTarget
+from agent.storage.scratch import scratch_dir
 
 log = structlog.get_logger(__name__)
 
@@ -96,6 +122,10 @@ CONCEPTS_NODE = "4.4.1"
 SCRIPT_SURFACE = "youtube_script"
 #: §7.1's Stage 03 delta names the surface a video frame is linted as.
 VIDEO_SURFACE = "video_frame"
+#: `logo.permitted_surfaces` (§9.5) names video as `video`.
+LOGO_SURFACE = "video"
+#: The media roles post-production writes on the video asset.
+_POSTPROD_ROLES = (MediaArtifactRole.RENDITION, MediaArtifactRole.PREVIEW, MediaArtifactRole.POSTER)
 
 #: The coverages a model paints at: `relaid` too, since 4.4.4 has no master to
 #: relay from — the model paints that ratio from the prompt.
@@ -154,6 +184,7 @@ class VideoProductionNode:
         supported = list((capability.video.durations if capability.video else []) or [])
         specs = creative.linter.ruleset.asset_specs.model_dump(mode="json").get("specs") or {}
         concepts = CreativeConcepts.model_validate(ctx.output_of(CONCEPTS_NODE))
+        end_card_s = math.ceil(creative.constants.video.end_card_ms.value / 1000)
         planned = _Planned()
         writer = DerivedWriter(
             ctx.db,
@@ -169,7 +200,9 @@ class VideoProductionNode:
             try:
                 window = video.duration_window(types, campaign_type=campaign.campaign_type)
                 duration = video_duration(
-                    min_s=window.min_s, max_s=window.max_s, supported=supported
+                    min_s=window.min_s,
+                    max_s=(window.max_s - end_card_s) if window.max_s is not None else None,
+                    supported=supported,
                 )
             except video.VideoPlanProblem as problem:
                 planned.gaps.append(_gap(campaign.campaign_ref, problem.reason, problem.detail))
@@ -181,7 +214,9 @@ class VideoProductionNode:
                         "no_plannable_duration",
                         f"No length between {window.min_s or 1} s and "
                         f"{window.max_s or 'no maximum'}"
-                        f"{' s' if window.max_s else ''} can be cut from "
+                        f"{' s' if window.max_s else ''}"
+                        f"{f' (less the {end_card_s} s end card)' if window.max_s else ''} "
+                        "can be cut from "
                         f"{choice.model_id}'s clips of "
                         f"{', '.join(f'{d} s' for d in sorted(supported)) or 'no duration'}.",
                     )
@@ -274,6 +309,7 @@ class _Video:
     order: list[str]
     clips: list[VideoClip] = field(default_factory=list)
     degraded: list[str] = field(default_factory=list)
+    renditions: list[VideoRendition] = field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -735,6 +771,10 @@ class _Production:
                 + ". Each OpenRouter job is still alive — use Check again on it in the Jobs "
                 "tab, then retry this node. Nothing is POSTed again."
             )
+        if self.videos:
+            finishing = await _PostProduction.start(self)
+            for made in self.videos:
+                gaps.extend(await finishing.video(made))
         return VideoProduction(
             status="produced",
             videos=[self._assembled(made) for made in self.videos],
@@ -810,7 +850,462 @@ class _Production:
             ratio_plan=made.ratio_plan,
             clips=sorted(made.clips, key=lambda c: (made.order.index(c.ratio), c.index)),
             degraded=made.degraded,
+            renditions=made.renditions,
         )
+
+
+# ---------------------------------------------------------------------------
+# post-production (§9.4 video 3–5, §18)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class _Made:
+    """What one ratio's post-production wrote, before anything is stored."""
+
+    prepared: post.Prepared
+    assembled: post.Assembled
+    facts: VideoFacts
+    master: bytes
+    stamp: dict[str, Any]
+    verification: checks.Verification
+    preview: bytes
+    preview_facts: VideoFacts
+    preview_stamp: dict[str, Any]
+    preview_geometry: post.UniformScale
+    poster: bytes
+    poster_stamp: dict[str, Any]
+
+
+@dataclass(frozen=True, slots=True)
+class _Refused:
+    """Why one ratio has no rendition."""
+
+    reason: str
+    detail: str
+    attempts: list[FfmpegAttempt] = field(default_factory=list)
+    verification: VideoVerification | None = None
+
+
+@dataclass
+class _PostProduction:
+    production: _Production
+    logos: list[still.LogoArt]
+    logo_unreadable: list[str]
+    templates: tuple[Any, ...]
+    knobs: post.Knobs
+    colour: dict[str, Any] | None
+
+    @classmethod
+    async def start(cls, production: _Production) -> _PostProduction:
+        ctx = production.ctx
+        creative = ctx.require_creative()
+        constants = creative.constants
+        identity = creative.input.creative_context.visual_identity
+        rules = identity.logo or {}
+        logos, unreadable = await registered_logos(ctx, production.media)
+        return cls(
+            production=production,
+            logos=logos,
+            logo_unreadable=unreadable,
+            templates=masters.logo_templates(creative.linter.ruleset),
+            knobs=post.Knobs(
+                fps=constants.video.target_fps.value,
+                caption_height_pct=constants.video.caption_height_pct.value,
+                safe_bottom_pct=constants.video.safe_zone_bottom_pct.value,
+                safe_edge_pct=constants.video.safe_zone_edge_pct.value,
+                end_card_ms=constants.video.end_card_ms.value,
+                loudness_lufs=float(constants.video.loudness_lufs.value),
+                ratio_tolerance=constants.media.ratio_tolerance.value,
+                logo_width_ratio=constants.logo.width_ratio.value,
+                permitted_surfaces=tuple(constants.logo.permitted_surfaces.value),
+                clear_space_ratio=positive_float(rules.get("clear_space_ratio")),
+                min_width_px=positive_int(rules.get("min_width_px")),
+            ),
+            colour=post.brand_colour((identity.colour or {}).get("tokens") or []),
+        )
+
+    @property
+    def ctx(self) -> RunContext:
+        return self.production.ctx
+
+    async def video(self, made: _Video) -> list[VideoGap]:
+        """Every required ratio of one campaign's video, one at a time."""
+        await self._clear(made)
+        ref = made.plan.concepts.campaign_ref
+        gaps: list[VideoGap] = []
+        for ratio, planned in made.ratio_plan.items():
+            source = ratio if planned["plan"] == "native" else planned["from"]
+            outcome = await self._ratio(made, ratio, source)
+            if isinstance(outcome, _Refused):
+                gaps.append(
+                    _gap(
+                        ref,
+                        outcome.reason,
+                        outcome.detail,
+                        ratio=ratio,
+                        attempts=outcome.attempts,
+                        verification=outcome.verification,
+                    )
+                )
+                log.info(
+                    "video_production.rendition_gap",
+                    campaign=ref,
+                    ratio=ratio,
+                    reason=outcome.reason,
+                )
+                continue
+            made.renditions.append(outcome)
+        return gaps
+
+    async def _clear(self, made: _Video) -> None:
+        """What an earlier attempt of this node post-produced — rows and files
+        (flushed here, so a remade row may reuse its id). The clips stay: they
+        are paid for, and every rendition is remade from them."""
+        rows = (
+            await self.ctx.db.execute(
+                sa.select(MediaArtifact).where(
+                    MediaArtifact.asset_id == made.asset.id,
+                    MediaArtifact.role.in_(_POSTPROD_ROLES),
+                )
+            )
+        ).scalars()
+        storage = self.production.media.storage
+        for row in list(rows):
+            await asyncio.to_thread(storage.delete, row.storage_path)
+            await self.ctx.db.delete(row)
+        await self.ctx.db.flush()
+
+    async def _ratio(self, made: _Video, ratio: str, source: str) -> VideoRendition | _Refused:
+        ref = made.plan.concepts.campaign_ref
+        wanted = {clip.index for clip in made.plan.clips}
+        done = {
+            clip.index: clip
+            for clip in made.clips
+            if clip.ratio == source and clip.status == "completed" and clip.media_id is not None
+        }
+        missing = sorted(wanted - set(done))
+        if missing:
+            return _Refused(
+                "clips_missing",
+                f"{ratio} is made from the {source} clips, and clip(s) "
+                f"{', '.join(str(i + 1) for i in missing)} of {len(wanted)} did not complete; "
+                "the gaps above say why.",
+            )
+        rows = {
+            row.id: row
+            for row in (
+                await self.ctx.db.execute(
+                    sa.select(MediaArtifact).where(
+                        MediaArtifact.id.in_([done[i].media_id for i in sorted(done)])
+                    )
+                )
+            ).scalars()
+        }
+        ordered = [(made.plan.clips[i], rows[done[i].media_id]) for i in sorted(done)]  # type: ignore[index]
+        creative = self.ctx.require_creative()
+        specs = creative.linter.ruleset.asset_specs.model_dump(mode="json").get("specs") or {}
+        types = [
+            spec
+            for spec in video.video_specs(specs, made.plan.concepts.campaign_type).values()
+            if spec.get("ratio") == ratio
+        ]
+        min_px = _largest_min_px(types)
+        caps = [int(spec["max_bytes"]) for spec in types if spec.get("max_bytes")]
+        width, height = post.even_size(
+            min(row.width for _, row in ordered),
+            min(row.height for _, row in ordered),
+            ratio,
+            min_px,
+            tolerance=self.knobs.ratio_tolerance,
+        )
+        clip_bytes = sum(row.bytes for _, row in ordered)
+        source_px = min(row.width * row.height for _, row in ordered)
+        footprint = math.ceil(clip_bytes * max(1.0, width * height / source_px))
+        free = await asyncio.to_thread(self.production.media.storage.free_bytes)
+        if free is not None and free < 2 * footprint:
+            return _Refused(
+                "storage_insufficient",
+                f"The media volume has {free:,} bytes free; assembling {ratio} needs at least "
+                f"{2 * footprint:,} (twice its estimated {footprint:,}-byte footprint). Free "
+                "space, then retry this node.",
+            )
+        await self.ctx.progress(f"Post-production {ref} {ratio}: assembling {width}x{height}")
+        expected = checks.Expected(
+            width=width,
+            height=height,
+            fps=self.knobs.fps,
+            duration_ms=made.plan.duration_s * 1000 + self.knobs.end_card_ms,
+            min_duration_s=made.plan.window.min_s,
+            max_duration_s=made.plan.window.max_s,
+            max_bytes=min(caps) if caps else None,
+        )
+        storage = self.production.media.storage
+        clips = [
+            (clip, await asyncio.to_thread(storage.get, row.storage_path)) for clip, row in ordered
+        ]
+        result = await asyncio.to_thread(
+            _post_produce,
+            clips,
+            ratio=ratio,
+            min_px=min_px,
+            script=made.script,
+            logos=self.logos,
+            templates=self.templates,
+            colour=self.colour,
+            knobs=self.knobs,
+            expected=expected,
+            model_id=self.production.choice.model_id,
+            brand_within_ms=creative.constants.video.brand_within_ms.value,
+            min_similarity=creative.constants.video.caption_ocr_min_similarity.value,
+        )
+        if isinstance(result, _Refused):
+            if result.reason == "verification_failed" and self.logo_unreadable:
+                result = _Refused(
+                    result.reason,
+                    f"{result.detail} (unreadable logos: {'; '.join(self.logo_unreadable)})",
+                    result.attempts,
+                    result.verification,
+                )
+            return result
+        await self.ctx.progress(
+            f"Post-production {ref} {ratio}: verified, brand at "
+            f"{result.verification.brand_first_at_ms} ms"
+        )
+        return await self._store(made, ratio, source, [row for _, row in ordered], result)
+
+    async def _store(
+        self,
+        made: _Video,
+        ratio: str,
+        source: str,
+        clips: list[MediaArtifact],
+        result: _Made,
+    ) -> VideoRendition:
+        run = self.ctx.run
+        storage = self.production.media.storage
+        master_id, preview_id, poster_id = (
+            _media_id(made.asset.id, ratio, role) for role in _POSTPROD_ROLES
+        )
+        master_key = f"creative/{run.id}/media/{made.asset.id}/{master_id}.mp4"
+        preview_key = f"creative/{run.id}/previews/{master_id}_preview.mp4"
+        poster_key = f"creative/{run.id}/previews/{master_id}_poster.jpg"
+        await asyncio.to_thread(storage.put, master_key, result.master, content_type="video/mp4")
+        await asyncio.to_thread(storage.put, preview_key, result.preview, content_type="video/mp4")
+        await asyncio.to_thread(storage.put, poster_key, result.poster, content_type="image/jpeg")
+        transform = result.prepared.transform(
+            encoder=post.encoder_record(result.assembled.profile), node_id=NODE_ID
+        )
+        for entry, row in zip(transform["clips"], clips, strict=True):
+            entry.pop("path", None)
+            entry["media_id"] = str(row.id)
+        transform["fonts"] = [list(pair) for pair in result.assembled.fonts]
+        transform["loudness"] = (
+            result.assembled.loudness.record() if result.assembled.loudness is not None else None
+        )
+        transform["ffmpeg_failures"] = [a.record() for a in result.assembled.failures]
+        facts, derivation = (
+            result.facts,
+            (MediaArtifactDerivation.NATIVE if source == ratio else MediaArtifactDerivation.CROP),
+        )
+        common = {
+            "workspace_id": run.workspace_id,
+            "asset_id": made.asset.id,
+            "aspect_ratio": ratio,
+        }
+        self.ctx.db.add_all(
+            [
+                MediaArtifact(
+                    id=master_id, role=MediaArtifactRole.RENDITION, storage_path=master_key,
+                    media_type="video/mp4", width=facts.width, height=facts.height,
+                    duration_ms=facts.duration_ms, bytes=facts.bytes, sha256=facts.sha256,
+                    derivation=derivation, transform=transform, probe=facts.as_json(),
+                    disclosure=result.stamp, **common,
+                ),
+                MediaArtifact(
+                    id=preview_id, role=MediaArtifactRole.PREVIEW, storage_path=preview_key,
+                    media_type="video/mp4", width=result.preview_facts.width,
+                    height=result.preview_facts.height,
+                    duration_ms=result.preview_facts.duration_ms,
+                    bytes=result.preview_facts.bytes, sha256=result.preview_facts.sha256,
+                    derivation=MediaArtifactDerivation.ENCODED, derived_from=master_id,
+                    transform=result.preview_geometry.transform(),
+                    probe=result.preview_facts.as_json(), disclosure=result.preview_stamp,
+                    **common,
+                ),
+            ]
+        )  # fmt: skip
+        await self.ctx.db.flush()  # the poster's FK needs the master row first
+        poster = probe_image(result.poster)
+        self.ctx.db.add(
+            MediaArtifact(
+                id=poster_id, role=MediaArtifactRole.POSTER, storage_path=poster_key,
+                media_type=poster.media_type, width=poster.width, height=poster.height,
+                bytes=poster.bytes, sha256=poster.sha256,
+                derivation=MediaArtifactDerivation.ENCODED, derived_from=master_id,
+                probe={**poster.as_json(), "t_ms": result.verification.brand_first_at_ms},
+                disclosure=result.poster_stamp, **common,
+            )
+        )  # fmt: skip
+        await self.ctx.db.flush()
+        verification = _verification_out(result.verification)
+        assert verification.brand_first_at_ms is not None  # noqa: S101 — verified above
+        return VideoRendition(
+            ratio=ratio,
+            px=f"{facts.width}x{facts.height}",
+            duration_ms=facts.duration_ms,
+            derivation="native" if source == ratio else "crop",
+            source_ratio=source,
+            brand_first_at_ms=verification.brand_first_at_ms,
+            captions_burned=bool(made.script.captions),
+            caption_ocr_min_similarity=verification.caption_ocr_min_similarity,
+            has_audio=result.prepared.assembly.has_source_audio,
+            bytes=facts.bytes,
+            disclosure=result.stamp,
+            media_id=master_id,
+            preview_media_id=preview_id,
+            poster_media_id=poster_id,
+            verification=verification,
+            failed_attempts=[FfmpegAttempt(**a.record()) for a in result.assembled.failures],
+        )
+
+
+def _post_produce(
+    clips: list[tuple[PlannedClip, bytes]],
+    *,
+    ratio: str,
+    min_px: str | None,
+    script: VideoScript,
+    logos: list[still.LogoArt],
+    templates: tuple[Any, ...],
+    colour: dict[str, Any] | None,
+    knobs: post.Knobs,
+    expected: checks.Expected,
+    model_id: str,
+    brand_within_ms: int,
+    min_similarity: float,
+) -> _Made | _Refused:
+    """One ratio, start to finish, in a scratch directory: plan → assemble →
+    stamp → verify → proxy → poster. Runs in a thread; touches no database."""
+    with scratch_dir(prefix="s4-video-") as work:
+        files: list[post.ClipFile] = []
+        out = work / "master.mp4"
+        try:
+            for clip, content in clips:
+                path = work / f"clip{clip.index}.mp4"
+                path.write_bytes(content)
+                files.append(post.ClipFile(path, probe_video(content), float(clip.duration_s)))
+            prepared = post.prepare(
+                files, ratio=ratio, min_px=min_px, script=script, logos=logos, colour=colour,
+                surface=LOGO_SURFACE, knobs=knobs, workdir=work / "plan", model_id=model_id,
+            )  # fmt: skip
+            assembled = post.assemble(prepared.assembly, out)
+        except post.AssemblyFailed as exc:
+            return _Refused(
+                "assembly_failed",
+                f"ffmpeg exited non-zero twice (standard, then conservative arguments): exit "
+                f"{exc.attempts[-1].exit_code}. The stderr tails are attached.",
+                [FfmpegAttempt(**a.record()) for a in exc.attempts],
+            )
+        except post.FfmpegFailed as exc:
+            return _Refused(
+                "assembly_failed",
+                str(exc),
+                [
+                    FfmpegAttempt(
+                        args="standard", exit_code=exc.exit_code, stderr_tail=exc.stderr_tail
+                    )
+                ],  # fmt: skip
+            )
+        except (post.AssemblyError, still.StretchError, ProbeError) as exc:
+            return _Refused("assembly_failed", str(exc))
+        try:
+            stamp = post.stamp(out, composited=True)
+        except post.StampError as exc:
+            return _Refused("stamp_failed", str(exc))
+        placement = prepared.logo.placement
+        verification = checks.verify(
+            out,
+            expected=expected,
+            captions=script.captions,
+            templates=templates,
+            logos=logos,
+            logo=(
+                checks.LogoWindow(box=placement.box, clear_space_px=placement.clear_space_px)
+                if placement is not None
+                else None
+            ),
+            brand_within_ms=brand_within_ms,
+            min_similarity=min_similarity,
+            caption_band=prepared.layout.caption_band,
+        )
+        if not verification.passed:
+            why = "; ".join(verification.failures)
+            if placement is None and prepared.logo.reason:
+                why += f" (no logo was placed: {prepared.logo.reason})"
+            return _Refused(
+                "verification_failed",
+                f"The assembled file failed verification, so it does not ship: {why}",
+                verification=_verification_out(verification),
+            )
+        assert verification.facts is not None  # noqa: S101 — passed implies probed
+        try:
+            preview_path = work / "preview.mp4"
+            geometry = post.preview_proxy(
+                out, preview_path, width=expected.width, height=expected.height
+            )
+            preview_stamp = post.stamp(preview_path, composited=True)
+            ms = verification.brand_first_at_ms or 0
+            poster, poster_stamp = still.stamp(
+                post.poster_jpeg(post.frame_at(out, ms / 1000)), composited=True
+            )
+        except post.FfmpegFailed as exc:
+            return _Refused(
+                "assembly_failed",
+                f"the verified master's proxy or poster could not be made: {exc}",
+                [
+                    FfmpegAttempt(
+                        args="standard", exit_code=exc.exit_code, stderr_tail=exc.stderr_tail
+                    )
+                ],  # fmt: skip
+            )
+        except (post.StampError, still.StampError) as exc:
+            return _Refused("stamp_failed", str(exc))
+        preview = preview_path.read_bytes()
+        return _Made(
+            prepared=prepared,
+            assembled=assembled,
+            facts=verification.facts,
+            master=out.read_bytes(),
+            stamp=stamp,
+            verification=verification,
+            preview=preview,
+            preview_facts=probe_video(preview),
+            preview_stamp=preview_stamp,
+            preview_geometry=geometry,
+            poster=poster,
+            poster_stamp=poster_stamp,
+        )
+
+
+def _verification_out(result: checks.Verification) -> VideoVerification:
+    return VideoVerification.model_validate(
+        {key: value for key, value in result.record().items() if key != "boxes"}
+    )
+
+
+def _media_id(asset_id: uuid.UUID, ratio: str, role: MediaArtifactRole) -> uuid.UUID:
+    """One id per (video asset, ratio, role), the same on every attempt: an
+    attempt that died after writing a file leaves it at the key the next one
+    overwrites (§7.4 keys files by media id), never an orphan beside it."""
+    return uuid.uuid5(asset_id, f"{NODE_ID}:{ratio}:{role.value}")
+
+
+def _largest_min_px(specs: list[dict[str, Any]]) -> str | None:
+    sizes = [still.parse_px(str(spec["min_px"])) for spec in specs if spec.get("min_px")]
+    if not sizes:
+        return None
+    return f"{max(w for w, _ in sizes)}x{max(h for _, h in sizes)}"
 
 
 # ---------------------------------------------------------------------------
