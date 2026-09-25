@@ -23,13 +23,14 @@ from __future__ import annotations
 import json
 import uuid
 from collections.abc import Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
-import sqlalchemy as sa
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from agent.creative import offers
 from agent.db.models import (
     CreativeAssetKind,
     CreativeAssetStatus,
@@ -39,7 +40,8 @@ from agent.db.models import (
 )
 from agent.orchestrator.dag import Dag
 from agent.preview import urlcheck
-from agent.schemas.extras import SitelinksCalloutsSnippetsOutput
+from agent.schemas.extras import OfferAssetsOutput, SitelinksCalloutsSnippetsOutput
+from agent.schemas.guardrails import OfferRecord
 from tests.integration.conftest import ApiClient
 from tests.integration.creative_support import TEXT_ONLY
 from tests.integration.runs_support import execute
@@ -47,6 +49,7 @@ from tests.integration.test_s4p4_brief_g7 import _g7
 from tests.integration.test_s4p5_headlines_combinations import _assets, _output
 from tests.integration.test_s4p6_descriptions_variant_b import _registry, _seed
 from tests.integration.test_s4p7_landing import _Script as _LandingScript
+from tests.integration.test_s4p7_landing import _sections
 from tests.openrouter_fake import completion
 
 pytestmark = pytest.mark.asyncio
@@ -83,6 +86,10 @@ SITELINKS = [
     ("Old page", f"{SITE}/gone"),  # 404
     ("Compare plans", f"{SITE}/plans"),  # lands on /pricing: a duplicate
 ]
+OFFER_SPECS: dict[str, dict[str, Any]] = {
+    "promotion": {"max_chars": 20, "max_count": 2, **SPEC},
+    "price": {"max_chars": 25, "min_count": 3, "max_count": 8, **SPEC},
+}
 CALLOUTS = ["Audit-ready SDS library", "Free onboarding", "Chemical inventory"]
 SNIPPET = {"header": "Types", "values": ["Safety data sheets", "Chemical labels", "Inventory"]}
 
@@ -140,7 +147,71 @@ class _Script(_LandingScript):
                 },
                 model=body["model"],
             )
+        if name == "OfferAssetsDraft":
+            self.requests.setdefault(name, []).append(body)
+            schema = body["response_format"]["json_schema"]["schema"]
+            defs = schema["$defs"]
+            answer: dict[str, Any] = {}
+            if "promotions" in schema["properties"]:
+                keys = list(defs["PromotionsDraft"]["properties"])
+                answer["promotions"] = {
+                    key: {"text": text} for key, text in zip(keys, PROMOTION_TEXT, strict=False)
+                }
+            if "price" in schema["properties"]:
+                keys = list(defs["PriceItemsDraft"]["properties"])
+                answer["price"] = {
+                    "type": "SERVICE_TIERS",
+                    "items": {
+                        key: {"header": header, "description": "For growing EHS teams"}
+                        for key, header in zip(keys, PRICE_HEADERS, strict=False)
+                    },
+                }
+            return completion(answer, model=body["model"])
         return super()._respond(request)
+
+
+PROMOTION_TEXT = ["SDS software", "Team SDS plan"]
+PRICE_HEADERS = ["Professional plan", "Team plan", "Starter plan"]
+
+
+def _offer(sku: str, *, age: timedelta = timedelta(hours=1), **fields: Any) -> dict[str, Any]:
+    now = datetime.now(UTC)
+    return {
+        "sku": sku,
+        "product_set": "plans",
+        "list_price": 99.0,
+        "current_price": 99.0,
+        "currency": "USD",
+        "market": "US",
+        "effective_from": (now - timedelta(days=1)).isoformat(),
+        "ends_at": (now + timedelta(days=18)).isoformat(),
+        "observed_at": (now - age).isoformat(),
+        **fields,
+    }
+
+
+#: Fresh: a percentage off, an amount off, no saving. Stale: a bigger saving.
+FRESH = [
+    _offer("SDS-PRO", list_price=129.0, reference_price=129.0, current_price=99.0),
+    _offer("SDS-TEAM", list_price=59.0, current_price=49.0),
+    _offer("SDS-STARTER", list_price=29.0, current_price=29.0),
+]
+STALE = [_offer("SDS-OLD", age=timedelta(days=30), reference_price=199.0, current_price=99.0)]
+
+
+async def _offers(db: AsyncSession, project_id: uuid.UUID, rows: list[dict[str, Any]]) -> None:
+    """The offer snapshot's rows, as `csv_ingest` stores them."""
+    for row in rows:
+        db.add(
+            Evidence(
+                project_id=project_id,
+                source=EvidenceSource.CSV,
+                kind="offer_record",
+                payload=row,
+                hash=f"offer-{row['sku']}",
+            )
+        )
+    await db.commit()
 
 
 async def _crawl(db: AsyncSession, project_id: uuid.UUID, urls: list[str]) -> None:
@@ -270,6 +341,7 @@ async def test_a_pin_without_the_extras_specs_is_spec_missing_and_asks_no_model(
     web: _Web,
 ) -> None:
     await _crawl(db, project_id, CRAWLED)
+    await _offers(db, project_id, FRESH)
     run_id, script, _ = await _run(admin, db, workspace_id, project_id, admin_user.id)
     output = SitelinksCalloutsSnippetsOutput.model_validate(await _output(db, run_id, "4.3.1"))
     assert output.status == "spec_missing"
@@ -281,6 +353,105 @@ async def test_a_pin_without_the_extras_specs_is_spec_missing_and_asks_no_model(
     }
     assert "SitelinksCalloutsSnippetsDraft" not in script.requests
     assert web.requests == []
+    # 4.3.2: fresh offers, but the pin has neither surface.
+    offer_output = OfferAssetsOutput.model_validate(await _output(db, run_id, "4.3.2"))
+    assert offer_output.status == "spec_missing"
+    assert offer_output.offers_fresh == 3
+    assert {(g.asset_type, g.reason) for g in offer_output.gaps} == {
+        ("promotion", "spec_missing"),
+        ("price", "spec_missing"),
+    }
+    assert "OfferAssetsDraft" not in script.requests
     rows = await _assets(db, run_id)
-    assert not [row for row in rows.values() if row.node_id == "4.3.1"]
-    _ = sa
+    assert not [row for row in rows.values() if row.node_id in ("4.3.1", "4.3.2")]
+
+
+# ---------------------------------------------------------------------------
+# 4.3.2
+# ---------------------------------------------------------------------------
+
+
+async def test_every_promotion_and_price_figure_is_an_offer_binding(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+) -> None:
+    await _offers(db, project_id, [*FRESH, *STALE])
+    run_id, script, _ = await _run(
+        admin, db, workspace_id, project_id, admin_user.id, extra_specs=OFFER_SPECS
+    )
+    output = OfferAssetsOutput.model_validate(await _output(db, run_id, "4.3.2"))
+    assert output.status == "required"
+    assert (output.offers_fresh, output.offers_stale) == (3, 1)
+
+    # --- the model saw no figure and could write none ------------------------
+    (request,) = script.requests["OfferAssetsDraft"]
+    schema = json.dumps(request["response_format"]["json_schema"]["schema"])
+    assert '"number"' not in schema and '"integer"' not in schema
+    user = next(m["content"] for m in request["messages"] if m["role"] == "user")
+    listed = _sections(user)["OFFERS"]
+    shown = json.dumps([entry for group in listed.values() for entry in group.values()])
+    assert not any(ch.isdigit() for ch in shown), shown
+    assert "USD" not in shown
+    assert "SDS-OLD" not in user  # stale: skipped, never guessed
+
+    # --- every number and date is a binding, rendered from the record -------
+    records = {row["sku"]: OfferRecord.model_validate(row) for row in FRESH}
+    by_sku = {p.offer_binding.sku_or_set: p for p in output.promotions}
+    assert set(by_sku) == {"SDS-PRO", "SDS-TEAM"}  # SDS-STARTER saves nothing
+    pro, team = by_sku["SDS-PRO"], by_sku["SDS-TEAM"]
+    assert (pro.discount_kind, pro.bound.percent_off, pro.bound.currency) == (
+        "percent_off",
+        "23",
+        "USD",
+    )
+    assert (team.discount_kind, team.bound.money_off) == ("money_off", "10.00")
+    for sku, promotion in by_sku.items():
+        binding = promotion.offer_binding
+        assert binding.offer_record_id == offers.record_id(records[sku])
+        assert binding.resolved == offers.resolve(records[sku], binding.fields)
+        assert promotion.end == records[sku].ends_at.isoformat()  # type: ignore[union-attr]
+        assert not any(ch.isdigit() for ch in promotion.text)
+    (price,) = output.prices
+    assert price.type == "SERVICE_TIERS"
+    assert {item.offer_binding.sku_or_set: item.bound.price for item in price.items} == {
+        "SDS-PRO": "99.00",
+        "SDS-STARTER": "29.00",
+        "SDS-TEAM": "49.00",
+    }
+
+    # --- rows: linted at creation, the binding stored beside the figures ----
+    rows = [row for row in (await _assets(db, run_id)).values() if row.node_id == "4.3.2"]
+    assert {row.kind for row in rows} == {CreativeAssetKind.PROMOTION, CreativeAssetKind.PRICE}
+    assert len(rows) == 2 + 3
+    for row in rows:
+        assert row.status is CreativeAssetStatus.LINTED
+        assert row.lint["verdict"] in ("pass", "pass_with_warnings")
+        assert row.offer_binding is not None
+        shown = row.fields["bound"]
+        assert all(shown[key] == row.offer_binding["resolved"][key] for key in shown)
+        assert row.offer_binding["sku_or_set"] != "SDS-OLD"
+
+
+async def test_stale_offers_are_not_required_and_ask_no_model(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+) -> None:
+    await _offers(db, project_id, STALE)
+    run_id, script, _ = await _run(
+        admin, db, workspace_id, project_id, admin_user.id, extra_specs=OFFER_SPECS
+    )
+    output = OfferAssetsOutput.model_validate(await _output(db, run_id, "4.3.2"))
+    assert output.status == "not_required"
+    assert (output.offers_fresh, output.offers_stale) == (0, 1)
+    assert "never guessed" in output.why
+    assert "OfferAssetsDraft" not in script.requests
+    rows = await _assets(db, run_id)
+    assert not [row for row in rows.values() if row.node_id == "4.3.2"]

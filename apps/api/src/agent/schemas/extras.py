@@ -44,6 +44,7 @@ GapReason = Literal[
     "no_fresh_offer_in_market",
     "no_discount",
     "too_few_offers",
+    "unbindable_offer",
     "no_lead_definition",
     "no_crm_history",
     "no_audited_form",
