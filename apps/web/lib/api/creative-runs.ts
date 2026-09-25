@@ -9,7 +9,7 @@
  * ask", and whether someone may decide G7 is `ApprovalItem.can_decide` on the
  * approvals surface — the brief page reads it from there, never from here.
  */
-import { apiFetch } from "@/lib/api";
+import { API_BASE, ApiError, apiFetch, type Problem } from "@/lib/api";
 import type { LintResult } from "@/lib/api/lint";
 
 export type SourceStage = "S1" | "S2" | "S3";
@@ -175,6 +175,25 @@ export type CreativeAssetItem = {
   content_hash: string;
   frozen_at: string | null;
   created_at: string;
+  /** A promotion's or price's figures, each an `OfferRecord` field reference. */
+  offer_binding: OfferBinding | null;
+  /** The record `offer_binding` was rendered from, in the run's pinned snapshot. */
+  offer: OfferSource | null;
+};
+
+/**
+ * The `OfferRecord` observation a bound asset was rendered from (law 35).
+ * `evidence_id` is its `offer_record` row, for the link; null once deleted.
+ */
+export type OfferSource = {
+  evidence_id: string | null;
+  sku: string;
+  product_set: string;
+  market: string;
+  effective_from: string | null;
+  effective_to: string | null;
+  ends_at: string | null;
+  observed_at: string | null;
 };
 
 export type GenerationStatus =
@@ -449,4 +468,242 @@ export function swapCreativeAsset(assetId: string, reserveId: string): Promise<R
     method: "POST",
     body: JSON.stringify({ with_reserve_id: reserveId }),
   });
+}
+
+/* -------------------------------------------------------------------------
+ * Extras (4.3.1–4.3.3, PRD §15.4 F) — mirrors `agent.schemas.extras`.
+ * ---------------------------------------------------------------------- */
+
+export type UrlStatus = "ok" | "off_domain" | "http_error" | "unreachable" | "too_many_redirects" | "duplicate";
+
+/** `preview/urlcheck.py`'s answer for one URL. */
+export type UrlCheckRef = {
+  status: UrlStatus;
+  final_url_after_redirects: string | null;
+  http_status: number | null;
+};
+
+/** Why an extra was not written for a campaign — a recorded outcome, never a guess. */
+export type ExtraGap = { campaign_ref: string; asset_type: string; reason: string; detail: string };
+
+export type Sitelink = {
+  asset_id: string;
+  link_text: string;
+  line1: string;
+  line2: string;
+  final_url: string;
+  url_check: UrlCheckRef;
+  lint: LintRef;
+};
+
+/** A sitelink whose URL failed its check: shown with why, never an asset. */
+export type RejectedSitelink = { link_text: string; final_url: string; url_check: UrlCheckRef };
+
+export type Callout = { asset_id: string; text: string; lint: LintRef };
+export type StructuredSnippet = { asset_id: string; header: string; values: string[]; lint: LintRef };
+
+export type CampaignExtras = {
+  campaign_ref: string;
+  campaign_type: string;
+  market: string;
+  language: string;
+  sitelinks: Sitelink[];
+  rejected_sitelinks: RejectedSitelink[];
+  callouts: Callout[];
+  snippets: StructuredSnippet[];
+  gaps: ExtraGap[];
+};
+
+export type SitelinksCalloutsSnippetsOutput = {
+  status: "required" | "spec_missing";
+  why: string;
+  campaigns: CampaignExtras[];
+};
+
+export type Promotion = {
+  asset_id: string;
+  campaign_ref: string;
+  discount_kind: "percent_off" | "money_off";
+  bound: { percent_off: string | null; money_off: string | null; currency: string };
+  start: string | null;
+  end: string | null;
+  final_url: string;
+  text: string;
+  offer_binding: OfferBinding;
+  lint: LintRef;
+};
+
+export type PriceItem = {
+  asset_id: string;
+  header: string;
+  description: string;
+  bound: { price: string; currency: string };
+  final_url: string;
+  offer_binding: OfferBinding;
+  lint: LintRef;
+};
+
+export type PriceAsset = { price_asset_id: string; campaign_ref: string; type: string; items: PriceItem[] };
+
+export type OfferAssetsOutput = {
+  status: "not_required" | "spec_missing" | "required";
+  why: string;
+  offers_fresh: number;
+  offers_stale: number;
+  promotions: Promotion[];
+  prices: PriceAsset[];
+  gaps: ExtraGap[];
+};
+
+export type LeadFormQuestion = { type: string; text: string | null; options: string[]; qualifies_signal: string | null };
+
+export type LeadForm = {
+  asset_id: string;
+  headline: string;
+  description: string;
+  cta: string;
+  questions: LeadFormQuestion[];
+  privacy_policy_url: string;
+  privacy_url_check: UrlCheckRef;
+  lint: LintRef;
+};
+
+/** `leadform.field_tradeoff_v1`'s chosen point, and the `derived` rows behind it. */
+export type LeadFormTradeoff = {
+  fields_n: number;
+  expected_leads: number;
+  expected_qualified: number;
+  calc_evidence_ids: string[];
+};
+
+export type CampaignLeadForm = {
+  campaign_ref: string;
+  campaign_type: string;
+  form: LeadForm | null;
+  tradeoff: LeadFormTradeoff | null;
+  gaps: ExtraGap[];
+};
+
+export type LeadFormOutput = {
+  status: "not_required" | "spec_missing" | "required";
+  why: string;
+  campaigns: CampaignLeadForm[];
+};
+
+/** One form length `leadform.field_tradeoff_v1` weighed (its `result.options[]`). */
+export type TradeoffOption = {
+  fields_n: number;
+  signals_asked: number;
+  expected_leads: number;
+  junk_rate: number;
+  expected_qualified: number;
+};
+
+/* -------------------------------------------------------------------------
+ * Landing audits (4.5.1–4.5.2, PRD §15.4 J) — mirrors `agent.schemas.landing`.
+ * ---------------------------------------------------------------------- */
+
+export type LandingDevice = "mobile" | "desktop";
+export type LandingAuditVerdict = "ok" | "needs_change" | "blocking_for_launch" | "unreachable";
+
+/** A DOM box in page coordinates at scroll 0, in CSS px. */
+export type Box = { x: number; y: number; width: number; height: number };
+export type ByDevice<T> = { mobile: T; desktop: T };
+
+export type MatchScore = {
+  campaign_ref: string;
+  ad_group_ref: string;
+  device: LandingDevice;
+  score: number;
+  best_headline: string | null;
+};
+
+export type MessageMatch = {
+  score: number | null;
+  metric: "match.token_trigram_v1";
+  threshold: number;
+  verdict: "pass" | "fail" | "unavailable";
+  scores: MatchScore[];
+  evidence_ids: string[];
+};
+
+export type ProposedH1 = { text: string; score: number; lint: LintRef };
+
+export type OfferAboveFold = { phrase: string; found: boolean; bbox: Box | null; device: LandingDevice };
+
+export type FormField = { name: string; label: string | null; type: string; required: boolean; mapped_signal: string | null };
+export type KeepReason = { field: string; reason: "required_signal" | "consent" | "privacy" | "routing_contact"; signal: string };
+
+export type FormAudit = {
+  form_index: number | null;
+  fields: FormField[];
+  minimal_set: string[];
+  remove: string[];
+  keep_reason: KeepReason[];
+  missing_signals: string[];
+};
+
+export type LandingAuditItem = {
+  id: string;
+  creative_run_id: string;
+  url: string;
+  final_url: string | null;
+  http_status: number | null;
+  ad_group_refs: string[];
+  verdict: LandingAuditVerdict;
+  reasons: string[];
+  h1: ByDevice<string | null>;
+  fold_px: ByDevice<number | null>;
+  obscured_by_overlay: ByDevice<boolean>;
+  message_match: MessageMatch | null;
+  proposed_h1: ProposedH1 | null;
+  proposed_h1_note: string | null;
+  offer_above_fold: OfferAboveFold[];
+  form: FormAudit | null;
+  /** Storage keys, per device; null where the page never rendered. */
+  screenshots: ByDevice<string | null>;
+  has_patch: boolean;
+  evidence_ids: string[];
+  created_at: string;
+};
+
+/** A proposal for the site owner (law 41). Stage 04 deploys nothing. */
+export type LandingPagePatch = {
+  h1: string | null;
+  offer_block: { phrase: string; devices: LandingDevice[] } | null;
+  remove_fields: string[];
+  html_snippet: string;
+};
+
+export function listLandingAudits(runId: string): Promise<{ items: LandingAuditItem[] }> {
+  return apiFetch(`/creative-runs/${runId}/landing-audits`);
+}
+
+export function getLandingPatch(auditId: string): Promise<LandingPagePatch> {
+  return apiFetch(`/landing-audits/${auditId}/patch?format=json`);
+}
+
+/**
+ * The patch as markup, exactly as the api serves it for the site owner. It is
+ * read as text and shown as text — never parsed into this page.
+ */
+export async function getLandingPatchHtml(auditId: string): Promise<string> {
+  const path = `/landing-audits/${auditId}/patch?format=html`;
+  const response = await fetch(`${API_BASE}${path}`, { credentials: "include", headers: { Accept: "text/html" } });
+  const text = await response.text();
+  if (!response.ok) {
+    let problem: Problem | null = null;
+    try {
+      problem = JSON.parse(text) as Problem;
+    } catch {
+      // Not a problem document (a proxy's HTML error page): the status says it.
+    }
+    throw new ApiError(response.status, problem, `GET ${path} → ${response.status}`);
+  }
+  return text;
+}
+
+/** Where the browser loads a device's capture from (same origin, via the rewrite). */
+export function landingScreenshotUrl(auditId: string, device: LandingDevice): string {
+  return `${API_BASE}/landing-audits/${auditId}/screenshot?device=${device}`;
 }
