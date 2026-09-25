@@ -276,7 +276,7 @@ function Grid({
   return (
     <div className="flex min-w-0 flex-col gap-2">
       <h3 className="text-xs font-medium text-fg-muted">{title}</h3>
-      <div className="overflow-x-auto">
+      <div className="relative overflow-x-auto">
         <table role="grid" aria-label={`${title} pairs`} onKeyDown={move} className="border-separate border-spacing-0.5">
           <thead>
             <tr>

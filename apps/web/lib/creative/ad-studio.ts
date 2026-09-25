@@ -219,18 +219,48 @@ export function pairState(ad: StudioAd, a: CreativeAssetItem, b: CreativeAssetIt
   return edited ? { state: "stale", pair } : { state: "checked", pair };
 }
 
-export type Combination = { headlines: CreativeAssetItem[]; descriptions: CreativeAssetItem[] };
+export type Combination = {
+  headlines: CreativeAssetItem[];
+  descriptions: CreativeAssetItem[];
+  /** False when pins leave no combination Google serves with every focus asset in it. */
+  servable: boolean;
+};
+
+const HEADLINE_SLOTS = ["H1", "H2", "H3"];
+const DESCRIPTION_SLOTS = ["D1", "D2"];
 
 /**
  * One combination Google could serve: three headline slots and two
  * description slots, a pinned asset only in its pinned slot, the `focus`
  * assets (a pair from the heatmap) placed first wherever their pins allow.
+ *
+ * When the pins leave no room for the whole pair — H1 and H2 pinned, and two
+ * unpinned headlines asked for — the pair is still shown, first, so it can be
+ * read, and `servable` says Google never shows it that way.
  */
 export function combination(ad: StudioAd, focus: string[] = []): Combination {
+  const headlines = fill(ad.headlines, HEADLINE_SLOTS, focus);
+  const descriptions = fill(ad.descriptions, DESCRIPTION_SLOTS, focus);
+  const placed = new Set([...headlines, ...descriptions].map((asset) => asset.id));
+  if (focus.every((id) => placed.has(id))) return { headlines, descriptions, servable: true };
   return {
-    headlines: fill(ad.headlines, ["H1", "H2", "H3"], focus),
-    descriptions: fill(ad.descriptions, ["D1", "D2"], focus),
+    headlines: first(ad.headlines, HEADLINE_SLOTS, focus),
+    descriptions: first(ad.descriptions, DESCRIPTION_SLOTS, focus),
+    servable: false,
   };
+}
+
+/** The focus assets first, whatever their pins; the slots left filled as usual. */
+function first(assets: CreativeAssetItem[], positions: string[], focus: string[]): CreativeAssetItem[] {
+  const chosen = focus
+    .map((id) => assets.find((asset) => asset.id === id))
+    .filter((asset): asset is CreativeAssetItem => asset !== undefined);
+  const rest = fill(
+    assets.filter((asset) => !focus.includes(asset.id)),
+    positions.slice(chosen.length),
+    [],
+  );
+  return [...chosen, ...rest].slice(0, positions.length);
 }
 
 function fill(assets: CreativeAssetItem[], positions: string[], focus: string[]): CreativeAssetItem[] {
@@ -249,6 +279,11 @@ function fill(assets: CreativeAssetItem[], positions: string[], focus: string[])
     slots.push(pick);
   }
   return slots;
+}
+
+/** A market as a person reads it: `*` is the plan's "no market named". */
+export function marketLabel(market: string): string {
+  return market === "*" ? "All markets" : market;
 }
 
 /** "H4", "D2": where an asset sits in its ad's list, as a person refers to it. */

@@ -107,47 +107,64 @@ export function CopyText({
   label,
   edit,
   editable,
+  multiline = false,
+  below,
   children,
 }: {
   id: string;
   label: string;
   edit: CopyEdit;
   editable: boolean;
+  /** A description wraps as it will on the page; a headline is one line. */
+  multiline?: boolean;
+  /** Shown under the text either way: claim chips, a counter. */
+  below?: React.ReactNode;
   /** The read-only rendering (a claim span highlighted, say). */
   children?: React.ReactNode;
 }) {
   const errorId = useId();
   if (!editable) {
-    return <span className="block max-w-md whitespace-normal text-sm text-fg">{children ?? edit.text}</span>;
+    return (
+      <div className="flex flex-col gap-1">
+        <span className="block whitespace-normal text-sm text-fg">{children ?? edit.text}</span>
+        {below}
+      </div>
+    );
   }
+  const field = {
+    id,
+    "aria-label": label,
+    value: edit.text,
+    "aria-invalid": edit.verdict === "fail" ? true : undefined,
+    "aria-describedby": edit.error ? errorId : undefined,
+    spellCheck: true,
+    onBlur: () => void edit.save(),
+    className: cn(
+      "w-full rounded-token border border-transparent bg-transparent px-2 py-1 text-sm text-fg",
+      "hover:border-border focus:border-border-strong focus:bg-surface-raised",
+      "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
+      edit.dirty && "border-border bg-surface-raised",
+      multiline && "field-sizing-content resize-none",
+    ),
+  };
+  // Enter saves in both: an ad's copy is one line, however it wraps on screen.
+  const keys = (event: React.KeyboardEvent) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void edit.save();
+    } else if (event.key === "Escape" && edit.dirty) {
+      event.preventDefault();
+      edit.revert();
+    }
+  };
   return (
-    <div className="flex min-w-72 flex-col gap-1">
-      <input
-        id={id}
-        type="text"
-        aria-label={label}
-        value={edit.text}
-        aria-invalid={edit.verdict === "fail" ? true : undefined}
-        aria-describedby={edit.error ? errorId : undefined}
-        spellCheck
-        onChange={(event) => edit.change(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            void edit.save();
-          } else if (event.key === "Escape" && edit.dirty) {
-            event.preventDefault();
-            edit.revert();
-          }
-        }}
-        onBlur={() => void edit.save()}
-        className={cn(
-          "w-full rounded-token border border-transparent bg-transparent px-2 py-1 text-sm text-fg",
-          "hover:border-border focus:border-border-strong focus:bg-surface-raised",
-          "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent",
-          edit.dirty && "border-border bg-surface-raised",
-        )}
-      />
+    <div className="flex flex-col gap-1">
+      {multiline ? (
+        <textarea {...field} rows={2} onChange={(event) => edit.change(event.target.value)} onKeyDown={keys} />
+      ) : (
+        <input {...field} type="text" onChange={(event) => edit.change(event.target.value)} onKeyDown={keys} />
+      )}
+      {below ? <div className="px-2">{below}</div> : null}
       {edit.error ? (
         <p id={errorId} role="alert" className="max-w-md whitespace-normal px-2 text-xs text-status-failed-ink">
           {edit.error}

@@ -96,7 +96,12 @@ export function SerpPreview({
 
       {/* The frame keeps its true width; a narrow screen scrolls it rather
           than squeezing it, because a squeezed frame measures nothing. */}
-      <div className="overflow-x-auto rounded-token border bg-surface p-4">
+      <div
+        role="region"
+        aria-label={`Search result at ${mobile ? "328" : "600"} px`}
+        tabIndex={0}
+        className="relative overflow-x-auto rounded-token border bg-surface p-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      >
         <div className="flex w-max items-start gap-2">
           <div
             data-testid="serp-frame"
@@ -181,14 +186,17 @@ function display(line: SerpLine): string {
   return measuredText(line.surface, line.text);
 }
 
+/**
+ * Where a line stands against its frame. The span's bounding box, not its
+ * client rects: under `text-overflow: ellipsis` Chromium splits a cut span's
+ * rects around the ellipsis, and the last of them sits inside the frame.
+ */
 function fitOf(span: HTMLElement, box: DOMRect): Fit {
-  const rects = Array.from(span.getClientRects());
-  const first = rects[0];
-  const last = rects[rects.length - 1];
-  if (!first || !last) return "hidden";
+  const rect = span.getBoundingClientRect();
+  if (rect.width === 0 && rect.height === 0) return "hidden";
   const slack = 0.5;
-  if (first.left >= box.right - slack || first.top >= box.bottom - slack) return "hidden";
-  if (last.right > box.right + slack || last.bottom > box.bottom + slack) return "cut";
+  if (rect.left >= box.right - slack || rect.top >= box.bottom - slack) return "hidden";
+  if (rect.right > box.right + slack || rect.bottom > box.bottom + slack) return "cut";
   return "shown";
 }
 

@@ -85,12 +85,12 @@ function Column({ ad, angle, title }: { ad: StudioAd; angle: string | null; titl
           <dt className="text-xs text-fg-muted">Descriptions served first</dt>
           <dd className="text-fg">{shown.descriptions.map((asset) => asset.text).join(" ")}</dd>
         </div>
-        <div className="flex gap-4 text-xs tabular-nums text-fg-muted">
-          <span>{ad.headlines.length} headlines</span>
-          <span>{ad.descriptions.length} descriptions</span>
-          <span>{ad.headlineReserves.length + ad.descriptionReserves.length} in reserve</span>
-        </div>
       </dl>
+      <p className="flex gap-4 text-xs tabular-nums text-fg-muted">
+        <span>{ad.headlines.length} headlines</span>
+        <span>{ad.descriptions.length} descriptions</span>
+        <span>{ad.headlineReserves.length + ad.descriptionReserves.length} in reserve</span>
+      </p>
     </div>
   );
 }

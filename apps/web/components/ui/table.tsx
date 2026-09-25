@@ -26,7 +26,10 @@ export function Table({
   label: string;
 }) {
   return (
-    <div className="w-full overflow-x-auto">
+    // `relative`: an `sr-only` cell is absolutely positioned, and without a
+    // positioned ancestor inside the scroller it escapes the scroller's clip
+    // and widens the page instead.
+    <div className="relative w-full overflow-x-auto">
       <table className={cn("w-full min-w-max border-collapse text-sm", className)}>
         <caption className="sr-only">{label}</caption>
         {children}

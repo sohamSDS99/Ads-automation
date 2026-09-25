@@ -68,12 +68,10 @@ export function DescriptionTable({
         <Table label={`Descriptions of ${ad.slot.ad_group_ref}, variant ${ad.variant}`}>
           <thead>
             <tr>
-              <Th className="w-12">#</Th>
-              <Th>Description</Th>
-              <Th className="text-right">Length</Th>
-              <Th>Pin</Th>
-              <Th>Lint</Th>
-              <Th>Bound claim</Th>
+              <Th className="w-10 px-3">#</Th>
+              <Th className="px-3">Description</Th>
+              <Th className="px-3">Lint</Th>
+              <Th className="px-3">Bound claim</Th>
             </tr>
           </thead>
           <tbody>
@@ -115,12 +113,11 @@ export function DescriptionTable({
             <Table label={`Reserve descriptions of ${ad.slot.ad_group_ref}, variant ${ad.variant}`}>
               <thead>
                 <tr>
-                  <Th>Reserve</Th>
-                  <Th className="text-right">Length</Th>
-                  <Th>Lint</Th>
-                  <Th>Bound claim</Th>
+                  <Th className="px-3">Reserve</Th>
+                  <Th className="px-3">Lint</Th>
+                  <Th className="px-3">Bound claim</Th>
                   {editable ? (
-                    <Th>
+                    <Th className="px-3">
                       <span className="sr-only">Swap</span>
                     </Th>
                   ) : null}
@@ -129,20 +126,22 @@ export function DescriptionTable({
               <tbody>
                 {ad.descriptionReserves.map((reserve) => (
                   <Tr key={reserve.id}>
-                    <Td className="max-w-md whitespace-normal">
-                      <ClaimSpan asset={reserve} />
+                    <Td className="w-80 min-w-72 whitespace-normal px-3">
+                      <div className="flex flex-col gap-1">
+                        <span>
+                          <ClaimSpan asset={reserve} />
+                        </span>
+                        <CharCounter count={charCount(reserve.surface, reserve.text ?? "")} limit={limit} />
+                      </div>
                     </Td>
-                    <Td className="text-right">
-                      <CharCounter count={charCount(reserve.surface, reserve.text ?? "")} limit={limit} />
-                    </Td>
-                    <Td>
+                    <Td className="px-3">
                       <LintChip verdict={reserve.lint_verdict} />
                     </Td>
-                    <Td>
+                    <Td className="px-3">
                       <BoundClaim ids={reserve.claim_ids} claims={claims} />
                     </Td>
                     {editable ? (
-                      <Td>
+                      <Td className="px-3">
                         {reserve.frozen_at === null ? (
                           <SwapMenu
                             reserve={reserve}
@@ -190,32 +189,33 @@ function DescriptionRow({
   const edit = useCopyEdit(runId, asset, scope);
   return (
     <Tr data-testid={`description-${asset.id}`}>
-      <Td className="font-mono text-xs tabular-nums text-fg-muted">{label}</Td>
-      <Td className="py-2">
-        <CopyText id={`copy-${asset.id}`} label={`${label} description`} edit={edit} editable={editable}>
+      <Td className="px-3 font-mono text-xs tabular-nums text-fg-muted">{label}</Td>
+      <Td className="w-80 min-w-72 whitespace-normal px-3 py-2">
+        <CopyText
+          id={`copy-${asset.id}`}
+          label={`${label} description`}
+          edit={edit}
+          editable={editable}
+          multiline
+          below={
+            <span className="flex items-center gap-2">
+              <CharCounter count={edit.count} limit={limit} />
+              {asset.pin_position ? (
+                <Badge tone="accent" className="whitespace-nowrap">
+                  <Pin className="size-3" aria-hidden />
+                  Pin {asset.pin_position.slice(1)}
+                </Badge>
+              ) : null}
+            </span>
+          }
+        >
           <ClaimSpan asset={asset} />
         </CopyText>
       </Td>
-      <Td className="text-right">
-        <CharCounter count={edit.count} limit={limit} />
-      </Td>
-      <Td>
-        {asset.pin_position ? (
-          <Badge tone="accent" className="whitespace-nowrap">
-            <Pin className="size-3" aria-hidden />
-            Pin {asset.pin_position.slice(1)}
-          </Badge>
-        ) : (
-          <span className="text-xs text-fg-muted">
-            <span aria-hidden>—</span>
-            <span className="sr-only">Not pinned</span>
-          </span>
-        )}
-      </Td>
-      <Td>
+      <Td className="px-3">
         <LintChip verdict={edit.verdict} pending={edit.pending} />
       </Td>
-      <Td>
+      <Td className="w-56 px-3">
         <BoundClaim ids={asset.claim_ids} claims={claims} />
       </Td>
     </Tr>
@@ -241,7 +241,7 @@ function ClaimSpan({ asset }: { asset: CreativeAssetItem }) {
 
 function BoundClaim({ ids, claims }: { ids: string[]; claims: Map<string, ClaimRef> }) {
   return (
-    <ul className="flex max-w-72 flex-col gap-1">
+    <ul className="flex max-w-56 flex-col gap-1">
       {ids.map((id) => {
         const claim = claims.get(id);
         return (

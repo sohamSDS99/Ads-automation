@@ -105,14 +105,13 @@ export function HeadlineMatrix({
         <Table label={`Headlines of ${ad.slot.ad_group_ref}, variant ${ad.variant}`}>
           <thead>
             <tr>
-              <Th className="w-12">#</Th>
-              <Th>Headline</Th>
-              <Th>Category</Th>
-              <Th className="text-right">Length</Th>
-              <Th>Pin</Th>
-              <Th>Lint</Th>
-              <Th>Claims</Th>
-              <Th>
+              <Th className="w-10 px-3">#</Th>
+              <Th className="px-3">Headline</Th>
+              <Th className="px-3">Category</Th>
+              <Th className="px-3 text-right">Length</Th>
+              <Th className="px-3">Pin</Th>
+              <Th className="px-3">Lint</Th>
+              <Th className="px-2">
                 <span className="sr-only">Preview</span>
               </Th>
             </tr>
@@ -160,13 +159,12 @@ export function HeadlineMatrix({
             <Table label={`Reserve headlines of ${ad.slot.ad_group_ref}, variant ${ad.variant}`}>
               <thead>
                 <tr>
-                  <Th>Reserve</Th>
-                  <Th>Category</Th>
-                  <Th className="text-right">Length</Th>
-                  <Th>Lint</Th>
-                  <Th>Claims</Th>
+                  <Th className="px-3">Reserve</Th>
+                  <Th className="px-3">Category</Th>
+                  <Th className="px-3 text-right">Length</Th>
+                  <Th className="px-3">Lint</Th>
                   {editable ? (
-                    <Th>
+                    <Th className="px-3">
                       <span className="sr-only">Swap</span>
                     </Th>
                   ) : null}
@@ -175,21 +173,23 @@ export function HeadlineMatrix({
               <tbody>
                 {ad.headlineReserves.map((reserve) => (
                   <Tr key={reserve.id} data-testid={`reserve-${reserve.id}`}>
-                    <Td className="max-w-md whitespace-normal">{reserve.text}</Td>
-                    <Td>
+                    <Td className="max-w-80 whitespace-normal px-3">
+                      <div className="flex flex-col gap-1">
+                        {reserve.text}
+                        {reserve.claim_ids.length > 0 ? <ClaimChips ids={reserve.claim_ids} claims={claims} /> : null}
+                      </div>
+                    </Td>
+                    <Td className="px-3">
                       <Badge>{categoryLabel(reserve.category)}</Badge>
                     </Td>
-                    <Td className="text-right">
+                    <Td className="px-3 text-right">
                       <CharCounter count={countOf(reserve)} limit={limit} />
                     </Td>
-                    <Td>
+                    <Td className="px-3">
                       <LintChip verdict={reserve.lint_verdict} />
                     </Td>
-                    <Td>
-                      <ClaimChips ids={reserve.claim_ids} claims={claims} />
-                    </Td>
                     {editable ? (
-                      <Td>
+                      <Td className="px-3">
                         {reserve.frozen_at === null ? (
                           <SwapMenu
                             reserve={reserve}
@@ -235,17 +235,23 @@ function HeadlineRow({
   const edit = useCopyEdit(runId, asset, scope);
   return (
     <Tr id={`row-${asset.id}`} tabIndex={-1} data-testid={`headline-${asset.id}`} className="focus:outline-none">
-      <Td className="font-mono text-xs tabular-nums text-fg-muted">{label}</Td>
-      <Td className="py-2">
-        <CopyText id={`copy-${asset.id}`} label={`${label} headline`} edit={edit} editable={editable} />
+      <Td className="px-3 font-mono text-xs tabular-nums text-fg-muted">{label}</Td>
+      <Td className="w-64 min-w-60 px-3 py-2">
+        <CopyText
+          id={`copy-${asset.id}`}
+          label={`${label} headline`}
+          edit={edit}
+          editable={editable}
+          below={asset.claim_ids.length > 0 ? <ClaimChips ids={asset.claim_ids} claims={claims} /> : null}
+        />
       </Td>
-      <Td>
+      <Td className="px-3">
         <Badge>{categoryLabel(asset.category)}</Badge>
       </Td>
-      <Td className="text-right">
+      <Td className="px-3 text-right">
         <CharCounter count={edit.count} limit={limit} />
       </Td>
-      <Td>
+      <Td className="px-3">
         {asset.pin_position ? (
           <Badge tone="accent" className="whitespace-nowrap">
             <Pin className="size-3" aria-hidden />
@@ -260,13 +266,10 @@ function HeadlineRow({
           </span>
         )}
       </Td>
-      <Td>
+      <Td className="px-3">
         <LintChip verdict={edit.verdict} pending={edit.pending} />
       </Td>
-      <Td>
-        <ClaimChips ids={asset.claim_ids} claims={claims} />
-      </Td>
-      <Td>
+      <Td className="px-2">
         <Button
           variant="ghost"
           size="sm"

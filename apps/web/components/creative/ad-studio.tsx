@@ -23,7 +23,15 @@ import type {
   HeadlineSpreadOutput,
   VariantBOutput,
 } from "@/lib/api/creative-runs";
-import { adSlots, combination, position, studioAd, type StudioAd, type Variant } from "@/lib/creative/ad-studio";
+import {
+  adSlots,
+  combination,
+  marketLabel,
+  position,
+  studioAd,
+  type StudioAd,
+  type Variant,
+} from "@/lib/creative/ad-studio";
 import {
   errorMessage,
   useCreativeAssets,
@@ -220,7 +228,7 @@ export function AdStudio({ projectId, runId }: { projectId: string; runId: strin
       </div>
 
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
-        <nav aria-label="Ad groups" className="w-full shrink-0 lg:sticky lg:top-6 lg:w-60">
+        <nav aria-label="Ad groups" className="w-full shrink-0 lg:sticky lg:top-6 lg:w-48">
           <h1 className="mb-2 text-lg font-medium tracking-tight text-fg">Ad Studio</h1>
           <ul className="flex flex-col gap-0.5">
             {slots.map((item) => {
@@ -238,8 +246,9 @@ export function AdStudio({ projectId, runId }: { projectId: string; runId: strin
                     )}
                   >
                     <span className={cn("text-sm", current ? "font-medium text-fg" : "text-fg")}>{item.ad_group_ref}</span>
+                    <span className="text-xs text-fg-muted">{item.campaign_ref}</span>
                     <span className="text-xs text-fg-muted">
-                      {item.campaign_ref} · {item.market} · {item.variants.length === 2 ? "A and B" : "A"}
+                      {marketLabel(item.market)} · {item.variants.length === 2 ? "A and B" : "A only"}
                     </span>
                   </button>
                 </li>
@@ -258,7 +267,7 @@ export function AdStudio({ projectId, runId }: { projectId: string; runId: strin
             <div className="min-w-0">
               <h2 className="text-lg font-medium tracking-tight text-fg">{slot.ad_group_ref}</h2>
               <p className="text-sm text-fg-muted">
-                {slot.campaign_ref} · {slot.market} · {slot.language}
+                {slot.campaign_ref} · {marketLabel(slot.market)} · {slot.language}
               </p>
             </div>
             {slot.variants.length > 1 ? (
@@ -282,8 +291,11 @@ export function AdStudio({ projectId, runId }: { projectId: string; runId: strin
             finalUrl={ad.finalUrl}
             paths={ad.paths}
             caption={
-              focus?.caption ??
-              `Variant ${variant}: the first combination Google can serve, pins in their positions.`
+              focus === null
+                ? `Variant ${variant}: the first combination Google can serve, pins in their positions.`
+                : shown.servable
+                  ? focus.caption
+                  : `${focus.caption} Shown side by side to read them: the pins hold the positions they would need, so Google never serves them together.`
             }
           />
 
