@@ -75,7 +75,7 @@ export function OfferBindingField({
           <div key={field} className="flex items-baseline gap-1">
             <dt>{field.replaceAll("_", " ")}</dt>
             <dd className="font-mono text-fg tabular-nums" title={`Bound to the record's ${binding.fields[field] ?? field}`}>
-              {field === "start" || field === "end" ? formatDate(value) : value}
+              {field === "start" || field === "end" ? <time dateTime={value}>{formatDate(value)}</time> : value}
             </dd>
           </div>
         ))}

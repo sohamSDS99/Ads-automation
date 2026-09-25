@@ -32,7 +32,7 @@ import type {
 } from "@/lib/api/creative-runs";
 import { adSlots, combination, marketLabel, position, studioAd } from "@/lib/creative/ad-studio";
 import { charCount } from "@/lib/creative/char-count";
-import { boundFigure, formatDate, offerEnd } from "@/lib/creative/offer-window";
+import { boundFigure, offerEnd } from "@/lib/creative/offer-window";
 import { useCreativeAssets, useCreativeBrief, useCreativeOverview, useNodeRun, usePinnedRuleSet } from "@/lib/queries";
 
 /**
@@ -184,10 +184,7 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
               id: firstPromotion.asset_id,
               figure: boundFigure(firstPromotion.offer_binding) ?? "",
               text: firstPromotion.text,
-              ends: (() => {
-                const end = offerEnd(rows.get(firstPromotion.asset_id)?.offer ?? null, firstPromotion.offer_binding);
-                return end ? formatDate(end) : null;
-              })(),
+              ends: offerEnd(rows.get(firstPromotion.asset_id)?.offer ?? null, firstPromotion.offer_binding),
             }
           : null
       }
@@ -259,8 +256,7 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
             <tr>
               <Th>Link text</Th>
               <Th>Description lines</Th>
-              <Th>Final URL</Th>
-              <Th>URL check</Th>
+              <Th>Final URL and check</Th>
               <Th>Lint</Th>
             </tr>
           </thead>
@@ -273,15 +269,12 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
                     <CharCounter count={charCount("sitelink", item.link_text)} limit={limit("sitelink")} />
                   </div>
                 </Td>
-                <Td className="max-w-xs text-fg-muted">
+                <Td className="max-w-56 text-fg-muted">
                   <p className="truncate" title={item.line1}>{item.line1}</p>
                   <p className="truncate" title={item.line2}>{item.line2}</p>
                 </Td>
-                <Td className="max-w-xs">
+                <Td className="max-w-80">
                   <FinalUrl url={item.final_url} check={item.url_check} />
-                </Td>
-                <Td>
-                  <UrlCheckChip check={item.url_check} />
                 </Td>
                 <Td>
                   <LintChip verdict={verdict(item.asset_id, item.lint.verdict)} />
@@ -297,11 +290,8 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
                   </div>
                 </Td>
                 <Td className="text-fg-subtle">—</Td>
-                <Td className="max-w-xs">
+                <Td className="max-w-80">
                   <FinalUrl url={item.final_url} check={item.url_check} />
-                </Td>
-                <Td>
-                  <UrlCheckChip check={item.url_check} />
                 </Td>
                 <Td className="text-xs text-fg-muted">Not linted</Td>
               </Tr>
@@ -402,50 +392,40 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
         <Table label={`Promotions and prices for ${campaignRef}`} className="min-w-0">
           <thead>
             <tr>
-              <Th>Asset</Th>
-              <Th>Text</Th>
-              <Th className="w-full">Offer</Th>
-              <Th>Lint</Th>
+              <Th className="w-1/3 px-2 sm:px-4">Asset</Th>
+              <Th className="px-2 sm:px-4">Offer · read-only</Th>
             </tr>
           </thead>
           <tbody>
             {promotions.map((item) => (
-              <Tr key={item.asset_id} data-testid="promotion-row" className="align-top">
-                <Td className="align-top">
-                  <Badge>Promotion</Badge>
+              <Tr key={item.asset_id} data-testid="promotion-row">
+                <Td className="px-2 align-top sm:px-4">
+                  <OfferAsset kind="Promotion" text={item.text} limit={limit("promotion")} surface="promotion">
+                    <LintChip verdict={verdict(item.asset_id, item.lint.verdict)} />
+                  </OfferAsset>
                 </Td>
-                <Td className="align-top">
-                  <div className="flex items-baseline gap-2">
-                    <span>{item.text}</span>
-                    <CharCounter count={charCount("promotion", item.text)} limit={limit("promotion")} />
-                  </div>
-                </Td>
-                <Td className="min-w-72 align-top">
+                <Td className="px-2 align-top sm:px-4">
                   <OfferBindingField binding={item.offer_binding} offer={rows.get(item.asset_id)?.offer ?? null} projectId={projectId} />
-                </Td>
-                <Td className="align-top">
-                  <LintChip verdict={verdict(item.asset_id, item.lint.verdict)} />
                 </Td>
               </Tr>
             ))}
             {prices.flatMap((asset) =>
               asset.items.map((item) => (
-                <Tr key={item.asset_id} data-testid="price-row" className="align-top">
-                  <Td className="align-top">
-                    <Badge>Price · {asset.type.replaceAll("_", " ").toLowerCase()}</Badge>
+                <Tr key={item.asset_id} data-testid="price-row">
+                  <Td className="px-2 align-top sm:px-4">
+                    <OfferAsset
+                      kind="Price"
+                      detail={asset.type.replaceAll("_", " ").toLowerCase()}
+                      text={item.header}
+                      note={item.description}
+                      limit={limit("price")}
+                      surface="price"
+                    >
+                      <LintChip verdict={verdict(item.asset_id, item.lint.verdict)} />
+                    </OfferAsset>
                   </Td>
-                  <Td className="align-top">
-                    <div className="flex items-baseline gap-2">
-                      <span>{item.header}</span>
-                      <CharCounter count={charCount("price", item.header)} limit={limit("price")} />
-                    </div>
-                    <p className="text-xs text-fg-muted">{item.description}</p>
-                  </Td>
-                  <Td className="min-w-72 align-top">
+                  <Td className="px-2 align-top sm:px-4">
                     <OfferBindingField binding={item.offer_binding} offer={rows.get(item.asset_id)?.offer ?? null} projectId={projectId} />
-                  </Td>
-                  <Td className="align-top">
-                    <LintChip verdict={verdict(item.asset_id, item.lint.verdict)} />
                   </Td>
                 </Tr>
               )),
@@ -477,9 +457,8 @@ export function ExtrasScreen({ projectId, runId }: { projectId: string; runId: s
                 <dt className="text-fg-muted">Call to action</dt>
                 <dd className="col-span-2 font-mono text-xs">{leadForm.form.cta}</dd>
                 <dt className="text-fg-muted">Privacy policy</dt>
-                <dd className="col-span-2 flex flex-col gap-1">
+                <dd className="col-span-2">
                   <FinalUrl url={leadForm.form.privacy_policy_url} check={leadForm.form.privacy_url_check} />
-                  <UrlCheckChip check={leadForm.form.privacy_url_check} />
                 </dd>
                 <dt className="text-fg-muted">Lint</dt>
                 <dd className="col-span-2">
@@ -595,6 +574,40 @@ function KindSection({
   );
 }
 
+/** A promotion or price item: what it is, the words the model wrote, and its lint. */
+function OfferAsset({
+  kind,
+  detail,
+  text,
+  note,
+  limit,
+  surface,
+  children,
+}: {
+  kind: string;
+  detail?: string;
+  text: string;
+  note?: string;
+  limit: number | null;
+  surface: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="flex min-w-0 flex-col items-start gap-1.5">
+      <p className="text-xs text-fg-muted">
+        {kind}
+        {detail ? ` · ${detail}` : ""}
+      </p>
+      <p className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-fg">{text}</span>
+        <CharCounter count={charCount(surface, text)} limit={limit} />
+      </p>
+      {note ? <p className="text-xs text-fg-muted">{note}</p> : null}
+      {children}
+    </div>
+  );
+}
+
 const URL_STATUS: Record<UrlCheckRef["status"], string> = {
   ok: "Resolves",
   off_domain: "Off-domain",
@@ -617,19 +630,20 @@ function UrlCheckChip({ check }: { check: UrlCheckRef }) {
   );
 }
 
-/** The URL as written, and where it landed when a redirect moved it. */
+/** The URL as written, where it landed when a redirect moved it, and the check's answer. */
 function FinalUrl({ url, check }: { url: string; check: UrlCheckRef }) {
   const landed = check.final_url_after_redirects;
   return (
-    <div className="min-w-0 text-xs">
-      <p className="truncate font-mono text-fg" title={url}>
+    <div className="flex min-w-0 flex-col items-start gap-1 text-xs">
+      <p className="max-w-full truncate font-mono text-fg" title={url}>
         {url}
       </p>
       {landed && landed !== url ? (
-        <p className="truncate font-mono text-fg-muted" title={landed}>
+        <p className="max-w-full truncate font-mono text-fg-muted" title={landed}>
           → {landed}
         </p>
       ) : null}
+      <UrlCheckChip check={check} />
     </div>
   );
 }

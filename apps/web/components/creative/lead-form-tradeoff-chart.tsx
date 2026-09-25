@@ -110,7 +110,7 @@ export function LeadFormTradeoffChart({ tradeoff, projectId }: { tradeoff: LeadF
       {view === "chart" ? (
         <div data-testid="tradeoff-chart" data-chosen-fields={chosen.fields_n}>
           <ResponsiveContainer width="100%" height={260}>
-            <ComposedChart data={options} margin={{ top: 16, right: 40, bottom: 4, left: 4 }}>
+            <ComposedChart data={options} margin={{ top: 20, right: 72, bottom: 4, left: 4 }}>
               <CartesianGrid stroke={GRID} vertical={false} />
               <XAxis
                 type="number"
@@ -160,7 +160,7 @@ export function LeadFormTradeoffChart({ tradeoff, projectId }: { tradeoff: LeadF
                     props.index === options.length - 1 ? (
                       <text
                         key={`${series.key}-end`}
-                        x={Number(props.x ?? 0) + 8}
+                        x={Number(props.x ?? 0) + 14}
                         y={Number(props.y ?? 0) + 4}
                         fontSize={11}
                         fill="var(--fg-muted)"

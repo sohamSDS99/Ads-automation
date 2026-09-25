@@ -1,9 +1,11 @@
 import { Tag } from "lucide-react";
 
 import type { Device } from "@/components/creative/serp-preview";
+import { formatDate } from "@/lib/creative/offer-window";
 import { cn } from "@/lib/utils";
 
 export type PreviewSitelink = { id: string; text: string; line1: string; line2: string };
+/** `ends`: the offer record's end, ISO 8601, as the binding renders it. */
 export type PreviewPromotion = { id: string; figure: string; text: string; ends: string | null };
 export type PreviewPrice = { id: string; header: string; figure: string };
 
@@ -50,7 +52,12 @@ export function ExtensionsPreview({
             <span className="text-serp-title">
               {promotion.figure} {promotion.text}
             </span>
-            {promotion.ends ? <> · Until {promotion.ends}</> : null}
+            {promotion.ends ? (
+              <>
+                {" "}
+                · Until <time dateTime={promotion.ends}>{formatDate(promotion.ends)}</time>
+              </>
+            ) : null}
           </span>
         </p>
       ) : null}

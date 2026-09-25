@@ -161,10 +161,7 @@ export function FoldOverlay({
                 </span>
               ) : null}
               {obscured && fold !== null ? (
-                <span
-                  className="pointer-events-none absolute right-1 -translate-y-full rounded-sm bg-surface-raised px-1 text-xs font-medium text-fg"
-                  style={{ top: pct(fold, size.height) }}
-                >
+                <span className="pointer-events-none absolute top-1 right-1 rounded-sm bg-surface-raised px-1 text-xs font-medium text-fg">
                   Overlay covers over 30%
                 </span>
               ) : null}

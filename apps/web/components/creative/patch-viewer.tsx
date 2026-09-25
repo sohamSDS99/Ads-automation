@@ -37,7 +37,7 @@ export function PatchViewer({ auditId, url }: { auditId: string; url: string }) 
           </h3>
           <p className="text-xs text-fg-muted">Nothing on {hostOf(url)} is changed from here. Hand this over.</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center gap-2">
           <SegmentedControl<Format>
             label="Patch format"
             value={format}

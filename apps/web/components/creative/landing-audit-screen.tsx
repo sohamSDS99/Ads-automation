@@ -21,7 +21,7 @@ const COUNT_LABEL: Record<LandingAuditVerdict, string> = {
 
 /**
  * The Landing audit (Stage 04 PRD §15.3 `…/runs/[runId]/landing`, §15.4 J):
- * one `LandingAuditCard` per landing URL, in the order 4.5.1 audited them.
+ * one `LandingAuditCard` per landing URL, what blocks launch first.
  * Read-only for every role — Stage 04 changes no website (law 41); what a
  * card offers is the patch to hand over.
  */
@@ -56,7 +56,7 @@ export function LandingAuditScreen({ projectId, runId }: { projectId: string; ru
       </div>
     );
   }
-  const items = audits.data.items;
+  const items = [...audits.data.items].sort((a, b) => ORDER.indexOf(a.verdict) - ORDER.indexOf(b.verdict));
   if (items.length === 0) {
     return (
       <div className="flex flex-col gap-6">

@@ -185,10 +185,10 @@ function FormTable({ form }: { form: FormAudit | null }) {
         <thead>
           <tr>
             <Th>Field</Th>
+            <Th>Change</Th>
+            <Th>Lead signal</Th>
             <Th>Type</Th>
             <Th>Required</Th>
-            <Th>Lead signal</Th>
-            <Th>Change</Th>
           </tr>
         </thead>
         <tbody>
@@ -199,11 +199,8 @@ function FormTable({ form }: { form: FormAudit | null }) {
               <Tr key={field.name} data-testid="form-field-row" data-decision={kept ? "keep" : "remove"}>
                 <Td>
                   <span className="font-mono text-xs">{field.name}</span>
-                  {field.label ? <p className="max-w-xs truncate text-xs text-fg-muted">{field.label}</p> : null}
+                  {field.label ? <p className="max-w-36 truncate text-xs text-fg-muted sm:max-w-xs">{field.label}</p> : null}
                 </Td>
-                <Td className="font-mono text-xs text-fg-muted">{field.type}</Td>
-                <Td className="text-fg-muted">{field.required ? "Yes" : "No"}</Td>
-                <Td className="text-fg-muted">{field.mapped_signal ?? "—"}</Td>
                 <Td>
                   {kept ? (
                     <Badge className="whitespace-nowrap">
@@ -217,6 +214,10 @@ function FormTable({ form }: { form: FormAudit | null }) {
                     </Badge>
                   )}
                 </Td>
+                <Td className="text-fg-muted">{field.mapped_signal ?? "—"}</Td>
+                <Td className="font-mono text-xs text-fg-muted">{field.type}</Td>
+                <Td className="text-fg-muted">{field.required ? "Yes" : "No"}</Td>
+
               </Tr>
             );
           })}
