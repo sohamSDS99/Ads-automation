@@ -118,6 +118,9 @@ def _without_source(key: str) -> str:
 BEYOND_9_5: dict[str, tuple[object, str, date]] = {
     # S4-P10: §9.4 item 3 sets a logo's floor (`min_width_px`) but no size.
     "logo.width_ratio": (0.2, "internal", date(2026, 9, 25)),
+    # S4-P8: `leadform.field_tradeoff_v1` needs how completions fall per added
+    # field, and `csv_ingest` records no form length to measure it from.
+    "extras.lead_form_field_retention": (0.9, "internal", date(2026, 9, 25)),
     # S4-P12: §9.4 video 3 names the surface's safe zone but gives none.
     "video.safe_zone_bottom_pct": (0.2, "internal", date(2026, 9, 25)),
     "video.safe_zone_edge_pct": (0.05, "internal", date(2026, 9, 25)),
@@ -138,6 +141,8 @@ def test_the_shipped_file_is_exactly_section_9_5() -> None:
     assert set(constants.keys()) == set(EXPECTED) | set(BEYOND_9_5) | {
         "extras.snippet_headers",
         "extras.lead_form_question_types",
+        "extras.price_types",
+        "extras.lead_form_cta_types",
     }
 
 
@@ -152,6 +157,26 @@ def test_the_extras_lists_are_googles_own_and_stay_unverified() -> None:
     assert "FULL_NAME" in questions.value and "EMAIL" in questions.value
     assert "UNSPECIFIED" not in questions.value and "UNKNOWN" not in questions.value
     assert len(questions.value) == len(set(questions.value)) == 116
+    # S4-P8: googleapis `PriceExtensionTypeEnum` and `LeadFormCallToActionTypeEnum`
+    # (google/ads/googleads/v25), less their two sentinels.
+    prices = constants.get("extras.price_types")
+    assert prices.source == "unverified"
+    assert prices.value == (
+        "BRANDS",
+        "EVENTS",
+        "LOCATIONS",
+        "NEIGHBORHOODS",
+        "PRODUCT_CATEGORIES",
+        "PRODUCT_TIERS",
+        "SERVICES",
+        "SERVICE_CATEGORIES",
+        "SERVICE_TIERS",
+    )
+    ctas = constants.get("extras.lead_form_cta_types")
+    assert ctas.source == "unverified"
+    assert "REQUEST_DEMO" in ctas.value and "LEARN_MORE" in ctas.value
+    assert "UNSPECIFIED" not in ctas.value and "UNKNOWN" not in ctas.value
+    assert len(ctas.value) == len(set(ctas.value)) == 14
 
 
 def test_a_constant_without_a_source_fails_startup_naming_it(tmp_path: Path) -> None:

@@ -78,13 +78,16 @@ async def seed_plan(
     channel_slate: dict[str, Any] | None = None,
     landing_url: str = "https://example.com/sds",
     required_signals: list[str] | None = None,
+    disqualifiers: list[str] | None = None,
+    objective: str = "lead_gen",
 ) -> CampaignPlan:
     """Accepted research → a plan run → a plan in `status`, with a real payload.
 
     `extra_campaigns` are appended to the two Search ones; `channel_slate` is
     2.3.1's section as the frozen plan carries it (absent means no slate).
     `landing_url` is the Search ad group's page (4.5 renders it);
-    `required_signals` is 2.1.4's qualified lead.
+    `required_signals` and `disqualifiers` are 2.1.4's qualified lead;
+    `objective` is the Search campaign's 2.1.3 objective.
     """
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
     db.add(research)
@@ -151,14 +154,15 @@ async def seed_plan(
                 "campaign_objectives": [
                     {
                         "campaign_ref": "c-sds-us",
-                        "objective": "lead_gen",
+                        "objective": objective,
                         "primary_kpi": "cost per qualified lead",
                     }
                 ],
                 "qualified_lead": {
                     "required_signals": (
                         required_signals if required_signals is not None else ["company email"]
-                    )
+                    ),
+                    **({"disqualifiers": disqualifiers} if disqualifiers else {}),
                 },
             },
             "account_structure": {

@@ -291,8 +291,15 @@ async def _seed(
     pmax: bool = False,
     business_name_spec: bool = True,
     plan: dict[str, Any] | None = None,
+    extra_specs: dict[str, dict[str, dict[str, Any]]] | None = None,
 ) -> None:
+    """`extra_specs` (`campaign_type -> asset_type -> spec`) are added to the pin's sheet."""
     sheet = get_content_constants().asset_sheet()
+    if extra_specs:
+        raw = sheet.model_dump(mode="json")
+        for campaign_type, specs in extra_specs.items():
+            raw["specs"].setdefault(campaign_type, {}).update(specs)
+        sheet = type(sheet).model_validate(raw)
     if pmax and business_name_spec:
         # The shipped sheet has no Performance Max business name; a pin that
         # carries one is what 4.2.5 needs before it can write that asset group.

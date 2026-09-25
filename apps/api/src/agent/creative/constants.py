@@ -146,6 +146,10 @@ class OffersConstants(_Group):
 class ExtrasConstants(_Group):
     snippet_headers: ListConstant
     lead_form_question_types: ListConstant
+    price_types: ListConstant
+    lead_form_cta_types: ListConstant
+    #: Completions kept per lead-form question added (S4-P8, beyond §9.5).
+    lead_form_field_retention: FloatConstant
 
 
 class MediaGroup(_Group):
