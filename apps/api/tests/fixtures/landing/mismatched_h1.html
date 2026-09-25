@@ -1,0 +1,34 @@
+<!doctype html>
+<!--
+  S4-P7 fixture 1 of 3: the page headline does not echo the ad.
+  The ad groups pointing here advertise SDS management software; the page
+  opens on a corporate welcome. Everything else is ordinary, except that it
+  sets a cookie and says whether it found one: every render must be a first
+  visit, because no cookie outlives its render context.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Acme Industrial Group</title>
+<style>
+  body { margin: 0; font: 16px/1.5 sans-serif; }
+  header, main { padding: 24px; }
+  h1 { font-size: 32px; margin: 0 0 16px; }
+</style>
+</head>
+<body>
+<header><nav><a href="/">Home</a> <a href="/about">About</a></nav></header>
+<main>
+  <h1>Welcome to Acme Industrial Group</h1>
+  <p>Serving manufacturers across three continents since 1987.</p>
+  <p>Our divisions cover logistics, packaging and plant maintenance.</p>
+  <p id="visit"></p>
+</main>
+<script>
+  document.getElementById("visit").textContent =
+    document.cookie.indexOf("seen=1") >= 0 ? "Welcome back" : "First visit";
+  document.cookie = "seen=1; path=/; max-age=86400";
+</script>
+</body>
+</html>
