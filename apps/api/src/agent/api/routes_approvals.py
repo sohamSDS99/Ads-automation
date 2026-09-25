@@ -27,9 +27,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.middleware import client_ip
+from agent.api.routes_media import Catalogue
 from agent.api.schemas_approvals import (
     ApprovalDecisionRequest,
     ApprovalDecisionResponse,
+    ApprovalDraftRequest,
+    ApprovalDraftResponse,
     ApprovalItem,
     ApprovalListResponse,
     ReassignRequest,
@@ -42,6 +45,7 @@ from agent.auth.rbac import Permission
 from agent.calc.derived import DerivedWriter
 from agent.calc.registry import FORMULAS, CalcError
 from agent.creative import g7 as brief_gate
+from agent.creative import review as asset_review
 from agent.creative.brief import BriefError
 from agent.creative.lint_adapter import LintAdapterError
 from agent.db.models import (
@@ -67,6 +71,7 @@ from agent.planning import reforecast
 from agent.planning.constants import get_planning_constants
 from agent.queue import enqueue_run
 from agent.redis_client import get_redis
+from agent.schemas.creative_review import G8, G8B, AiAssetReview
 
 log = structlog.get_logger(__name__)
 
@@ -87,6 +92,9 @@ WHATIF = "allocation.whatif_v1"
 
 #: PRD §12 invariant 4. An edit outside this misses its own envelope.
 TOLERANCE_PCT = 0.5
+
+#: Stage 04's per-asset media review (PRD §8.5): decided item by item.
+REVIEW_GATES = frozenset({G8, G8B})
 
 
 # ---------------------------------------------------------------------------
@@ -145,6 +153,7 @@ async def decide_approval(
     me: Decider,
     request: Request,
     db: Db,
+    catalogue: Catalogue,
 ) -> ApprovalDecisionResponse:
     if not body.approved and not body.rejected:
         raise problems.unprocessable("`decision` must be `approve` or `reject`.")
@@ -168,9 +177,42 @@ async def decide_approval(
         raise problems.not_found(f"No run for approval {approval_id}.")
 
     edited = body.edited_proposal if body.approved else None
-    if edited is not None:
+    reviewing = approval.gate_key in REVIEW_GATES
+    if edited is not None and not reviewing:
         _assert_resumable(approval.node_id, edited)
         _assert_envelope_balanced(approval, edited)
+
+    # G8 / G8b are decided item by item (Stage 04 PRD §8.5): approving the gate
+    # submits `edited_proposal.items[]`, every item revalidated here — approve
+    # needs the four checks, regenerate only at G8 with an allowlisted,
+    # capability-valid model — and recorded as one AssetDecision per asset in
+    # this transaction. A refusal names the asset and writes nothing, so the
+    # gate stays pending. What the NodeRun then carries is the decided card.
+    tally: dict[str, int] | None = None
+    if reviewing and body.approved:
+        node_id = approval.node_id
+        try:
+            decided = await asset_review.decide(
+                db,
+                approval=approval,
+                run=run,
+                submitted=body.edited_proposal,
+                decided_by=me.user.id,
+                catalogue=catalogue,
+            )
+        except asset_review.ReviewRefused as exc:
+            await db.rollback()
+            raise problems.unprocessable(
+                str(exc),
+                title="A review item cannot be accepted",
+                node_id=node_id,
+                asset_id=str(exc.asset_id) if exc.asset_id else None,
+                field=exc.field,
+                code=exc.code,
+                **_jsonable(exc.extra),
+            ) from exc
+        edited = decided.model_dump(mode="json")
+        tally = _tally(decided)
 
     # G7 is hash-scoped (Stage 04 PRD §5.3): approving it writes
     # `approved_hash = brief_hash` onto the brief, and an edit is revalidated
@@ -247,6 +289,7 @@ async def decide_approval(
             "decision": approval.status.value,
             "signoff_matrix_id": str(matrix.id) if matrix is not None else None,
             "approved_hash": approved_brief_hash,
+            "asset_decisions": tally,
             "edited": body.edited_proposal is not None,
             "note": body.note,
         },
@@ -347,6 +390,80 @@ async def _close_rejected(db: AsyncSession, run: Run, approval: Approval) -> Non
         cost_usd=str(run.cost_usd),
         error=error,
     )
+
+
+# ---------------------------------------------------------------------------
+# G8 / G8b draft
+# ---------------------------------------------------------------------------
+
+
+@router.put(
+    "/approvals/{approval_id}/draft",
+    response_model=ApprovalDraftResponse,
+    summary="Autosave a reviewer's unsubmitted G8/G8b decisions (draft_state)",
+)
+async def save_approval_draft(
+    approval_id: uuid.UUID, body: ApprovalDraftRequest, me: Decider, db: Db
+) -> ApprovalDraftResponse:
+    """§15.4 H: "Decisions autosave to `draft_state`." A draft, never a decision
+    — no rule but shape is enforced, nothing downstream reads it, and no
+    `AssetDecision` is written. Only someone who may decide the gate may save
+    one (the decider identity is asserted exactly as `POST /approvals/{id}`
+    asserts it), and only while it is pending."""
+    repo = ApprovalRepo(db, me.workspace_id)
+    approval = await repo.get(approval_id)
+    if approval is None:
+        raise problems.not_found(f"No approval {approval_id}.")
+    _assert_may_decide(approval, me)
+    if approval.gate_key not in REVIEW_GATES:
+        raise problems.unprocessable(
+            f"Only G8 and G8b keep a draft; this gate is {approval.gate_key}.",
+            title="No draft for this gate",
+            code="draft_not_supported",
+        )
+    if approval.status is not ApprovalStatus.PENDING:
+        raise problems.conflict(
+            f"This gate was already {approval.status.value}; its draft is closed.",
+            title="Already decided",
+            status=approval.status.value,
+        )
+    draft = body.draft_state
+    on_card = {item.asset_id for item in AiAssetReview.model_validate(approval.proposal).items}
+    stray = [item.asset_id for item in draft.items if item.asset_id not in on_card]
+    if draft.cursor is not None and draft.cursor not in on_card:
+        stray.append(draft.cursor)
+    if stray:
+        raise problems.unprocessable(
+            f"Asset {stray[0]} is not on this {approval.gate_key} card.",
+            title="Draft names an asset not on the card",
+            asset_id=str(stray[0]),
+        )
+    if approval.gate_key == G8B and any(i.decision == "regenerate" for i in draft.items):
+        raise problems.unprocessable(
+            "G8b offers approve or reject only; there is no second regeneration.",
+            title="Regenerate is not offered at G8b",
+            field="decision",
+        )
+    approval.draft_state = {
+        **draft.model_dump(mode="json"),
+        "saved_by": str(me.user.id),
+        "saved_at": gates.utcnow().isoformat(),
+    }
+    await db.commit()
+    return ApprovalDraftResponse(approval_id=approval.id, draft_state=approval.draft_state)
+
+
+def _tally(decided: AiAssetReview) -> dict[str, int]:
+    tally = {"approve": 0, "reject": 0, "regenerate": 0}
+    for item in decided.items:
+        if item.decision is not None:
+            tally[item.decision.decision] += 1
+    return tally
+
+
+def _jsonable(extra: dict[str, Any]) -> dict[str, Any]:
+    """A refusal's extra facts, as the problem body can carry them."""
+    return {key: value for key, value in extra.items() if key not in {"asset_id", "field", "code"}}
 
 
 # ---------------------------------------------------------------------------
@@ -764,6 +881,7 @@ async def _items(db: AsyncSession, rows: list[Approval], me: Principal) -> list[
                 assignee_email=emails.get(row.assignee_id) if row.assignee_id else None,
                 proposal=row.proposal,
                 edited_proposal=row.edited_proposal,
+                draft_state=row.draft_state,
                 recalc_state=row.recalc_state,
                 decision_note=row.decision_note,
                 decided_by=row.decided_by,
