@@ -29,7 +29,6 @@ from __future__ import annotations
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from decimal import Decimal
 from typing import Any
 
 import sqlalchemy as sa
@@ -37,7 +36,6 @@ import structlog
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.calc.derived import DerivedWriter
-from agent.calc.media import cost_estimate_v1
 from agent.creative.review import DONE, GAP, REGENERATION_NODE, RUNNING
 from agent.db.models import (
     CreativeAsset,
@@ -51,7 +49,7 @@ from agent.nodes.base import NodeContractError, RunContext
 from agent.nodes.creative import n4_4_4_video_production as n444
 from agent.nodes.creative.n4_4_2_image_masters import _Mastering
 from agent.nodes.creative.n4_4_3_image_renditions import _Rendering
-from agent.orchestrator.creative_input import estimate_inputs_for, ratios_for
+from agent.orchestrator.creative_input import ratios_for
 from agent.schemas.creative_input import CreativeInput, MediaModelChoice
 from agent.schemas.creative_media import CampaignConcepts, Concept, CreativeConcepts
 from agent.schemas.creative_review import RegeneratedAsset
@@ -381,35 +379,6 @@ def _market(inp: CreativeInput, campaign_ref: str) -> tuple[str, str]:
                 getattr(campaign, "language", None) or "en"
             )
     return "*", "en"
-
-
-def estimate_usd(
-    inp: CreativeInput,
-    specs: dict[str, Any],
-    parent: CreativeAsset,
-    choice: MediaModelChoice,
-    *,
-    caps: Any,
-    constants: Any,
-) -> Decimal:
-    """What regenerating `parent` should cost, priced by `calc/` exactly as the
-    Start dialog prices a run (`media.cost_estimate_v1`): one concept of one
-    campaign, in the asset's modality only, with no text."""
-    image = parent.kind is CreativeAssetKind.IMAGE
-    campaigns = [
-        c
-        for c in inp.account_structure.campaigns
-        if (c.campaign_ref or c.name) == parent.campaign_ref
-    ]
-    scope = inp.scope.model_copy(
-        update={"images": image, "video": not image, "campaign_refs": [parent.campaign_ref]}
-    )
-    inputs = estimate_inputs_for(campaigns, specs, scope, [choice], caps)
-    # One concept, not the run's two or three: a regeneration repaints one asset.
-    inputs["scope"]["concepts_per_campaign"] = 1
-    inputs["text_usd"] = Decimal(0)
-    draft = cost_estimate_v1(**inputs, constants=constants)
-    return Decimal(str(draft.result["media_usd"]))
 
 
 async def run_of(db: AsyncSession, asset: CreativeAsset) -> Run:

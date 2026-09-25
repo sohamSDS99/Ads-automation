@@ -1238,9 +1238,19 @@ silent.
    202 carries the new asset id and the queue job id, not a
    `GenerationJob` id: an image regeneration is several jobs, all visible
    under `/creative-runs/{id}/generation-jobs` by `asset_id`. The budget check
-   prices one concept of one campaign in the asset's modality with
-   `media.cost_estimate_v1`, against the same three numbers the reserve
-   script reads, and refuses with 409 `estimate_exceeds_budget`.
+   uses S4-P21's `media.regeneration_price` — the function the Generation
+   panel's `/regeneration-estimate` shows — so the number checked is the
+   number shown, priced from the asset's own jobs' requests (master ratio;
+   every clip's ratio and length). It is compared with both caps' headroom
+   as the reserve script reads them and refused with 409
+   `estimate_exceeds_budget`. **Ruling owed on the price itself:**
+   `regeneration_price` counts an image as ONE request, but a regeneration
+   submits `candidates_per_concept` candidates plus one relay per other
+   painted ratio (what `media.cost_estimate_v1` counts for the Start
+   dialog), so the shown and checked figure under-states an image
+   regeneration; each submit's reservation (Law 43) is the hard guard. It
+   also refuses a video model that cannot cut the stored clip lengths, while
+   4.4.6 re-plans the shots for the model it regenerates with.
 10. **A pre-G8 regeneration runs outside the executor** (worker task
     `regenerate_asset`), in a `RunContext` built from the same pieces the
     executor builds: key, router, ledger, pinned resources, media gateway,

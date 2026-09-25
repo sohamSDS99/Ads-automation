@@ -101,21 +101,17 @@ from agent.db.session import get_session, get_sessionmaker
 from agent.media import runtime as media_runtime
 from agent.media.budget import MediaBudget, resolve_media_caps, run_spend
 from agent.media.jobs import checkable
+from agent.media.regeneration_price import PlannedClip, regeneration_price
 from agent.nodes.base import CreativeResources, NodeContractError
 from agent.nodes.creative._ad_groups import Slot, search_slots
-from agent.nodes.creative._regenerate import (
-    MEDIA_KINDS,
-    RegenerationRequest,
-    estimate_usd,
-    open_child,
-)
+from agent.nodes.creative._regenerate import MEDIA_KINDS, RegenerationRequest, open_child
 from agent.nodes.creative._text_assets import content_hash
-from agent.orchestrator.creative_input import OFFER_RECORD_KIND
+from agent.orchestrator.creative_input import OFFER_RECORD_KIND, CreativeInputError
 from agent.orchestrator.creative_run import CreativeRunError, load_resources
 from agent.queue import enqueue_generation_check, enqueue_regeneration
 from agent.redis_client import get_redis
 from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief, OfferBinding
-from agent.schemas.creative_input import CreativeInput
+from agent.schemas.creative_input import CreativeInput, MediaModelChoice
 from agent.schemas.creative_review import G8, AiAssetReview, ReviewDecisionItem
 from agent.schemas.guardrails import LintResult, LintTarget, OfferRecord
 from agent.schemas.landing import Device, LandingPagePatch
@@ -913,20 +909,12 @@ async def regenerate_asset(
     )
     project = await db.get(Project, run.project_id)
     resources = await _resources(db, run)
-    specs = resources.linter.ruleset.asset_specs.model_dump(mode="json").get("specs") or {}
     caps = resolve_media_caps(
         project_settings=project.settings if project else None,
         workspace_settings=workspace.settings if workspace else None,
         defaults=get_settings(),
     )
-    estimate = estimate_usd(
-        resources.input,
-        specs,
-        parent,
-        choice,
-        caps=caps,
-        constants=resources.constants.media_constants(),
-    )
+    estimate = await _price(db, parent, choice, resources.constants.media_constants())
     media_left, total_left = await _remaining(db, run, caps)
     busy = await review.running_children(db, [parent.id])
     if busy:
@@ -1051,6 +1039,58 @@ async def _enqueue(asset_id: uuid.UUID, *, redrive: bool) -> str | None:
             detail=f"Regeneration {asset_id} is recorded but could not be queued. Ask again once "
             "Redis is back; it resumes where it is.",
         ) from exc
+
+
+async def _price(
+    db: AsyncSession, parent: CreativeAsset, choice: MediaModelChoice, constants: Any
+) -> Decimal:
+    """What this regeneration costs — `media.regeneration_price`, the same
+    function the Generation panel's estimate uses (§15.4 G, §15.2 rule 8), so
+    the number a person was shown is the number checked here. It is priced
+    from the requests the asset's own jobs made: the master's ratio for an
+    image, every clip's ratio and length for a video. For a first generation
+    those are what 4.4.2/4.4.4 recorded; they also exist for an asset that was
+    itself regenerated, which no node output lists."""
+    requests = (
+        (
+            await db.execute(
+                sa.select(GenerationJob.request)
+                .where(GenerationJob.asset_id == parent.id)
+                .order_by(GenerationJob.created_at, GenerationJob.id)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    try:
+        if parent.kind is CreativeAssetKind.IMAGE:
+            ratio = next((r.get("aspect_ratio") for r in requests if r.get("aspect_ratio")), None)
+            price = regeneration_price(choice, constants=constants, aspect_ratio=ratio)
+        else:
+            clips = [
+                PlannedClip(ratio=str(r["aspect_ratio"]), duration_s=int(r["duration"]))
+                for r in requests
+                if r.get("aspect_ratio") and r.get("duration")
+            ]
+            price = regeneration_price(choice, constants=constants, clips=clips or None)
+    except CreativeInputError as refused:
+        extra = dict(refused.extra)
+        raise problems.unprocessable(
+            refused.detail,
+            title="This regeneration cannot be priced",
+            asset_id=str(parent.id),
+            field=str(extra.pop("field", None) or "model_override"),
+            code=refused.code,
+            **extra,
+        ) from refused
+    except ValueError as unpriced:  # CalcError
+        raise problems.unprocessable(
+            str(unpriced),
+            title="This regeneration cannot be priced",
+            asset_id=str(parent.id),
+            code="estimate_unavailable",
+        ) from unpriced
+    return price.usd.quantize(Decimal("0.0001"))
 
 
 async def _remaining(db: AsyncSession, run: Run, caps: Any) -> tuple[Decimal, Decimal]:
