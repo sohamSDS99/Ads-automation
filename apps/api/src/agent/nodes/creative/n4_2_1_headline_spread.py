@@ -24,18 +24,20 @@ is `dropped`; the selection is `linted`; everything else is a `reserve` for
 so a failed attempt leaves no half an ad; an attempt that follows one that did
 fail first clears what that attempt wrote (the executor commits a failed
 attempt's session with its failure record).
+
+`spread` is the whole per-ad-group path, so 4.2.4 writes variant B's headlines
+through it — led by the brief's `angle_b` and shown A's copy to stay clear of —
+rather than through a second implementation of it.
 """
 
 from __future__ import annotations
 
-import json
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-import sqlalchemy as sa
 from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from agent.creative import brief as briefs
@@ -48,11 +50,26 @@ from agent.db.models import (
     Evidence,
     RunStage,
 )
-from agent.export.plan_contract import PlannedAdGroup, PlannedCampaign
 from agent.llm.router import TaskClass
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
-from agent.nodes.creative._text_assets import text_asset
-from agent.schemas.creative_brief import AdGroupBrief, CreativeBrief
+from agent.nodes.creative._ad_groups import (
+    SEARCH,
+    VARIANT_B_RULES,
+    Slot,
+    ad_group_section,
+    brief_section,
+    proof_points,
+    render_prompt,
+    search_slots,
+    where,
+)
+from agent.nodes.creative._text_assets import (
+    clear_earlier_attempts,
+    lint_ref,
+    required_specs,
+    text_asset,
+)
+from agent.schemas.creative_brief import CreativeBrief
 from agent.schemas.guardrails import AssetSpec, ClaimRef, LintResult, LintTarget, RuleSet
 from agent.schemas.search_ads import (
     PASSING,
@@ -60,20 +77,15 @@ from agent.schemas.search_ads import (
     HeadlineCandidate,
     HeadlineGroup,
     HeadlineSpreadOutput,
-    LintRef,
     QuotaLine,
     QuotaReport,
+    Variant,
     dki_default,
     render_default,
 )
 
 NODE_ID = "4.2.1"
-SEARCH = "search"
 SURFACE = "rsa_headline"
-#: What `LintTarget` gets when the plan names no market or language — the
-#: same fallback as Stage 03's lint route (`routes_guidelines.py`).
-UNKNOWN_MARKET = "*"
-DEFAULT_LANGUAGE = "en"
 
 Category = Literal["keyword", "benefit", "offer", "proof", "objection", "cta"]
 
@@ -191,28 +203,8 @@ def category_asks(quotas: Mapping[str, int], *, pool_size: int) -> dict[str, int
 # ---------------------------------------------------------------------------
 
 
-@dataclass(frozen=True, slots=True)
-class _Slot:
-    brief: AdGroupBrief
-    campaign: PlannedCampaign
-    group: PlannedAdGroup
-
-    @property
-    def keywords(self) -> tuple[str, ...]:
-        terms = (keyword.term.strip() for keyword in self.group.keywords)
-        return tuple(dict.fromkeys(term for term in terms if term))
-
-    @property
-    def market(self) -> str:
-        return (self.group.market or self.campaign.market or "").strip() or UNKNOWN_MARKET
-
-    @property
-    def language(self) -> str:
-        return (self.campaign.language or "").strip() or DEFAULT_LANGUAGE
-
-
 @dataclass(slots=True)
-class _Built:
+class Built:
     group: HeadlineGroup
     rows: list[CreativeAsset]
 
@@ -238,199 +230,211 @@ class HeadlineSpreadNode:
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         creative = ctx.require_creative()
         brief = CreativeBrief.model_validate(ctx.output_of("4.1.1"))
-        slots = _search_slots(brief, creative.input.account_structure.campaigns)
-        await _clear_earlier_attempts(ctx)
+        slots = search_slots(brief, creative.input.account_structure.campaigns)
+        await clear_earlier_attempts(ctx, NODE_ID)
         if not slots:
             return HeadlineSpreadOutput()
 
         # The run's start, not the wall clock: a retry an hour later must be
         # linted against — and offered — exactly what the first attempt was.
         now = ctx.run.started_at or datetime.now(UTC)
-        spec = _headline_spec(creative.linter.ruleset)
+        spec = headline_spec(creative.linter.ruleset)
         licensed = briefs.licensed_claims(creative.linter.ruleset, now)
-        built = [await self._spread(ctx, brief, slot, spec, licensed, now) for slot in slots]
+        built = [await spread(ctx, brief, slot, spec, licensed, now) for slot in slots]
 
         for item in built:
             ctx.db.add_all(item.rows)
         await ctx.db.flush()
         return HeadlineSpreadOutput(ad_groups=[item.group for item in built])
 
-    async def _spread(
-        self,
-        ctx: RunContext,
-        brief: CreativeBrief,
-        slot: _Slot,
-        spec: AssetSpec,
-        licensed: list[ClaimRef],
-        now: datetime,
-    ) -> _Built:
-        creative = ctx.require_creative()
-        copy = creative.constants.copy_
-        pool_size = copy.headline_pool_size.value
-        quotas = dict(copy.headline_quotas.value)
-        threshold = copy.near_duplicate_trigram.value
-        assert spec.max_chars is not None and spec.max_count is not None  # _headline_spec
 
-        licensed_ids = frozenset(claim.claim_id for claim in licensed)
-        schema = draft_model(
-            slot.keywords, [claim.claim_id for claim in licensed], pool_size=pool_size
-        )
-        draft: Any = await ctx.complete(
-            schema,
-            system=SYSTEM.format(pool=pool_size, max_chars=spec.max_chars),
-            user=_user_prompt(brief, slot, licensed, category_asks(quotas, pool_size=pool_size)),
-        )
+async def spread(
+    ctx: RunContext,
+    brief: CreativeBrief,
+    slot: Slot,
+    spec: AssetSpec,
+    licensed: list[ClaimRef],
+    now: datetime,
+    *,
+    node_id: str = NODE_ID,
+    variant: Variant = "A",
+    avoid: Sequence[str] = (),
+) -> Built:
+    """One ad group's pool, lint, checks and selection: A for 4.2.1, B for 4.2.4.
 
-        drafted: list[dict[str, Any]] = []
-        for item in draft.candidates:
-            claim_ids = [uuid.UUID(str(claim)) for claim in item.claim_ids]
-            asset_id = uuid.uuid4()
-            measured = measured_text(item.text)
-            result = creative.linter.lint_candidate(
-                LintTarget(
-                    ref=str(asset_id),
-                    surface=SURFACE,
-                    campaign_type=SEARCH,
-                    market=slot.market,
-                    language=slot.language,
-                    text=measured,
-                    generated_by_ai=True,
-                ),
-                now=now,
-            )
-            drafted.append(
-                {
-                    "asset_id": asset_id,
-                    "text": item.text,
-                    "default_text": measured,
-                    "category": item.category,
-                    "keyword_ref": item.keyword_ref,
-                    "claim_ids": claim_ids,
-                    "dki": item.dki,
-                    "lint": result,
-                    "invalid": invalid_reason(
-                        item.text,
-                        item.category,
-                        keyword_ref=item.keyword_ref,
-                        claim_ids=claim_ids,
-                        dki=item.dki,
-                        keywords=slot.keywords,
-                        licensed=licensed_ids,
-                    ),
-                }
-            )
+    Writes nothing — the rows come back for the caller to add once every ad
+    group is built. `avoid` is variant A's copy, shown to B's writer.
+    """
+    creative = ctx.require_creative()
+    copy = creative.constants.copy_
+    pool_size = copy.headline_pool_size.value
+    quotas = dict(copy.headline_quotas.value)
+    threshold = copy.near_duplicate_trigram.value
+    assert spec.max_chars is not None and spec.max_count is not None  # headline_spec
 
-        eligible = [
-            select.Candidate(
-                ref=str(entry["asset_id"]), text=entry["default_text"], category=entry["category"]
-            )
-            for entry in drafted
-            if entry["lint"].verdict in PASSING and entry["invalid"] is None
-        ]
-        try:
-            chosen = select.headlines_v1(
-                eligible, quotas=quotas, limit=spec.max_count, near_duplicate=threshold
-            )
-        except select.SelectionError as exc:
-            raise NodeContractError(f"4.2.1 cannot select for {_where(slot)}: {exc}") from exc
-        minimum = spec.min_count or 1
-        if len(chosen.selected) < minimum:
-            failed = sum(1 for entry in drafted if entry["lint"].verdict not in PASSING)
-            invalid = sum(1 for entry in drafted if entry["invalid"] is not None)
-            raise NodeContractError(
-                f"{_where(slot)}: {len(chosen.selected)} headline(s) could be selected from "
-                f"{len(drafted)} candidates ({failed} failed lint, {invalid} broke their own "
-                f"category or keyword insertion); a Search ad needs at least {minimum}"
-            )
+    licensed_ids = frozenset(claim.claim_id for claim in licensed)
+    schema = draft_model(slot.keywords, [claim.claim_id for claim in licensed], pool_size=pool_size)
+    draft: Any = await ctx.complete(
+        schema,
+        system=SYSTEM.format(pool=pool_size, max_chars=spec.max_chars)
+        + (VARIANT_B_RULES if variant == "B" else ""),
+        user=_user_prompt(
+            brief,
+            slot,
+            licensed,
+            category_asks(quotas, pool_size=pool_size),
+            variant=variant,
+            avoid=avoid,
+        ),
+        task_class=TaskClass.COPYWRITE,
+    )
 
-        selected = set(chosen.selected)
-        reserved = set(chosen.reserve)
-        duplicates = {item.ref: item for item in chosen.near_duplicates}
-        candidates: list[HeadlineCandidate] = []
-        rows: list[CreativeAsset] = []
-        for entry in drafted:
-            ref = str(entry["asset_id"])
-            linted: LintResult = entry["lint"]
-            outcome, status, reason = _outcome(
-                ref, linted, entry["invalid"], selected, reserved, duplicates
-            )
-            candidates.append(
-                HeadlineCandidate(
-                    asset_id=entry["asset_id"],
-                    text=entry["text"],
-                    default_text=entry["default_text"],
-                    category=entry["category"],
-                    keyword_ref=entry["keyword_ref"],
-                    claim_ids=entry["claim_ids"],
-                    dki=entry["dki"],
-                    lint=LintRef(
-                        verdict=linted.verdict,
-                        ruleset_version=linted.ruleset_version,
-                        rule_ids=list(dict.fromkeys(f.rule_id for f in linted.findings)),
-                    ),
-                    outcome=outcome,
-                    reason=reason,
-                )
-            )
-            rows.append(
-                text_asset(
-                    ctx,
-                    asset_id=entry["asset_id"],
-                    node_id=NODE_ID,
-                    campaign_ref=slot.brief.campaign_ref,
-                    ad_group_ref=slot.brief.ad_group_ref,
-                    kind=CreativeAssetKind.HEADLINE,
-                    surface=SURFACE,
-                    variant=CreativeAssetVariant.A,
-                    category=entry["category"],
-                    text=entry["text"],
-                    fields={
-                        "dki": entry["dki"],
-                        "default_text": entry["default_text"],
-                        "keyword_ref": entry["keyword_ref"],
-                    },
-                    claim_ids=entry["claim_ids"],
-                    status=status,
-                    lint=linted,
-                )
-            )
-
-        report = chosen.quota_report
-        await ctx.progress(
-            f"{_where(slot)}: {len(eligible)} of {len(drafted)} candidates passed lint and "
-            f"their own checks; {len(chosen.selected)} selected, "
-            f"quotas {'met' if report.met else 'short'}"
-        )
-        by_ref = {str(c.asset_id): c.asset_id for c in candidates}
-        return _Built(
-            group=HeadlineGroup(
-                campaign_ref=slot.brief.campaign_ref,
-                ad_group_ref=slot.brief.ad_group_ref,
+    drafted: list[dict[str, Any]] = []
+    for item in draft.candidates:
+        claim_ids = [uuid.UUID(str(claim)) for claim in item.claim_ids]
+        asset_id = uuid.uuid4()
+        measured = measured_text(item.text)
+        result = creative.linter.lint_candidate(
+            LintTarget(
+                ref=str(asset_id),
+                surface=SURFACE,
                 campaign_type=SEARCH,
                 market=slot.market,
                 language=slot.language,
-                variant="A",
-                candidates=candidates,
-                selected=[by_ref[ref] for ref in chosen.selected],
-                reserve=[by_ref[ref] for ref in chosen.reserve],
-                quota_report=QuotaReport(
-                    lines=[
-                        QuotaLine(
-                            category=line.category,
-                            required=line.required,
-                            selected=line.selected,
-                            available=line.available,
-                        )
-                        for line in report.lines
-                    ],
-                    limit=report.limit,
-                    selected=report.selected,
-                    met=report.met,
-                ),
-                near_duplicate_trigram=threshold,
+                text=measured,
+                generated_by_ai=True,
             ),
-            rows=rows,
+            now=now,
         )
+        drafted.append(
+            {
+                "asset_id": asset_id,
+                "text": item.text,
+                "default_text": measured,
+                "category": item.category,
+                "keyword_ref": item.keyword_ref,
+                "claim_ids": claim_ids,
+                "dki": item.dki,
+                "lint": result,
+                "invalid": invalid_reason(
+                    item.text,
+                    item.category,
+                    keyword_ref=item.keyword_ref,
+                    claim_ids=claim_ids,
+                    dki=item.dki,
+                    keywords=slot.keywords,
+                    licensed=licensed_ids,
+                ),
+            }
+        )
+
+    eligible = [
+        select.Candidate(
+            ref=str(entry["asset_id"]), text=entry["default_text"], category=entry["category"]
+        )
+        for entry in drafted
+        if entry["lint"].verdict in PASSING and entry["invalid"] is None
+    ]
+    try:
+        chosen = select.headlines_v1(
+            eligible, quotas=quotas, limit=spec.max_count, near_duplicate=threshold
+        )
+    except select.SelectionError as exc:
+        raise NodeContractError(f"{node_id} cannot select for {where(slot)}: {exc}") from exc
+    minimum = spec.min_count or 1
+    if len(chosen.selected) < minimum:
+        failed = sum(1 for entry in drafted if entry["lint"].verdict not in PASSING)
+        invalid = sum(1 for entry in drafted if entry["invalid"] is not None)
+        raise NodeContractError(
+            f"{where(slot)}: {len(chosen.selected)} headline(s) could be selected from "
+            f"{len(drafted)} candidates ({failed} failed lint, {invalid} broke their own "
+            f"category or keyword insertion); a Search ad needs at least {minimum}"
+        )
+
+    selected = set(chosen.selected)
+    reserved = set(chosen.reserve)
+    duplicates = {item.ref: item for item in chosen.near_duplicates}
+    candidates: list[HeadlineCandidate] = []
+    rows: list[CreativeAsset] = []
+    for entry in drafted:
+        ref = str(entry["asset_id"])
+        linted: LintResult = entry["lint"]
+        outcome, status, reason = _outcome(
+            ref, linted, entry["invalid"], selected, reserved, duplicates
+        )
+        candidates.append(
+            HeadlineCandidate(
+                asset_id=entry["asset_id"],
+                text=entry["text"],
+                default_text=entry["default_text"],
+                category=entry["category"],
+                keyword_ref=entry["keyword_ref"],
+                claim_ids=entry["claim_ids"],
+                dki=entry["dki"],
+                lint=lint_ref(linted),
+                outcome=outcome,
+                reason=reason,
+            )
+        )
+        rows.append(
+            text_asset(
+                ctx,
+                asset_id=entry["asset_id"],
+                node_id=node_id,
+                campaign_ref=slot.brief.campaign_ref,
+                ad_group_ref=slot.brief.ad_group_ref,
+                kind=CreativeAssetKind.HEADLINE,
+                surface=SURFACE,
+                variant=CreativeAssetVariant(variant),
+                category=entry["category"],
+                text=entry["text"],
+                fields={
+                    "dki": entry["dki"],
+                    "default_text": entry["default_text"],
+                    "keyword_ref": entry["keyword_ref"],
+                },
+                claim_ids=entry["claim_ids"],
+                status=status,
+                lint=linted,
+            )
+        )
+
+    report = chosen.quota_report
+    await ctx.progress(
+        f"{where(slot)} ({variant}): {len(eligible)} of {len(drafted)} candidates passed lint "
+        f"and their own checks; {len(chosen.selected)} selected, "
+        f"quotas {'met' if report.met else 'short'}"
+    )
+    by_ref = {str(c.asset_id): c.asset_id for c in candidates}
+    return Built(
+        group=HeadlineGroup(
+            campaign_ref=slot.brief.campaign_ref,
+            ad_group_ref=slot.brief.ad_group_ref,
+            campaign_type=SEARCH,
+            market=slot.market,
+            language=slot.language,
+            variant=variant,
+            candidates=candidates,
+            selected=[by_ref[ref] for ref in chosen.selected],
+            reserve=[by_ref[ref] for ref in chosen.reserve],
+            quota_report=QuotaReport(
+                lines=[
+                    QuotaLine(
+                        category=line.category,
+                        required=line.required,
+                        selected=line.selected,
+                        available=line.available,
+                    )
+                    for line in report.lines
+                ],
+                limit=report.limit,
+                selected=report.selected,
+                met=report.met,
+            ),
+            near_duplicate_trigram=threshold,
+        ),
+        rows=rows,
+    )
 
 
 def _outcome(
@@ -462,96 +466,32 @@ def _outcome(
     )  # pragma: no cover
 
 
-def _search_slots(brief: CreativeBrief, campaigns: Sequence[PlannedCampaign]) -> list[_Slot]:
-    """The brief's ad groups that sit in a Search campaign — an RSA exists nowhere else."""
-    by_ref = {(campaign.campaign_ref or campaign.name): campaign for campaign in campaigns}
-    slots: list[_Slot] = []
-    for item in brief.ad_groups:
-        campaign = by_ref.get(item.campaign_ref)
-        if campaign is None:
-            raise NodeContractError(
-                f"the brief names campaign {item.campaign_ref!r}, which the pinned plan "
-                f"does not have"
-            )
-        if campaign.type.strip().lower() != SEARCH:
-            continue
-        group = next((g for g in campaign.ad_groups if g.name == item.ad_group_ref), None)
-        if group is None:
-            raise NodeContractError(
-                f"the brief names ad group {item.ad_group_ref!r} in {item.campaign_ref!r}, "
-                f"which the pinned plan does not have"
-            )
-        slots.append(_Slot(brief=item, campaign=campaign, group=group))
-    return slots
-
-
-def _headline_spec(ruleset: RuleSet) -> AssetSpec:
-    spec = ruleset.asset_specs.for_campaign(SEARCH).get("headline")
-    missing = (
-        "the whole spec"
-        if spec is None
-        else ", ".join(name for name in ("max_chars", "max_count") if getattr(spec, name) is None)
-    )
-    if spec is None or missing:
-        raise NodeContractError(
-            f"spec_missing: ruleset {ruleset.ruleset_version} has no asset_specs.search.headline "
-            f"{missing}; Stage 04 never guesses a Google limit (§9.5)"
-        )
-    return spec
-
-
-async def _clear_earlier_attempts(ctx: RunContext) -> None:
-    """A failed attempt's rows were committed with its failure; this attempt replaces them."""
-    await ctx.db.execute(
-        sa.delete(CreativeAsset).where(
-            CreativeAsset.creative_run_id == ctx.run.id,
-            CreativeAsset.node_id == NODE_ID,
-            CreativeAsset.frozen_at.is_(None),
-        )
-    )
-
-
-def _where(slot: _Slot) -> str:
-    return f"{slot.brief.campaign_ref} / {slot.brief.ad_group_ref}"
+def headline_spec(ruleset: RuleSet) -> AssetSpec:
+    """`asset_specs.search.headline` with the limit and count selection needs."""
+    return required_specs(ruleset, SEARCH, {"headline": ("max_chars", "max_count")})["headline"]
 
 
 def _user_prompt(
     brief: CreativeBrief,
-    slot: _Slot,
+    slot: Slot,
     licensed: Sequence[ClaimRef],
     asks: Mapping[str, int],
+    *,
+    variant: Variant = "A",
+    avoid: Sequence[str] = (),
 ) -> str:
     sections: dict[str, Any] = {
-        "AD GROUP": {
-            "campaign": slot.brief.campaign_ref,
-            "ad_group": slot.brief.ad_group_ref,
-            "theme": slot.brief.theme,
-            "primary_message": slot.brief.primary_message.text,
-            "landing_url": str(slot.brief.landing_url),
-            "language": slot.language,
-        },
-        "BRIEF": {
-            "objective": brief.objective.text,
-            "audience": [line.text for line in brief.audience],
-            "angle": brief.angle.text,
-            "offer": (
-                f"an offer on {brief.offer.sku_or_set} exists; name it in words, never figures"
-                if brief.offer is not None
-                else "none"
-            ),
-        },
+        "AD GROUP": ad_group_section(slot, variant),
+        "BRIEF": brief_section(brief),
         "KEYWORDS": list(slot.keywords),
-        "PROOF POINTS": [
-            {"claim_id": str(claim.claim_id), "text": claim.normalized_text} for claim in licensed
-        ],
+        "PROOF POINTS": proof_points(licensed),
         "CATEGORY COUNTS": dict(asks),
         "VOICE": list(brief.non_negotiables.voice_words),
         "NEVER": list(brief.non_negotiables.never_terms),
     }
-    return "\n\n".join(
-        f"{name}:\n{json.dumps(value, ensure_ascii=False, indent=1)}"
-        for name, value in sections.items()
-    )
+    if avoid:
+        sections["VARIANT A"] = list(avoid)
+    return render_prompt(sections)
 
 
 HEADLINE_SPREAD = HeadlineSpreadNode()

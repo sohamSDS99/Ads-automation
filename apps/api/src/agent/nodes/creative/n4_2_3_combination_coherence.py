@@ -17,11 +17,9 @@ descriptions, so every pair it could serve is checked, per ad group:
 4. **Pins only for `order_dependent` pairs** (`combinatorics.pins_v1`), in the
    order they read — never to force a message.
 
-4.2.2 is built in S4-P6 (the PRD orders 4.2.2 before 4.2.3 but phases it
-after). Its output is read through its real schema, `ClaimBoundDescriptionsOutput`,
-validated against the pin's licensed claims; while 4.2.2 is still a stub this
-node fails rather than report on headlines alone
-(docs/stage-04-questions.md § S4-P5).
+4.2.2's output is read through its schema, `ClaimBoundDescriptionsOutput`,
+validated against the claims the pin licenses at the run's start — the same
+set 4.2.2 wrote against — so no description reaches a pair without one (law 34).
 
 Nothing is written until every ad has been judged. The asset rows are then set
 to an absolute state computed from 4.2.1's and 4.2.2's outputs — which assets
@@ -34,7 +32,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -45,6 +43,7 @@ from pydantic import BaseModel, ConfigDict, create_model
 from agent.creative import brief as briefs
 from agent.creative import combinatorics
 from agent.creative.combinatorics import Asset, FlagRules, Kind
+from agent.creative.constants import CopyConstants
 from agent.db.models import CreativeAsset, CreativeAssetStatus, Evidence, RunStage
 from agent.llm.router import TaskClass
 from agent.nodes.base import NodeContractError, NodeSpec, RunContext
@@ -90,7 +89,7 @@ class _Draft(BaseModel):
 
 
 @dataclass(frozen=True, slots=True)
-class _Judged:
+class Judged:
     report: PairReport
     #: asset id -> (status, pin position, lineage) — the absolute state to write.
     state: dict[uuid.UUID, tuple[CreativeAssetStatus, str | None, dict[str, Any] | None]]
@@ -116,12 +115,7 @@ class CombinationCoherenceNode:
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         creative = ctx.require_creative()
         copy = creative.constants.copy_
-        rounds = copy.pair_repair_rounds.value
-        if rounds not in (0, 1):
-            raise NodeContractError(
-                f"copy.pair_repair_rounds is {rounds}; §11 4.2.3 allows one repair round, "
-                "and a second would re-ask a model without a bound on its cost"
-            )
+        rounds = repair_rounds(copy)
         headlines = HeadlineSpreadOutput.model_validate(ctx.output_of("4.2.1"))
         if not headlines.ad_groups:
             # No Search ad group in scope: no responsive search ad, no pair to
@@ -133,7 +127,7 @@ class CombinationCoherenceNode:
             for group in descriptions.ad_groups
         }
 
-        judged: list[_Judged] = []
+        judged: list[Judged] = []
         for group in headlines.ad_groups:
             match = by_group.get((group.campaign_ref, group.ad_group_ref, group.variant))
             if match is None:
@@ -143,162 +137,175 @@ class CombinationCoherenceNode:
                     f"without the descriptions Google would show with its headlines"
                 )
             judged.append(
-                await self._judge(
+                await judge(
                     ctx,
                     group,
                     match,
                     rounds=rounds,
                     quotas=dict(copy.headline_quotas.value),
-                    rules=FlagRules(
-                        near_duplicate=copy.near_duplicate_trigram.value,
-                        cta_verbs=combinatorics.cta_verbs(
-                            _headline(candidate) for candidate in group.candidates
-                        ),
-                    ),
+                    rules=flag_rules(copy, group),
                 )
             )
 
         await _apply(ctx, judged)
         return CombinationCoherenceOutput(ads=[item.report for item in judged])
 
-    async def _judge(
-        self,
-        ctx: RunContext,
-        group: HeadlineGroup,
-        descriptions: DescriptionGroup,
-        *,
-        rounds: int,
-        quotas: Mapping[str, int],
-        rules: FlagRules,
-    ) -> _Judged:
-        candidates = {candidate.asset_id: candidate for candidate in group.candidates}
-        heads = [_headline(candidates[asset_id]) for asset_id in group.selected]
-        head_reserve = [_headline(candidates[asset_id]) for asset_id in group.reserve]
-        descs = [_description(item) for item in descriptions.descriptions]
-        desc_reserve = [_description(item) for item in descriptions.reserve]
 
-        pairs = combinatorics.enumerate_pairs(heads, descs)
-        labels = await self._label(ctx, pairs)
-        bad: dict[PairKey, tuple[str, ...]] = {}
-        for a, b, kind in pairs:
-            raised = combinatorics.flags(a, b, kind, rules)
-            label = labels[(a.ref, b.ref)]
-            reasons = (*raised, *((label,) if label in BAD_LABELS else ()))
-            if reasons:
-                bad[(a.ref, b.ref)] = reasons
-
-        swaps: tuple[combinatorics.Swap, ...] = ()
-        final_heads, final_descs = tuple(heads), tuple(descs)
-        repaired = 0
-        if bad and rounds:
-            repair = combinatorics.repair_v1(
-                heads, descs, head_reserve, desc_reserve, bad, quotas=quotas, rules=rules
-            )
-            swaps, final_heads, final_descs, repaired = (
-                repair.swaps,
-                repair.headlines,
-                repair.descriptions,
-                1,
-            )
-
-        final = combinatorics.enumerate_pairs(final_heads, final_descs)
-        # The pairs a swapped-in asset forms are labelled once, so the report
-        # covers every pair the ad can serve. They are not repaired: one round.
-        labels.update(
-            await self._label(ctx, [p for p in final if (p[0].ref, p[1].ref) not in labels])
+def repair_rounds(copy: CopyConstants) -> int:
+    """`copy.pair_repair_rounds`, held to the one round §11 4.2.3 allows."""
+    rounds = copy.pair_repair_rounds.value
+    if rounds not in (0, 1):
+        raise NodeContractError(
+            f"copy.pair_repair_rounds is {rounds}; §11 4.2.3 allows one repair round, "
+            "and a second would re-ask a model without a bound on its cost"
         )
-        report_pairs: list[Pair] = []
-        order_dependent: list[tuple[Asset, Asset, Kind]] = []
-        for a, b, kind in final:
-            raised = combinatorics.flags(a, b, kind, rules)
-            label = labels[(a.ref, b.ref)]
-            report_pairs.append(
-                Pair.model_validate(
-                    {"a": a.ref, "b": b.ref, "kind": kind, "flags": list(raised), "label": label}
-                )
-            )
-            if label == "order_dependent" and not raised:
-                order_dependent.append((a, b, kind))
-        pins = combinatorics.pins_v1(order_dependent)
+    return rounds
 
-        unresolved = [
-            (pair.a, pair.b) for pair in report_pairs if pair.flags or pair.label in BAD_LABELS
-        ]
-        report = PairReport(
-            campaign_ref=group.campaign_ref,
-            ad_group_ref=group.ad_group_ref,
-            variant=group.variant,
-            headlines=[uuid.UUID(asset.ref) for asset in final_heads],
-            descriptions=[uuid.UUID(asset.ref) for asset in final_descs],
-            pairs=report_pairs,
-            swaps=[
-                Swap(out=uuid.UUID(s.out), in_from_reserve=uuid.UUID(s.into), why=s.why)
-                for s in swaps
-            ],
-            pins=[
-                Pin(asset_id=uuid.UUID(pin.asset_ref), position=pin.position, why=pin.why)
-                for pin in pins
-            ],
-            repair_rounds=repaired,
-            unresolved=unresolved,
+
+def flag_rules(copy: CopyConstants, group: HeadlineGroup) -> FlagRules:
+    """The deterministic flags' parameters for one ad: the threshold, and its pool's CTA verbs."""
+    return FlagRules(
+        near_duplicate=copy.near_duplicate_trigram.value,
+        cta_verbs=combinatorics.cta_verbs(_headline(candidate) for candidate in group.candidates),
+    )
+
+
+async def judge(
+    ctx: RunContext,
+    group: HeadlineGroup,
+    descriptions: DescriptionGroup,
+    *,
+    node_id: str = NODE_ID,
+    rounds: int,
+    quotas: Mapping[str, int],
+    rules: FlagRules,
+) -> Judged:
+    """One ad's pairs, flags, labels, one repair round and pins: A for 4.2.3, B for 4.2.4.
+
+    Writes nothing: `Judged.state` is the absolute state for the caller to set.
+    `node_id` is the node that made the swaps, recorded in their lineage.
+    """
+    candidates = {candidate.asset_id: candidate for candidate in group.candidates}
+    heads = [_headline(candidates[asset_id]) for asset_id in group.selected]
+    head_reserve = [_headline(candidates[asset_id]) for asset_id in group.reserve]
+    descs = [_description(item) for item in descriptions.descriptions]
+    desc_reserve = [_description(item) for item in descriptions.reserve]
+
+    pairs = combinatorics.enumerate_pairs(heads, descs)
+    labels = await label_pairs(ctx, pairs)
+    bad: dict[PairKey, tuple[str, ...]] = {}
+    for a, b, kind in pairs:
+        raised = combinatorics.flags(a, b, kind, rules)
+        label = labels[(a.ref, b.ref)]
+        reasons = (*raised, *((label,) if label in BAD_LABELS else ()))
+        if reasons:
+            bad[(a.ref, b.ref)] = reasons
+
+    swaps: tuple[combinatorics.Swap, ...] = ()
+    final_heads, final_descs = tuple(heads), tuple(descs)
+    repaired = 0
+    if bad and rounds:
+        repair = combinatorics.repair_v1(
+            heads, descs, head_reserve, desc_reserve, bad, quotas=quotas, rules=rules
         )
-        await ctx.progress(
-            f"{group.campaign_ref} / {group.ad_group_ref}: {len(pairs)} pairs, {len(bad)} to "
-            f"repair, {len(swaps)} swapped from reserve, {len(unresolved)} unresolved, "
-            f"{len(pins)} pinned"
+        swaps, final_heads, final_descs, repaired = (
+            repair.swaps,
+            repair.headlines,
+            repair.descriptions,
+            1,
         )
 
-        state: dict[uuid.UUID, tuple[CreativeAssetStatus, str | None, dict[str, Any] | None]] = {}
-        carried = {asset.ref for asset in (*final_heads, *final_descs)}
-        swapped_in = {s.into: s.out for s in swaps}
-        pinned = {pin.asset_ref: pin.position for pin in pins}
-        for asset in (*heads, *head_reserve, *descs, *desc_reserve):
-            status = (
-                CreativeAssetStatus.LINTED if asset.ref in carried else CreativeAssetStatus.RESERVE
+    final = combinatorics.enumerate_pairs(final_heads, final_descs)
+    # The pairs a swapped-in asset forms are labelled once, so the report
+    # covers every pair the ad can serve. They are not repaired: one round.
+    labels.update(await label_pairs(ctx, [p for p in final if (p[0].ref, p[1].ref) not in labels]))
+    report_pairs: list[Pair] = []
+    order_dependent: list[tuple[Asset, Asset, Kind]] = []
+    for a, b, kind in final:
+        raised = combinatorics.flags(a, b, kind, rules)
+        label = labels[(a.ref, b.ref)]
+        report_pairs.append(
+            Pair.model_validate(
+                {"a": a.ref, "b": b.ref, "kind": kind, "flags": list(raised), "label": label}
             )
-            lineage = (
-                {"origin": "reserve_swap", "parent_id": swapped_in[asset.ref], "node_id": NODE_ID}
-                if asset.ref in swapped_in
-                else None
-            )
-            state[uuid.UUID(asset.ref)] = (status, pinned.get(asset.ref), lineage)
-        return _Judged(report=report, state=state)
+        )
+        if label == "order_dependent" and not raised:
+            order_dependent.append((a, b, kind))
+    pins = combinatorics.pins_v1(order_dependent)
 
-    async def _label(
-        self, ctx: RunContext, pairs: Sequence[tuple[Asset, Asset, Kind]]
-    ) -> dict[PairKey, PairLabel]:
-        """CLASSIFY every pair, `CLASSIFY_BATCH` per call, one required enum each."""
-        labels: dict[PairKey, PairLabel] = {}
-        for start in range(0, len(pairs), CLASSIFY_BATCH):
-            batch = pairs[start : start + CLASSIFY_BATCH]
-            keys = [f"p{index:02d}" for index in range(len(batch))]
-            schema = create_model(
-                "PairLabelsDraft",
-                __base__=_Draft,
-                **{key: (PairLabel, ...) for key in keys},  # type: ignore[call-overload]
-            )
-            shown = {
-                key: {"kind": kind, "a": a.text, "b": b.text}
-                for key, (a, b, kind) in zip(keys, batch, strict=True)
-            }
-            answer = await ctx.complete(
-                schema,
-                system=SYSTEM,
-                user="PAIRS:\n" + json.dumps(shown, ensure_ascii=False, indent=1),
-            )
-            for key, (a, b, _kind) in zip(keys, batch, strict=True):
-                labels[(a.ref, b.ref)] = getattr(answer, key)
-        return labels
+    unresolved = [
+        (pair.a, pair.b) for pair in report_pairs if pair.flags or pair.label in BAD_LABELS
+    ]
+    report = PairReport(
+        campaign_ref=group.campaign_ref,
+        ad_group_ref=group.ad_group_ref,
+        variant=group.variant,
+        headlines=[uuid.UUID(asset.ref) for asset in final_heads],
+        descriptions=[uuid.UUID(asset.ref) for asset in final_descs],
+        pairs=report_pairs,
+        swaps=[
+            Swap(out=uuid.UUID(s.out), in_from_reserve=uuid.UUID(s.into), why=s.why) for s in swaps
+        ],
+        pins=[
+            Pin(asset_id=uuid.UUID(pin.asset_ref), position=pin.position, why=pin.why)
+            for pin in pins
+        ],
+        repair_rounds=repaired,
+        unresolved=unresolved,
+    )
+    await ctx.progress(
+        f"{group.campaign_ref} / {group.ad_group_ref} ({group.variant}): {len(pairs)} pairs, "
+        f"{len(bad)} to "
+        f"repair, {len(swaps)} swapped from reserve, {len(unresolved)} unresolved, "
+        f"{len(pins)} pinned"
+    )
+
+    state: dict[uuid.UUID, tuple[CreativeAssetStatus, str | None, dict[str, Any] | None]] = {}
+    carried = {asset.ref for asset in (*final_heads, *final_descs)}
+    swapped_in = {s.into: s.out for s in swaps}
+    pinned = {pin.asset_ref: pin.position for pin in pins}
+    for asset in (*heads, *head_reserve, *descs, *desc_reserve):
+        status = CreativeAssetStatus.LINTED if asset.ref in carried else CreativeAssetStatus.RESERVE
+        lineage = (
+            {"origin": "reserve_swap", "parent_id": swapped_in[asset.ref], "node_id": node_id}
+            if asset.ref in swapped_in
+            else None
+        )
+        state[uuid.UUID(asset.ref)] = (status, pinned.get(asset.ref), lineage)
+    return Judged(report=report, state=state)
+
+
+async def label_pairs(
+    ctx: RunContext, pairs: Sequence[tuple[Asset, Asset, Kind]]
+) -> dict[PairKey, PairLabel]:
+    """CLASSIFY every pair, `CLASSIFY_BATCH` per call, one required enum each."""
+    labels: dict[PairKey, PairLabel] = {}
+    for start in range(0, len(pairs), CLASSIFY_BATCH):
+        batch = pairs[start : start + CLASSIFY_BATCH]
+        keys = [f"p{index:02d}" for index in range(len(batch))]
+        schema = create_model(
+            "PairLabelsDraft",
+            __base__=_Draft,
+            **{key: (PairLabel, ...) for key in keys},  # type: ignore[call-overload]
+        )
+        shown = {
+            key: {"kind": kind, "a": a.text, "b": b.text}
+            for key, (a, b, kind) in zip(keys, batch, strict=True)
+        }
+        answer = await ctx.complete(
+            schema,
+            system=SYSTEM,
+            user="PAIRS:\n" + json.dumps(shown, ensure_ascii=False, indent=1),
+            # Explicit: 4.2.4, a COPYWRITE node, labels B's pairs through here too.
+            task_class=TaskClass.CLASSIFY,
+        )
+        for key, (a, b, _kind) in zip(keys, batch, strict=True):
+            labels[(a.ref, b.ref)] = getattr(answer, key)
+    return labels
 
 
 def _descriptions(ctx: RunContext) -> ClaimBoundDescriptionsOutput:
     raw = ctx.output_of("4.2.2")
-    if raw.get("stub") is True:
-        raise NodeContractError(
-            "4.2.2 claim_bound_descriptions is still a stub (it is built in S4-P6), so there "
-            "are no descriptions to pair; 4.2.3 checks headlines beside the descriptions "
-            "Google serves them with and does not report on headlines alone"
-        )
     creative = ctx.require_creative()
     now = ctx.run.started_at or datetime.now(UTC)
     licensed = frozenset(
@@ -330,8 +337,22 @@ def _description(item: DescriptionItem) -> Asset:
     )
 
 
-async def _apply(ctx: RunContext, judged: Sequence[_Judged]) -> None:
-    """Set every judged asset to its computed state — absolute, so a retry overwrites."""
+def apply_state(
+    rows: Iterable[CreativeAsset],
+    state: Mapping[uuid.UUID, tuple[CreativeAssetStatus, str | None, dict[str, Any] | None]],
+) -> None:
+    """Set each judged row to its computed state — absolute, so a retry overwrites."""
+    for row in rows:
+        if row.id not in state:
+            continue
+        status, position, lineage = state[row.id]
+        row.status = status
+        row.pin_position = position
+        row.lineage = lineage if lineage is not None else generated_lineage(row.node_id)
+
+
+async def _apply(ctx: RunContext, judged: Sequence[Judged]) -> None:
+    """4.2.1's and 4.2.2's rows, already written, set to what 4.2.3 judged."""
     state = {asset_id: entry for item in judged for asset_id, entry in item.state.items()}
     if not state:
         return
@@ -352,11 +373,7 @@ async def _apply(ctx: RunContext, judged: Sequence[_Judged]) -> None:
         raise NodeContractError(
             f"4.2.1/4.2.2 name asset(s) this run has no row for: {', '.join(missing)}"
         )
-    for row in rows:
-        status, position, lineage = state[row.id]
-        row.status = status
-        row.pin_position = position
-        row.lineage = lineage if lineage is not None else generated_lineage(row.node_id)
+    apply_state(rows, state)
     await ctx.db.flush()
 
 

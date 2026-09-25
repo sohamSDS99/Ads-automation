@@ -394,6 +394,99 @@ ruling; items 1 and 2 are the ones that change behaviour outside this phase.
     and 4.2.3 writes an absolute state. A rollback in the executor before the
     failure is recorded would make every node safe by default (not built).
 
+## S4-P6
+
+What S4-P6 had to decide that the PRD does not settle. Items 7, 11 and 12 are
+the ones that decide whether a live run gets past Stage 4.2.
+
+1. **S4-P5 item 1 is closed.** 4.2.3 now reads the real 4.2.2. Its "4.2.2 is
+   still a stub" guard and the test for it are gone, and S4-P5's integration
+   test scripts 4.2.2's COPYWRITE pool instead of registering a fixture node.
+2. **"Never an asset" means no row at all, not even a draft.** In 4.2.2 and
+   4.2.5 (and B, through 4.2.2's path), a candidate carrying an unlicensed
+   claim-shaped span is withheld whole. Its spans become
+   `exception_candidates[]{span, occurrences}`, and no `CreativeAsset` is
+   written for it. **4.2.1 (S4-P5) does not do this:** a headline with an
+   unlicensed span fails lint and is stored as a `draft` row, and nothing is
+   collected. Ruling owed: should 4.2.1 withhold and collect the same way?
+3. **Exception candidates are also collected by 4.2.5.** §11 lists
+   `exception_candidates` for 4.2.2 only, but law 34 covers every span, so
+   4.2.5's output carries them too. `exceptions.max_exceptions_per_run` is not
+   applied when candidates are collected; it belongs to the node that turns
+   them into `CreativeException` rows.
+4. **4.2.2 trusts the model's claim binding.** `claim_ids` must be licensed at
+   the pin (the enum plus the schema validator), and `claim_text` must be a
+   verbatim, case-insensitive quote from the description. Nothing checks that
+   the quoted words actually state the cited claim; checking would mean a
+   second claim matcher (law 33). So a description can cite a licensed claim
+   it does not state. Accept, or give Stage 03 a rule for it.
+5. **Description selection is not a named method.** 4.2.2 selects in written
+   order and skips any near-duplicate of one already picked (`copy.trigram_v1`
+   at or above `copy.near_duplicate_trigram`, the pair 4.2.3 would block). The
+   rest are reserves. §11 names `select.headlines_v1` for 4.2.1 and nothing for
+   4.2.2, so no versioned id was invented. Accept, or define
+   `select.descriptions_v1`.
+6. **Paths are asset rows** (`kind='path'`, `rsa_path`), linted like
+   everything else. A path that fails lint leaves `None`, and a passing path2
+   moves up to path1, because Google takes path2 only after path1.
+7. **Distinctness is hard to reach when both ads must use the same keywords.**
+   B has to meet the same keyword quota with the same three keywords, each
+   used once (otherwise `keyword_stuffing`). A long keyword leaves about four
+   characters to vary in 30, so B's keyword headlines score 0.88–0.93
+   `copy.trigram_v1` against A's. On the test copy, B cleared
+   `variant_min_distance` 0.65 only after its proof and CTA lines were
+   reworded (0.635 → 0.683). Expect live runs to fail 4.2.4 often, especially
+   when an ad group has long keywords and one licensed claim that every
+   description must state. Options: leave keyword headlines out of the metric
+   (a `copy.distinctness_v2`), lower the threshold, or accept.
+8. **Who states the hypothesis and the metric.** Code does: the hypothesis is
+   written from the brief's approved lines ("Variant B, led by “angle_b”,
+   beats variant A, led by “primary_message”, on {kpi}."), and
+   `primary_metric` is the ad group's KPI (the brief's `kpi`: the plan's
+   campaign `primary_kpi`, or the north-star metric). The PRD does not say who
+   writes either. The model writes neither, so neither can assert anything
+   unsourced.
+9. **A B that paraphrases A fails the run.** 4.2.4 raises, writes nothing of
+   B, and the executor's bounded retry is the only re-ask. 4.2.4 is on the
+   path, so the run fails. Accept, or make a failed B non-fatal and package A
+   alone.
+10. **`ResponsiveSearchAd` (§12.2) is defined here and used first for
+    `ad_b`.** A's RSA is not assembled in this phase. `ad_ref` is
+    `{campaign_ref}/{ad_group_ref}/{variant}`, a convention invented here;
+    `CreativeAsset.ad_ref` stays unset, as it does on S4-P5's rows.
+11. **4.2.5 cannot write anything with today's constants.** Content constants
+    2026.09.2 have no `performance_max.business_name` spec and no `demand_gen`
+    or `display` specs at all. So every non-Search slate fails 4.2.5 with
+    `spec_missing`, which names every gap at once and never guesses a limit.
+    The performance owner has to add these specs, with sources, as a Stage 03
+    constants MINOR.
+12. **The short-description rule "from specs" is not built.** The sheet has
+    no `short_description` asset type, and no Stage 03 surface maps to one.
+    Enforcing a 60-character limit in Stage 04 code would reimplement a
+    character limit (law 33). Stage 03 needs to add both first; then 4.2.5
+    writes it. Warning: adding a `short_description` asset type to the sheet
+    today would push its length rule onto every surface that has no asset
+    type (`display_text`, `youtube_script`, `landing_page_section`), under
+    S4-P5's rule that an unknown mapping keeps applying.
+13. **Demand Gen and Display have no Stage 03 text surfaces.** 4.2.5 lints
+    them as `pmax_headline`, `long_headline`, `asset_group_description` and
+    `business_name`. Those are the surfaces whose asset type matches the spec
+    each line is written against, so the pin's limits for that campaign type
+    apply. Performance Max descriptions use `pmax_description`. `display_text`
+    has no asset type and cannot be used. Ruling owed on the mapping.
+14. **4.2.5's business name is written by the model.** `CreativeInput`
+    carries no advertiser name. It belongs in Stage 03's `CreativeContext`.
+15. **4.2.5 writes exactly each spec's `max_count`** (15 / 5 / 5 for
+    Performance Max) and keeps every line that passes lint; §11 names no pool
+    or selection for it. Fewer passing than a spec's `min_count` fails the
+    node.
+16. **What `not_required` covers in 4.2.5.** It is returned when the slate
+    has none of the three types (§11), and also, with the reason stated, when
+    the slate has one but the run's brief covers no asset group in it (a
+    scoped run, or a plan with none). Only campaign types on the slate are
+    written for: a Performance Max campaign in the account structure but not
+    on the slate gets no text.
+
 ## S4-P9
 
 Worker image, media references, 4.4.1 `creative_concepts`, 4.4.2 `image_masters`.

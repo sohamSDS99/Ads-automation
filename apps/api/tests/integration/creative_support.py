@@ -74,8 +74,14 @@ async def seed_plan(
     source_superseded: bool = False,
     campaign_type: str | None = None,
     keywords: list[dict[str, Any]] | None = None,
+    extra_campaigns: list[dict[str, Any]] | None = None,
+    channel_slate: dict[str, Any] | None = None,
 ) -> CampaignPlan:
-    """Accepted research → a plan run → a plan in `status`, with a real payload."""
+    """Accepted research → a plan run → a plan in `status`, with a real payload.
+
+    `extra_campaigns` are appended to the two Search ones; `channel_slate` is
+    2.3.1's section as the frozen plan carries it (absent means no slate).
+    """
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
     db.add(research)
     await db.flush()
@@ -168,8 +174,10 @@ async def seed_plan(
                         "campaign_ref": "c-brand",
                         **({"type": campaign_type} if campaign_type else {}),
                     },
+                    *(extra_campaigns or []),
                 ]
             },
+            **({"channel_slate": channel_slate} if channel_slate is not None else {}),
             "open_dependencies": [{"task": "Install the conversion tag", "blocking": True}],
         },
     )
@@ -235,6 +243,7 @@ async def seed_published(
     extra_rules: tuple[Any, ...] = (),
     logo_templates: tuple[dict[str, Any], ...] = (),
     logo_rules: dict[str, Any] | None = None,
+    detectors: tuple[Any, ...] = (),
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -279,6 +288,7 @@ async def seed_published(
             schema_version=ruleset_schema,
             extra_rules=extra_rules,
             logo_templates=logo_templates,
+            detectors=detectors,
         ),
         compiler_version="test",
         constants_version="test",
@@ -311,6 +321,7 @@ def compiled_ruleset(
     schema_version: str = "1.0",
     extra_rules: tuple[Any, ...] = (),
     logo_templates: tuple[dict[str, Any], ...] = (),
+    detectors: tuple[Any, ...] = (),
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -352,6 +363,7 @@ def compiled_ruleset(
         compiled_at=_now(),
         rules=(*rules, *extra_rules),
         claims_index=tuple(claims),
+        detectors=detectors,
         **({"asset_specs": {"specs": asset_specs}} if asset_specs else {}),  # type: ignore[arg-type]
         logo_templates=logo_templates,  # type: ignore[arg-type]
         hash=digest,
