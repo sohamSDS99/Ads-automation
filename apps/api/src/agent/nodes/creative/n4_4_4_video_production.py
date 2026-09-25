@@ -193,50 +193,17 @@ class VideoProductionNode:
             plan_run_id=ctx.run.id,
         )
         for campaign in concepts.campaigns:
-            types = video.video_specs(specs, campaign.campaign_type)
-            if not types or not campaign.concepts:
+            made = await plan_campaign(
+                creative, choice, campaign, writer=writer, supported=supported, specs=specs,
+                end_card_s=end_card_s, node_id=NODE_ID,
+            )  # fmt: skip
+            if made is None:
                 continue
             planned.surfaced += 1
-            try:
-                window = video.duration_window(types, campaign_type=campaign.campaign_type)
-                duration = video_duration(
-                    min_s=window.min_s,
-                    max_s=(window.max_s - end_card_s) if window.max_s is not None else None,
-                    supported=supported,
-                )
-            except video.VideoPlanProblem as problem:
-                planned.gaps.append(_gap(campaign.campaign_ref, problem.reason, problem.detail))
-                continue
-            if duration is None:
-                planned.gaps.append(
-                    _gap(
-                        campaign.campaign_ref,
-                        "no_plannable_duration",
-                        f"No length between {window.min_s or 1} s and "
-                        f"{window.max_s or 'no maximum'}"
-                        f"{' s' if window.max_s else ''}"
-                        f"{f' (less the {end_card_s} s end card)' if window.max_s else ''} "
-                        "can be cut from "
-                        f"{choice.model_id}'s clips of "
-                        f"{', '.join(f'{d} s' for d in sorted(supported)) or 'no duration'}.",
-                    )
-                )
-                continue
-            plan = shot_plan_v1(
-                duration_s=duration,
-                supported_durations=supported,
-                constants=creative.constants.media_constants(),
-            )
-            evidence_id = await writer.record(plan, node_id=NODE_ID)
-            planned.campaigns.append(
-                _CampaignPlan(
-                    concepts=campaign,
-                    window=window,
-                    duration_s=duration,
-                    clips=[PlannedClip.model_validate(c) for c in plan.result["clips"]],
-                    evidence_id=evidence_id,
-                )
-            )
+            if isinstance(made, VideoGap):
+                planned.gaps.append(made)
+            else:
+                planned.campaigns.append(made)
         if not planned.surfaced:
             planned.why = (
                 "No campaign in the slate has a video surface under the pinned spec sheet "
@@ -261,9 +228,71 @@ class VideoProductionNode:
         return await production.finish(planned.gaps)
 
 
+async def plan_campaign(
+    creative: Any,
+    choice: MediaModelChoice,
+    campaign: CampaignConcepts,
+    *,
+    writer: DerivedWriter,
+    supported: list[int],
+    specs: dict[str, Any],
+    end_card_s: int,
+    node_id: str,
+) -> _CampaignPlan | VideoGap | None:
+    """One campaign's length and shot plan for `choice` — None when it has no
+    video surface. Shared with 4.4.6, which re-plans a regenerated video for the
+    model it is regenerated with (an override may take other clip lengths)."""
+    types = video.video_specs(specs, campaign.campaign_type)
+    if not types or not campaign.concepts:
+        return None
+    try:
+        window = video.duration_window(types, campaign_type=campaign.campaign_type)
+        duration = video_duration(
+            min_s=window.min_s,
+            max_s=(window.max_s - end_card_s) if window.max_s is not None else None,
+            supported=supported,
+        )
+    except video.VideoPlanProblem as problem:
+        return _gap(campaign.campaign_ref, problem.reason, problem.detail)
+    if duration is None:
+        return _gap(
+            campaign.campaign_ref,
+            "no_plannable_duration",
+            f"No length between {window.min_s or 1} s and "
+            f"{window.max_s or 'no maximum'}"
+            f"{' s' if window.max_s else ''}"
+            f"{f' (less the {end_card_s} s end card)' if window.max_s else ''} "
+            "can be cut from "
+            f"{choice.model_id}'s clips of "
+            f"{', '.join(f'{d} s' for d in sorted(supported)) or 'no duration'}.",
+        )
+    plan = shot_plan_v1(
+        duration_s=duration,
+        supported_durations=supported,
+        constants=creative.constants.media_constants(),
+    )
+    evidence_id = await writer.record(plan, node_id=node_id)
+    return _CampaignPlan(
+        concepts=campaign,
+        window=window,
+        duration_s=duration,
+        clips=[PlannedClip.model_validate(c) for c in plan.result["clips"]],
+        evidence_id=evidence_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # what gather hands reason
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class RegenerationTarget:
+    """What 4.4.6 hands `_Production` for one campaign's regenerated video."""
+
+    parent_id: uuid.UUID
+    video_id: uuid.UUID
+    parent_script: CreativeAsset | None
 
 
 @dataclass
@@ -328,16 +357,34 @@ class _Production:
     submitted: list[_Submitted] = field(default_factory=list)
     videos: list[_Video] = field(default_factory=list)
     blocked: bool = False
+    #: Whose jobs and assets these are, and which review round — 4.4.6
+    #: regenerates through this same code (see 4.4.2's `_Mastering`).
+    node_id: str = NODE_ID
+    round: int = 1
+    #: A regeneration's targets, by campaign: the new video asset its caller
+    #: committed, and the script of the video it replaces.
+    targets: dict[str, RegenerationTarget] = field(default_factory=dict)
 
     @classmethod
-    async def start(cls, ctx: RunContext) -> _Production:
-        choice = _video_choice(ctx.require_creative().input)
+    async def start(
+        cls,
+        ctx: RunContext,
+        *,
+        choice: MediaModelChoice | None = None,
+        node_id: str = NODE_ID,
+        round: int = 1,
+        targets: dict[str, RegenerationTarget] | None = None,
+    ) -> _Production:
+        choice = choice or _video_choice(ctx.require_creative().input)
         return cls(
             ctx=ctx,
             choice=choice,
             capability=CapabilityRecord.model_validate(choice.capability),
             media=ctx.require_media(),
             brief=await approved_brief(ctx),
+            node_id=node_id,
+            round=round,
+            targets=dict(targets or {}),
         )
 
     # -- one campaign --------------------------------------------------------
@@ -436,11 +483,26 @@ class _Production:
     ) -> tuple[CreativeAsset, VideoScript, ScriptLint] | None:
         """The committed script — read back when a previous attempt wrote it."""
         ref = plan.concepts.campaign_ref
-        existing = await _find_asset(self.ctx, ref, CreativeAssetKind.VIDEO_SCRIPT)
-        if existing is not None and existing.status is CreativeAssetStatus.LINTED:
-            script = VideoScript.model_validate((existing.fields or {})["script"])
-            if script.duration_s == plan.duration_s and len(script.beats) == len(plan.clips):
-                return existing, script, _script_lint(LintResult.model_validate(existing.lint))
+        target = self.targets.get(ref)
+        existing = await _find_asset(
+            self.ctx,
+            ref,
+            CreativeAssetKind.VIDEO_SCRIPT,
+            node_id=self.node_id,
+            regenerated_from=target.parent_id if target else None,
+        )
+        # A regeneration re-shoots the script the replaced video was made from
+        # when it still fits the shot plan; it writes a new one only when the
+        # model it is regenerated with cuts other lengths.
+        for candidate in (existing, target.parent_script if target else None):
+            if candidate is not None and candidate.status is CreativeAssetStatus.LINTED:
+                script = VideoScript.model_validate((candidate.fields or {})["script"])
+                if script.duration_s == plan.duration_s and len(script.beats) == len(plan.clips):
+                    return (
+                        candidate,
+                        script,
+                        _script_lint(LintResult.model_validate(candidate.lint)),
+                    )
         draft_model = video.script_draft_model(len(plan.clips))
         findings: list[str] = []
         for attempt in (1, 2):
@@ -448,6 +510,8 @@ class _Production:
                 draft_model,
                 system=SYSTEM,
                 user=self._script_prompt(plan, concept_id, findings),
+                # This node's class, named: 4.4.6 regenerates through this code.
+                task_class=VideoProductionNode.spec.task_class,
             )
             script = video.assemble_script(
                 draft, clips=[c.model_dump() for c in plan.clips], duration_s=plan.duration_s
@@ -528,7 +592,13 @@ class _Production:
         resumed attempt must find exactly this script (Law 37)."""
         creative = self.ctx.require_creative()
         text = video.render_script(script)
-        fields = {"script": script.model_dump(mode="json"), "concept_id": concept_id}
+        fields: dict[str, Any] = {
+            "script": script.model_dump(mode="json"),
+            "concept_id": concept_id,
+        }
+        target = self.targets.get(plan.concepts.campaign_ref)
+        if target is not None:
+            fields["regenerated_from"] = str(target.parent_id)
         values: dict[str, Any] = {
             "text": text,
             "fields": fields,
@@ -559,7 +629,22 @@ class _Production:
     async def _video_asset(
         self, plan: _CampaignPlan, concept_id: str, script_asset: CreativeAsset
     ) -> CreativeAsset:
-        """The asset every clip job references — committed before the first one."""
+        """The asset every clip job references — committed before the first one.
+        A regeneration's is its caller's new asset, told which script it is shot from."""
+        target = self.targets.get(plan.concepts.campaign_ref)
+        if target is not None:
+            async with get_sessionmaker()() as session:
+                row = await session.get(CreativeAsset, target.video_id)
+                if row is None:  # pragma: no cover — committed by the caller
+                    raise NodeContractError(f"regenerated video {target.video_id} vanished")
+                row.fields = {
+                    **(row.fields or {}),
+                    "script_asset_id": str(script_asset.id),
+                    "duration_s": plan.duration_s,
+                }
+                row.content_hash = script_asset.content_hash
+                await session.commit()
+            return await self._reload(target.video_id)
         existing = await _find_asset(self.ctx, plan.concepts.campaign_ref, CreativeAssetKind.VIDEO)
         if existing is not None:
             return existing
@@ -590,13 +675,13 @@ class _Production:
             workspace_id=run.workspace_id,
             project_id=run.project_id,
             creative_run_id=run.id,
-            node_id=NODE_ID,
+            node_id=self.node_id,
             campaign_ref=plan.concepts.campaign_ref,
             kind=kind,
             surface=surface,
             claim_ids=[],
             generated_by_ai=True,
-            lineage=generated_lineage(NODE_ID),
+            lineage=generated_lineage(self.node_id),
             **values,
         )
 
@@ -642,9 +727,9 @@ class _Production:
                 estimate = video_job_price(self.capability, params, constants).usd
                 job = await self.media.submit_or_resume(
                     run_id=self.ctx.run.id,
-                    node_id=NODE_ID,
+                    node_id=self.node_id,
                     asset_id=made.asset.id,
-                    round=1,
+                    round=self.round,
                     request=request,
                     choice=self.choice,
                     estimate_usd=estimate,
@@ -1321,18 +1406,27 @@ def _video_choice(inp: CreativeInput) -> MediaModelChoice:
 
 
 async def _find_asset(
-    ctx: RunContext, campaign_ref: str, kind: CreativeAssetKind
+    ctx: RunContext,
+    campaign_ref: str,
+    kind: CreativeAssetKind,
+    *,
+    node_id: str = NODE_ID,
+    regenerated_from: uuid.UUID | None = None,
 ) -> CreativeAsset | None:
-    row: CreativeAsset | None = await ctx.db.scalar(
-        sa.select(CreativeAsset)
-        .where(
-            CreativeAsset.creative_run_id == ctx.run.id,
-            CreativeAsset.node_id == NODE_ID,
-            CreativeAsset.campaign_ref == campaign_ref,
-            CreativeAsset.kind == kind,
-        )
-        .execution_options(populate_existing=True)
+    """This node's asset of `kind` for the campaign — or, for a regeneration,
+    the one it wrote for the video it replaces (never a dropped attempt)."""
+    query = sa.select(CreativeAsset).where(
+        CreativeAsset.creative_run_id == ctx.run.id,
+        CreativeAsset.node_id == node_id,
+        CreativeAsset.campaign_ref == campaign_ref,
+        CreativeAsset.kind == kind,
     )
+    if regenerated_from is not None:
+        query = query.where(
+            CreativeAsset.fields["regenerated_from"].astext == str(regenerated_from),
+            CreativeAsset.status != CreativeAssetStatus.DROPPED,
+        )
+    row: CreativeAsset | None = await ctx.db.scalar(query.execution_options(populate_existing=True))
     return row
 
 

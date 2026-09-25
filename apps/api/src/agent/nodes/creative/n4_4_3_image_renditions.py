@@ -213,9 +213,14 @@ class _Rendering:
     made: list[_Made] = field(default_factory=list)
     fitted: list[_Fitted] = field(default_factory=list)
     gaps: list[RenditionGap] = field(default_factory=list)
+    #: Whose relay jobs these are, and which review round (see 4.4.2's `_Mastering`).
+    node_id: str = NODE_ID
+    round: int = 1
 
     @classmethod
-    async def start(cls, ctx: RunContext, choice: MediaModelChoice) -> _Rendering:
+    async def start(
+        cls, ctx: RunContext, choice: MediaModelChoice, *, node_id: str = NODE_ID, round: int = 1
+    ) -> _Rendering:
         creative = ctx.require_creative()
         media = ctx.require_media()
         logos, unreadable = await registered_logos(ctx, media)
@@ -230,6 +235,8 @@ class _Rendering:
             clear_space_ratio=positive_float(rules.get("clear_space_ratio")),
             min_width_px=positive_int(rules.get("min_width_px")),
             templates=masters.logo_templates(creative.linter.ruleset),
+            node_id=node_id,
+            round=round,
         )
 
     # -- constants, read once ------------------------------------------------
@@ -283,6 +290,16 @@ class _Rendering:
         renditions = await self._write_renditions()
         logos = await self._write_logos()
         return ImageRenditions(renditions=renditions, logos=logos, gaps=self.gaps)
+
+    async def one_concept(
+        self, campaign: CampaignConcepts, concept: Concept, item: ConceptMasters
+    ) -> ImageRenditions:
+        """One regenerated concept's renditions (4.4.6), through the same steps
+        as `run()`. Logos are not regenerated: registered logos are placed by
+        code (Law 38), never painted, so there is nothing to look at again."""
+        if concept.surfaces:
+            await self._concept(campaign, concept, item)
+        return ImageRenditions(renditions=await self._write_renditions(), gaps=self.gaps)
 
     # -- one concept ---------------------------------------------------------
 
@@ -413,9 +430,9 @@ class _Rendering:
         try:
             job = await self.media.submit_or_resume(
                 run_id=self.ctx.run.id,
-                node_id=NODE_ID,
+                node_id=self.node_id,
                 asset_id=item.asset_id,
-                round=1,
+                round=self.round,
                 request=request,
                 choice=self.choice,
                 estimate_usd=image_job_price(self.capability, params, media).usd,

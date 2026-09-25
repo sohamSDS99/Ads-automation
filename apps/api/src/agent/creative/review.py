@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
-from typing import Any, Protocol
+from typing import Any
 
 import sqlalchemy as sa
 from pydantic import ValidationError
@@ -34,15 +34,22 @@ from agent.db.models import (
     AssetDecisionChoice,
     CreativeAsset,
     CreativeAssetStatus,
+    Run,
     Workspace,
 )
+from agent.media.catalogue import MediaCatalogue
 from agent.media.types import CapabilityRecord
 from agent.orchestrator.creative_input import (
     CreativeInputError,
     resolve_choice,
     validated_defaults,
 )
-from agent.schemas.creative_input import MediaModelChoice, MediaModelSelection, MediaReferenceRef
+from agent.schemas.creative_input import (
+    CreativeInput,
+    MediaModelChoice,
+    MediaModelSelection,
+    MediaReferenceRef,
+)
 from agent.schemas.creative_media import ConceptMasters, ImageRenditions
 from agent.schemas.creative_review import (
     G8,
@@ -72,6 +79,15 @@ STATUS_AFTER: dict[tuple[int, str], CreativeAssetStatus] = {
 #: The fields only a regeneration carries.
 _OVERRIDES = ("model_override", "params_override")
 
+#: Every regeneration is node 4.4.6's work — its jobs, its assets — whether the
+#: executor ran 4.4.6 or an operator asked before G8 (`nodes/creative/_regenerate.py`).
+REGENERATION_NODE = "4.4.6"
+
+#: A regenerated asset's `fields.state`.
+RUNNING = "running"
+DONE = "done"
+GAP = "gap"
+
 
 class ReviewRefused(ValueError):
     """One item cannot be accepted. `asset_id` names it — None only when the
@@ -91,12 +107,6 @@ class ReviewRefused(ValueError):
         self.field = field
         self.code = code
         self.extra = extra
-
-
-class Catalogue(Protocol):
-    async def record_for(
-        self, modality: str, model_id: str, provider_tag: str | None = None
-    ) -> CapabilityRecord | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +199,7 @@ async def regeneration_choice(
     *,
     pinned: Sequence[MediaModelChoice],
     workspace: Workspace | None,
-    catalogue: Catalogue,
+    catalogue: MediaCatalogue,
 ) -> MediaModelChoice:
     """The model a regeneration of `item` uses, validated before anything is
     spent (Law 36): an override must be on the workspace allowlist for the
@@ -205,7 +215,7 @@ async def regeneration_choice(
                 MediaModelSelection(
                     modality=modality, model_id=sent.model_override, defaults=params
                 ),
-                catalogue=catalogue,  # type: ignore[arg-type]
+                catalogue=catalogue,
             )
         choice = next((c for c in pinned if c.modality == modality), None)
         if choice is None:
@@ -300,6 +310,71 @@ async def record(
     await db.flush()
 
 
+async def decide(
+    db: AsyncSession,
+    *,
+    approval: Approval,
+    run: Run,
+    submitted: Mapping[str, Any] | None,
+    decided_by: uuid.UUID,
+    catalogue: MediaCatalogue,
+) -> AiAssetReview:
+    """G8 or G8b, decided: revalidate every item, resolve each regeneration's
+    model, record the decisions. Returns the decided card — what the gate's
+    `NodeRun` carries. Raises `ReviewRefused` naming the asset; nothing is
+    written then, and the caller rolls back so the gate stays pending.
+
+    The approval row is locked and re-read first: a regeneration finishing
+    before G8 replaces its item on the card under the same lock
+    (`orchestrator/regeneration.py`), so this reads the card as it now is."""
+    await db.refresh(approval, with_for_update=True)
+    proposal = AiAssetReview.model_validate(approval.proposal)
+    pairs = check_submission(approval.gate_key, proposal, submitted)
+    busy = await running_children(db, [item.asset_id for item in proposal.items])
+    if busy:
+        parent = uuid.UUID(str((busy[0].fields or {})["regenerated_from"]))
+        raise ReviewRefused(
+            parent,
+            "asset_id",
+            f"is being regenerated (new asset {busy[0].id}); its card item is replaced when "
+            "that finishes. Decide once it has.",
+            code="regeneration_in_progress",
+            regenerated_asset_id=str(busy[0].id),
+        )
+    workspace = await db.get(Workspace, run.workspace_id)
+    pinned = (
+        list(CreativeInput.model_validate(run.creative_input).media_models)
+        if run.creative_input
+        else []
+    )
+    choices = {
+        item.asset_id: await regeneration_choice(
+            item, sent, pinned=pinned, workspace=workspace, catalogue=catalogue
+        )
+        for item, sent in pairs
+        if sent.decision == "regenerate"
+    }
+    decided = merge(proposal, pairs, choices)
+    await record(db, approval=approval, review=decided, decided_by=decided_by)
+    return decided
+
+
+async def running_children(db: AsyncSession, parent_ids: list[uuid.UUID]) -> list[CreativeAsset]:
+    """Regenerations of these assets still being produced."""
+    if not parent_ids:
+        return []
+    rows = await db.execute(
+        sa.select(CreativeAsset)
+        .where(
+            CreativeAsset.node_id == REGENERATION_NODE,
+            CreativeAsset.fields["regenerated_from"].astext.in_([str(p) for p in parent_ids]),
+            CreativeAsset.fields["state"].astext == RUNNING,
+        )
+        .execution_options(populate_existing=True)
+    )
+    return list(rows.scalars().all())
+
+
 def _asset_at(submitted: Mapping[str, Any], loc: Sequence[Any]) -> uuid.UUID | None:
     """The asset a validation error sits under, when the item names one."""
     if len(loc) >= 2 and loc[0] == "items" and isinstance(loc[1], int):
@@ -358,7 +433,7 @@ def image_items(
                 renditions=shown,
                 disclosure=disclosure[concept.asset_id],
                 product_refs=sorted(
-                    {products[sha] for sha in concept.reference_sha256s if products.get(sha)}
+                    {ref for sha in concept.reference_sha256s if (ref := products.get(sha))}
                 ),
                 vision_advisory=_advisory(concept),
             )

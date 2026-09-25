@@ -70,8 +70,13 @@ def candidate_requests(
     run_id: uuid.UUID,
     concept_id: str,
     attempt: int,
+    round: int = 1,
 ) -> list[dict[str, Any]]:
-    """The request fields that make `count` candidates distinct jobs (Law 37)."""
+    """The request fields that make `count` candidates distinct jobs (Law 37).
+
+    `round` is the review round (G8's regeneration is round 2): a regenerated
+    concept is painted from different seeds, or it would pay for the same
+    pictures again."""
     n = capability.params.get("n")
     if n is not None and n.kind == "range" and (n.min or 1) <= count <= (n.max or 1):
         return [{"n": count}] if count > 1 else [{}]
@@ -80,7 +85,12 @@ def candidate_requests(
         return [
             {
                 "seed": derive_seed(
-                    seed, run_id=run_id, concept_id=concept_id, attempt=attempt, index=i
+                    seed,
+                    run_id=run_id,
+                    concept_id=concept_id,
+                    attempt=attempt,
+                    index=i,
+                    round=round,
                 )
             }
             for i in range(count)
@@ -89,12 +99,21 @@ def candidate_requests(
 
 
 def derive_seed(
-    descriptor: Descriptor, *, run_id: uuid.UUID, concept_id: str, attempt: int, index: int
+    descriptor: Descriptor,
+    *,
+    run_id: uuid.UUID,
+    concept_id: str,
+    attempt: int,
+    index: int,
+    round: int = 1,
 ) -> int:
-    """A seed inside the model's range, the same on every resume of this run."""
+    """A seed inside the model's range, the same on every resume of this run.
+    Round 1's material is unchanged from before rounds existed, so a resumed
+    first generation keeps its seeds (and its idempotency keys)."""
     low = descriptor.min or 0
     high = descriptor.max if descriptor.max is not None else 2**31 - 1
-    digest = hashlib.sha256(f"{run_id}|{concept_id}|{attempt}|{index}".encode()).digest()
+    material = f"{run_id}|{concept_id}|{attempt}|{index}" + (f"|r{round}" if round > 1 else "")
+    digest = hashlib.sha256(material.encode()).digest()
     return low + int.from_bytes(digest[:8], "big") % (high - low + 1)
 
 
