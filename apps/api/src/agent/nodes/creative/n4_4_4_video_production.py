@@ -48,12 +48,10 @@ from __future__ import annotations
 
 import asyncio
 import math
-import tempfile
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from pathlib import Path
 from typing import Any
 
 import sqlalchemy as sa
@@ -115,6 +113,7 @@ from agent.schemas.creative_video import (
     VideoVerification,
 )
 from agent.schemas.guardrails import LintResult, LintTarget
+from agent.storage.scratch import scratch_dir
 
 log = structlog.get_logger(__name__)
 
@@ -1188,8 +1187,7 @@ def _post_produce(
 ) -> _Made | _Refused:
     """One ratio, start to finish, in a scratch directory: plan → assemble →
     stamp → verify → proxy → poster. Runs in a thread; touches no database."""
-    with tempfile.TemporaryDirectory(prefix="s4-video-") as scratch:
-        work = Path(scratch)
+    with scratch_dir(prefix="s4-video-") as work:
         files: list[post.ClipFile] = []
         out = work / "master.mp4"
         try:
