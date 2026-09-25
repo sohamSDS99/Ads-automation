@@ -38,7 +38,7 @@ pytestmark = pytest.mark.asyncio
 #: 31 characters: one over the shipped sheet's Search headline limit.
 THIRTY_ONE = "Audit-Ready Records, Every Week"
 assert len(THIRTY_ONE) == 31
-#: 34 characters as written, 22 on its default — what Google counts.
+#: 32 characters as written, 22 on its default — what Google counts.
 DKI = "{KeyWord:SDS Software} For Teams"
 assert len(DKI) > 30 and len("SDS Software For Teams") == 22
 
@@ -135,7 +135,7 @@ async def test_lint_preview_is_the_pins_verdict_and_writes_nothing(
     assert "This is 31 chars; the limit is 30." in finding["message"]
     assert result["ruleset_version"] == headline.ruleset_version
 
-    # Measured on the insertion's default, as 4.2.1 measures it: 22, not 34.
+    # Measured on the insertion's default, as 4.2.1 measures it: 22, not 32.
     dki = await viewer.post(
         f"/creative-runs/{run_id}/lint-preview", json={"targets": [_target(headline, DKI)]}
     )

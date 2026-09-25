@@ -1,0 +1,197 @@
+"""Write the counter parity fixture the Ad Studio's `CharCounter` is held to (PRD §15.5 item 1).
+
+    apps/api$ uv run python scripts/make_char_count_fixture.py
+
+§15.5: "Counters are display; `LintChip` reflects `POST /lint-preview`. A
+fixture test asserts the client counter equals the server count for 200
+strings including emoji, CJK and DKI tokens."
+
+The server count is the linter's own: `guardrails.matchers.assets.measure`
+in the unit the spec sheet's length rule is written in (`chars`), over the
+text the linter is given — for an RSA headline that is the keyword-insertion
+default (`creative.edits.linted_text`, 4.2.1's `measured_text`), for a
+description the text as written. Each string is counted both ways.
+
+`tests/creative/test_char_count_fixture.py` fails when this file's output and
+the committed fixture differ, so the fixture cannot drift from the server.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+from agent.creative.edits import linted_text
+from agent.guardrails.matchers.assets import measure
+from agent.schemas.search_ads import DKI_TOKENS
+
+FIXTURE = (
+    Path(__file__).resolve().parents[2] / "web" / "tests" / "fixtures" / "char-count-parity.json"
+)
+HEADLINE = "rsa_headline"
+DESCRIPTION = "rsa_description"
+#: The unit `guidelines.synthesis._asset_rules` writes every length rule in.
+UNIT = "chars"
+
+#: Every character Python's `str.strip()` removes — the set a keyword
+#: insertion's "empty default" is judged with. JavaScript's `trim()` differs
+#: (it strips U+FEFF and keeps U+001C–U+001F and U+0085), which is the point.
+PY_WHITESPACE = [chr(c) for c in range(0x110000) if chr(c).isspace()]
+
+PLAIN = [
+    "SDS Software For Your Team",
+    "Safety Data Sheet Software",
+    "Audit-Ready Records, Every Week",
+    "Book Your Demo Today",
+    "",
+    " ",
+    "x" * 30,
+    "x" * 31,
+    "Every sheet on file stays current: SDS updates within 24 hours.",
+    "Tab\tand\nnewline\r\nand\u000bvertical",
+]
+ACCENTED = [
+    "Café Crème Sécurité",
+    "Café with a combining acute",
+    "Ångström, Øre, Æsir",
+    "Straße and Maße",
+    "ﬁ ligature and ﬂ",
+    "Ελληνικά δεδομένα ασφαλείας",
+    "Данные о безопасности",
+    "עברית בטיחות",
+    "بيانات السلامة الكيميائية",
+    "हिन्दी सुरक्षा डेटा",
+    "தமிழ் பாதுகாப்பு",
+    "ไทย ข้อมูลความปลอดภัย",
+]
+EMOJI = [
+    "Safety first 🦺",
+    "🧪🧪🧪",
+    "Team 👩‍🔬 lab",
+    "Family 👨‍👩‍👧‍👦 plan",
+    "Thumbs 👍🏽 up",
+    "Flags 🇺🇸 🇬🇧 🇩🇪",
+    "Keycap 1️⃣ 2️⃣",
+    "Heart ❤️ vs ❤",
+    "Rainbow flag 🏳️‍🌈",
+    "Astral 𝐀𝐁𝐂 letters",
+    "Old italic 𐌀𐌁𐌂",
+    "Emoji at end 🚀",
+    "🔥" * 15,
+    "🔥" * 16,
+]
+CJK = [
+    "安全データシート管理",
+    "化学品安全技术说明书",
+    "물질안전보건자료 관리",
+    "SDS 管理ソフトウェア",
+    "全角ＡＢＣ１２３",
+    "半角ｶﾀｶﾅ",
+    "中文，标点。符号！",
+    "𠮷野家",
+    "漢字" * 15,
+    "漢字" * 16,
+]
+DEFAULTS = [
+    "SDS Software",
+    "安全データ",
+    "Lab 🧪",
+    "Café",
+    "a",
+    "Default: with colon",
+    "𠮷",
+]
+DKI_VALID = [
+    *(f"{{{token}:{default}}}" for token in DKI_TOKENS for default in DEFAULTS[:3]),
+    *(f"Get {{{token}:{DEFAULTS[3]}}} Today" for token in DKI_TOKENS),
+    "{KeyWord:SDS Software} For Teams",
+    "{Keyword:Safety Data Sheets} Online Now",
+    "Buy {KEYWord:x} now",
+    "{KeyWORD:" + "y" * 30 + "}",
+    "{KeyWord:" + "y" * 31 + "}",
+    "{KeyWord:Default: with colon} here",
+    "{KeyWord:𠮷野家} 🍜",
+    "{KeyWord: padded default }",
+    "Line\n{KeyWord:break}",
+]
+DKI_MALFORMED = [
+    "{Keyword Safety} Records",
+    "{keyword:}",
+    "{KeyWord:   }",
+    "{KeyWord:a} and {KeyWord:b}",
+    "{KEYWORD:shout}",
+    "{kw:short}",
+    "{KeyWord:unclosed",
+    "unopened KeyWord:x}",
+    "{{KeyWord:double}}",
+    "{}",
+    "{:empty name}",
+    "{ KeyWord:space before}",
+    "Braces {in} the middle",
+    "{KeyWord:🧪}}",
+]
+#: Each whitespace character as a whole default (empty after strip) and
+#: inside one (not empty) — a parity test over the full set, not a sample.
+WHITESPACE = [
+    *(f"{{KeyWord:{ws}}}" for ws in PY_WHITESPACE),
+    *(f"{{KeyWord:{ws}x{ws}}}" for ws in PY_WHITESPACE[::3]),
+    "{KeyWord:﻿}",
+    "{KeyWord:​}",
+    "{KeyWord:᠎}",
+]
+
+
+def strings() -> list[str]:
+    seen: dict[str, None] = {}
+    for text in (*PLAIN, *ACCENTED, *EMOJI, *CJK, *DKI_VALID, *DKI_MALFORMED, *WHITESPACE):
+        seen.setdefault(text, None)
+    ordered = list(seen)
+    # Top up to exactly 200 with mixes of the families above, deterministically.
+    mixes = [
+        f"{a} {b}"
+        for a in (*EMOJI[:6], *CJK[:4])
+        for b in (*DKI_VALID[:6], *ACCENTED[:4])
+        if f"{a} {b}" not in seen
+    ]
+    ordered.extend(mixes[: max(0, 200 - len(ordered))])
+    if len(ordered) != 200:
+        raise SystemExit(f"expected 200 strings, built {len(ordered)}")
+    return ordered
+
+
+def fixture() -> dict[str, Any]:
+    return {
+        "about": (
+            "Generated by apps/api/scripts/make_char_count_fixture.py — do not edit. The server "
+            "count: guardrails measure(text, 'chars') over creative.edits.linted_text(surface, "
+            "text)."
+        ),
+        "unit": UNIT,
+        "cases": [
+            {
+                "text": text,
+                "counts": {
+                    HEADLINE: measure(linted_text(HEADLINE, text), UNIT),
+                    DESCRIPTION: measure(linted_text(DESCRIPTION, text), UNIT),
+                },
+            }
+            for text in strings()
+        ],
+    }
+
+
+def render() -> str:
+    return json.dumps(fixture(), ensure_ascii=True, indent=1) + "\n"
+
+
+def main() -> int:
+    FIXTURE.parent.mkdir(parents=True, exist_ok=True)
+    FIXTURE.write_text(render(), encoding="utf-8")
+    print(f"wrote {FIXTURE} ({len(fixture()['cases'])} strings)")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
