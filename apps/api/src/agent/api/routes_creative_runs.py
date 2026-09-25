@@ -13,11 +13,23 @@ The Creative Console and the brief page (§15.4 C–D) are built on these:
 - `POST /generation-jobs/{id}/check` — queue `MediaJobs.check()` for a job it
   can act on. The re-poll waits out a video's poll window, so it runs in the
   worker; this route only decides whether there is anything to check.
+
+The Ad Studio (§15.4 E) writes through three more:
+
+- `POST /creative-runs/{id}/lint-preview` — the pinned linter's verdict on
+  text nobody has saved, for the chip beside an edit. Nothing is written.
+- `PATCH /creative-assets/{id}` — a person's rewrite of a headline or a
+  description: the checks its node applied (`creative/edits.py`), then lint at
+  the run's current pin; only a pass is stored (law 33), with
+  `lineage.origin = 'human_edit'`.
+- `POST /creative-assets/{id}/swap` — a reserve into the ad in place of the
+  asset named, re-checked and re-linted at the current pin first.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from typing import Annotated
 
 import sqlalchemy as sa
@@ -28,6 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.api import problems
 from agent.api.schemas_creative_runs import (
+    AssetTextEdit,
     BriefAuthorisation,
     CreativeAssetItem,
     CreativeAssetListResponse,
@@ -35,16 +48,21 @@ from agent.api.schemas_creative_runs import (
     GenerationCheckAccepted,
     GenerationJobItem,
     GenerationJobListResponse,
+    LintPreviewRequest,
+    ReserveSwap,
+    ReserveSwapResponse,
 )
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
-from agent.creative import g7
+from agent.creative import brief as briefs
+from agent.creative import edits, g7
 from agent.db.models import (
     Approval,
     CreativeAsset,
     CreativeAssetKind,
     CreativeAssetStatus,
     GenerationJob,
+    Project,
     Run,
     RunStage,
 )
@@ -52,9 +70,15 @@ from agent.db.models import CreativeBrief as CreativeBriefRow
 from agent.db.session import get_session
 from agent.media import runtime as media_runtime
 from agent.media.jobs import checkable
+from agent.nodes.base import CreativeResources, NodeContractError
+from agent.nodes.creative._ad_groups import Slot, search_slots
+from agent.nodes.creative._text_assets import content_hash
+from agent.orchestrator.creative_run import CreativeRunError, load_resources
 from agent.queue import enqueue_generation_check
 from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief
 from agent.schemas.creative_input import CreativeInput
+from agent.schemas.guardrails import LintResult, LintTarget
+from agent.schemas.search_ads import PASSING
 
 log = structlog.get_logger(__name__)
 
@@ -292,3 +316,276 @@ async def check_generation_job(
         queued=queued is not None,
     )
     return GenerationCheckAccepted(job_id=row.id, status=row.status, queued=queued is not None)
+
+
+# ---------------------------------------------------------------------------
+# the Ad Studio: lint preview, edit, swap
+# ---------------------------------------------------------------------------
+
+
+async def _resources(db: AsyncSession, run: Run) -> CreativeResources:
+    """The run's input, pinned linter and constants — what its nodes lint with."""
+    project = await db.get(Project, run.project_id)
+    if project is None:  # pragma: no cover — the run's FK guarantees it
+        raise problems.not_found(f"No project {run.project_id}.")
+    try:
+        return await load_resources(db, run, project)
+    except CreativeRunError as exc:
+        raise problems.conflict(
+            f"{exc} Nothing can be linted against this run until that is resolved.",
+            title="The run cannot lint",
+            code=exc.code,
+        ) from exc
+
+
+@router.post(
+    "/creative-runs/{run_id}/lint-preview",
+    response_model=LintResult,
+    summary="Lint text at the run's pin, as a candidate is linted at creation. No side effects",
+)
+async def lint_preview(
+    run_id: uuid.UUID, body: LintPreviewRequest, me: AnyMember, db: Db
+) -> LintResult:
+    run = await _creative_run(db, me, run_id)
+    resources = await _resources(db, run)
+    return resources.linter.lint_candidates(
+        [edits.as_linted(target) for target in body.targets], now=datetime.now(UTC)
+    )
+
+
+async def _locked_assets(
+    db: AsyncSession, me: Principal, ids: list[uuid.UUID]
+) -> dict[uuid.UUID, CreativeAsset]:
+    """The rows, locked in id order so two swaps over the same pair cannot deadlock."""
+    rows = (
+        (
+            await db.execute(
+                sa.select(CreativeAsset)
+                .where(CreativeAsset.id.in_(ids), CreativeAsset.workspace_id == me.workspace_id)
+                .order_by(CreativeAsset.id)
+                .with_for_update()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    found = {row.id: row for row in rows}
+    for asset_id in ids:
+        if asset_id not in found:
+            raise problems.not_found(f"No creative asset {asset_id}.")
+    return found
+
+
+def _changeable(row: CreativeAsset) -> None:
+    if row.frozen_at is not None:
+        raise problems.conflict(
+            f"Asset {row.id} was frozen when its package was released "
+            f"({row.frozen_at:%d %b %Y}), and a released package is immutable (law 42). "
+            "Start a new creative run to change its copy.",
+            title="Asset frozen",
+            code="asset_frozen",
+        )
+    if row.kind not in edits.EDITABLE_KINDS:
+        raise problems.unprocessable(
+            f"A {row.kind.value.replace('_', ' ')} is not changed here: the Ad Studio edits "
+            "headlines and descriptions.",
+            title="Not editable here",
+            code="kind_not_editable",
+        )
+    if row.status not in edits.EDITABLE_STATUSES:
+        raise problems.conflict(
+            f"Asset {row.id} is {row.status.value}. Only an asset the ad carries, or one it "
+            "keeps in reserve, can be changed.",
+            title="Not in the ad",
+            code="asset_not_editable",
+            asset_status=row.status.value,
+        )
+
+
+async def _slot(
+    db: AsyncSession, run: Run, resources: CreativeResources, row: CreativeAsset
+) -> Slot:
+    """The ad group the asset was written for: its keywords, market and language."""
+    brief_row = await db.scalar(
+        sa.select(CreativeBriefRow).where(CreativeBriefRow.creative_run_id == run.id)
+    )
+    if brief_row is None:  # pragma: no cover — 4.1.1 writes the brief before any copy
+        raise problems.conflict(f"Run {run.id} has no brief.", title="No brief")
+    brief = CreativeBrief.model_validate(brief_row.payload)
+    try:
+        slots = search_slots(brief, resources.input.account_structure.campaigns)
+    except NodeContractError as exc:  # pragma: no cover — 4.2.1 wrote against these slots
+        raise problems.conflict(str(exc), title="Brief and plan disagree") from exc
+    for slot in slots:
+        if (slot.brief.campaign_ref, slot.brief.ad_group_ref) == (
+            row.campaign_ref,
+            row.ad_group_ref,
+        ):
+            return slot
+    raise problems.conflict(
+        f"Asset {row.id} belongs to {row.campaign_ref} / {row.ad_group_ref}, which is not a "
+        "Search ad group of this run's brief.",
+        title="No such ad group",
+    )
+
+
+def _lint(
+    resources: CreativeResources, row: CreativeAsset, slot: Slot, text: str, now: datetime
+) -> LintResult:
+    """The asset's text at the run's current pin, exactly as its node linted it (law 33)."""
+    result = resources.linter.lint_candidate(
+        LintTarget(
+            ref=str(row.id),
+            surface=row.surface,
+            campaign_type=slot.campaign_type,
+            market=slot.market,
+            language=slot.language,
+            text=edits.linted_text(row.surface, text),
+            generated_by_ai=row.generated_by_ai,
+        ),
+        now=now,
+    )
+    if result.verdict not in PASSING:
+        blocking = [f.message for f in result.findings if f.severity == "blocking"]
+        raise problems.unprocessable(
+            f"It fails lint at ruleset {result.ruleset_version}: "
+            f"{' '.join(blocking[:3] or [f.message for f in result.findings[:3]])} "
+            "Nothing was saved.",
+            title="Fails lint",
+            code="lint_failed",
+            lint=result.model_dump(mode="json"),
+        )
+    return result
+
+
+def _checked(
+    row: CreativeAsset, text: str, slot: Slot, resources: CreativeResources, now: datetime
+) -> edits.Edited:
+    licensed = edits.licensed_ids(briefs.licensed_claims(resources.linter.ruleset, now))
+    try:
+        return edits.check_edit(row, text, keywords=slot.keywords, licensed=licensed)
+    except edits.EditRefused as exc:
+        raise problems.unprocessable(
+            f"{exc.detail} Nothing was saved.", title="Edit refused", code=exc.code
+        ) from exc
+
+
+def _relint(row: CreativeAsset, fields: dict[str, object], result: LintResult) -> None:
+    row.fields = dict(fields)
+    row.lint = result.model_dump(mode="json")
+    row.ruleset_version = result.ruleset_version
+    row.content_hash = content_hash(
+        kind=row.kind,
+        surface=row.surface,
+        text=row.text,
+        fields=row.fields,
+        claim_ids=row.claim_ids,
+        offer_binding=row.offer_binding,
+    )
+
+
+@router.patch(
+    "/creative-assets/{asset_id}",
+    response_model=CreativeAssetItem,
+    summary="Rewrite a headline or description: checked, linted at the pin, lineage human_edit",
+)
+async def edit_asset(
+    asset_id: uuid.UUID, body: AssetTextEdit, me: CreativeOperator, db: Db
+) -> CreativeAssetItem:
+    row = (await _locked_assets(db, me, [asset_id]))[asset_id]
+    _changeable(row)
+    if body.text == row.text:
+        return _asset(row)
+    run = await db.get(Run, row.creative_run_id)
+    if run is None:  # pragma: no cover — FK
+        raise problems.not_found(f"No creative run {row.creative_run_id}.")
+    resources = await _resources(db, run)
+    slot = await _slot(db, run, resources, row)
+    now = datetime.now(UTC)
+    edited = _checked(row, body.text, slot, resources, now)
+    result = _lint(resources, row, slot, body.text, now)
+    before = row.content_hash
+    row.lineage = edits.edit_lineage(row, me.user.id)
+    row.text = body.text
+    _relint(row, edited.fields, result)
+    await db.commit()
+    log.info(
+        "creative_asset.edited",
+        asset_id=str(row.id),
+        run_id=str(row.creative_run_id),
+        kind=row.kind.value,
+        verdict=result.verdict,
+        ruleset_version=result.ruleset_version,
+        content_hash_before=before,
+        content_hash=row.content_hash,
+        by=str(me.user.id),
+    )
+    return _asset(row)
+
+
+@router.post(
+    "/creative-assets/{asset_id}/swap",
+    response_model=ReserveSwapResponse,
+    summary="Swap a reserve into the ad in place of this asset, re-linted at the pin first",
+)
+async def swap_asset(
+    asset_id: uuid.UUID, body: ReserveSwap, me: CreativeOperator, db: Db
+) -> ReserveSwapResponse:
+    """The reserve goes in unpinned: a pin belongs to the order-dependent pair 4.2.3
+    judged, and the reserve was never in it. What it pairs with now is checked
+    again by the final lint and preview (4.6.4), not here."""
+    if body.with_reserve_id == asset_id:
+        raise problems.unprocessable(
+            "An asset cannot be swapped for itself. Name one of the ad group's reserves.",
+            code="swap_self",
+        )
+    rows = await _locked_assets(db, me, [asset_id, body.with_reserve_id])
+    out, into = rows[asset_id], rows[body.with_reserve_id]
+    _changeable(out)
+    _changeable(into)
+    if out.status is not CreativeAssetStatus.LINTED:
+        raise problems.conflict(
+            f"Asset {out.id} is a reserve, not in the ad: swap a reserve in for one the ad "
+            "carries.",
+            title="Not in the ad",
+            code="not_carried",
+        )
+    if into.status is not CreativeAssetStatus.RESERVE:
+        raise problems.conflict(
+            f"Asset {into.id} is already in the ad. Swap in one of the ad group's reserves.",
+            title="Not a reserve",
+            code="not_a_reserve",
+        )
+    if not edits.same_slot(out, into):
+        raise problems.unprocessable(
+            f"Reserve {into.id} was written for {into.campaign_ref} / {into.ad_group_ref} "
+            f"({into.variant.value if into.variant else '-'} {into.kind.value}), not for the "
+            f"slot {out.id} fills. Swap in a reserve of the same ad, variant and kind.",
+            title="Another ad's reserve",
+            code="swap_slot_mismatch",
+        )
+    run = await db.get(Run, out.creative_run_id)
+    if run is None:  # pragma: no cover — FK
+        raise problems.not_found(f"No creative run {out.creative_run_id}.")
+    resources = await _resources(db, run)
+    slot = await _slot(db, run, resources, into)
+    now = datetime.now(UTC)
+    if into.text is None:  # pragma: no cover — text kinds only (_changeable)
+        raise problems.unprocessable(f"Reserve {into.id} has no text.")
+    edited = _checked(into, into.text, slot, resources, now)
+    result = _lint(resources, into, slot, into.text, now)
+    out.status = CreativeAssetStatus.RESERVE
+    out.pin_position = None
+    into.status = CreativeAssetStatus.LINTED
+    into.lineage = edits.swap_lineage(into, out, me.user.id)
+    _relint(into, edited.fields, result)
+    await db.commit()
+    log.info(
+        "creative_asset.swapped",
+        run_id=str(out.creative_run_id),
+        out=str(out.id),
+        into=str(into.id),
+        ruleset_version=result.ruleset_version,
+        by=str(me.user.id),
+    )
+    return ReserveSwapResponse(out=_asset(out), into=_asset(into))

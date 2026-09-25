@@ -98,8 +98,18 @@ class PinnedLinter:
         linter still evaluates every rule it is given; this chooses which
         compiled rules a candidate is subject to, and implements none.
         """
+        return self.lint_candidates([target], now=now)
+
+    def lint_candidates(self, targets: Sequence[LintTarget], *, now: datetime) -> LintResult:
+        """Several candidates, each subject to exactly what `lint_candidate` applies.
+
+        With the set rules left out, every compiled rule is per target, so one
+        call over N targets finds what N lone calls would. The Ad Studio's lint
+        preview (§16 `POST /creative-runs/{id}/lint-preview`) asks this, so the
+        chip beside an edited headline reads the verdict its creation would have.
+        """
         return guardrails_lint(
-            [target],
+            targets,
             self.ruleset,
             now=now,
             offers=self.offer_records,
