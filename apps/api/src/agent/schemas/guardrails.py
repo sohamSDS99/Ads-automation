@@ -33,10 +33,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import date, datetime
 from types import MappingProxyType
-from typing import Annotated, Final, Literal
+from typing import Annotated, Any, Final, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+    model_validator,
+)
 
 #: Bumped when a consumer could be handed a `RuleSet` it does not understand.
 GUARDRAILS_SCHEMA_VERSION: Final[Literal["1.0"]] = "1.0"
@@ -452,8 +459,41 @@ class AssetSpec(_Contract):
     ratio: str | None = None
     min_px: str | None = None
     max_bytes: int | None = Field(default=None, ge=1)
+    #: A video's duration window, whole seconds (Stage 04 PRD §9.5, Q6 — an
+    #: additive Stage 03 delta shipped with S4-P11). Without it a video surface
+    #: is `spec_missing`; a spec that forbade the keys could never be amended
+    #: to carry one. Left out of the dump when unset — see `_serialize`.
+    min_duration_s: int | None = Field(default=None, ge=1)
+    max_duration_s: int | None = Field(default=None, ge=1)
     source: str = Field(min_length=1)
     reviewed_at: date
+
+    @model_validator(mode="after")
+    def _window_is_a_window(self) -> AssetSpec:
+        if (
+            self.min_duration_s is not None
+            and self.max_duration_s is not None
+            and self.min_duration_s > self.max_duration_s
+        ):
+            raise ValueError(
+                f"min_duration_s {self.min_duration_s} s is above max_duration_s "
+                f"{self.max_duration_s} s"
+            )
+        return self
+
+    @model_serializer(mode="wrap")
+    def _serialize(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
+        """The duration window is omitted when unset, so every spec sheet — and
+        every ruleset hash taken over one — compiled before it existed is byte
+        for byte what it was. `canonical()` strips nothing; this never adds."""
+        dumped: dict[str, Any] = handler(self)
+        for key in _DURATION_KEYS:
+            if dumped.get(key) is None:
+                dumped.pop(key, None)
+        return dumped
+
+
+_DURATION_KEYS = ("min_duration_s", "max_duration_s")
 
 
 class AssetSpecSheet(_Contract):
