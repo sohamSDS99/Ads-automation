@@ -1,0 +1,60 @@
+# S4-P19's isolated stack: the REAL api and worker with OpenRouter replaced by
+# a scripted server that answers each copy node by the schema it sends
+# (`openrouter_server.py`, S4-P6's scripted pools).
+#
+#   docker compose -p s4p19 -f docker-compose.yml -f apps/web/scripts/s4p19/compose.s4p19.yml \
+#     up -d postgres redis openrouter api
+#   docker compose -p s4p19 ... run --rm test pytest tests/integration/test_s4p19_ad_studio_writes.py -q
+#
+# Subnet 172.31.119.0/24 and ports 8419 (api) / 8420 (openrouter) / 3419 (web)
+# are this phase's alone (`!override`: compose merges lists otherwise); S4-P7
+# and S4-P11 run beside it. The web tier is a production `next start` on the
+# host, so `web` is profiled out.
+services:
+  api:
+    image: s4p19-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p19-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3419
+      CORS_ORIGINS: http://localhost:3419
+    ports: !override
+      - "127.0.0.1:8419:8000"
+    volumes:
+      - ./apps/web/scripts/s4p19:/app/s4p19
+    depends_on:
+      openrouter:
+        condition: service_started
+
+  worker:
+    image: s4p19-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p19-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3419
+
+  openrouter:
+    image: s4p19-api:latest
+    command: ["python", "/app/s4p19/openrouter_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p19:/app/s4p19
+    ports:
+      - "127.0.0.1:8420:8099"
+    networks: [internal]
+
+  test:
+    image: s4p19-test:latest
+
+  web:
+    profiles: ["s4p19-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.119.0/24
+        - subnet: fd00:ada:119::/64

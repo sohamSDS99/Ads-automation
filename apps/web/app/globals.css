@@ -28,6 +28,14 @@
   --color-status-gate: var(--status-gate);
   --color-status-failed: var(--status-failed);
   --color-status-skipped: var(--status-skipped);
+  --color-status-gate-ink: var(--status-gate-ink);
+  --color-status-failed-ink: var(--status-failed-ink);
+
+  --color-serp-bg: var(--serp-bg);
+  --color-serp-title: var(--serp-title);
+  --color-serp-url: var(--serp-url);
+  --color-serp-text: var(--serp-text);
+  --color-serp-rule: var(--serp-rule);
 
   --color-series-1: var(--series-1);
   --color-series-2: var(--series-2);
@@ -36,6 +44,21 @@
 
   --font-sans: var(--font-sans);
   --font-mono: var(--font-mono);
+  --font-serp: var(--font-serp);
+
+  /* The SERP preview at true width (PRD §15.4 E): Google's desktop results
+     column (600 px) and a 360 px phone less its 16 px gutters (328 px), with
+     type at Google's sizes — 20/26 desktop title, 18/24 mobile title, 14/22
+     text. `w-serp-desktop`, `text-serp-lg` (sizes are lg/md/sm so they never
+     share a name with the `serp-*` colours). */
+  --spacing-serp-desktop: 600px;
+  --spacing-serp-mobile: 328px;
+  --text-serp-lg: 1.25rem;
+  --text-serp-lg--line-height: 1.625rem;
+  --text-serp-md: 1.125rem;
+  --text-serp-md--line-height: 1.5rem;
+  --text-serp-sm: 0.875rem;
+  --text-serp-sm--line-height: 1.375rem;
 
   --radius-token: var(--radius);
 

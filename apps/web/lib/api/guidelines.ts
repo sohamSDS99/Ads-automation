@@ -533,7 +533,8 @@ export type PublishedRuleSet = {
   constants_version: string;
   rule_count: number;
   hash: string;
-  compiled: { rules?: Rule[]; asset_specs?: AssetSpecSheet; [key: string]: unknown };
+  /** `agent.schemas.guardrails.RuleSet`: its `asset_specs` is an `AssetSpecSheet` model, `{specs: …}`. */
+  compiled: { rules?: Rule[]; asset_specs?: { specs?: AssetSpecSheet }; [key: string]: unknown };
   guideline_status: GuidelineStatus;
   published_at: string | null;
   stale: boolean;

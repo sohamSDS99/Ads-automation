@@ -24,6 +24,7 @@ from agent.db.models import (
     LandingAuditVerdict,
 )
 from agent.schemas.creative_brief import CreativeBrief
+from agent.schemas.guardrails import LintTarget
 from agent.schemas.landing import (
     DeviceFlag,
     DevicePx,
@@ -175,3 +176,41 @@ class LandingAuditItem(BaseModel):
 
 class LandingAuditListResponse(BaseModel):
     items: list[LandingAuditItem]
+
+
+# ---------------------------------------------------------------------------
+# the Ad Studio's writes (PRD §16 "Brief, assets, lint", §15.4 E)
+# ---------------------------------------------------------------------------
+
+
+class LintPreviewRequest(BaseModel):
+    """What to lint at the run's pin. No side effects, so it is safe on a debounce."""
+
+    targets: list[LintTarget] = Field(
+        min_length=1,
+        max_length=50,
+        description=(
+            "Each is linted as a candidate is at creation: every per-target rule its scope "
+            "selects, none of the set rules (those count the assembled ad). An RSA headline "
+            "is measured on its keyword-insertion default, as 4.2.1 measures it."
+        ),
+    )
+
+
+class AssetTextEdit(BaseModel):
+    """A person's rewrite of one headline or description."""
+
+    text: str = Field(min_length=1, max_length=500)
+
+
+class ReserveSwap(BaseModel):
+    """Put a reserve into the ad in place of the asset the path names."""
+
+    with_reserve_id: uuid.UUID
+
+
+class ReserveSwapResponse(BaseModel):
+    """Both rows after the swap: the one now kept in reserve, and the one now carried."""
+
+    out: CreativeAssetItem
+    into: CreativeAssetItem

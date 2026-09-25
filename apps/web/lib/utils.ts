@@ -1,5 +1,14 @@
 import { clsx, type ClassValue } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+/**
+ * tailwind-merge reads an unknown `text-*` as a colour, so a custom size and a
+ * colour in one `cn()` — `text-serp-lg text-serp-title` — would drop one of
+ * them. The theme's own font sizes are named here (globals.css `--text-*`).
+ */
+const twMerge = extendTailwindMerge({
+  extend: { classGroups: { "font-size": [{ text: ["serp-lg", "serp-md", "serp-sm"] }] } },
+});
 
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));

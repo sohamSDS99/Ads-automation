@@ -39,6 +39,19 @@
   --status-failed: #f43f5e;
   --status-skipped: #a1a1aa;
 
+  /* status as TEXT (a count, a label) — the fills above are 2–3:1 on white,
+     below AA for text. amber-700 5.0:1, rose-700 6.3:1 on --bg. */
+  --status-gate-ink: #b45309;
+  --status-failed-ink: #be123c;
+
+  /* The SERP preview draws Google's result, not this app (PRD §15.2 rule 1:
+     the artifact is the interface): Google's own ink on Google's own page. */
+  --serp-bg: #ffffff;
+  --serp-title: #1a0dab;
+  --serp-url: #202124;
+  --serp-text: #4d5156;
+  --serp-rule: #dadce0;
+
   /* chart series, in fixed order — never cycled, never re-ranked. The first
      three slots of the dataviz reference palette, validated all-pairs against
      --surface-raised in each theme (light: CVD ΔE ≥ 9.2, normal ≥ 24.0; dark:
@@ -72,6 +85,9 @@
 
   --font-sans: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* The face Google's results page renders ads in, so a width measured in the
+     SERP preview is the width Google measures. */
+  --font-serp: Arial, "Liberation Sans", Helvetica, sans-serif;
 }
 
 [data-theme="dark"] {
@@ -103,4 +119,15 @@
   --series-3: #199e70;
 
   --scrim: rgb(0 0 0 / 0.6);
+
+  /* amber-400 and rose-400: ≥ 6.9:1 on the dark surfaces. */
+  --status-gate-ink: #fbbf24;
+  --status-failed-ink: #fb7185;
+
+  /* Google's dark results page. */
+  --serp-bg: #1f1f1f;
+  --serp-title: #99c3ff;
+  --serp-url: #dadce0;
+  --serp-text: #bfbfbf;
+  --serp-rule: #3c4043;
 }

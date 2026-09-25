@@ -541,6 +541,39 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.CREATIVE_EXECUTE,
         None,
     ),
+    # S4-P19: the Ad Studio's lint preview (a read), edit and reserve swap.
+    (
+        "POST",
+        "/creative-runs/{run_id}/lint-preview",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/lint-preview",
+        Permission.READ,
+        {
+            "targets": [
+                {
+                    "ref": "h1",
+                    "surface": "rsa_headline",
+                    "campaign_type": "search",
+                    "market": "US",
+                    "language": "en",
+                    "text": "SDS software for your team",
+                }
+            ]
+        },
+    ),
+    (
+        "PATCH",
+        "/creative-assets/{asset_id}",
+        "/creative-assets/00000000-0000-4000-8000-000000000000",
+        Permission.CREATIVE_EXECUTE,
+        {"text": "SDS software for your team"},
+    ),
+    (
+        "POST",
+        "/creative-assets/{asset_id}/swap",
+        "/creative-assets/00000000-0000-4000-8000-000000000000/swap",
+        Permission.CREATIVE_EXECUTE,
+        {"with_reserve_id": "00000000-0000-4000-8000-000000000001"},
+    ),
     (
         "GET",
         "/guidelines/published/creative-context",

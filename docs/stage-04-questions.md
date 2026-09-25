@@ -892,3 +892,76 @@ and §21.3 are silent.
     reading** (`postprod.probe_video`, packets counted so a cut-short download
     fails), `aspect_ratio` = the ratio requested. P12 checks the pixels match
     it; the recorded clip OpenRouter returned is 1280×720 whatever was asked.
+
+## S4-P19
+
+1. **The Ad Studio's three writes had no phase.** §16 lists
+   `PATCH /creative-assets/{id}`, `POST /creative-assets/{id}/swap` and
+   `POST /creative-runs/{id}/lint-preview`; no §21.3 phase names them and this
+   is their first consumer. Added exactly those, with §16's paths and
+   permissions, in `routes_creative_runs.py` beside S4-P18's reads; the checks
+   live in `creative/edits.py`. `drop` and `regenerate` were not added (§15.4 E
+   has no drop control; regenerate is S4-P13's). Ruling owed: that they belong
+   here.
+2. **The lint preview lints each target as a candidate is linted at creation**
+   (`PinnedLinter.lint_candidates`: every per-target rule, none of the set
+   rules, which count the assembled ad) and measures an `rsa_headline` on its
+   keyword-insertion default, as 4.2.1 does. §16 says only "LintResult at run
+   pin"; a lone headline linted against the full program fails on "1 of 15
+   headlines" every time.
+3. **A failing edit is refused, not stored as a draft.** §16 says PATCH
+   "re-lints"; law 33 says only a pass leaves `draft`. Storing a failing edit
+   would demote the asset to `draft`, out of the ad, and lose whether it was
+   carried or a reserve. PATCH answers `422 lint_failed` with the `LintResult`
+   and writes nothing; the chip had already said `fail`. Rule on it.
+4. **An edit is held to its node's own checks**, imported from the node:
+   4.2.1's `invalid_reason` (one well-formed insertion, a keyword headline keeps
+   its keyword, a proof headline stands on a claim licensed *now*) and, for a
+   description, 4.2.2's `claim_span` on the words 4.2.2 found it stating its
+   claim in (`422 claim_removed` names them). A person cannot rebind a
+   description to another claim here. Only `headline` and `description` are
+   editable (`422 kind_not_editable`), only while `linted` or `reserve`
+   (`409 asset_not_editable`), never once frozen (`409 asset_frozen`).
+5. **An edit keeps no revision.** §7.2's `lineage` is one record —
+   `{origin: human_edit, parent_id (kept), by_user, node_id}` — and the text is
+   overwritten in place, so the asset id every node output names stays valid.
+   What it said before survives only in the api log (`content_hash_before`).
+   Should an edit write an audit row, or the asset keep its revisions?
+6. **A swap goes in unpinned and unchecked against its new pairs.** A pin
+   belongs to the order-dependent pair 4.2.3 judged; the reserve was never in
+   it, so the pin is cleared, not moved. The swap re-lints the reserve at the
+   current pin and re-runs its node's checks, but not `pair_flags_v1`, and not
+   the quotas: the heatmap shows its pairs as *Not checked — swapped in*, the
+   quota bar says *1 short*, and 4.6.4 is the record. Should swap and edit
+   re-run the deterministic pair flags (and refuse a quota break) instead?
+7. **Pairs after an edit are shown as checked before the edit**, with 4.2.3's
+   old finding in words — never as though the old check still held.
+8. **CJK headlines are under-counted by the linter, and the counter agrees
+   with it.** `measure(text, "chars")` is Python's `len()`: one per code point.
+   Google counts a double-width character as two, so a 16-character Japanese
+   headline (32 of Google's 30) passes. The counter mirrors the server, as
+   §15.5 requires; the defect is Stage 03's `asset_spec.length.v1` unit, not
+   fixed here (law 33: Stage 04 never reimplements a limit).
+9. **The SERP preview's frame is display chrome**: 600 px desktop, 328 px
+   phone (360 less 16 px gutters), Arial at 20/26 and 18/24 title, 14/22 text,
+   one headline line on desktop and two on a phone, two and three description
+   lines. S4-P15's versioned `preview/serp.py` templates are the record; when
+   they land, should the live preview read their widths rather than tokens?
+10. **Loading a pair the pins keep apart.** With H1 and H2 pinned, two unpinned
+    headlines are never served together. The preview shows them first anyway,
+    so the pair can be read, and says Google never serves them side by side.
+11. **The heatmap shows H×H and H×D, as §15.4 E says;** 4.2.3's D×D pairs are
+    reported but not drawn.
+12. **A Stage 03 file changed for Stage 04's latency.** The first lint in a
+    process loads simplemma's English data (119 ms), which put the first chip
+    at 392 ms of the 400 ms budget. `lexicon.warm()` runs at api startup (a
+    failure only logs); the first chip now lands at ~286 ms.
+13. **The shared `Dialog` blurs the page behind it** (`backdrop-blur-[2px]`),
+    which §15.2 rule 2 bans on Stage 04 screens; the shortcut list on `?` uses
+    `Popover` instead. The primitive is unchanged — rule on fixing it app-wide.
+14. **`PublishedRuleSet.compiled.asset_specs` was typed without its `specs`
+    wrapper** in the web client (the Python model is `AssetSpecSheet{specs}`);
+    nothing read it before, and the type is corrected.
+15. **Nothing shows who edited a headline or when.** `CreativeAssetItem` has
+    `lineage.by_user` but no `updated_at`, and the matrix does not render
+    either. Wanted?

@@ -127,6 +127,17 @@ def lemma(word: str, language: str) -> str:
     return resolved
 
 
+def warm(language: str = "en") -> None:
+    """Load simplemma's dictionary for `language` now rather than on the first lint.
+
+    simplemma reads a language's data lazily, on its first `lemmatize` — about
+    100 ms for English, paid by whoever lints first in a process. The Ad
+    Studio's lint preview has a person waiting on it (Stage 04 PRD §15.4 E), so
+    the api pays it at startup instead. Changes latency, never a verdict.
+    """
+    lemma("sheets", language)
+
+
 def transform(word: str, mode: str, language: str) -> str:
     if mode == "stem":
         return stem(word, language)

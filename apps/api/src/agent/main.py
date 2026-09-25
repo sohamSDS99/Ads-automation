@@ -49,6 +49,7 @@ from agent.auth.bootstrap import bootstrap_from_environment
 from agent.config import Settings, get_settings
 from agent.creative.constants import get_creative_constants
 from agent.db.session import dispose_engine, get_sessionmaker
+from agent.guardrails.matchers import lexicon
 from agent.logging_setup import configure_logging
 from agent.planning.constants import get_planning_constants
 from agent.queue import close_arq_pool
@@ -72,6 +73,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # names the key that has no source, and the process does not come up.
     creative = get_creative_constants()
     log.info("creative.constants.loaded", version=creative.version)
+
+    # The linter's lemmatiser loads its dictionary on first use; a person
+    # editing copy in the Ad Studio should not be the one who waits for it.
+    try:
+        lexicon.warm()
+    except Exception as exc:  # noqa: BLE001 — a slower first lint, not a reason to stay down
+        log.warning("lexicon.warm_skipped", error=str(exc))
 
     # First boot creates the workspace and its admin. A database that is not
     # migrated yet must not stop the process: Railway runs migrations in
