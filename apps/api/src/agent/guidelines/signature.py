@@ -26,10 +26,12 @@ import json
 import secrets
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
+
+from agent.guidelines.constants import load_content_constants
 
 #: The two terminal decisions a signer may record. There is no "abstain": a
 #: claim nobody decided stays `pending_signoff` and is simply absent from the
@@ -173,6 +175,34 @@ REAUTH_KEY = "reauth:{fingerprint}"
 #: 32 bytes of `secrets`. There is no dictionary to attack, so SHA-256 is the
 #: right primitive here even though passwords get Argon2id.
 REAUTH_TOKEN_BYTES = 32
+
+
+def claim_expiry(claim_type: str, now: datetime) -> datetime:
+    """When an approval of a claim of this type lapses (PRD §7.2).
+
+    Computed from constants, never chosen by a person or a model. A register
+    without expiry is a register of things that used to be true, and a
+    quantified claim goes stale faster than a qualitative one. One definition
+    for every writer of an approval — Stage 03's sign route and Stage 04's H3.
+    """
+    constants = load_content_constants()
+    quantified = {"quantified", "comparative"}
+    key = (
+        "claims.quantified_expiry_days"
+        if claim_type in quantified
+        else "claims.default_expiry_days"
+    )
+    return now + timedelta(days=int(constants.value(key)))
+
+
+def signature_expiry(now: datetime) -> datetime:
+    """A signature outlives the longest claim expiry it could grant."""
+    constants = load_content_constants()
+    longest = max(
+        int(constants.value("claims.default_expiry_days")),
+        int(constants.value("claims.quantified_expiry_days")),
+    )
+    return now + timedelta(days=longest)
 
 
 class ReauthError(Exception):

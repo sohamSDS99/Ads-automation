@@ -49,6 +49,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.db.models import (
     AmendmentChangeKind,
+    AmendmentOrigin,
     AmendmentStatus,
     AuditLog,
     ClaimRecord,
@@ -419,6 +420,56 @@ async def mint_minor(
     db.add(row)
     await db.flush()
     return row
+
+
+async def mint_reviewed_minor(
+    db: AsyncSession,
+    guideline: ContentGuideline,
+    *,
+    origin: AmendmentOrigin,
+    reviewed_by: uuid.UUID,
+    rationale: str,
+    constants: ContentConstants,
+    now: datetime,
+) -> tuple[RuleSet, PolicyAmendment]:
+    """`mint_minor`, for a change a named person has already reviewed.
+
+    Stage 04 §8.6 step 4 calls this `mint_minor(origin='creative_exception',
+    reviewed_by=signer)`: H3's cleared claims are new register rows with a
+    live signature, so recompiling the payload is the whole of the change, and
+    **the signer's signature is the review**. The amendment is therefore
+    recorded `applied` with its reviewer, never `needs_review` — it does not
+    enter the substantive-amendment inbox, which is `needs_review` and nothing
+    else. It is still recorded: a MINOR nothing explains is a version nothing
+    caused, and `current_ruleset` would serve it to every later run.
+
+    `change_kind` is `substantive` because a licence appeared, which is what
+    §8.6 calls a substantive change; `applied` + `reviewed_by` is what makes it
+    one that needs no second look. Flushes, never commits: the caller's
+    transaction holds the signature it depends on.
+    """
+    ruleset = await mint_minor(db, guideline, constants=constants, now=now)
+    amendment = PolicyAmendment(
+        workspace_id=guideline.workspace_id,
+        project_id=guideline.project_id,
+        origin=origin,
+        detected_at=now,
+        change_kind=AmendmentChangeKind.SUBSTANTIVE,
+        rationale=rationale,
+        status=AmendmentStatus.APPLIED,
+        applied_ruleset_id=ruleset.id,
+        reviewed_by=reviewed_by,
+        reviewed_at=now,
+    )
+    db.add(amendment)
+    await db.flush()
+    log.info(
+        "amendment.minted_reviewed_minor",
+        origin=origin.value,
+        ruleset_version=ruleset.ruleset_version,
+        amendment_id=str(amendment.id),
+    )
+    return ruleset, amendment
 
 
 # ---------------------------------------------------------------------------
