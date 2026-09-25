@@ -96,6 +96,7 @@ def _make(tmp: Path, clips: tuple[Path, Path], ratio: str, min_px: str) -> Made:
         logo=verify.LogoWindow(box=placement.box, clear_space_px=placement.clear_space_px),
         brand_within_ms=5000,
         min_similarity=0.85,
+        caption_band=prepared.layout.caption_band,
     )
     return Made(prepared, assembled, out, stamp, check)
 

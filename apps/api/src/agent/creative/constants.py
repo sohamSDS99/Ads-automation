@@ -171,6 +171,10 @@ class VideoConstants(_Group):
     target_fps: IntConstant
     loudness_lufs: IntConstant
     generate_audio_default: BoolConstant
+    #: The caption band's bottom margin and the other edges' margin, as shares
+    #: of the frame (S4-P12: §9.4 names a safe zone and gives none).
+    safe_zone_bottom_pct: FloatConstant
+    safe_zone_edge_pct: FloatConstant
 
 
 class LogoConstants(_Group):

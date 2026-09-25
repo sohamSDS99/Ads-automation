@@ -15,9 +15,9 @@ for:
    `brand_first_at_ms` is the first such sample, and it must be ≤
    `brand_within_ms`.
 3. **Captions readable**: the frame at each caption's midpoint, OCR'd over the
-   bottom half (where captions are burned), compared with the caption text as
-   words; the best-aligned run of read words must reach
-   `caption_ocr_min_similarity`. Extra text in the band (a label, a stray
+   band the captions are burned in (two fixed readings, the better one kept),
+   compared with the caption text as words; the best-aligned run of read words
+   must reach `caption_ocr_min_similarity`. Extra text in the band (a label, a stray
    word read off the footage) does not count against it; missing or garbled
    caption words do.
 
@@ -59,6 +59,8 @@ class Expected:
     duration_ms: int
     min_duration_s: int | None
     max_duration_s: int | None
+    #: The spec's file-size cap, when it gives one.
+    max_bytes: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -180,20 +182,34 @@ def similarity(expected: str, read: str) -> float:
 def read_text(frame: Image.Image, box: tuple[int, int, int, int] | None = None) -> str:
     """Tesseract over `box` of the frame (all of it by default), inverted —
     burned text is white on a dark box, and tesseract reads dark on light."""
+    grey = frame.convert("L")
+    return _tesseract(ImageOps.invert(grey.crop(box) if box is not None else grey))
+
+
+#: Burned captions are pure white; the 60% box keeps what is behind them at
+#: ≤ 40% of its brightness. Binarising here drops smooth footage from the read.
+CAPTION_WHITE_MIN = 225
+
+
+def caption_readings(frame: Image.Image, band: tuple[int, int] | None = None) -> list[str]:
+    """The caption band (`band` = rows `y0..y1` where libass draws captions;
+    the bottom half when unknown), read two fixed ways: inverted grey, and
+    binarised on the captions' white. Busy footage beside the box defeats one
+    or the other; the caption's own words survive in at least one."""
+    width, height = frame.size
+    y0, y1 = band if band is not None else (height // 2, height)
+    grey = frame.convert("L").crop((0, y0, width, y1))
+    return [
+        _tesseract(ImageOps.invert(grey)),
+        _tesseract(grey.point(lambda v: 0 if v >= CAPTION_WHITE_MIN else 255)),
+    ]
+
+
+def _tesseract(image: Image.Image) -> str:
     import pytesseract
 
-    grey = frame.convert("L")
-    band = grey.crop(box) if box is not None else grey
-    text: str = pytesseract.image_to_string(
-        ImageOps.invert(band), lang=OCR_LANG, config=f"--psm {OCR_PSM}"
-    )
+    text: str = pytesseract.image_to_string(image, lang=OCR_LANG, config=f"--psm {OCR_PSM}")
     return " ".join(text.split())
-
-
-def read_caption(frame: Image.Image) -> str:
-    """The bottom half of the frame, where captions are burned."""
-    width, height = frame.size
-    return read_text(frame, (0, height // 2, width, height))
 
 
 # ---------------------------------------------------------------------------
@@ -310,6 +326,7 @@ def verify(
     logo: LogoWindow | None,
     brand_within_ms: int,
     min_similarity: float,
+    caption_band: tuple[int, int] | None = None,
     frame_loader: FrameLoader = frame_at,
 ) -> Verification:
     content = path.read_bytes()
@@ -350,7 +367,8 @@ def verify(
 
     for index, caption in enumerate(captions):
         middle = min((caption.t0 + caption.t1) / 2, last_s)
-        read = read_caption(frame_loader(path, middle))
+        readings = caption_readings(frame_loader(path, middle), caption_band)
+        read = max(readings, key=lambda text: similarity(caption.text, text))
         score = round(similarity(caption.text, read), 4)
         result.caption_frames.append(
             CaptionFrame(
@@ -390,5 +408,7 @@ def _facts_vs_spec(
         fail(f"length {facts.duration_ms} ms is under the spec's {expected.min_duration_s} s")
     if expected.max_duration_s is not None and facts.duration_ms > expected.max_duration_s * 1000:
         fail(f"length {facts.duration_ms} ms is over the spec's {expected.max_duration_s} s")
+    if expected.max_bytes is not None and facts.bytes > expected.max_bytes:
+        fail(f"file is {facts.bytes} bytes, over the spec's {expected.max_bytes}")
     if not faststart:
         fail("moov is not before mdat: the file was not written with +faststart")

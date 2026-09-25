@@ -1,5 +1,6 @@
-"""The contracts of 4.4.4 `video_production` (Stage 04 PRD §9.4 video 1–2, §11):
-the script, and the node's output up to downloaded clips.
+"""The contracts of 4.4.4 `video_production` (Stage 04 PRD §9.4 video 1–5, §11):
+the script, and the node's output — clips, then the finished, verified
+renditions post-production made from them.
 
 `VideoScript` is written before a clip is paid for, and "works with sound off"
 is its validator, not a review note: every `voiceover` interval is fully
@@ -16,7 +17,7 @@ from __future__ import annotations
 import re
 import uuid
 from collections.abc import Iterable
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -204,6 +205,12 @@ VideoGapReason = Literal[
     "generation_failed",
     "unknown_submit_state",
     "undecodable_clip",
+    # post-production (§9.4 video 3–5, §18)
+    "clips_missing",
+    "storage_insufficient",
+    "assembly_failed",
+    "verification_failed",
+    "stamp_failed",
 ]
 
 #: A clip that timed out is not here: its OpenRouter job is still alive, so
@@ -256,6 +263,70 @@ class VideoClip(_Frozen):
     media_id: uuid.UUID | None = None
 
 
+class FfmpegAttempt(_Frozen):
+    """One ffmpeg run that exited non-zero (§18: "stderr tail stored")."""
+
+    args: Literal["standard", "conservative"]
+    exit_code: int | None
+    stderr_tail: str
+
+
+class LogoFrameOut(_Frozen):
+    t_ms: int = Field(ge=0)
+    detected: bool
+    score: float
+    asset_id: str | None = None
+    status: str
+
+
+class CaptionFrameOut(_Frozen):
+    index: int = Field(ge=0)
+    t_ms: int = Field(ge=0)
+    expected: str
+    read: str
+    similarity: float
+    passed: bool
+
+
+class VideoVerification(_Frozen):
+    """`verification{logo_frames[], caption_frames[]}` (§11), and what failed."""
+
+    passed: bool
+    failures: list[str] = Field(default_factory=list)
+    faststart: bool
+    brand_first_at_ms: int | None = None
+    caption_ocr_min_similarity: float | None = None
+    logo_frames: list[LogoFrameOut] = Field(default_factory=list)
+    caption_frames: list[CaptionFrameOut] = Field(default_factory=list)
+
+
+class VideoRendition(_Frozen):
+    """One finished, verified video at one ratio (§11 4.4.4 `renditions[]`)."""
+
+    ratio: str = Field(min_length=1)
+    px: str = Field(min_length=3)
+    duration_ms: int = Field(ge=1)
+    derivation: Literal["native", "crop"]
+    #: The generated ratio a `crop` was made from.
+    source_ratio: str
+    brand_first_at_ms: int = Field(ge=0)
+    captions_burned: bool
+    caption_ocr_min_similarity: float | None = None
+    #: The clips carried sound (normalised to `loudness_lufs`). False: the file's
+    #: AAC track is the silent one post-production adds — it always has one.
+    has_audio: bool
+    bytes: int = Field(ge=1)
+    disclosure: dict[str, Any]
+    #: The `MediaArtifact(role=rendition)` (the master the detail drawer loads),
+    #: and its 480p proxy and poster (§15.5 item 3).
+    media_id: uuid.UUID
+    preview_media_id: uuid.UUID
+    poster_media_id: uuid.UUID
+    verification: VideoVerification
+    #: The run that failed before the one that made this file, if any (§18).
+    failed_attempts: list[FfmpegAttempt] = Field(default_factory=list)
+
+
 class CampaignVideo(_Frozen):
     campaign_ref: str = Field(min_length=1)
     campaign_type: str = Field(min_length=1)
@@ -275,6 +346,8 @@ class CampaignVideo(_Frozen):
     clips: list[VideoClip] = Field(default_factory=list)
     #: Degrade-ladder rungs taken because the media cap refused a clip (§9.3).
     degraded: list[str] = Field(default_factory=list)
+    #: The finished videos, one per ratio post-production could make and verify.
+    renditions: list[VideoRendition] = Field(default_factory=list)
 
 
 class VideoGap(_Frozen):
@@ -284,6 +357,10 @@ class VideoGap(_Frozen):
     ratio: str | None = None
     clip_index: int | None = None
     job_id: uuid.UUID | None = None
+    #: Both stderr tails when assembly failed twice (§18).
+    attempts: list[FfmpegAttempt] = Field(default_factory=list)
+    #: What a failed verification read back (blocking, §9.4 video 4).
+    verification: VideoVerification | None = None
 
 
 class VideoProduction(_Frozen):

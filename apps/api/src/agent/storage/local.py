@@ -123,6 +123,15 @@ class LocalStorage:
             capacity = None
         return StorageUsage(objects=objects, bytes=total, capacity_bytes=capacity)
 
+    def free_bytes(self) -> int | None:
+        """What the filesystem under the root still gives an unprivileged
+        writer (`f_bavail`, not `f_bfree`: the reserved blocks are not ours)."""
+        try:
+            stats = os.statvfs(self._root)
+        except (OSError, AttributeError):  # pragma: no cover — non-POSIX or missing root
+            return None
+        return stats.f_bavail * stats.f_frsize
+
     def prune(self, key: str) -> None:
         """Delete an object and any directories it leaves empty.
 

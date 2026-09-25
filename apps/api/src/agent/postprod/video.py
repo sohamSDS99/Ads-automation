@@ -316,7 +316,18 @@ class TextLayout:
     top_side_px: int
 
     def record(self) -> dict[str, Any]:
-        return {"font": CAPTION_FONT, **asdict(self)}
+        return {"font": CAPTION_FONT, **asdict(self), "caption_band": list(self.caption_band)}
+
+    #: Captions wrap to at most this many lines in the band `verify.py` reads.
+    CAPTION_LINES = 3
+
+    @property
+    def caption_band(self) -> tuple[int, int]:
+        """The rows the caption box can occupy: from `CAPTION_LINES` lines above
+        the safe-zone margin down to the box's bottom edge (never above mid-frame)."""
+        bottom = min(self.height, self.height - self.bottom_px + self.box_pad_px + 2)
+        top = round(bottom - (self.CAPTION_LINES + 0.5) * self.font_px - 2 * self.box_pad_px)
+        return max(self.height // 2, top), bottom
 
 
 def text_layout(
@@ -962,15 +973,11 @@ class AssemblyFailed(RuntimeError):
         self.attempts = attempts
 
 
-def assemble(
-    plan: Assembly,
-    output: Path,
-    *,
-    runner: Any = run_ffmpeg,
-) -> Assembled:
+def assemble(plan: Assembly, output: Path, *, runner: Any = None) -> Assembled:
     """One run with the standard arguments; on a non-zero exit, its stderr
     tail is kept and ONE retry with conservative arguments follows (§18).
     A caption face other than Inter Semi Bold fails the run it came from."""
+    runner = runner or run_ffmpeg
     failures: list[Attempt] = []
     profiles: tuple[Profile, ...] = ("standard", "conservative")
     for profile in profiles:

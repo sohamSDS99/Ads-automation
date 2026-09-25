@@ -118,12 +118,15 @@ def _without_source(key: str) -> str:
 BEYOND_9_5: dict[str, tuple[object, str, date]] = {
     # S4-P10: §9.4 item 3 sets a logo's floor (`min_width_px`) but no size.
     "logo.width_ratio": (0.2, "internal", date(2026, 9, 25)),
+    # S4-P12: §9.4 video 3 names the surface's safe zone but gives none.
+    "video.safe_zone_bottom_pct": (0.2, "internal", date(2026, 9, 25)),
+    "video.safe_zone_edge_pct": (0.05, "internal", date(2026, 9, 25)),
 }
 
 
 def test_the_shipped_file_is_exactly_section_9_5() -> None:
     constants = load_creative_constants()
-    assert constants.version == "2026.09.2"
+    assert constants.version == "2026.09.3"
     for key, (value, source) in EXPECTED.items():
         constant = constants.get(key)
         assert constant.value == value, key

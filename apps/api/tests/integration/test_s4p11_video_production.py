@@ -1,5 +1,6 @@
 """S4-P11 — 4.4.4 `video_production` up to downloaded clips (PRD §8.4, §9.4
-video 1–2, §11 4.4.4, §18; Laws 36–38).
+video 1–2, §11 4.4.4, §18; Laws 36–38). Post-production (S4-P12) is stubbed
+here and proven in `test_s4p12_video_postprod.py`.
 
 What is proven here, each against real Postgres and Redis and a respx OpenRouter:
 
@@ -74,6 +75,19 @@ def storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStorage:
 @pytest.fixture
 def ids(workspace_id: uuid.UUID, project_id: uuid.UUID, admin_user: Any) -> tuple[Any, ...]:
     return workspace_id, project_id, admin_user.id
+
+
+@pytest.fixture(autouse=True)
+def _clips_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """These tests prove 4.4.4 up to downloaded clips. The post-production the
+    node runs after them (S4-P12: ffmpeg, OCR, a registered logo to verify) is
+    proven in `test_s4p12_video_postprod.py`; here it makes nothing."""
+    from agent.nodes.creative import n4_4_4_video_production as node
+
+    async def nothing(self: Any, made: Any) -> list[Any]:
+        return []
+
+    monkeypatch.setattr(node._PostProduction, "video", nothing)
 
 
 async def _halted_then_approved(

@@ -90,6 +90,11 @@ class StorageBackend(Protocol):
         """How much is stored, and how much room is left if that is knowable."""
         ...
 
+    def free_bytes(self) -> int | None:
+        """Bytes a write can still use right now, or None for a backend with
+        no fixed size. Cheap — unlike `usage()`, it walks nothing."""
+        ...
+
 
 def get_storage(settings: Settings | None = None) -> StorageBackend:
     """Build the configured backend. `local` is the default in every environment."""

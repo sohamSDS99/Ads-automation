@@ -218,7 +218,7 @@ class _Rendering:
     async def start(cls, ctx: RunContext, choice: MediaModelChoice) -> _Rendering:
         creative = ctx.require_creative()
         media = ctx.require_media()
-        logos, unreadable = await _registered_logos(ctx, media)
+        logos, unreadable = await registered_logos(ctx, media)
         rules = creative.input.creative_context.visual_identity.logo or {}
         return cls(
             ctx=ctx,
@@ -227,8 +227,8 @@ class _Rendering:
             media=media,
             logos=logos,
             logo_unreadable=unreadable,
-            clear_space_ratio=_positive_float(rules.get("clear_space_ratio")),
-            min_width_px=_positive_int(rules.get("min_width_px")),
+            clear_space_ratio=positive_float(rules.get("clear_space_ratio")),
+            min_width_px=positive_int(rules.get("min_width_px")),
             templates=masters.logo_templates(creative.linter.ruleset),
         )
 
@@ -945,7 +945,7 @@ def _slot(specs: list[AssetSpec]) -> _Slot:
     )
 
 
-async def _registered_logos(
+async def registered_logos(
     ctx: RunContext, media: MediaJobs
 ) -> tuple[list[postprod.LogoArt], list[str]]:
     """The pinned ruleset's registered logos, read from the files Stage 03
@@ -983,13 +983,13 @@ async def _registered_logos(
     return logos, unreadable
 
 
-def _positive_float(value: Any) -> float | None:
+def positive_float(value: Any) -> float | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         return None
     return float(value)
 
 
-def _positive_int(value: Any) -> int | None:
+def positive_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         return None
     return int(value)
