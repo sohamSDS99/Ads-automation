@@ -1,0 +1,31 @@
+{
+  "additionalProperties": false,
+  "description": "A DOM box in page coordinates at scroll 0: `y` is distance from the top.",
+  "properties": {
+    "x": {
+      "title": "X",
+      "type": "number"
+    },
+    "y": {
+      "title": "Y",
+      "type": "number"
+    },
+    "width": {
+      "title": "Width",
+      "type": "number"
+    },
+    "height": {
+      "title": "Height",
+      "type": "number"
+    }
+  },
+  "required": [
+    "x",
+    "y",
+    "width",
+    "height"
+  ],
+  "title": "Box",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,18 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "mobile": {
+      "default": false,
+      "title": "Mobile",
+      "type": "boolean"
+    },
+    "desktop": {
+      "default": false,
+      "title": "Desktop",
+      "type": "boolean"
+    }
+  },
+  "title": "DeviceFlag",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

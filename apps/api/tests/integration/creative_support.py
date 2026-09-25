@@ -76,11 +76,15 @@ async def seed_plan(
     keywords: list[dict[str, Any]] | None = None,
     extra_campaigns: list[dict[str, Any]] | None = None,
     channel_slate: dict[str, Any] | None = None,
+    landing_url: str = "https://example.com/sds",
+    required_signals: list[str] | None = None,
 ) -> CampaignPlan:
     """Accepted research → a plan run → a plan in `status`, with a real payload.
 
     `extra_campaigns` are appended to the two Search ones; `channel_slate` is
     2.3.1's section as the frozen plan carries it (absent means no slate).
+    `landing_url` is the Search ad group's page (4.5 renders it);
+    `required_signals` is 2.1.4's qualified lead.
     """
     research = _run(ws, project_id, actor, RunStage.RESEARCH)
     db.add(research)
@@ -151,7 +155,11 @@ async def seed_plan(
                         "primary_kpi": "cost per qualified lead",
                     }
                 ],
-                "qualified_lead": {"required_signals": ["company email"]},
+                "qualified_lead": {
+                    "required_signals": (
+                        required_signals if required_signals is not None else ["company email"]
+                    )
+                },
             },
             "account_structure": {
                 "campaigns": [
@@ -163,7 +171,7 @@ async def seed_plan(
                             {
                                 "name": "sds software",
                                 "theme": "SDS management",
-                                "landing_url": "https://example.com/sds",
+                                "landing_url": landing_url,
                                 "primary_message": "Keep every SDS current",
                                 **({"keywords": keywords} if keywords else {}),
                             }

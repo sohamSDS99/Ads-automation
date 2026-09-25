@@ -1,0 +1,81 @@
+<!doctype html>
+<!--
+  S4-P7 fixture 3 of 3: a nine-field lead form, and a page that tries to
+  write.
+
+  - The lead form has nine fields a visitor fills in. The hidden `utm_source`
+    and the CSS-hidden honeypot `website` are not fields a visitor sees, and
+    the footer newsletter form is a different, smaller form.
+  - A cookie banner is fixed to the bottom: 40% of a 844px phone screen,
+    25% of an 800px desktop one. Its Accept button would POST if clicked.
+  - On load the page's own script tries four writes: a fetch POST, an XHR
+    PUT, a beacon, and a JS submit of the lead form. None may leave the
+    browser: the renderer issues GETs only.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Request a demo</title>
+<style>
+  body { margin: 0; font: 16px/1.5 sans-serif; }
+  main { padding: 24px 24px 400px; }
+  label { display: block; margin-top: 8px; }
+  .honeypot { display: none; }
+  #cookie-banner { position: fixed; left: 0; right: 0; bottom: 0; height: 200px; box-sizing: border-box;
+                   background: #222; color: #fff; padding: 16px; }
+  @media (max-width: 600px) { #cookie-banner { height: 337.6px; } }
+</style>
+</head>
+<body>
+<main>
+  <h1>Book an SDS management software demo</h1>
+  <form id="lead" method="post" action="/lead">
+    <input type="hidden" name="utm_source" value="google">
+    <label for="first_name">First name</label>
+    <input id="first_name" name="first_name" type="text" required>
+    <label for="last_name">Last name</label>
+    <input id="last_name" name="last_name" type="text" required>
+    <label for="email">Work email</label>
+    <input id="email" name="email" type="email" required>
+    <label for="phone">Phone</label>
+    <input id="phone" name="phone" type="tel">
+    <label for="company">Company</label>
+    <input id="company" name="company" type="text">
+    <label for="job_title">Job title</label>
+    <input id="job_title" name="job_title" type="text">
+    <label for="company_size">Company size</label>
+    <select id="company_size" name="company_size" required>
+      <option value="">Choose</option><option>1-50</option><option>51-500</option>
+    </select>
+    <label for="country">Country</label>
+    <select id="country" name="country"><option>US</option><option>DE</option></select>
+    <div class="honeypot"><label for="website">Website</label>
+      <input id="website" name="website" type="text"></div>
+    <label><input name="consent" type="checkbox" required>
+      I agree to the privacy policy and to being contacted about this request</label>
+    <button type="submit">Book a demo</button>
+  </form>
+</main>
+<footer>
+  <form id="newsletter" method="post" action="/newsletter">
+    <label for="nl_email">Newsletter</label>
+    <input id="nl_email" name="nl_email" type="email">
+  </form>
+</footer>
+<div id="cookie-banner">
+  We use cookies.
+  <form method="post" action="/consent"><button id="accept" type="submit">Accept all</button></form>
+</div>
+<script>
+  window.addEventListener("load", function () {
+    fetch("/collect", { method: "POST", body: "fetch" }).catch(function () {});
+    var xhr = new XMLHttpRequest();
+    xhr.open("PUT", "/profile");
+    xhr.send("xhr");
+    navigator.sendBeacon("/beacon", "beacon");
+    setTimeout(function () { document.getElementById("lead").submit(); }, 0);
+  });
+</script>
+</body>
+</html>

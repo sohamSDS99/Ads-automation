@@ -1,0 +1,115 @@
+{
+  "$defs": {
+    "MatchScore": {
+      "additionalProperties": false,
+      "description": "One ad group on one device: the H1 against that ad group's final A headlines.",
+      "properties": {
+        "campaign_ref": {
+          "minLength": 1,
+          "title": "Campaign Ref",
+          "type": "string"
+        },
+        "ad_group_ref": {
+          "minLength": 1,
+          "title": "Ad Group Ref",
+          "type": "string"
+        },
+        "device": {
+          "enum": [
+            "mobile",
+            "desktop"
+          ],
+          "title": "Device",
+          "type": "string"
+        },
+        "score": {
+          "maximum": 1,
+          "minimum": 0,
+          "title": "Score",
+          "type": "number"
+        },
+        "best_headline": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Best Headline"
+        }
+      },
+      "required": [
+        "campaign_ref",
+        "ad_group_ref",
+        "device",
+        "score"
+      ],
+      "title": "MatchScore",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The page's score is its weakest ad group on its weakest device.\n\nEvery ad group pointing here serves its ad on both devices, so a page that\nechoes one ad group on desktop and not another on mobile has failed that\nvisitor. `unavailable`: the page never rendered on either device.",
+  "properties": {
+    "score": {
+      "anyOf": [
+        {
+          "maximum": 1,
+          "minimum": 0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Score"
+    },
+    "metric": {
+      "const": "match.token_trigram_v1",
+      "default": "match.token_trigram_v1",
+      "title": "Metric",
+      "type": "string"
+    },
+    "threshold": {
+      "maximum": 1,
+      "minimum": 0,
+      "title": "Threshold",
+      "type": "number"
+    },
+    "verdict": {
+      "enum": [
+        "pass",
+        "fail",
+        "unavailable"
+      ],
+      "title": "Verdict",
+      "type": "string"
+    },
+    "scores": {
+      "items": {
+        "$ref": "#/$defs/MatchScore"
+      },
+      "title": "Scores",
+      "type": "array"
+    },
+    "evidence_ids": {
+      "items": {
+        "format": "uuid",
+        "type": "string"
+      },
+      "title": "Evidence Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "threshold",
+    "verdict"
+  ],
+  "title": "MessageMatch",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

@@ -1,0 +1,33 @@
+{
+  "additionalProperties": false,
+  "description": "`StorageBackend` keys of the full-page PNGs; None where the page never answered.",
+  "properties": {
+    "mobile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mobile"
+    },
+    "desktop": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Desktop"
+    }
+  },
+  "title": "Screenshots",
+  "type": "object",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

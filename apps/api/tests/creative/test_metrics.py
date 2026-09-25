@@ -106,3 +106,57 @@ def test_a_paraphrased_ad_is_not_distinct_and_a_different_ad_is() -> None:
 def test_distinctness_of_empty_sides() -> None:
     assert metrics.distinctness([], []) == 0.0
     assert metrics.distinctness(["abc"], []) == 1.0
+
+
+# ---------------------------------------------------------------------------
+# match.token_trigram_v1 — does the page headline echo the ad headline? (4.5.1)
+# ---------------------------------------------------------------------------
+
+
+def test_the_message_match_id_is_versioned_and_fixed() -> None:
+    assert metrics.MESSAGE_MATCH_V1 == "match.token_trigram_v1"
+
+
+def test_tokens_are_the_distinct_normalized_words_in_order() -> None:
+    assert metrics.tokens("Keep every SDS — every SDS!") == ("keep", "every", "sds")
+    assert metrics.tokens("") == ()
+
+
+def test_an_ad_headline_the_page_repeats_is_fully_echoed() -> None:
+    assert metrics.echo_ratio("SDS Software", "SDS Software") == 1
+    # Containment, not equality: the page may say more than the ad.
+    assert metrics.echo_ratio("SDS Software", "The SDS Software for Labs") == 1
+    # Word order, case and punctuation do not matter to a reader.
+    assert metrics.echo_ratio("Software SDS", "sds—SOFTWARE!!") == 1
+
+
+def test_the_echo_is_directional() -> None:
+    # "the", "for" and "labs" share no trigram with "sds" or "software".
+    assert metrics.echo_ratio("The SDS Software for Labs", "SDS Software") == Fraction(2, 5)
+
+
+def test_an_inflected_word_is_a_partial_echo() -> None:
+    # " manage " has 6 trigrams, " management " 10, and they share 5:
+    # 2*5/(6+10) = 5/8. "sds" is exact. Mean over the ad's two tokens.
+    assert metrics.echo_ratio("Manage SDS", "SDS management") == Fraction(13, 16)
+
+
+def test_a_page_that_says_something_else_scores_zero() -> None:
+    headlines = ["SDS Management Software", "Keep Every SDS Current"]
+    assert metrics.message_match_ratio(headlines, "Welcome to Acme Industrial Group") == 0
+
+
+def test_no_page_headline_is_no_echo() -> None:
+    assert metrics.echo_ratio("SDS Software", None) == 0
+    assert metrics.echo_ratio("SDS Software", "") == 0
+    assert metrics.message_match_ratio([], "SDS Software") == 0
+
+
+def test_the_page_matches_the_ad_group_by_its_best_echoed_headline() -> None:
+    headlines = ["Manage SDS", "SDS Software"]
+    page = "The SDS Software for Labs"
+    assert metrics.echo_ratio("Manage SDS", page) == Fraction(1, 2)
+    assert metrics.message_match_ratio(headlines, page) == 1
+    assert metrics.message_match(headlines, page) == 1.0
+    # Input order never changes the number.
+    assert metrics.message_match_ratio(list(reversed(headlines)), page) == 1
