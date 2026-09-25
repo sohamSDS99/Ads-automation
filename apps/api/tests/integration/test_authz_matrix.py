@@ -605,6 +605,37 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.CREATIVE_EXECUTE,
         {"with_reserve_id": "00000000-0000-4000-8000-000000000001"},
     ),
+    # S4-P14: H3. Reading the exception set is anybody's; clearing it rides on
+    # CLAIM_SIGN, which no admin holds (Law 23) — the route then narrows it to
+    # the named legal owner; withdrawing reduces scope and is an operator's.
+    (
+        "GET",
+        "/creative-runs/{run_id}/exceptions",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/exceptions",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/creative-runs/{run_id}/exceptions/clear",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/exceptions/clear",
+        Permission.CLAIM_SIGN,
+        {
+            "decisions": [
+                {"exception_id": "00000000-0000-4000-8000-000000000001", "decision": "cleared"}
+            ],
+            "statement": "x",
+            "set_hash": "x",
+            "reauth_token": "x",
+        },
+    ),
+    (
+        "POST",
+        "/creative-runs/{run_id}/exceptions/withdraw",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/exceptions/withdraw",
+        Permission.CREATIVE_EXECUTE,
+        {"exception_ids": ["00000000-0000-4000-8000-000000000001"]},
+    ),
     (
         "POST",
         "/creative-assets/{asset_id}/regenerate",

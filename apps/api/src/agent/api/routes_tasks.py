@@ -190,6 +190,20 @@ async def submit_human_task(
     """Record that the named person performed the act and attests to it."""
     task, user, project = await _task(db, task_id, me)
 
+    if task.task_key == "H3":
+        # Stage 04 §16 rule 4. H3 is not an attestation: it is one transaction
+        # over a hashed exception set that writes claims, a signature and a
+        # MINOR, and resumes the run. Completing its task here would do none of
+        # that and leave 4.6.3 parked forever. Refused before the identity
+        # check and before any proof is spent, whoever asks.
+        raise problems.conflict(
+            "H3 is decided through POST /creative-runs/{run_id}/exceptions/clear, "
+            "not by submitting the task.",
+            title="Use the exceptions route",
+            code="use_exceptions_clear",
+            run_id=str(task.guideline_run_id) if task.guideline_run_id else None,
+        )
+
     # -- layer 2: identity, before any proof is spent ------------------------
     if task.assignee_id != me.user.id:
         raise problems.Problem(
