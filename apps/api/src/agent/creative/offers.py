@@ -85,7 +85,7 @@ def usable(records: Iterable[OfferRecord], *, now: datetime, max_age_days: int) 
     for record in records:
         key = record_id(record)
         seen = latest.get(key)
-        if seen is None or _order(record) > _order(seen):
+        if seen is None or recency(record) > recency(seen):
             latest[key] = record
     found = Usable()
     for record in latest.values():
@@ -105,8 +105,8 @@ def _aware(value: datetime | None) -> datetime | None:
     return value.replace(tzinfo=UTC)
 
 
-def _order(record: OfferRecord) -> tuple[bool, float]:
-    """Latest first; an undated observation is older than any dated one."""
+def recency(record: OfferRecord) -> tuple[bool, float]:
+    """Sort key, latest last; an undated observation is older than any dated one."""
     observed = _aware(record.observed_at)
     return (observed is not None, observed.timestamp() if observed else 0.0)
 
@@ -183,6 +183,22 @@ def resolve(record: OfferRecord, fields: Mapping[str, str]) -> dict[str, str]:
             raise OfferBindingError(f"{name} names {ref!r}, which is not an offer field")
         resolved[name] = render(record)
     return resolved
+
+
+def rendered_from(record: OfferRecord, binding: OfferBinding) -> bool:
+    """Is `record` an observation `binding` could have been rendered from — the
+    same offer, rendering exactly the figures the binding holds?
+
+    The Extras screen links a bound asset to its `OfferRecord` this way, from
+    the run's pinned snapshot: the binding names the offer by its natural key,
+    and only an observation that renders the same values is the one it shows.
+    """
+    if record_id(record) != binding.offer_record_id:
+        return False
+    try:
+        return resolve(record, binding.fields) == binding.resolved
+    except OfferBindingError:
+        return False
 
 
 def bind(record: OfferRecord, fields: Mapping[str, str]) -> OfferBinding:

@@ -17,6 +17,8 @@ The Creative Console and the brief page (§15.4 C–D) are built on these:
   audited, with its verdict and the facts behind it.
 - `GET /landing-audits/{id}/patch?format=html|json` — the `LandingPagePatch`
   for the site owner. Stage 04 deploys nothing (law 41); this is the handover.
+- `GET /landing-audits/{id}/screenshot?device=mobile|desktop` — the full-page
+  capture 4.5.1 stored, streamed off the worker's Volume for the audit card.
 
 The Ad Studio (§15.4 E) writes through three more:
 
@@ -40,6 +42,7 @@ The Media Library (§15.4 G) regenerates through one more:
 from __future__ import annotations
 
 import uuid
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Annotated, Any, Literal
@@ -47,8 +50,11 @@ from typing import Annotated, Any, Literal
 import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from redis.exceptions import RedisError
 from sqlalchemy.ext.asyncio import AsyncSession
+from starlette.background import BackgroundTask
 
 from agent.api import problems
 from agent.api.routes_media import Catalogue
@@ -64,22 +70,25 @@ from agent.api.schemas_creative_runs import (
     LandingAuditItem,
     LandingAuditListResponse,
     LintPreviewRequest,
+    OfferSource,
     RegenerateAccepted,
     RegenerateRequest,
     ReserveSwap,
     ReserveSwapResponse,
 )
+from agent.api.worker_files import WorkerClient, open_upstream, signed_url
 from agent.auth.deps import Principal, require
 from agent.auth.rbac import Permission
-from agent.config import get_settings
+from agent.config import Settings, get_settings
 from agent.creative import brief as briefs
-from agent.creative import edits, g7, review
+from agent.creative import edits, g7, offers, review
 from agent.db.models import (
     Approval,
     ApprovalStatus,
     CreativeAsset,
     CreativeAssetKind,
     CreativeAssetStatus,
+    Evidence,
     GenerationJob,
     LandingPageAudit,
     Project,
@@ -101,14 +110,15 @@ from agent.nodes.creative._regenerate import (
     open_child,
 )
 from agent.nodes.creative._text_assets import content_hash
+from agent.orchestrator.creative_input import OFFER_RECORD_KIND
 from agent.orchestrator.creative_run import CreativeRunError, load_resources
 from agent.queue import enqueue_generation_check, enqueue_regeneration
 from agent.redis_client import get_redis
-from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief
+from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief, OfferBinding
 from agent.schemas.creative_input import CreativeInput
 from agent.schemas.creative_review import G8, AiAssetReview, ReviewDecisionItem
-from agent.schemas.guardrails import LintResult, LintTarget
-from agent.schemas.landing import LandingPagePatch
+from agent.schemas.guardrails import LintResult, LintTarget, OfferRecord
+from agent.schemas.landing import Device, LandingPagePatch
 from agent.schemas.search_ads import PASSING
 
 log = structlog.get_logger(__name__)
@@ -211,10 +221,66 @@ async def list_assets(
         .scalars()
         .all()
     )
-    return CreativeAssetListResponse(items=[_asset(row) for row in rows])
+    sources = await _offer_sources(db, run, rows)
+    return CreativeAssetListResponse(items=[_asset(row, sources.get(row.id)) for row in rows])
 
 
-def _asset(row: CreativeAsset) -> CreativeAssetItem:
+async def _offer_sources(
+    db: AsyncSession, run: Run, rows: Sequence[CreativeAsset]
+) -> dict[uuid.UUID, OfferSource]:
+    """For each offer-bound asset, the observation its binding was rendered from.
+
+    Found in the run's pinned snapshot (`CreativeInput.offer_records`), never in
+    today's rows: the window shown is the one the asset was written against,
+    and a price or date that has since moved is release's 409, not a silent
+    re-read here. The `offer_record` evidence row it came from is looked up for
+    the link, and may since have been deleted.
+    """
+    bound = {
+        row.id: OfferBinding.model_validate(row.offer_binding)
+        for row in rows
+        if row.offer_binding is not None
+    }
+    if not bound or not run.creative_input:
+        return {}
+    snapshot = CreativeInput.model_validate(run.creative_input).offer_records
+    stored: list[tuple[uuid.UUID, OfferRecord]] = []
+    for evidence in (
+        await db.execute(
+            sa.select(Evidence)
+            .where(Evidence.project_id == run.project_id, Evidence.kind == OFFER_RECORD_KIND)
+            .order_by(Evidence.fetched_at.desc(), Evidence.id.desc())
+        )
+    ).scalars():
+        try:
+            stored.append((evidence.id, OfferRecord.model_validate(evidence.payload or {})))
+        except ValidationError:
+            continue  # offer_snapshot skipped it too: it was never in the snapshot
+    found: dict[uuid.UUID, OfferSource] = {}
+    for asset_id, binding in bound.items():
+        rendered = [record for record in snapshot if offers.rendered_from(record, binding)]
+        if not rendered:
+            continue
+        record = max(rendered, key=offers.recency)
+        found[asset_id] = OfferSource(
+            evidence_id=next((eid for eid, row in stored if row == record), None),
+            sku=record.sku,
+            product_set=record.product_set,
+            market=record.market,
+            effective_from=_utc(record.effective_from),
+            effective_to=_utc(record.effective_to),
+            ends_at=_utc(record.ends_at),
+            observed_at=_utc(record.observed_at),
+        )
+    return found
+
+
+def _utc(value: datetime | None) -> datetime | None:
+    """A zone-less offer date, read as UTC (as `creative/offers.py` ages it)."""
+    return value.replace(tzinfo=UTC) if value is not None and value.tzinfo is None else value
+
+
+def _asset(row: CreativeAsset, offer: OfferSource | None = None) -> CreativeAssetItem:
     verdict = (row.lint or {}).get("verdict")
     return CreativeAssetItem(
         id=row.id,
@@ -238,6 +304,10 @@ def _asset(row: CreativeAsset) -> CreativeAssetItem:
         content_hash=row.content_hash,
         frozen_at=row.frozen_at,
         created_at=row.created_at,
+        offer_binding=(
+            OfferBinding.model_validate(row.offer_binding) if row.offer_binding else None
+        ),
+        offer=offer,
     )
 
 
@@ -451,6 +521,51 @@ async def get_landing_patch(
             },
         )
     return patch
+
+
+@router.get(
+    "/landing-audits/{audit_id}/screenshot",
+    summary="The full-page capture 4.5.1 stored for one device",
+    response_class=StreamingResponse,
+)
+async def get_landing_screenshot(
+    audit_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    client: WorkerClient,
+    settings: Annotated[Settings, Depends(get_settings)],
+    device: Annotated[Device, Query(description="mobile | desktop")],
+) -> Response:
+    """Stream the PNG off the worker's Volume, as the Evidence Explorer's
+    screenshots are (`worker_files`). The caller names an audit and a device,
+    never a path: the key is the one the node wrote on the row."""
+    row = await db.scalar(
+        sa.select(LandingPageAudit)
+        .join(Run, Run.id == LandingPageAudit.creative_run_id)
+        .where(LandingPageAudit.id == audit_id, Run.workspace_id == me.workspace_id)
+    )
+    if row is None:
+        raise problems.not_found(f"No landing audit {audit_id}.")
+    key = (row.screenshots or {}).get(device)
+    if not isinstance(key, str) or not key:
+        raise problems.not_found(
+            f"The audit of {row.url} has no {device} screenshot: the page did not render "
+            f"on {device}.",
+            title="No screenshot",
+        )
+    upstream = await open_upstream(
+        client, signed_url(key, settings=settings), subject="screenshot", audit_id=str(audit_id)
+    )
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        media_type="image/png",
+        headers={
+            # A capture is written once under its own key and never rewritten.
+            "Cache-Control": "private, max-age=3600, immutable",
+            "Content-Disposition": "inline",
+        },
+        background=BackgroundTask(upstream.aclose),
+    )
 
 
 # ---------------------------------------------------------------------------

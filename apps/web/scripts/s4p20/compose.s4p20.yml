@@ -1,0 +1,68 @@
+# S4-P20's isolated stack: the REAL api and worker. The run the Extras and
+# Landing audit screens show is taken through the whole creative DAG by
+# `seed.py` in-process, in the worker image (4.5.1 renders with Chromium), with
+# S4-P8's scripted model answers and scripted web; the landing pages it renders
+# are this directory's `site/`, served inside the seed process.
+#
+#   docker compose -p s4p20 -f docker-compose.yml -f apps/web/scripts/s4p20/compose.s4p20.yml \
+#     up -d postgres redis api
+#   docker compose -p s4p20 ... run --rm test pytest tests/integration/test_s4p20_extras_landing_reads.py -q
+#
+# OpenRouter is `openrouter_server.py` (S4-P8's script): the api only asks it
+# whether the key resolves (CR-E7).
+#
+# Subnet 172.31.202.0/24 and ports 8502 (api) / 8503 (openrouter) / 3502 (web) are this phase's
+# alone (`!override`: compose merges lists otherwise); S4-P13 and S4-P21 run
+# beside it. The web tier is a production `next start` on the host, so `web`
+# is profiled out. `worker` is the worker test image (Chromium + the suite's
+# helpers): `run.sh` uses it for the seed as a one-off (`run --rm`) and only
+# then starts it, so its file server can hand `api` the stored screenshots.
+services:
+  api:
+    image: s4p20-api:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p20-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3502
+      CORS_ORIGINS: http://localhost:3502
+    ports: !override
+      - "127.0.0.1:8502:8000"
+    depends_on:
+      openrouter:
+        condition: service_started
+
+  worker:
+    image: s4p20-wtest:latest
+    environment:
+      OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p20-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3502
+    volumes:
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p20:/app/s4p20
+
+  openrouter:
+    image: s4p20-api:latest
+    command: ["python", "/app/s4p20/openrouter_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p20:/app/s4p20
+    ports:
+      - "127.0.0.1:8503:8099"
+    networks: [internal]
+
+  test:
+    image: s4p20-test:latest
+
+  web:
+    profiles: ["s4p20-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.202.0/24
+        - subnet: fd00:ada:202::/64

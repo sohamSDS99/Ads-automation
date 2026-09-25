@@ -548,6 +548,14 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.CREATIVE_EXECUTE,
         None,
     ),
+    # S4-P20: the Landing audit's capture, one device at a time — every role's.
+    (
+        "GET",
+        "/landing-audits/{audit_id}/screenshot",
+        "/landing-audits/00000000-0000-4000-8000-000000000000/screenshot?device=mobile",
+        Permission.READ,
+        None,
+    ),
     # S4-P19: the Ad Studio's lint preview (a read), edit and reserve swap.
     (
         "POST",

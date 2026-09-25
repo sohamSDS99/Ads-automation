@@ -1,4 +1,14 @@
-import type { HTMLAttributes, ReactNode, ThHTMLAttributes, TdHTMLAttributes } from "react";
+"use client";
+
+import {
+  useLayoutEffect,
+  useRef,
+  useState,
+  type HTMLAttributes,
+  type ReactNode,
+  type ThHTMLAttributes,
+  type TdHTMLAttributes,
+} from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -14,6 +24,11 @@ import { cn } from "@/lib/utils";
  * and pushes the rightmost ones out of view. Any cell that can hold a sentence
  * needs its own `max-w-*`; the numbers and short labels are what `min-w-max` is
  * for.
+ *
+ * When the table is wider than its scroller, the scroller becomes a named,
+ * focusable region, so a keyboard user can reach and scroll the columns off to
+ * the right (WCAG 2.1.1; axe `scrollable-region-focusable`). A table that fits
+ * adds no tab stop.
  */
 export function Table({
   children,
@@ -25,11 +40,27 @@ export function Table({
   /** The table's accessible name — screen readers announce it on entry. */
   label: string;
 }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const element = scroller.current;
+    if (!element) return;
+    const measure = () => setScrolls(element.scrollWidth > element.clientWidth + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    if (element.firstElementChild) observer.observe(element.firstElementChild);
+    return () => observer.disconnect();
+  }, []);
   return (
     // `relative`: an `sr-only` cell is absolutely positioned, and without a
     // positioned ancestor inside the scroller it escapes the scroller's clip
     // and widens the page instead.
-    <div className="relative w-full overflow-x-auto">
+    <div
+      ref={scroller}
+      className="relative w-full overflow-x-auto focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+      {...(scrolls ? { tabIndex: 0, role: "region", "aria-label": label } : {})}
+    >
       <table className={cn("w-full min-w-max border-collapse text-sm", className)}>
         <caption className="sr-only">{label}</caption>
         {children}

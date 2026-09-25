@@ -23,7 +23,7 @@ from agent.db.models import (
     GenerationStatus,
     LandingAuditVerdict,
 )
-from agent.schemas.creative_brief import CreativeBrief
+from agent.schemas.creative_brief import CreativeBrief, OfferBinding
 from agent.schemas.guardrails import LintTarget
 from agent.schemas.landing import (
     DeviceFlag,
@@ -69,6 +69,26 @@ class CreativeBriefResponse(BaseModel):
     )
 
 
+class OfferSource(BaseModel):
+    """The `OfferRecord` a bound asset was rendered from (law 35, PRD §15.4 F).
+
+    Read from the run's pinned offer snapshot — the observation whose figures
+    the binding holds — so the window is the one the asset was written against.
+    `evidence_id` is the `offer_record` row that observation came from, for the
+    link; None when that row is no longer stored. Dates without a zone are read
+    as UTC, as `creative/offers.py` ages them.
+    """
+
+    evidence_id: uuid.UUID | None
+    sku: str
+    product_set: str
+    market: str
+    effective_from: datetime | None
+    effective_to: datetime | None
+    ends_at: datetime | None
+    observed_at: datetime | None
+
+
 class CreativeAssetItem(BaseModel):
     """One `CreativeAsset`, with the lint verdict it was stored with (law 33)."""
 
@@ -95,6 +115,14 @@ class CreativeAssetItem(BaseModel):
     content_hash: str
     frozen_at: datetime | None
     created_at: datetime
+    offer_binding: OfferBinding | None = Field(
+        default=None,
+        description="A promotion's or price's figures, each an `OfferRecord` field reference.",
+    )
+    offer: OfferSource | None = Field(
+        default=None,
+        description="The record `offer_binding` was rendered from; None when unbound or not found.",
+    )
 
 
 class CreativeAssetListResponse(BaseModel):
