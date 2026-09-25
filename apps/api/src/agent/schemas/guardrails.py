@@ -125,6 +125,10 @@ SURFACE_ASSET_TYPES: Final[Mapping[str, str]] = MappingProxyType(
         "callout": "callout",
         "structured_snippet": "structured_snippet",
         "business_name": "business_name",
+        # S4-P11: a video script's lines are written against no headline or
+        # description spec. Unmapped, every `headline`-scoped rule reached
+        # every voiceover line and failed any longer than 30 characters.
+        "youtube_script": "video_script",
     }
 )
 

@@ -70,6 +70,24 @@ def test_an_asset_type_rule_still_applies_to_a_surface_with_no_asset_type() -> N
     assert scope.matches(target("Anything at all", surface="landing_page_section"))
 
 
+def test_a_video_script_line_is_not_a_headline() -> None:
+    """S4-P11: `youtube_script` is written against its own asset type.
+
+    Unmapped, a rule scoped to `headline` applied to every voiceover line of a
+    Performance Max video — "36 chars; the limit is 30" — and failed every
+    script. Mapped, headline limits stay on headlines while a rule with no
+    asset type (a never term, a claim, a policy) still reaches the script.
+    """
+    assert SURFACE_ASSET_TYPES["youtube_script"] == "video_script"
+    line = target("Keep every safety data sheet current", surface="youtube_script")
+    line = line.model_copy(update={"campaign_type": "performance_max"})
+    headline_only = RuleScope(campaign_types=("performance_max",), asset_types=("headline",))
+    everything = RuleScope(campaign_types=("performance_max",))
+    assert not headline_only.matches(line)
+    assert everything.matches(line)
+    assert RuleScope(asset_types=("video_script",)).matches(line)
+
+
 def test_every_rsa_and_pmax_text_surface_names_its_spec_sheet_asset_type() -> None:
     assert SURFACE_ASSET_TYPES["rsa_headline"] == "headline"
     assert SURFACE_ASSET_TYPES["rsa_description"] == "description"
