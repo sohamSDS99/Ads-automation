@@ -1,0 +1,73 @@
+# S4-P21's isolated stack: the REAL api, the REAL file server and S4-P1's
+# recorded OpenRouter catalogue (S4-P3's `catalogue_server.py`, mounted, not
+# copied), for the Media Library.
+#
+#   docker compose -p s4p21 -f docker-compose.yml -f apps/web/scripts/s4p21/compose.s4p21.yml \
+#     up -d postgres redis catalogue api worker
+#   docker compose -p s4p21 ... run --rm test pytest tests/integration/test_s4p21_media_library.py -q
+#
+# Subnet 172.31.221.0/24 and ports 8421 (api) / 8422 (catalogue) / 8423 (file
+# server) / 3421 (web) are this phase's alone (`!override`: compose merges
+# lists otherwise); S4-P13 and S4-P20 run beside it.
+#
+# `worker` is the file server ONLY — no arq: `seed.py` runs the pipeline
+# in-process, and a queue consumer would race it. It publishes 8081 to the host
+# because the web tier here is a host `next start`, and `/files/*` is its
+# rewrite to the file server (in Railway, over the private network). The
+# image is `s4p12-wtest` re-tagged: ffmpeg + libass, exiftool, tesseract, Inter.
+services:
+  api:
+    image: s4p21-wtest:latest
+    command: ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p21-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3421
+      CORS_ORIGINS: http://localhost:3421
+    ports: !override
+      - "127.0.0.1:8421:8000"
+    volumes:
+      - ./apps/web/scripts/s4p21:/app/s4p21
+    depends_on:
+      catalogue:
+        condition: service_started
+
+  worker:
+    image: s4p21-wtest:latest
+    command:
+      ["uvicorn", "--factory", "agent.fileserver:create_file_server", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p21-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3421
+    volumes:
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p21:/app/s4p21
+    ports:
+      - "127.0.0.1:8423:8081"
+
+  catalogue:
+    image: s4p21-wtest:latest
+    command: ["python", "/app/s4p3/catalogue_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p3:/app/s4p3
+    ports:
+      - "127.0.0.1:8422:8099"
+    networks: [internal]
+
+  test:
+    image: s4p21-wtest:latest
+
+  web:
+    profiles: ["s4p21-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.221.0/24
+        - subnet: fd00:ada:221::/64

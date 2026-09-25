@@ -167,6 +167,7 @@ const FileTileView = memo(function FileTileView({
       type="button"
       onClick={() => onOpen(tile)}
       data-tile="file"
+      data-key={tile.key}
       data-ratio={tile.ratio}
       data-px={tile.px}
       aria-label={`${who}, ${tile.ratio}, ${pxLabel(tile.px)}. Open the file`}
@@ -222,6 +223,7 @@ const GapTileView = memo(function GapTileView({ tile }: { tile: GapTile }) {
       role="group"
       aria-label={`No ${tile.ratio} file${tile.conceptName ? ` for ${tile.conceptName}` : ""}: ${tile.why}`}
       data-tile="gap"
+      data-key={tile.key}
       data-ratio={tile.ratio}
       className="flex min-w-0 flex-col gap-2 p-1"
     >
