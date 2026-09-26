@@ -14,6 +14,7 @@ import uuid
 from agent.creative import exceptions
 from agent.creative.lint_adapter import PinnedLinter
 from agent.guardrails.matchers.lexicon import banned_term
+from agent.guardrails.normalize import normalized_text
 from agent.schemas.guardrails import (
     ClaimLicenceMatcher,
     ClaimRef,
@@ -54,16 +55,40 @@ def _spans(text: str, **kwargs: object) -> tuple[str, ...]:
 # ---------------------------------------------------------------------------
 
 
-def test_an_unlicensed_claim_shaped_span_is_found() -> None:
+def test_an_unlicensed_claim_is_the_clause_its_trigger_sits_in() -> None:
+    # Not the bare trigger: a detector matches `#1`, but the claim is what the
+    # clause says, and that is what Stage 03 licenses against (S4-P14).
     text = "The #1 SDS software for every site."
     result, _ = _lint(text)
     assert result.verdict == "fail"
-    assert _spans(text) == ("#1",)
+    assert _spans(text) == ("The #1 SDS software for every site",)
+
+
+def test_the_claim_a_legal_owner_signs_is_what_licenses_the_copy() -> None:
+    """The point of the clause: registering the span 4.6.2 raises licenses the
+    copy it came from — and only claims that read like it, not every `#1`."""
+    text = "The #1 SDS software for every site."
+    (span,) = _spans(text)
+    signed = ClaimRef(
+        claim_id=BEST,
+        normalized_text=normalized_text(span),
+        surface_forms=(span,),
+        status="approved",
+    )
+    assert _spans(text, claims=(signed,)) == ()
+    assert _spans("The #1 team in chemical safety.", claims=(signed,)) == (
+        "The #1 team in chemical safety",
+    )
+
+
+def test_each_clause_with_a_trigger_is_its_own_claim_in_text_order() -> None:
+    text = "Guaranteed results. The #1 SDS tool."
+    assert _spans(text) == ("Guaranteed results", "The #1 SDS tool")
 
 
 def test_an_expired_claim_licenses_nothing() -> None:
     # `rated best by users` is registered, approved and expired at the pin.
-    assert _spans("Rated best by users.") == ("best",)
+    assert _spans("Rated best by users.") == ("Rated best by users",)
 
 
 def test_a_licensed_claim_is_not_an_exception() -> None:
@@ -86,7 +111,7 @@ def test_another_rules_span_is_not_a_claim_span() -> None:
         banned.rule_id,
         "claim.licence.v1",
     }
-    assert _spans(text, rules=(banned,)) == ("Guaranteed",)
+    assert _spans(text, rules=(banned,)) == ("Guaranteed compliance for every sheet",)
 
 
 def test_an_unchecked_language_has_no_span_and_still_fails() -> None:
@@ -99,10 +124,9 @@ def test_an_unchecked_language_has_no_span_and_still_fails() -> None:
     assert _spans(text, language="de") == ()
 
 
-def test_every_claim_licence_rule_counts_and_spans_come_in_text_order() -> None:
-    # Two claim rules under two ids. The linter orders findings by rule id, so
-    # `claim.a.v1` (the quantified family) reports "40%" before
-    # `claim.licence.v1` reports "Guaranteed" — the text says "Guaranteed" first.
+def test_every_claim_licence_rule_counts_and_one_clause_is_one_claim() -> None:
+    # Two claim rules under two ids, two triggers in one clause. Both rules
+    # count — and the clause they share is one claim to sign, not two.
     pin = claims_ruleset()
     (licence,) = pin.rules
     first = licence.model_copy(
@@ -136,12 +160,14 @@ def test_every_claim_licence_rule_counts_and_spans_come_in_text_order() -> None:
         now=NOW,
     )
     assert [finding.rule_id for finding in result.findings] == ["claim.a.v1", "claim.licence.v1"]
-    assert exceptions.unlicensed_spans(result, text=text, ruleset=pin) == ("Guaranteed", "40%")
+    assert exceptions.unlicensed_spans(result, text=text, ruleset=pin) == (
+        "Guaranteed: 40% less paperwork",
+    )
 
 
-def test_a_detector_that_matches_the_spaces_around_a_word_yields_the_word() -> None:
+def test_a_detector_that_matches_the_spaces_around_a_word_yields_its_clause() -> None:
     # Detectors are data (`content_constants.yaml`), so a pattern may well
-    # match the whitespace around its trigger. The span to sign for is the words.
+    # match the whitespace around its trigger. The claim to sign is the words.
     only = DetectorSpec(detector_id="claim.only.en.v1", family="superlative", pattern=r"\s+only\s+")
     pin = claims_ruleset()
     (licence,) = pin.rules
@@ -173,7 +199,7 @@ def test_a_detector_that_matches_the_spaces_around_a_word_yields_the_word() -> N
     )
     (finding,) = result.findings
     assert finding.span is not None and text[finding.span[0] : finding.span[1]] == " only "
-    assert exceptions.unlicensed_spans(result, text=text, ruleset=pin) == ("only",)
+    assert exceptions.unlicensed_spans(result, text=text, ruleset=pin) == ("The only SDS tool",)
 
 
 # ---------------------------------------------------------------------------

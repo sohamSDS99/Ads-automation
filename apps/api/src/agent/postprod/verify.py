@@ -43,6 +43,13 @@ from agent.postprod.video import frame_at
 from agent.schemas.creative_video import ScriptCaption, words
 
 #: §9.4 video 4: "sample frames at 1 fps over [0, 5 s]".
+#: What `encode.py` promises and ffprobe must read back. Named, not inlined,
+#: so 4.6.1's conformance checks compare against the same definition.
+VIDEO_CODEC = "h264"
+VIDEO_PROFILE = "high"
+PIXEL_FORMAT = "yuv420p"
+AUDIO_CODEC = "aac"
+
 SAMPLE_WINDOW_S = 5
 #: Tesseract, as Stage 03 runs it for images — a block of text, English.
 OCR_PSM = 6
@@ -391,15 +398,15 @@ def verify(
 def _facts_vs_spec(
     facts: VideoFacts, expected: Expected, faststart: bool, fail: Callable[[str], None]
 ) -> None:
-    if facts.codec != "h264" or (facts.profile or "").lower() != "high":
+    if facts.codec != VIDEO_CODEC or (facts.profile or "").lower() != VIDEO_PROFILE:
         fail(f"video is {facts.codec} {facts.profile}, not H.264 High")
-    if facts.pix_fmt != "yuv420p":
+    if facts.pix_fmt != PIXEL_FORMAT:
         fail(f"pixel format is {facts.pix_fmt}, not yuv420p")
     if (facts.width, facts.height) != (expected.width, expected.height):
         fail(f"frame is {facts.width}x{facts.height}, not {expected.width}x{expected.height}")
     if facts.fps is None or abs(facts.fps - expected.fps) > 1e-6:
         fail(f"frame rate is {facts.fps}, not {expected.fps} fps")
-    if not facts.has_audio or facts.audio_codec != "aac":
+    if not facts.has_audio or facts.audio_codec != AUDIO_CODEC:
         fail(f"audio is {facts.audio_codec or 'absent'}, not an AAC track")
     frame_ms = 1000 / expected.fps
     if abs(facts.duration_ms - expected.duration_ms) > frame_ms:

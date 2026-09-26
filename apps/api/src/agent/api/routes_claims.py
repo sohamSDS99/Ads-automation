@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Any
 
 import sqlalchemy as sa
@@ -53,13 +53,14 @@ from agent.db.models import (
 )
 from agent.db.session import get_session
 from agent.guardrails.normalize import normalize
-from agent.guidelines.constants import load_content_constants
 from agent.guidelines.signature import (
     ClaimDecision,
     ReauthError,
     ReauthTokens,
+    claim_expiry,
     register_hash,
     set_hash,
+    signature_expiry,
 )
 
 log = structlog.get_logger(__name__)
@@ -336,7 +337,7 @@ async def sign_claims(
         ip=client_ip(request),
         user_agent=user_agent(request),
         signed_at=now,
-        expires_at=_signature_expiry(now),
+        expires_at=signature_expiry(now),
     )
     db.add(signature)
     await db.flush()
@@ -348,7 +349,7 @@ async def sign_claims(
             approved += 1
             claim.status = ClaimStatus.APPROVED
             claim.current_signature_id = signature.id
-            claim.expires_at = entry.expires_at or _claim_expiry(claim, now)
+            claim.expires_at = entry.expires_at or claim_expiry(claim.claim_type.value, now)
         else:
             rejected += 1
             # A rejected claim keeps the signature that rejected it: the
@@ -608,32 +609,6 @@ def _hash_of(claims: list[ClaimRecord]) -> str:
             for claim in claims
         ]
     )
-
-
-def _claim_expiry(claim: ClaimRecord, now: datetime) -> datetime:
-    """Computed from constants, never chosen by a person or a model.
-
-    A register without expiry is a register of things that used to be true, and
-    a quantified claim goes stale faster than a qualitative one.
-    """
-    constants = load_content_constants()
-    quantified = {"quantified", "comparative"}
-    key = (
-        "claims.quantified_expiry_days"
-        if str(claim.claim_type.value) in quantified
-        else "claims.default_expiry_days"
-    )
-    return now + timedelta(days=int(constants.value(key)))
-
-
-def _signature_expiry(now: datetime) -> datetime:
-    """A signature outlives the longest claim expiry it could grant."""
-    constants = load_content_constants()
-    longest = max(
-        int(constants.value("claims.default_expiry_days")),
-        int(constants.value("claims.quantified_expiry_days")),
-    )
-    return now + timedelta(days=longest)
 
 
 def _receipt(signature: ClaimSignature) -> SignatureReceipt:

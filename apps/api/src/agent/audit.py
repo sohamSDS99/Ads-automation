@@ -106,6 +106,10 @@ class AuditAction(StrEnum):
     #: non-delegable duty off one named person and puts it on another, and it
     #: is the row an auditor asking "why did somebody else sign" needs to find.
     HUMAN_TASK_REASSIGNED = "human_task.reassigned"
+    # S4-P14 — H3. The clearance is one row; a signature it writes gets its own
+    # `claim.signed` row as well, so the claims register's trail stays whole.
+    CREATIVE_EXCEPTIONS_CLEARED = "creative_exception.cleared"
+    CREATIVE_EXCEPTIONS_WITHDRAWN = "creative_exception.withdrawn"
     #: The sign-off matrix changed outside a gate decision. The only path that
     #: can displace a legal owner, so it carries the outgoing owner, the
     #: incoming one, the mandatory reason and the signatures it voided.

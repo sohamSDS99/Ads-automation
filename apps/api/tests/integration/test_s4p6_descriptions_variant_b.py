@@ -53,6 +53,7 @@ from tests.integration.creative_support import (
     seed_signoff,
 )
 from tests.integration.runs_support import execute
+from tests.integration.s4p14_support import past_h3
 from tests.integration.test_s4p4_brief_g7 import _g7, _instance
 from tests.integration.test_s4p5_headlines_combinations import _assets, _output
 from tests.integration.variant_b_support import (
@@ -373,6 +374,14 @@ async def _run(
     result = await execute(
         run_id, script.fake, registry=registry, dag=Dag.from_registry(registry), max_attempts=1
     )
+    result = await past_h3(
+        admin,
+        run_id,
+        result,
+        lambda: execute(
+            run_id, script.fake, registry=registry, dag=Dag.from_registry(registry), max_attempts=1
+        ),
+    )
     return run_id, script, result.status
 
 
@@ -417,7 +426,12 @@ async def test_every_description_stands_on_a_licensed_claim_and_no_unlicensed_sp
         )
 
     # --- an unlicensed claim span is an exception candidate, never an asset --
-    assert group["exception_candidates"] == [{"span": "#1", "occurrences": 2}]
+    # One exception per distinct claim, not per trigger (S4-P14): the same "#1"
+    # in two clauses is two claims a legal owner signs separately.
+    assert group["exception_candidates"] == [
+        {"span": UNLICENSED_1.rstrip("."), "occurrences": 1},
+        {"span": UNLICENSED_2.rstrip("."), "occurrences": 1},
+    ]
     assets = await _assets(db, run_id)
     assert not [a for a in assets.values() if a.text and "#1" in a.text]
     # A's rows: 4.2.4 writes B's beside them in the same run.
@@ -593,7 +607,9 @@ async def test_a_performance_max_asset_group_gets_its_text_all_linted(
     # --- a description is claim-bound here too; "#1" is withheld -------------
     assert len(group["descriptions"]) == 4
     assert all(line["claim_ids"] == [CLAIM] for line in group["descriptions"])
-    assert group["exception_candidates"] == [{"span": "#1", "occurrences": 1}]
+    assert group["exception_candidates"] == [
+        {"span": PMAX_UNLICENSED.rstrip("."), "occurrences": 1}
+    ]
 
     # --- the rows: linted as Performance Max text, the failure left draft ----
     assets = await _assets(db, run_id)

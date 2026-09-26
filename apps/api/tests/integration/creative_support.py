@@ -199,13 +199,19 @@ async def seed_plan(
 
 
 def guideline_payload(
-    guideline: ContentGuideline, *, logo_rules: dict[str, Any] | None = None
+    guideline: ContentGuideline,
+    *,
+    logo_rules: dict[str, Any] | None = None,
+    rules: tuple[Any, ...] = (),
 ) -> dict[str, Any]:
     """A published rulebook with the sections the projection reads filled in.
 
     `logo_rules` is 3.1.3's `logo` block (clear space, minimum width) — what
-    4.4.3 composites a registered logo by."""
+    4.4.3 composites a registered logo by. `rules` is the payload's compiled
+    rule list, which is what a Stage 03 MINOR recompiles (S4-P14's H3 repin);
+    without one the payload does not compile at all."""
     return {
+        "rules": [rule.model_dump(mode="json") for rule in rules],
         "schema_version": "1.0",
         "project_id": str(guideline.project_id),
         "guideline_run_id": str(guideline.guideline_run_id),
@@ -256,6 +262,7 @@ async def seed_published(
     logo_templates: tuple[dict[str, Any], ...] = (),
     logo_rules: dict[str, Any] | None = None,
     detectors: tuple[Any, ...] = (),
+    payload_rules: tuple[Any, ...] = (),
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -282,7 +289,7 @@ async def seed_published(
     )
     db.add(guideline)
     await db.flush()
-    guideline.payload = guideline_payload(guideline, logo_rules=logo_rules)
+    guideline.payload = guideline_payload(guideline, logo_rules=logo_rules, rules=payload_rules)
     await db.flush()
     digest = hashlib.sha256(f"{guideline.id}".encode()).hexdigest()
     ruleset = RuleSet(

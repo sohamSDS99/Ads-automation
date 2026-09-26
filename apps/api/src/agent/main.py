@@ -25,6 +25,7 @@ from agent.api.routes_auth import router as auth_router
 from agent.api.routes_claims import router as claims_router
 from agent.api.routes_connections import router as connections_router
 from agent.api.routes_creative import router as creative_router
+from agent.api.routes_creative_exceptions import router as creative_exceptions_router
 from agent.api.routes_creative_runs import router as creative_runs_router
 from agent.api.routes_documents import router as documents_router
 from agent.api.routes_evidence import router as evidence_router
@@ -159,6 +160,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         guidelines_router,
         creative_router,
         creative_runs_router,
+        creative_exceptions_router,
         media_router,
         media_library_router,
         claims_router,
