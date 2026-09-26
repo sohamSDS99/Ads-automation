@@ -547,6 +547,9 @@ async def test_a_31_character_headline_overflows_in_the_preview_and_fails_in_con
     assert [(c.asset_id, c.constraint, c.expected, c.measured) for c in failing] == [
         (long_id, "max_chars", 30, 31)
     ]
+    listed = await admin.get(f"/creative-runs/{run_id}/conformance", params={"verdict": "fail"})
+    assert listed.status_code == 200, listed.text
+    assert [(c["asset_id"], c["measured"]) for c in listed.json()["checks"]] == [(str(long_id), 31)]
     # The preview: it overflows its own element, on both devices, and the spec
     # — not the pixels — is what makes the preview blocking.
     rows = await _previews(db, run_id)
@@ -568,3 +571,61 @@ async def test_a_31_character_headline_overflows_in_the_preview_and_fails_in_con
     ]  # fmt: skip
     assert clipped_only, "the mobile clamp hides a third long headline"
     assert {r.verdict.value for r in clipped_only} == {"warning"}
+
+
+# ---------------------------------------------------------------------------
+# the §16 reads
+# ---------------------------------------------------------------------------
+
+
+async def test_previews_route_filters_by_ad_and_device_and_is_readable_by_a_viewer(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    storage: LocalStorage,
+) -> None:
+    run_id = await _start(admin, db, workspace_id, project_id, admin_user.id)
+    run = await _run(db, run_id)
+    db.add_all(
+        [
+            *(_head(run, t) for t in ("SDS software", "One SDS library", "Find SDS fast")),
+            *(_desc(run, t) for t in ("Keep every sheet current.", "Share it with every site.")),
+        ]
+    )
+    await db.commit()
+    before = await admin.get(f"/creative-runs/{run_id}/conformance")
+    assert before.status_code == 404, before.text
+
+    result = await _execute(run_id, inert=UPSTREAM, real=("4.6.1", "4.6.2", "4.6.3", "4.6.4"))
+    assert result.status is RunStatus.SUCCEEDED, result
+
+    ref = ad_ref(CAMPAIGN, AD_GROUP, "A")
+    everything = await admin.get(f"/creative-runs/{run_id}/previews")
+    assert everything.status_code == 200, everything.text
+    items = everything.json()["items"]
+    # The suite's renderer draws nothing: every preview is `unavailable`.
+    assert items and {i["verdict"] for i in items} == {"unavailable"}
+    assert all(i["has_screenshot"] is False for i in items)
+    mobile = await admin.get(
+        f"/creative-runs/{run_id}/previews", params={"ad_ref": ref, "device": "mobile"}
+    )
+    assert mobile.status_code == 200, mobile.text
+    assert {(i["ad_ref"], i["device"]) for i in mobile.json()["items"]} == {(ref, "mobile")}
+    assert len(mobile.json()["items"]) == len(items) // 2
+    viewer = await cast_viewer(admin)
+    seen = await viewer.get(f"/creative-runs/{run_id}/previews")
+    assert seen.status_code == 200, seen.text
+    passing = await viewer.get(f"/creative-runs/{run_id}/conformance", params={"verdict": "pass"})
+    assert passing.status_code == 200, passing.text
+    assert passing.json()["checks"] and {c["verdict"] for c in passing.json()["checks"]} == {"pass"}
+    missing = await admin.get(f"/creative-runs/{uuid.uuid4()}/previews")
+    assert missing.status_code == 404, missing.text
+
+
+async def cast_viewer(admin: ApiClient) -> ApiClient:
+    from tests.integration.s4p14_support import member
+
+    viewer, _ = await member(admin, "viewer", "viewer2@example.com")
+    return viewer
