@@ -249,7 +249,7 @@ async def _release(
         ])  # fmt: skip
 
     # 5 — mint.
-    version = await _next_version(db, row.project_id)
+    version = await next_version(db, row.project_id)
     if confirm_version != version:
         raise ReleaseRefused(
             "version_mismatch",
@@ -372,7 +372,7 @@ async def _row(db: AsyncSession, package_id: uuid.UUID) -> CreativePackageRow:
     return row
 
 
-async def _next_version(db: AsyncSession, project_id: uuid.UUID) -> int:
+async def next_version(db: AsyncSession, project_id: uuid.UUID) -> int:
     """§12.4: `max(version) + 1` over every package of the project — drafts are 0."""
     highest = await db.scalar(
         sa.select(sa.func.max(CreativePackageRow.version)).where(

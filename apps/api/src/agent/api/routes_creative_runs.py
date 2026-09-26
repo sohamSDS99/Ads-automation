@@ -22,6 +22,8 @@ The Creative Console and the brief page (§15.4 C–D) are built on these:
 - `GET /creative-runs/{id}/previews?ad_ref=&device=` — the ad previews 4.6.4
   rendered: each RSA combination on each device, its overflow, its spec diff
   and its verdict (pixels advisory, the spec blocking — D12).
+- `GET /render-previews/{id}/screenshot` — the PNG 4.6.4 captured for one
+  preview, streamed as the landing capture is, for the QA screen's grid.
 - `GET /creative-runs/{id}/conformance?verdict=` — 4.6.1's checks, every
   count, size, ratio, byte size, format, duration and codec.
 
@@ -667,6 +669,54 @@ async def get_landing_screenshot(
         media_type="image/png",
         headers={
             # A capture is written once under its own key and never rewritten.
+            "Cache-Control": "private, max-age=3600, immutable",
+            "Content-Disposition": "inline",
+        },
+        background=BackgroundTask(upstream.aclose),
+    )
+
+
+@router.get(
+    "/render-previews/{preview_id}/screenshot",
+    summary="The PNG 4.6.4 captured for one preview, at the device's viewport and scale 1",
+    response_class=StreamingResponse,
+)
+async def get_preview_screenshot(
+    preview_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    client: WorkerClient,
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> Response:
+    """Stream the capture off the worker's Volume, exactly as the landing
+    capture above. The caller names a preview, never a path. `dom_metrics`'
+    element boxes are in this picture's CSS pixels (scale 1), which is what
+    lets the QA screen mark a truncation on it at true scale."""
+    row = await db.scalar(
+        sa.select(RenderPreview)
+        .join(Run, Run.id == RenderPreview.creative_run_id)
+        .where(RenderPreview.id == preview_id, Run.workspace_id == me.workspace_id)
+    )
+    if row is None:
+        raise problems.not_found(f"No preview {preview_id}.")
+    if not row.storage_path:
+        raise problems.not_found(
+            f"Preview {row.id} of {row.ad_ref} on {row.device} was not drawn: "
+            + str((row.dom_metrics or {}).get("error") or f"its verdict is {row.verdict}.")
+            + " Its spec diff still stands.",
+            title="No screenshot",
+        )
+    upstream = await open_upstream(
+        client,
+        signed_url(row.storage_path, settings=settings),
+        subject="preview",
+        preview_id=str(preview_id),
+    )
+    return StreamingResponse(
+        upstream.aiter_bytes(),
+        media_type="image/png",
+        headers={
+            # 4.6.4 writes each capture once, under a key of its own.
             "Cache-Control": "private, max-age=3600, immutable",
             "Content-Disposition": "inline",
         },

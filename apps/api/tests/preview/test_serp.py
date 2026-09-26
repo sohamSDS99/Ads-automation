@@ -98,6 +98,26 @@ async def test_every_element_is_measured() -> None:
     assert all(m.client_width > 0 for m in render.desktop.elements)
 
 
+async def test_every_element_has_a_box_inside_the_ad_frame_of_the_screenshot() -> None:
+    """What lets S4-P23's grid mark a truncation on the picture itself."""
+    render = await _render(_ad("A" * 31, "One place for SDS"))
+
+    for device in (render.mobile, render.desktop):
+        frame = device.frame
+        assert frame is not None and frame.width > 0 and frame.height > 0
+        dom = device.dom()
+        assert dom["frame"] == frame.model_dump(mode="json")
+        for m in device.elements:
+            assert m.box is not None, m.key
+            assert frame.x - 0.5 <= m.box.x and m.box.y >= frame.y - 0.5, m.key
+            assert m.box.y + m.box.height <= frame.y + frame.height + 0.5, m.key
+            assert {**m.model_dump(mode="json")} in dom["elements"]
+    long = {m.key: m for m in render.desktop.elements}["headline_1"]
+    assert long.overflow_px > 0 and long.box is not None
+    # The box is the visible slot, not the text: the overflow is what it hides.
+    assert long.box.width == pytest.approx(long.client_width, abs=1)
+
+
 async def test_a_headline_the_mobile_layout_cannot_show_is_clipped_not_overflowing() -> None:
     thirty = ("A" * 30, "B" * 30, "C" * 30)
     render = await _render(_ad(*thirty))
