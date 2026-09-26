@@ -1777,3 +1777,76 @@ export. Rulings owed:
 19. **The CRITIQUE reader** (`CreativeCritiqueDraft`) may only return
     `warning`/`note`; its schema has no `blocking`. It reads the brief's
     markdown and the shipped copy (capped at 6,000 / 12,000 characters).
+
+## S4-P17
+
+The four package exports beside S4-P16's JSON: `EDITOR_ZIP`, the creative
+book (PDF, and the MD it is rendered from) and the asset inventory (XLSX).
+§14 acceptance is recorded in `docs/stage-04.md`; item 3 is open. Rulings owed:
+
+1. **"MD is the source of truth for the PDF" is held by construction, as in
+   Stages 01–03**: `creative_book.md.jinja` and `creative_book.html.jinja`
+   render one context (`export/creative_view.build_book`), the same sections
+   in the same order, and `test_creative_book` compares their `##`/`###`
+   headings. The PDF is not produced by converting the markdown — the image
+   has no markdown parser, and a real MD→HTML pipeline is a dependency and a
+   rebuild of both images. The one exception is the brief: its stored markdown
+   (what G7 approved) is shown verbatim, so `creative_view.brief_html` converts
+   exactly the constructs `creative_brief.md.j2` emits, escaping first.
+2. **The book is rendered at export time, not stored at release.** Plans and
+   guidelines store their markdown on the row; `creative_package` has no
+   `markdown` column, and adding one is a migration no phase owns. Every input
+   of a released book is frozen (payload, rows, the pinned ruleset), so the
+   bytes only move if a template changes. Store it at release (a column on
+   `creative_package`, written in the release UPDATE) if that matters.
+3. **`EDITOR_ZIP` serves `released` and `superseded`.** A superseded package
+   was released, its files are on the Volume and its hash verifies; its
+   README says a later version replaces it. Refuse superseded too if Stage 05
+   should never roll back through Editor.
+4. **Eight CSVs, exactly §14's list.** A Search campaign's image assets have
+   no entity in that list, so their files ship under `media/` and the README
+   lists them under "Media no CSV row references" to attach by hand. An
+   image-asset CSV is a ninth entity type; not built.
+5. **Asset-group `Video ID n` cells are empty.** Google Ads references video
+   by YouTube ID and Stage 04 uploads nothing (law 41); the README lists each
+   video file under "Videos to upload to YouTube". Stage 05 fills the IDs.
+6. **Media names**: `{campaign}` is the plan campaign name slugged,
+   `{concept}` the concept id (`logo` for a logo), `{ratio}` with `:` as `-`
+   (`1.91:1` → `1.91-1`). Two renditions that would share a name are numbered
+   `_2`, `_3`… in `media_id` order, never overwritten.
+7. **An over-limit text cell refuses the whole export** rather than being
+   shortened or shipped. Every asset was linted at creation (law 33), so this
+   only fires on a defect upstream; `CreativeExportError` names the asset.
+   Likewise a rendition whose bytes do not hash to the recorded sha256.
+8. **XLSX `chars / limit` and `bytes / limit` are two numeric columns each**,
+   so they sort and sum; the ≥ 90 % format compares them. **Cost is on the
+   asset's first rendition only** — provenance is per asset, and repeating it
+   per crop makes a column sum count an image once per ratio. **Row 1** is a
+   status line above the header row: a draft's reads `DRAFT — NOT RELEASED`
+   (and the printed page header repeats it); the footer carries status and
+   creative run id.
+9. **Landing "before" is the top of the page**, cropped to 2:1 and fitted to
+   420×840, with the measured H1 per device; `fold_px` is printed, not used to
+   crop, because the audit row does not carry the viewport width the
+   screenshot's pixels were taken at. "After" is the patch: H1, offer block,
+   removed fields, and its package path.
+10. **Sign-off methods**: G7 "Approval — the brief, scoped to its hash", G8
+    "per-asset AI media review", G8b "the regenerated assets, final round"
+    (each with the approval's `required_role`); H3 "Person-task — named legal
+    owner, password step-up" and its signature id. A gate with no approval row
+    reads `not reached`; H3 `not required` when 4.6.3 said so.
+11. **Defect found in every PDF export, not only this one.** The worker image
+    has no HarfBuzz-Subset (jammy), so WeasyPrint subsets fonts with fontTools,
+    whose `TTFont.save` stamps each embedded font's `head.modified` with the
+    wall clock. Two exports a second apart differ inside the font streams —
+    this is the "flaky Stage 03 PDF clock test" on main, and a Mac (whose
+    Homebrew HarfBuzz subsets) never shows it. The creative book pins
+    `SOURCE_DATE_EPOCH` (which fontTools honours) to `released_at` for the
+    print, and its test forces the fontTools path. **Stage 01, 02 and 03 PDFs
+    still carry it**; the fix is `creative_book_pdf.source_date_epoch` around
+    their `write_pdf`, not applied here because it changes other stages'
+    deliverables.
+12. **Found by the golden run, fixed**: a structured snippet's `values` key
+    printed as `<built-in method values of dict …>` — Jinja resolves
+    `row.values` to `dict.values` before the key. The context key is
+    `entries`; the unit fixture now carries every extra kind.

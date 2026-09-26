@@ -86,6 +86,10 @@ def specs() -> AssetSpecSheet:
                     "path": {"max_chars": 15, "max_count": 2, **spec},
                     "sitelink": {"max_chars": 25, **spec},
                     "promotion": {"max_chars": 20, **spec},
+                    "callout": {"max_chars": 25, **spec},
+                    "structured_snippet": {"max_chars": 25, **spec},
+                    "price": {"max_chars": 25, **spec},
+                    "lead_form": {"max_chars": 30, **spec},
                     "image_landscape": {"ratio": "1.91:1", "max_bytes": 5_242_880, **spec},
                 },
                 "performance_max": {
@@ -250,14 +254,55 @@ def _with_files(package: CreativePackage) -> tuple[CreativePackage, dict[str, by
     return package.model_copy(update={"campaigns": campaigns}), blobs
 
 
+CALLOUT, SNIPPET, LEAD_FORM = uid(3800), uid(3801), uid(3802)
+PRICE_ITEMS = [uid(3810), uid(3811), uid(3812)]
+PRICE_ASSET = uid(3819)
+SNIPPET_VALUES = ["SDS authoring", "SDS management", "Chemical inventory"]
+
+
+def _extra(asset_id: uuid.UUID, kind: str, text: str, **fields: Any) -> TextAsset:
+    return golden.text(asset_id, kind, kind, ad_group_ref=None, text=text, fields=fields)
+
+
+def with_every_extra(campaign: CampaignCreative) -> CampaignCreative:
+    """The golden Search campaign with a callout, a structured snippet, a
+    three-item price asset and a lead form beside its sitelinks and promotion."""
+    url = f"https://{golden.DOMAIN}/pricing"
+    extras = [
+        _extra(CALLOUT, "callout", "Audit-ready in minutes"),
+        _extra(SNIPPET, "structured_snippet", "Types", values=SNIPPET_VALUES),
+        *(
+            _extra(item, "price", f"Plan {n}", description="Per site, per year", type="services",
+                   qualifier=None, price_asset_id=str(PRICE_ASSET), final_url=url,
+                   bound={"price": f"{99 + n}.00", "currency": "USD"})
+            for n, item in enumerate(PRICE_ITEMS)
+        ),
+        _extra(LEAD_FORM, "lead_form", "Book a guided demo", description="See SDS Manager live",
+               cta="book_now", privacy_policy_url=f"https://{golden.DOMAIN}/privacy",
+               questions=[{"type": "FULL_NAME"}, {"type": "custom", "text": "Sites you run?"}]),
+    ]  # fmt: skip
+    extensions = campaign.extensions.model_copy(
+        update={
+            "callouts": [CALLOUT],
+            "snippets": [SNIPPET],
+            "prices": PRICE_ITEMS,
+            "lead_form": LEAD_FORM,
+        }
+    )
+    return campaign.model_copy(
+        update={"text_assets": [*campaign.text_assets, *extras], "extensions": extensions}
+    )
+
+
 def released_package(**changes: Any) -> tuple[CreativePackage, dict[str, bytes]]:
-    """The golden package, released as v1, with a PMax campaign and real files."""
+    """The golden package, released as v1, with every extra, a PMax campaign
+    and real files."""
     base = golden.golden_package()
     package = base.model_copy(
         update={
             "status": "released",
             "version": 1,
-            "campaigns": [*base.campaigns, pmax_campaign()],
+            "campaigns": [with_every_extra(base.campaigns[0]), pmax_campaign()],
             **changes,
         }
     )

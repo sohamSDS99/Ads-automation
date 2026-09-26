@@ -117,6 +117,15 @@ def test_extras_are_listed_per_campaign() -> None:
     assert "SDS software" in md  # the promotion's target
 
 
+def test_every_extra_kind_prints_its_own_fields() -> None:
+    md = render_creative_markdown(support.sources())
+    assert "| Types | SDS authoring; SDS management; Chemical inventory | pass |" in md
+    assert "Audit-ready in minutes" in md
+    assert "| services | Plan 0 | Per site, per year | 99.00 USD |" in md
+    assert "Lead form: **Book a guided demo**" in md and "Sites you run?" in md
+    assert "built-in method" not in md
+
+
 def test_the_contact_sheet_has_provenance_per_asset() -> None:
     md = render_creative_markdown(support.sources())
     assert "openai/gpt-image-1" in md and "google/veo-3" in md
@@ -214,10 +223,16 @@ def test_a_released_pdf_is_not_watermarked() -> None:
 
 
 def test_two_pdf_exports_are_byte_identical_across_a_clock_shift(monkeypatch: Any) -> None:
+    # The worker image has no HarfBuzz-Subset, so WeasyPrint subsets fonts with
+    # fontTools — whose `TTFont.save` stamps each font's `head.modified` with
+    # the wall clock. Force that path here too, or this test only proves the
+    # determinism of a machine that is not the one exporting.
+    monkeypatch.setattr("weasyprint.pdf.fonts.harfbuzz_subset", None)
     first = render_creative_book_pdf(support.sources())
     real = time.time
     monkeypatch.setattr(time, "time", lambda: real() + 86_400 * 2 + 3)
     assert render_creative_book_pdf(support.sources()) == first
+    assert "SOURCE_DATE_EPOCH" not in os.environ  # pinned for the print only
 
 
 def test_the_pdf_metadata_dates_are_pinned_to_released_at() -> None:

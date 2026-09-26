@@ -287,6 +287,20 @@ def test_extras_carry_their_fields() -> None:
     assert group["Logo 1"] == "media/sds-pmax-us_logo_1-1_1200x1200.jpg"
 
 
+def test_callouts_snippets_prices_and_lead_forms_fill_their_csvs() -> None:
+    rows = _csvs(render_editor_zip(support.sources()))
+    assert rows["callouts.csv"][0]["Callout text"] == "Audit-ready in minutes"
+    (snippet,) = rows["structured_snippets.csv"]
+    assert (snippet["Header"], snippet["Values"]) == ("Types", ";".join(support.SNIPPET_VALUES))
+    (price,) = rows["prices.csv"]  # three items, one price asset
+    assert price["Type"] == "services" and price["Currency code"] == "USD"
+    assert [price[f"Header {n}"] for n in (1, 2, 3)] == ["Plan 0", "Plan 1", "Plan 2"]
+    assert price["Price 3"] == "101.00" and price["Header 4"] == ""
+    (form,) = rows["lead_forms.csv"]
+    assert form["Headline"] == "Book a guided demo" and form["Call to action"] == "book_now"
+    assert form["Questions"] == "FULL_NAME;Sites you run?"
+
+
 def test_files_are_encoded_as_the_yaml_says() -> None:
     columns = load_editor_columns()
     with _open(render_editor_zip(support.sources())) as archive:

@@ -383,7 +383,8 @@ def _extras(sources: CreativeExportSources) -> list[dict[str, Any]]:
         ]  # fmt: skip
         snippets = [
             {"header": asset.text or EMPTY,
-             "values": "; ".join(str(v) for v in asset.fields.get("values") or []) or EMPTY,
+             # Not `values`: Jinja resolves `row.values` to `dict.values` first.
+             "entries": "; ".join(str(v) for v in asset.fields.get("values") or []) or EMPTY,
              "lint": _lint(asset)}
             for asset in pick(ext.snippets)
         ]  # fmt: skip

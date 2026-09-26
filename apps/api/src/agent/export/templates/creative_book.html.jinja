@@ -141,7 +141,7 @@
 {% endif %}
 {% if campaign.snippets %}
 <table><thead><tr><th>Snippet header</th><th>Values</th><th>Lint</th></tr></thead><tbody>
-{% for row in campaign.snippets %}<tr><td>{{ row.header }}</td><td>{{ row.values }}</td><td>{{ row.lint }}</td></tr>{% endfor %}
+{% for row in campaign.snippets %}<tr><td>{{ row.header }}</td><td>{{ row.entries }}</td><td>{{ row.lint }}</td></tr>{% endfor %}
 </tbody></table>
 {% endif %}
 {% if campaign.promotions %}

@@ -27,11 +27,34 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Final
 
+import sqlalchemy as sa
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from agent.creative import lint_adapter
 from agent.creative.conformance import media_spec
+from agent.creative.constants import get_creative_constants
+from agent.creative.lint_adapter import LintAdapterError
+from agent.creative.package import campaign_ref_of
+from agent.db.models import (
+    Approval,
+    CreativeBrief,
+    HumanTask,
+    LandingPageAudit,
+    MediaArtifact,
+    MediaArtifactRole,
+    Project,
+    RenderPreview,
+    Run,
+    User,
+)
+from agent.db.models import CreativePackage as CreativePackageRow
+from agent.export.package_json import verified_package
 from agent.export.plan_contract import PlannedCampaign
 from agent.guardrails.matchers.assets import measure
+from agent.schemas.creative_input import CreativeInput
 from agent.schemas.creative_package import CampaignCreative, CreativePackage
 from agent.schemas.guardrails import SURFACE_ASSET_TYPES, AssetSpecSheet
+from agent.storage.backend import StorageBackend, StorageError
 
 #: The statuses a package has once release minted a version. `superseded` was
 #: released and still is: its files and its hash are what shipped.
@@ -240,3 +263,159 @@ class CreativeExportSources:
 def chars(text: str) -> int:
     """A length as the linter counts it (`guardrails.matchers.assets.measure`)."""
     return measure(text, "chars")
+
+
+# ---------------------------------------------------------------------------
+# reading them, in the worker
+# ---------------------------------------------------------------------------
+
+
+async def read_sources(
+    db: AsyncSession, row: CreativePackageRow, storage: StorageBackend
+) -> CreativeExportSources:
+    """Everything a package export renders from, read once.
+
+    Names come from the run's pinned `CreativeInput`, limits and claim texts
+    from the ruleset the package's final pin names, and files from where
+    release copied them (`package/{package_id}/…`) — or, before release, from
+    the run's own artifacts, which is what a draft is made of.
+    """
+    _, package = verified_package(row)
+    run = await db.get(Run, row.creative_run_id)
+    if run is None or run.creative_input is None:
+        raise CreativeExportError(f"Creative run {row.creative_run_id} carries no CreativeInput.")
+    inp = CreativeInput.model_validate(run.creative_input)
+    try:
+        ruleset = (
+            await lint_adapter.load(
+                db, workspace_id=row.workspace_id, pin=package.pins.ruleset_version
+            )
+        ).ruleset
+    except LintAdapterError as exc:
+        raise CreativeExportError(f"The package's final pin cannot be read: {exc}") from exc
+    project = await db.get(Project, row.project_id)
+
+    async def rows(statement: Any) -> list[Any]:
+        return list((await db.execute(statement)).scalars().all())
+
+    renditions = [
+        rendition
+        for campaign in package.campaigns
+        for asset in (*campaign.media, *campaign.logos)
+        for rendition in asset.renditions
+    ]
+    videos = [r.media_id for r in renditions if r.media_type.startswith("video/")]
+    artifacts = {
+        artifact.id: artifact
+        for artifact in await rows(
+            sa.select(MediaArtifact).where(
+                sa.or_(
+                    MediaArtifact.id.in_([r.media_id for r in renditions]),
+                    sa.and_(
+                        MediaArtifact.role == MediaArtifactRole.POSTER,
+                        MediaArtifact.derived_from.in_(videos),
+                    ),
+                )
+            )
+        )
+    }
+    released = package.status in RELEASED_STATUSES
+    media_keys = {
+        r.media_id: (
+            f"package/{row.id}/{r.path}" if released else artifacts[r.media_id].storage_path
+        )
+        for r in renditions
+        if released or r.media_id in artifacts
+    }
+    posters = {
+        artifact.derived_from: artifact.storage_path
+        for artifact in sorted(artifacts.values(), key=lambda a: str(a.id))
+        if artifact.role is MediaArtifactRole.POSTER and artifact.derived_from is not None
+    }
+
+    brief = await db.scalar(sa.select(CreativeBrief).where(CreativeBrief.creative_run_id == run.id))
+    previews: dict[tuple[str, str], PreviewShot] = {}
+    for preview in await rows(
+        sa.select(RenderPreview)
+        .where(RenderPreview.creative_run_id == run.id)
+        .order_by(RenderPreview.created_at, RenderPreview.id)
+    ):
+        previews[(preview.ad_ref, preview.device.value)] = PreviewShot(
+            ad_ref=preview.ad_ref,
+            device=preview.device.value,
+            verdict=preview.verdict.value,
+            key=preview.storage_path,
+            template_version=preview.template_version,
+        )
+    patches = {patch.audit_id: patch.json_path for patch in package.landing_patches}
+    landing = [
+        LandingShot(
+            audit_id=audit.id,
+            url=audit.url,
+            verdict=audit.verdict.value,
+            ad_group_refs=tuple(sorted(audit.ad_group_refs or [])),
+            h1_before=dict((audit.metrics or {}).get("h1") or {}),
+            patch=audit.patch,
+            screenshots=dict(audit.screenshots or {}),
+            fold_px=dict((audit.metrics or {}).get("fold_px") or {}),
+            patch_path=patches.get(audit.id, ""),
+        )
+        for audit in await rows(
+            sa.select(LandingPageAudit)
+            .where(LandingPageAudit.creative_run_id == run.id)
+            .order_by(LandingPageAudit.url, LandingPageAudit.id)
+        )
+    ]
+    h3 = await db.scalar(
+        sa.select(HumanTask)
+        .where(HumanTask.guideline_run_id == run.id, HumanTask.task_key == "H3")
+        .order_by(HumanTask.created_at.desc())
+        .limit(1)
+    )
+    receipt = dict(h3.submitted_payload) if h3 is not None and h3.submitted_payload else None
+
+    deciders: set[uuid.UUID] = {d.decided_by for d in package.decisions if d.decided_by}
+    deciders |= {e.decided_by for e in package.exceptions if e.decided_by}
+    deciders |= {
+        asset.review.decider
+        for campaign in package.campaigns
+        for asset in (*campaign.media, *campaign.logos)
+        if asset.review.decider
+    }
+    if receipt and receipt.get("decided_by"):
+        deciders.add(uuid.UUID(str(receipt["decided_by"])))
+    people = {
+        user.id: user.name for user in await rows(sa.select(User).where(User.id.in_(deciders)))
+    }
+    roles = {
+        approval.id: approval.required_role.value
+        for approval in await rows(
+            sa.select(Approval).where(Approval.id.in_([d.approval_id for d in package.decisions]))
+        )
+    }
+
+    def read(key: str) -> bytes:
+        try:
+            return storage.get(key)
+        except StorageError as exc:
+            raise KeyError(key) from exc
+
+    return CreativeExportSources(
+        package=package,
+        project_name=project.name if project is not None else None,
+        released_at=row.released_at,
+        generated_at=row.updated_at,
+        campaigns={campaign_ref_of(c): c for c in inp.account_structure.campaigns},
+        specs=ruleset.asset_specs,
+        media_keys=media_keys,
+        posters=posters,
+        read=read,
+        ratio_tolerance=get_creative_constants().media.ratio_tolerance.value,
+        brief_markdown=brief.markdown if brief is not None else "",
+        claims={claim.claim_id: claim.normalized_text for claim in ruleset.claims_index},
+        people=people,
+        approval_roles=roles,
+        previews=tuple(previews.values()),
+        landing=tuple(landing),
+        h3=receipt,
+    )

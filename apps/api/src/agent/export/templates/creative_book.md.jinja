@@ -125,7 +125,7 @@ No ads.
 | Snippet header | Values | Lint |
 | --- | --- | --- |
 {% for row in campaign.snippets %}
-| {{ row.header|cell }} | {{ row.values|cell }} | {{ row.lint|cell }} |
+| {{ row.header|cell }} | {{ row.entries|cell }} | {{ row.lint|cell }} |
 {% endfor %}
 
 {% endif %}

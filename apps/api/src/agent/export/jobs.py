@@ -79,9 +79,7 @@ MEDIA_TYPES: dict[ExportFormat, str] = {
     # Stage 03's machine handoff. `application/json` and not a bespoke type:
     # the point of the ruleset export is that anything can read it.
     ExportFormat.RULESET_JSON: "application/json; charset=utf-8",
-    # Stage 04's Google Ads Editor bundle. The label exists from S4-P0 (the
-    # enum and the exporter ship in different phases, as EDITOR_CSV did); its
-    # writer arrives with the exports phase. No format list offers it yet.
+    # Stage 04's Google Ads Editor bundle (S4-P17, `export/editor_zip.py`).
     ExportFormat.EDITOR_ZIP: "application/zip",
 }
 
@@ -146,9 +144,18 @@ CONTENT_GUIDELINE_FORMATS: frozenset[ExportFormat] = frozenset(
 #: from one place. A queued job that can never succeed is a worse answer than
 #: a 422 naming the formats that work.
 #: The formats a *creative package* can be rendered as (Stage 04 PRD §14): the
-#: JSON Stage 05 reads, from S4-P16. `editor_zip`, `pdf`, `xlsx` and `md` are
-#: S4-P17's, and until then a request for one is this 422, not a queued job.
-CREATIVE_PACKAGE_FORMATS: frozenset[ExportFormat] = frozenset({ExportFormat.JSON})
+#: JSON Stage 05 reads (S4-P16), and S4-P17's Editor ZIP, creative book (PDF,
+#: and the MD it is rendered from) and asset inventory (XLSX). `editor_zip` is
+#: refused for an unreleased package — at the route, as a 409, before a job.
+CREATIVE_PACKAGE_FORMATS: frozenset[ExportFormat] = frozenset(
+    {
+        ExportFormat.JSON,
+        ExportFormat.EDITOR_ZIP,
+        ExportFormat.PDF,
+        ExportFormat.XLSX,
+        ExportFormat.MD,
+    }
+)
 
 FORMATS_FOR: dict[ExportArtifactType, frozenset[ExportFormat]] = {
     ExportArtifactType.RESEARCH_REPORT: RESEARCH_REPORT_FORMATS,
@@ -752,13 +759,36 @@ async def _generate_guideline_export(
     }
 
 
+def render_package(fmt: ExportFormat, sources: Any) -> bytes:
+    """One of S4-P17's four renderings of a package (`sources` is a
+    `creative_sources.CreativeExportSources`)."""
+    from agent.export.asset_inventory_xlsx import render_asset_inventory_xlsx
+    from agent.export.creative_book_pdf import render_creative_book_pdf
+    from agent.export.creative_markdown import render_creative_markdown
+    from agent.export.editor_zip import render_editor_zip
+
+    if fmt is ExportFormat.EDITOR_ZIP:
+        return render_editor_zip(sources)
+    if fmt is ExportFormat.PDF:
+        return render_creative_book_pdf(sources)
+    if fmt is ExportFormat.XLSX:
+        return render_asset_inventory_xlsx(sources)
+    if fmt is ExportFormat.MD:
+        return render_creative_markdown(sources).encode("utf-8")
+    raise ExportError(f"No creative-package renderer for {fmt.value}.")
+
+
 async def _generate_package_export(
     session: AsyncSession, export: Export, *, storage: StorageBackend
 ) -> dict[str, Any]:
     """Render one creative-package export (Stage 04 PRD §14) into
     `exports/{creative_run_id}/`. Split out for the reason the plan and
-    guideline exports are: a package resolves through its own row."""
+    guideline exports are: a package resolves through its own row.
+
+    Imported here, not at module scope: the renderers pull in Pillow and the
+    creative modules, and `api` imports this module for its format lists."""
     from agent.db.models import CreativePackage as CreativePackageRow
+    from agent.export.creative_sources import read_sources
     from agent.export.package_json import render_package_json
 
     row = await session.get(CreativePackageRow, export.artifact_id)
@@ -781,9 +811,12 @@ async def _generate_package_export(
         generated_at=export.created_at,
     )
     try:
-        if export.format is not ExportFormat.JSON:
-            raise ExportError(f"a creative package cannot be exported as {export.format.value} yet")
-        payload = render_package_json(row)
+        if export.format is ExportFormat.JSON:
+            payload = render_package_json(row)
+        elif export.format in CREATIVE_PACKAGE_FORMATS:
+            payload = render_package(export.format, await read_sources(session, row, storage))
+        else:
+            raise ExportError(f"a creative package cannot be exported as {export.format.value}")
         key = storage_key(row.creative_run_id, filename)
         storage.put(key, payload, content_type=MEDIA_TYPES[export.format])
     except Exception as exc:  # noqa: BLE001 — every failure is recorded, then reported
