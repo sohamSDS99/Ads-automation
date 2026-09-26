@@ -14,8 +14,9 @@
  * scroll at 390px. Every screen is screenshotted at 390 and 1280 in both
  * themes into $SHOTS. Exit code 1 on any failed check.
  */
-import { readFileSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 
 import { chromium } from "playwright";
 
@@ -152,7 +153,21 @@ async function everyView(browser, label, target, heading, opts, extra) {
   }
 }
 
-const browser = await chromium.launch({ channel: "chromium" });
+/** The installed Chrome for Testing, as the later harnesses find it: the
+ *  bundled `channel: "chromium"` build this pinned (1187) is no longer on disk. */
+function chromiumPath() {
+  const root = `${homedir()}/Library/Caches/ms-playwright`;
+  const builds = readdirSync(root)
+    .filter((name) => /^chromium-\d+$/.test(name))
+    .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]));
+  for (const build of builds) {
+    const path = `${root}/${build}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+    if (existsSync(path)) return path;
+  }
+  return undefined;
+}
+
+const browser = await chromium.launch({ executablePath: chromiumPath() });
 try {
   /* 1. Locked ----------------------------------------------------------- */
   await everyView(browser, "landing-locked", `/projects/${P}/creative`, "Copy & creative", { role: "admin", scenario: "locked" }, async (page, { size }) => {
@@ -222,7 +237,10 @@ try {
     check(`[${size}] history lists three packages, newest first`, (await rows.count()) === 3 && (await rows.first().textContent())?.startsWith("v3"));
     await page.getByRole("checkbox", { name: "Compare package v3" }).check();
     await page.getByRole("checkbox", { name: "Compare package v2" }).check();
-    check(`[${size}] two ticks say what they cannot do yet, without a link`, await page.getByText("2 selected. Package comparison is not available yet.").isVisible());
+    // S4-P23 built the diff: two ticks now open it, the older package as the earlier side.
+    const compare = page.getByTestId("compare-selected");
+    const href = (await compare.getAttribute("href")) ?? "";
+    check(`[${size}] two ticks link to the package diff, earlier side first`, (await compare.isVisible()) && /\/creative\/compare\?a=[^&]+&b=[^&]+$/.test(href), href);
     await page.getByRole("checkbox", { name: "Compare package v2" }).uncheck();
     await page.getByRole("checkbox", { name: "Compare package v3" }).uncheck();
   });

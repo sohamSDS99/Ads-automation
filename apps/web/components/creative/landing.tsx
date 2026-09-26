@@ -29,6 +29,7 @@ import {
   blockerLabel,
   destinationLabel,
   isLiveCreativeRun,
+  packageName,
   type CreativeEligibility,
   type CreativeOverview,
   type CreativePackageStatus,
@@ -39,6 +40,10 @@ import type { HumanTask } from "@/lib/api/tasks";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, useCreativeStatus, useProject } from "@/lib/queries";
 import { Can, useSession } from "@/lib/session";
+
+function sentenceCase(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
 
 /**
  * `/projects/[id]/creative` — the Stage 04 landing (PRD §15.4 A).
@@ -223,7 +228,9 @@ function StatusBlock({
           {newest ? (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-fg">Package v{newest.version}</span>
+                <Link href={packageHref(projectId, newest.package_id)} className="font-medium text-fg hover:text-accent hover:underline">
+                  {newest.version > 0 ? `Package v${newest.version}` : "Unreleased package"}
+                </Link>
                 <Badge tone={PACKAGE_STATUS[newest.status].tone}>
                   {PACKAGE_STATUS[newest.status].label}
                 </Badge>
@@ -525,10 +532,10 @@ function AttentionBlock({
             <AttentionRow
               icon={FileWarning}
               tone="warning"
-              title={`The plan behind package v${newest.version} was superseded`}
+              title={`The plan behind ${packageName(newest.version)} was superseded`}
               chip="plan_superseded"
             >
-              Package v{newest.version} still carries plan v{newest.plan_version}. A new run pins
+              {sentenceCase(packageName(newest.version))} still carries plan v{newest.plan_version}. A new run pins
               the plan that is frozen now.
             </AttentionRow>
           ) : null}
@@ -540,7 +547,7 @@ function AttentionBlock({
               title="A newer ruleset is available"
               chip="newer_ruleset_available"
             >
-              Package v{newest.version} was checked against ruleset{" "}
+              {sentenceCase(packageName(newest.version))} was checked against ruleset{" "}
               <span className="font-mono text-xs">{newest.ruleset_version}</span>. It is not
               re-checked on its own; a new run pins the newest published ruleset.
             </AttentionRow>
@@ -715,7 +722,9 @@ function HistoryBlock({
                         onChange={() => onToggle(pkg.package_id)}
                         className="size-4 accent-accent"
                       />
-                      <span className="sr-only">Compare package v{pkg.version}</span>
+                      <span className="sr-only">
+                        Compare {pkg.version > 0 ? `package v${pkg.version}` : `the unreleased package of run ${pkg.creative_run_id.slice(-8)}`}
+                      </span>
                     </label>
                   </Td>
                 </Tr>
