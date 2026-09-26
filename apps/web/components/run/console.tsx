@@ -220,7 +220,9 @@ export function RunConsole({
           <Attribution run={detail} />
         </div>
         {stage === "creative" ? <SpendMeters spend={detail.creative_spend} /> : null}
-        <div className="flex items-center gap-3">
+        {/* Wraps: a creative run carries seven page links, which at 390 ran
+            past the header's edge (S4-P23 added QA and Package). */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
           <PresenceRow runId={runId} />
           <StreamState state={stream} live={live} />
           <Button
@@ -238,7 +240,7 @@ export function RunConsole({
           {stage === "research" ? (
             <Link
               href={`/projects/${projectId}/runs/${runId}/report`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <FileText className="size-4" aria-hidden />
               Report
@@ -247,7 +249,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/brief`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <FileText className="size-4" aria-hidden />
               Brief
@@ -256,7 +258,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/ads`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <PanelsTopLeft className="size-4" aria-hidden />
               Ad Studio
@@ -265,7 +267,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/extras`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <ListPlus className="size-4" aria-hidden />
               Extras
@@ -274,7 +276,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/landing`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <ScanLine className="size-4" aria-hidden />
               Landing audit
@@ -283,7 +285,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/media`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <Images className="size-4" aria-hidden />
               Media library
@@ -292,7 +294,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/qa`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <ListChecks className="size-4" aria-hidden />
               QA
@@ -301,7 +303,7 @@ export function RunConsole({
           {stage === "creative" ? (
             <Link
               href={`/projects/${projectId}/creative/runs/${runId}/package`}
-              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+              className="inline-flex items-center gap-1.5 whitespace-nowrap text-sm text-accent hover:underline"
             >
               <Package className="size-4" aria-hidden />
               Package
