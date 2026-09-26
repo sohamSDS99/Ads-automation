@@ -123,6 +123,130 @@ class EditorialLint(_Frozen):
 
 
 # ---------------------------------------------------------------------------
+# 4.6.4 final lint and render — a rendered combination against the spec sheet
+# ---------------------------------------------------------------------------
+
+
+class SpecMismatch(_Frozen):
+    """One element of a rendered combination outside its spec (a character limit)."""
+
+    element: str
+    asset_id: uuid.UUID
+    constraint: Literal["max_chars"]
+    expected: int
+    measured: int
+
+
+class SpecCount(_Frozen):
+    """The ad carries fewer (`missing`) or more (`extra`) of an asset type than its spec."""
+
+    asset_type: str
+    constraint: Literal["min_count", "max_count"]
+    expected: int
+    measured: int
+
+
+class SpecUnchecked(_Frozen):
+    """An element whose surface has no spec at the pin — named, never a silent pass."""
+
+    element: str
+    asset_id: uuid.UUID
+    surface: str
+    reason: Literal["spec_missing"] = "spec_missing"
+
+
+class SpecDiff(_Frozen):
+    """§11 4.6.4 `spec_diff{missing[], extra[], mismatched[]}` — from `RuleSet` specs
+    only, and the only thing that makes a preview `blocking` (D12)."""
+
+    missing: list[SpecCount] = Field(default_factory=list)
+    extra: list[SpecCount] = Field(default_factory=list)
+    mismatched: list[SpecMismatch] = Field(default_factory=list)
+    unchecked: list[SpecUnchecked] = Field(default_factory=list)
+
+    @property
+    def blocking(self) -> bool:
+        return bool(self.missing or self.extra or self.mismatched)
+
+
+class FinalLint(_Frozen):
+    """One asset re-linted at the final pin (4.6.4): every line of its text, every
+    rendition file re-measured, or — a video — the script it says. `unlinted`
+    only when there is nothing the linter can read, and `reason` says why (law
+    31: indeterminate is never a pass). The verdict is recorded; the asset's
+    status is not changed here — 4.7 decides what a failing asset means."""
+
+    asset_id: uuid.UUID
+    kind: str
+    surface: str
+    status: str
+    verdict: Literal["pass", "pass_with_warnings", "fail", "indeterminate", "unlinted"]
+    targets: int = Field(ge=0)
+    reason: (
+        Literal["no_text", "no_campaign", "file_missing", "file_unreadable", "no_script"] | None
+    ) = None
+    lint: LintResult | None = None
+
+
+class ExceptionOutcome(_Frozen):
+    """What a rejected or withdrawn exception left in the package: the assets it
+    dropped, and the fallbacks swapped into their slots."""
+
+    exception_id: uuid.UUID
+    kind: ExceptionKind
+    decision: Literal["rejected", "withdrawn"]
+    dropped: list[uuid.UUID] = Field(default_factory=list)
+    swapped_in: list[uuid.UUID] = Field(default_factory=list)
+
+
+class PreviewCombination(_Frozen):
+    """One combination of an RSA (`creative/preview_combinations.py`)."""
+
+    roles: list[str] = Field(min_length=1)
+    #: H1, H2, H3 — an asset id per position, None where the ad has too few.
+    headlines: list[uuid.UUID | None]
+    #: D1, D2.
+    descriptions: list[uuid.UUID | None]
+    paths: list[uuid.UUID] = Field(default_factory=list)
+    #: `likelihood_v1`, as an exact fraction ("1/48").
+    likelihood: str
+    model: Literal["likelihood_v1"] = "likelihood_v1"
+
+
+PreviewVerdictValue = Literal["pass", "warning", "blocking", "unavailable"]
+
+
+class PreviewItem(_Frozen):
+    """§11 4.6.4 `previews[]{ad_ref, device, combination, screenshot, dom{truncated[],
+    overflow_px[]}, spec_diff{missing[], extra[], mismatched[]},
+    visual_diff_vs_previous?}` — one `RenderPreview` row."""
+
+    preview_id: uuid.UUID
+    ad_ref: str
+    device: Literal["mobile", "desktop"]
+    combination: PreviewCombination
+    #: The PNG's storage key; None when the render did not happen.
+    screenshot: str | None = None
+    dom: dict[str, Any] = Field(default_factory=dict)
+    spec_diff: SpecDiff
+    visual_diff_vs_previous: dict[str, Any] | None = None
+    template_version: str
+    verdict: PreviewVerdictValue
+
+
+class FinalLintAndRender(_Frozen):
+    """4.6.4 — the final pin's lint of everything, and the ad previews."""
+
+    ruleset_version: str
+    relinted: list[FinalLint] = Field(default_factory=list)
+    #: Re-linted assets whose verdict at the final pin is `fail` or `indeterminate`.
+    failed: int = Field(ge=0)
+    exception_outcomes: list[ExceptionOutcome] = Field(default_factory=list)
+    template_version: str
+    previews: list[PreviewItem] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
 # 4.6.3 🔒 H3
 # ---------------------------------------------------------------------------
 

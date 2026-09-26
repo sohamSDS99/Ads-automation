@@ -20,12 +20,21 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 
 from agent.guardrails.matchers.assets import measure
 from agent.postprod.image import parse_px, same_ratio
 from agent.postprod.probe import ImageFacts, VideoFacts
 from agent.postprod.verify import AUDIO_CODEC, PIXEL_FORMAT, VIDEO_CODEC, VIDEO_PROFILE
-from agent.schemas.creative_qa import ConformanceCheck, ConformanceSource, Constraint
+from agent.schemas.creative_qa import (
+    ConformanceCheck,
+    ConformanceSource,
+    Constraint,
+    SpecCount,
+    SpecDiff,
+    SpecMismatch,
+    SpecUnchecked,
+)
 from agent.schemas.guardrails import SURFACE_ASSET_TYPES, AssetSpec
 
 Check = ConformanceCheck
@@ -180,6 +189,64 @@ def video_checks(
 # ---------------------------------------------------------------------------
 # which spec a measured thing answers to
 # ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class Element:
+    """One text element of a rendered ad preview (4.6.4): `headline_2`, `path_1`…"""
+
+    key: str
+    asset_id: uuid.UUID
+    surface: str
+    text: str
+
+
+def spec_diff(
+    elements: Sequence[Element], *, counts: Mapping[str, int], specs: Mapping[str, AssetSpec]
+) -> SpecDiff:
+    """A rendered combination against the pin's spec sheet (§11 4.6.4, D12).
+
+    `mismatched` — each element over its surface's character limit, counted by
+    the linter's own counter (`text_checks`); `missing` / `extra` — the ad
+    carries fewer or more of an asset type (`counts`, by spec asset type) than
+    the spec's `min_count` / `max_count`; `unchecked` — an element whose surface
+    has no spec. Pixels never enter it: overflow in the render is advisory.
+    """
+    mismatched: list[SpecMismatch] = []
+    unchecked: list[SpecUnchecked] = []
+    for element in elements:
+        spec = text_spec(specs, element.surface)
+        if spec is None:
+            unchecked.append(
+                SpecUnchecked(
+                    element=element.key, asset_id=element.asset_id, surface=element.surface
+                )
+            )
+            continue
+        for check in text_checks(element.asset_id, [element.text], spec):
+            if check.verdict == "fail":
+                mismatched.append(
+                    SpecMismatch(
+                        element=element.key,
+                        asset_id=element.asset_id,
+                        constraint="max_chars",
+                        expected=int(check.expected),
+                        measured=int(check.measured),
+                    )
+                )
+    missing: list[SpecCount] = []
+    extra: list[SpecCount] = []
+    for asset_type, count in counts.items():
+        spec = specs.get(asset_type)
+        if spec is None:
+            continue
+        if spec.min_count is not None and count < spec.min_count:
+            missing.append(SpecCount(asset_type=asset_type, constraint="min_count",
+                                     expected=spec.min_count, measured=count))  # fmt: skip
+        if spec.max_count is not None and count > spec.max_count:
+            extra.append(SpecCount(asset_type=asset_type, constraint="max_count",
+                                   expected=spec.max_count, measured=count))  # fmt: skip
+    return SpecDiff(missing=missing, extra=extra, mismatched=mismatched, unchecked=unchecked)
 
 
 def text_spec(specs: Mapping[str, AssetSpec], surface: str) -> AssetSpec | None:
