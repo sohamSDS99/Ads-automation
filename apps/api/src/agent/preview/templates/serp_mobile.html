@@ -1,0 +1,64 @@
+<!doctype html>
+{#- An internal approximation of a sponsored Search result on a phone (Stage 04
+    PRD D12, §10.2). Not Google's markup: a layout that answers two questions,
+    element by element — does the text fit the slot its spec gives it, and does
+    the device show it at all.
+
+    Every text element is a box. A headline, a path and the display URL are one
+    line (`nowrap`); a box with a character budget is `budget` characters wide
+    (`ch` in a monospace face is exactly one character), so text longer than
+    its spec overflows its own box: `scrollWidth > clientWidth`. Descriptions
+    wrap as Google wraps them. The headline and description blocks clamp to
+    the lines a phone shows; whatever falls past the clamp is clipped.
+
+    Bump `serp-template-version` (and `preview.serp_template_version` in
+    creative_constants.yaml with it) whenever a measurement could change. -#}
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="serp-template-version" content="2026.09">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ad preview (mobile)</title>
+<style>
+  :root {
+    --page: #ffffff;
+    --ink: #202124;
+    --link: #1a0dab;
+    --muted: #4d5156;
+    --rule: #dadce0;
+    --gutter: 16px;
+    --mono: "DejaVu Sans Mono", "Liberation Mono", monospace;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--page); color: var(--ink); font-family: var(--mono); }
+  .ad { margin: 0 var(--gutter); padding: 12px 0 16px; border-bottom: 1px solid var(--rule); }
+  .sponsored { font-size: 12px; line-height: 16px; font-weight: 700; margin: 0 0 4px; }
+  .url { display: flex; flex-wrap: nowrap; overflow: hidden; white-space: nowrap;
+         font-size: 12px; line-height: 18px; }
+  .url > * { flex: none; }
+  .url .sep { color: var(--muted); }
+  .headlines { font-size: 16px; line-height: 22px; max-height: 44px; overflow: hidden;
+               color: var(--link); margin: 4px 0; }
+  .descriptions { font-size: 14px; line-height: 20px; max-height: 60px; overflow: hidden;
+                  color: var(--muted); overflow-wrap: anywhere; }
+  .el { display: inline-block; white-space: nowrap; overflow: hidden; vertical-align: top; }
+  .el[data-budget] { max-width: calc(var(--budget) * 1ch + 0.5px); }
+  .descriptions .el { white-space: normal; max-width: 100%; }
+</style>
+</head>
+<body>
+<div class="ad">
+  <p class="sponsored">Sponsored</p>
+  <div class="url" data-clip>
+    <span class="el" data-el="display_url">{{ display_url }}</span>
+    {%- for el in paths %}<span class="sep">&nbsp;›&nbsp;</span><span class="el" data-el="{{ el.key }}"{% if el.budget %} data-budget style="--budget: {{ el.budget }}"{% endif %}>{{ el.text }}</span>{% endfor %}
+  </div>
+  <div class="headlines" data-clip>
+    {%- for el in headlines %}{% if not loop.first %}<span class="sep"> | </span>{% endif %}<span class="el" data-el="{{ el.key }}"{% if el.budget %} data-budget style="--budget: {{ el.budget }}"{% endif %}>{{ el.text }}</span>{% endfor -%}
+  </div>
+  <div class="descriptions" data-clip>
+    {%- for el in descriptions %}{% if not loop.first %} {% endif %}<span class="el" data-el="{{ el.key }}"{% if el.budget %} data-budget style="--budget: {{ el.budget }}"{% endif %}>{{ el.text }}</span>{% endfor -%}
+  </div>
+</div>
+</body>
+</html>
