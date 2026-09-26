@@ -34,6 +34,7 @@ import {
   type CreativePackageStatus,
   type CreativePackageSummary,
 } from "@/lib/api/creative";
+import { compareHref, packageHref } from "@/lib/api/creative-packages";
 import type { HumanTask } from "@/lib/api/tasks";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, useCreativeStatus, useProject } from "@/lib/queries";
@@ -115,6 +116,7 @@ export function CreativeLanding({ projectId }: { projectId: string }) {
       />
 
       <HistoryBlock
+        projectId={projectId}
         overview={overview.data}
         pending={overview.isPending}
         compare={compare}
@@ -601,12 +603,22 @@ function AttentionRow({
 
 /* 4. History --------------------------------------------------------------- */
 
+/** The diff of two ticked packages: the one lower in the newest-first history is the earlier side. */
+function compareOf(projectId: string, packages: CreativePackageSummary[], ticked: string[]): string {
+  const [first, second] = [...ticked].sort(
+    (x, y) => packages.findIndex((p) => p.package_id === y) - packages.findIndex((p) => p.package_id === x),
+  );
+  return compareHref(projectId, first!, second!);
+}
+
 function HistoryBlock({
+  projectId,
   overview,
   pending,
   compare,
   onToggle,
 }: {
+  projectId: string;
   overview?: CreativeOverview;
   pending: boolean;
   compare: string[];
@@ -618,11 +630,16 @@ function HistoryBlock({
       id="creative-history"
       title="Packages"
       actions={
-        // The ticks are this page's; the diff they open is S4-P23's, so the
-        // page says what it cannot do yet instead of linking to a route that
-        // does not exist (Next would prefetch it and 404).
+        // Two ticks open the diff: the older of the two (by the history's
+        // newest-first order) is the earlier side.
         compare.length === 2 ? (
-          <span className="text-sm text-fg-subtle">2 selected. Package comparison is not available yet.</span>
+          <Link
+            href={compareOf(projectId, packages, compare)}
+            className="text-sm text-accent hover:underline"
+            data-testid="compare-selected"
+          >
+            Compare the 2 selected
+          </Link>
         ) : compare.length === 1 ? (
           <span className="text-sm text-fg-subtle">Pick one more to compare</span>
         ) : null
@@ -658,7 +675,9 @@ function HistoryBlock({
               {packages.map((pkg) => (
                 <Tr key={pkg.package_id}>
                   <Td className="font-medium tabular-nums">
-                    v{pkg.version}
+                    <Link href={packageHref(projectId, pkg.package_id)} className="text-accent hover:underline">
+                      {pkg.version > 0 ? `v${pkg.version}` : "Unreleased"}
+                    </Link>
                     {/* Below `sm` the cost rides under the version, as Stage
                         03's history carries its date: four columns clipped
                         the compare tick at 390px. */}
