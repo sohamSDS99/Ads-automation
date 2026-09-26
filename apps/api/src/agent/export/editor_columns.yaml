@@ -1,0 +1,115 @@
+# Google Ads Editor CSV columns for the Stage 04 EDITOR_ZIP (PRD §14, law 25).
+#
+# READ THIS BEFORE TRUSTING A HEADER: `source: unverified`. Every header, the
+# encoding and the image import path below are written to the current Google
+# Ads Editor CSV import documentation as we understand it, and none has been
+# confirmed by an import. Open question Q4 closes when the golden fixture's
+# EDITOR_ZIP imports into the current Editor with zero errors — a recorded
+# manual check in docs/stage-04.md. Until then the ZIP's README says so.
+#
+# This file is the only place a column name is spelled. `editor_zip.py` writes
+# exactly `columns`, in order; §14 acceptance 2 reads the headers back out of
+# the ZIP and compares them with this file.
+#
+# `limits` maps a column (a regex, matched whole) to the package surface whose
+# `asset_specs` limit governs the cell — the test that checks "every text cell
+# is within its limit" reads it from here, not from the exporter.
+# `list_columns` hold several values joined by `list_separator`; each value is
+# measured on its own.
+source: unverified
+reviewed_at: "2026-09-26"
+documentation: "Google Ads Editor Help — Import a CSV file (make multiple changes)"
+encoding: utf-8-sig        # a BOM, so Excel does not read UTF-8 as Latin-1
+delimiter: ","
+line_terminator: "\r\n"    # RFC 4180
+list_separator: ";"
+list_columns: [Values, Questions]
+status: Paused             # everything imports paused; Stage 05 enables
+files:
+  responsive_search_ads:
+    filename: responsive_search_ads.csv
+    columns: [
+      Campaign, Ad group, Ad type, Status,
+      Headline 1, Headline 2, Headline 3, Headline 4, Headline 5,
+      Headline 6, Headline 7, Headline 8, Headline 9, Headline 10,
+      Headline 11, Headline 12, Headline 13, Headline 14, Headline 15,
+      Headline 1 position, Headline 2 position, Headline 3 position,
+      Headline 4 position, Headline 5 position, Headline 6 position,
+      Headline 7 position, Headline 8 position, Headline 9 position,
+      Headline 10 position, Headline 11 position, Headline 12 position,
+      Headline 13 position, Headline 14 position, Headline 15 position,
+      Description 1, Description 2, Description 3, Description 4,
+      Description 1 position, Description 2 position,
+      Description 3 position, Description 4 position,
+      Path 1, Path 2, Final URL,
+    ]
+    limits:
+      '^Headline \d+$': rsa_headline
+      '^Description \d+$': rsa_description
+      '^Path \d+$': rsa_path
+  asset_group_text:
+    filename: asset_group_text.csv
+    columns: [
+      Campaign, Asset group, Status, Final URL,
+      Headline 1, Headline 2, Headline 3, Headline 4, Headline 5,
+      Headline 6, Headline 7, Headline 8, Headline 9, Headline 10,
+      Headline 11, Headline 12, Headline 13, Headline 14, Headline 15,
+      Long headline 1, Long headline 2, Long headline 3, Long headline 4,
+      Long headline 5,
+      Description 1, Description 2, Description 3, Description 4, Description 5,
+      Business name,
+      Image 1, Image 2, Image 3, Image 4, Image 5, Image 6, Image 7, Image 8,
+      Image 9, Image 10, Image 11, Image 12, Image 13, Image 14, Image 15,
+      Image 16, Image 17, Image 18, Image 19, Image 20,
+      Logo 1, Logo 2, Logo 3, Logo 4, Logo 5,
+      Video ID 1, Video ID 2, Video ID 3, Video ID 4, Video ID 5,
+    ]
+    limits:
+      '^Headline \d+$': pmax_headline
+      '^Long headline \d+$': long_headline
+      '^Description \d+$': asset_group_description
+      '^Business name$': business_name
+  sitelinks:
+    filename: sitelinks.csv
+    columns: [Campaign, Ad group, Status, Link text, Description line 1, Description line 2, Final URL]
+    limits:
+      '^(Link text|Description line [12])$': sitelink
+  callouts:
+    filename: callouts.csv
+    columns: [Campaign, Ad group, Status, Callout text]
+    limits:
+      '^Callout text$': callout
+  structured_snippets:
+    filename: structured_snippets.csv
+    columns: [Campaign, Ad group, Status, Header, Values]
+    limits:
+      '^Values$': structured_snippet
+  promotions:
+    filename: promotions.csv
+    columns: [
+      Campaign, Ad group, Status, Promotion target, Occasion, Percent off,
+      Money amount off, Currency code, Promo code, Orders over amount,
+      Start date, End date, Final URL,
+    ]
+    limits:
+      '^Promotion target$': promotion
+  prices:
+    filename: prices.csv
+    columns: [
+      Campaign, Ad group, Status, Type, Price qualifier, Currency code,
+      Header 1, Description 1, Price 1, Unit 1, Final URL 1,
+      Header 2, Description 2, Price 2, Unit 2, Final URL 2,
+      Header 3, Description 3, Price 3, Unit 3, Final URL 3,
+      Header 4, Description 4, Price 4, Unit 4, Final URL 4,
+      Header 5, Description 5, Price 5, Unit 5, Final URL 5,
+      Header 6, Description 6, Price 6, Unit 6, Final URL 6,
+      Header 7, Description 7, Price 7, Unit 7, Final URL 7,
+      Header 8, Description 8, Price 8, Unit 8, Final URL 8,
+    ]
+    limits:
+      '^(Header|Description) \d+$': price
+  lead_forms:
+    filename: lead_forms.csv
+    columns: [Campaign, Ad group, Status, Headline, Description, Call to action, Questions, Privacy policy URL]
+    limits:
+      '^(Headline|Description)$': lead_form
