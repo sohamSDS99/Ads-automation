@@ -1777,3 +1777,86 @@ export. Rulings owed:
 19. **The CRITIQUE reader** (`CreativeCritiqueDraft`) may only return
     `warning`/`note`; its schema has no `blocking`. It reads the brief's
     markdown and the shipped copy (capped at 6,000 / 12,000 characters).
+
+## S4-P23
+
+The QA screen, the Package screen and ReleaseDialog, the released package's
+canonical page and the package diff. Rulings owed:
+
+1. **Three reads no phase built, and one §16 does not list.** S4-P16 left
+   `GET /creative-runs/{id}/package`, `GET /creative-packages/{id}` and
+   `GET /creative-packages/{id}/files/{path}` unbuilt. The first two return a
+   `PackageView`, not a bare `CreativePackage`: the package as stored, 4.7.2's
+   critique, the thirteen checks as 4.7.2 ran them (titles in
+   `checklist.TITLES`, beside `CHECKS`), and a `ReleasePreview` —
+   `releasable`, `version_to_mint`, the reason it cannot be released, and
+   G7/G8/G8b/H3 with decider name and time — so the screens render the
+   server's checklist and never re-derive it. Stage 05 still reads only
+   `GET /packages/released`. The fourth, `GET /render-previews/{id}/screenshot`,
+   is not in §16 (S4-P15 ruled "no PNG stream route" open); the PreviewGrid
+   cannot show "rendered combinations at true scale" without the capture.
+2. **The capture streams; the manifest file redirects.** Contract rule 7 says
+   content routes redirect to the file server. `…/files/{path}` is a signed
+   302 (the `/media/{id}/content` pattern); the preview capture streams, as
+   `GET /landing-audits/{id}/screenshot` (S4-P20) already does for the same
+   kind of file. Pick one rule for captures.
+3. **4.6.4's `dom_metrics` gains geometry (additive).** Each element records
+   its `box` and the `clip_box` of the block that clips it, and the render its
+   ad `frame`, all in the capture's CSS px at scale 1. A clipped element's own
+   box is where its hidden text would go (under the next block), so the grid
+   outlines only what still shows and draws a cut line at the clip edge when
+   nothing does. Previews rendered before this have no boxes: the grid names
+   their truncations in words and marks nothing.
+4. **Preview combinations are not reproducible (4.6.4).** `_plan` orders an
+   ad's pool by `(node_id, created_at, id)`; one node's assets share a
+   transaction's `created_at`, so random UUIDs break the tie and each run
+   previews different combinations of the same copy — measured: two identical
+   seeds drew different "likely 1" headlines. CC9 speaks of `package_hash`,
+   not previews, but the renders are the QA record. Suggest ordering by the
+   ad's shipped position (or the text). The S4-P23 harness pins ids to
+   creation order to hold its baselines; the product still varies.
+5. **`package_diff` no longer compares asset-id references** (S4-P16's
+   module). Fields that only point at another asset of the run
+   (`price_asset_id`, `script_asset_id`, `parent_asset_id`) differ between any
+   two runs, so every price item of two runs read as changed; they are left
+   out of the comparison and of the shown fields. `offer_record_id` is kept: a
+   different observation is a different source.
+6. **H3's decider is only whoever cleared or rejected.** A withdrawal licenses
+   nothing (law 34), so a golden run's H3 stop reads "Not required · 2
+   exceptions: 2 withdrawn" with no decider, rather than naming the operator
+   who withdrew as H3's decider.
+7. **G8/G8b read `not_required` when the package records no decision for
+   them**, with "Never opened: this package ships no AI media." That is true
+   for every text-only run; a run whose gate never opened for another reason
+   would get the same words. Confirm, or have 4.7.1 record why a gate did not
+   open.
+8. **The release control is absent for a holder too, when the server says the
+   package is not releasable** — its reason is shown instead of a disabled
+   `Release vN`. The PRD asks for absence only for users without
+   CREATIVE_RELEASE.
+9. **`version_to_mint` is read-time `max(version)+1`.** Another release in the
+   project between opening the dialog and confirming makes it stale; release's
+   own `409 version_mismatch` then says so in the dialog (tested with a stale
+   package: the dialog shows the server's refusal and nothing is released).
+   The confirmation is exact and case-sensitive (`v3`, not `V3` or `3`);
+   surrounding spaces are trimmed.
+10. **Cost "estimate vs actual" is media only.** `CostSummary` carries a media
+    estimate and no text estimate; text, image and video actuals are shown
+    beside it. Add a text estimate to the package if §15.4 L means both.
+11. **The canonical page is client-rendered behind sign-in** and carries
+    `<link rel="canonical">` to its own id-based path (React 19 hoists it).
+    It is canonical as an identity — one URL per package, forever — not for a
+    crawler.
+12. **No fixture ships media through 4.7.** CC16's third golden fixture (full
+    slate with video) does not exist; S4-P16's golden runs are text-only. The
+    S4-P23 harness therefore appends two AI image assets (real files, real
+    `MediaArtifact` rows and previews) to two *unreleased* packages' payloads to
+    show the side-by-side diff; release refuses those two as `package_stale`,
+    which the harness also uses to prove a refused release is shown.
+13. **`/compare?a=&b=` is b against a**: `a` the earlier package, `b` the
+    later; the landing's two ticks put the older one on the left.
+14. **Pre-existing, found on the way:** the authz-matrix coverage test fails on
+    main for 22 Stage 03 routes, and S4-P16's four package routes were missing
+    from it too (added here, with this phase's four); arq embeds its own file
+    server on 8081, so a stack that runs the standalone file server beside it
+    must give arq `FILE_SERVER_PORT` (the S4-P23 harness uses 8082).
