@@ -242,3 +242,83 @@ def test_a_video_without_a_spec_still_checks_what_the_encoder_promises() -> None
         fps=30,
     )
     assert {c.constraint for c in checks} == {"fps", "codec", "audio_codec", "format"}
+
+
+# ---------------------------------------------------------------------------
+# 4.6.4 — a rendered combination against the pin's spec sheet
+# ---------------------------------------------------------------------------
+
+SPECS = {
+    "headline": _spec(max_chars=30, min_count=3, max_count=15),
+    "description": _spec(max_chars=90, min_count=2, max_count=4),
+    "path": _spec(max_chars=15),
+}
+
+
+def _element(key: str, surface: str, text: str) -> conformance.Element:
+    return conformance.Element(key=key, asset_id=ASSET, surface=surface, text=text)
+
+
+def test_a_31_character_headline_in_a_combination_is_a_mismatch() -> None:
+    diff = conformance.spec_diff(
+        [
+            _element("headline_1", "rsa_headline", "x" * 31),
+            _element("headline_2", "rsa_headline", "y" * 30),
+        ],
+        counts={"headline": 3, "description": 2},
+        specs=SPECS,
+    )
+
+    assert [m.model_dump(mode="json") for m in diff.mismatched] == [
+        {
+            "element": "headline_1",
+            "asset_id": str(ASSET),
+            "constraint": "max_chars",
+            "expected": 30,
+            "measured": 31,
+        }
+    ]
+    assert diff.missing == [] and diff.extra == [] and diff.unchecked == []
+    assert diff.blocking
+
+
+def test_an_ad_short_of_its_minimum_count_is_missing_and_one_over_its_maximum_is_extra() -> None:
+    diff = conformance.spec_diff(
+        [_element("headline_1", "rsa_headline", "Fits")],
+        counts={"headline": 2, "description": 5},
+        specs=SPECS,
+    )
+
+    assert [(m.asset_type, m.constraint, m.expected, m.measured) for m in diff.missing] == [
+        ("headline", "min_count", 3, 2)
+    ]
+    assert [(e.asset_type, e.constraint, e.expected, e.measured) for e in diff.extra] == [
+        ("description", "max_count", 4, 5)
+    ]
+    assert diff.blocking
+
+
+def test_a_surface_with_no_spec_is_unchecked_never_a_pass() -> None:
+    diff = conformance.spec_diff(
+        [_element("path_1", "rsa_path", "safety"), _element("x_1", "sitelink", "Pricing")],
+        counts={"headline": 3, "description": 2},
+        specs=SPECS,
+    )
+
+    assert [(u.element, u.surface) for u in diff.unchecked] == [("x_1", "sitelink")]
+    assert not diff.blocking
+
+
+def test_a_combination_inside_every_spec_has_an_empty_diff() -> None:
+    diff = conformance.spec_diff(
+        [
+            _element("headline_1", "rsa_headline", "y" * 30),
+            _element("description_1", "rsa_description", "z" * 90),
+            _element("path_1", "rsa_path", "p" * 15),
+        ],
+        counts={"headline": 3, "description": 2, "path": 1},
+        specs=SPECS,
+    )
+
+    assert diff.mismatched == diff.missing == diff.extra == diff.unchecked == []
+    assert not diff.blocking

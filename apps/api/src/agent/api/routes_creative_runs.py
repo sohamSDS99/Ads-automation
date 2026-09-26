@@ -19,6 +19,11 @@ The Creative Console and the brief page (§15.4 C–D) are built on these:
   for the site owner. Stage 04 deploys nothing (law 41); this is the handover.
 - `GET /landing-audits/{id}/screenshot?device=mobile|desktop` — the full-page
   capture 4.5.1 stored, streamed off the worker's Volume for the audit card.
+- `GET /creative-runs/{id}/previews?ad_ref=&device=` — the ad previews 4.6.4
+  rendered: each RSA combination on each device, its overflow, its spec diff
+  and its verdict (pixels advisory, the spec blocking — D12).
+- `GET /creative-runs/{id}/conformance?verdict=` — 4.6.1's checks, every
+  count, size, ratio, byte size, format, duration and codec.
 
 The Ad Studio (§15.4 E) writes through three more:
 
@@ -61,6 +66,7 @@ from agent.api.routes_media import Catalogue
 from agent.api.schemas_creative_runs import (
     AssetTextEdit,
     BriefAuthorisation,
+    ConformanceResponse,
     CreativeAssetItem,
     CreativeAssetListResponse,
     CreativeBriefResponse,
@@ -73,6 +79,8 @@ from agent.api.schemas_creative_runs import (
     OfferSource,
     RegenerateAccepted,
     RegenerateRequest,
+    RenderPreviewItem,
+    RenderPreviewListResponse,
     ReserveSwap,
     ReserveSwapResponse,
 )
@@ -91,7 +99,12 @@ from agent.db.models import (
     Evidence,
     GenerationJob,
     LandingPageAudit,
+    NodeRun,
+    NodeRunStatus,
+    PreviewDevice,
+    PreviewVerdict,
     Project,
+    RenderPreview,
     Run,
     RunStage,
     Workspace,
@@ -112,6 +125,7 @@ from agent.queue import enqueue_generation_check, enqueue_regeneration
 from agent.redis_client import get_redis
 from agent.schemas.creative_brief import MAX_RENDERED_WORDS, CreativeBrief, OfferBinding
 from agent.schemas.creative_input import CreativeInput, MediaModelChoice
+from agent.schemas.creative_qa import SpecConformance
 from agent.schemas.creative_review import G8, AiAssetReview, ReviewDecisionItem
 from agent.schemas.guardrails import LintResult, LintTarget, OfferRecord
 from agent.schemas.landing import Device, LandingPagePatch
@@ -413,6 +427,102 @@ async def check_generation_job(
         queued=queued is not None,
     )
     return GenerationCheckAccepted(job_id=row.id, status=row.status, queued=queued is not None)
+
+
+# ---------------------------------------------------------------------------
+# final checks (4.6.1 conformance, 4.6.4 previews)
+# ---------------------------------------------------------------------------
+
+#: `likely_1` < `likely_2` < `likely_3` < `longest`: the order 4.6.4 chose them in.
+_FIRST_ROLE = RenderPreview.combination["roles"][0].astext
+
+
+@router.get(
+    "/creative-runs/{run_id}/previews",
+    response_model=RenderPreviewListResponse,
+    summary="The ad previews 4.6.4 rendered, per RSA combination and device, with their verdicts",
+)
+async def list_previews(
+    run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    ad_ref: Annotated[
+        str | None, Query(description="One RSA, as `campaign/ad group/variant`")
+    ] = None,
+    device: Annotated[PreviewDevice | None, Query(description="mobile | desktop")] = None,
+) -> RenderPreviewListResponse:
+    run = await _creative_run(db, me, run_id)
+    statement = sa.select(RenderPreview).where(RenderPreview.creative_run_id == run.id)
+    if ad_ref is not None:
+        statement = statement.where(RenderPreview.ad_ref == ad_ref)
+    if device is not None:
+        statement = statement.where(RenderPreview.device == device)
+    rows = (
+        (
+            await db.execute(
+                statement.order_by(RenderPreview.ad_ref, _FIRST_ROLE, RenderPreview.device)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    return RenderPreviewListResponse(items=[_preview(row) for row in rows])
+
+
+def _preview(row: RenderPreview) -> RenderPreviewItem:
+    return RenderPreviewItem(
+        id=row.id,
+        creative_run_id=row.creative_run_id,
+        ad_ref=row.ad_ref,
+        device=row.device,
+        combination=row.combination or {},
+        has_screenshot=row.storage_path is not None,
+        dom_metrics=row.dom_metrics or {},
+        spec_diff=row.spec_diff or {},
+        visual_diff=row.visual_diff,
+        template_version=row.template_version,
+        verdict=PreviewVerdict(row.verdict),
+        created_at=row.created_at,
+    )
+
+
+@router.get(
+    "/creative-runs/{run_id}/conformance",
+    response_model=ConformanceResponse,
+    summary="Spec conformance (4.6.1): every measured constraint of every asset, by verdict",
+)
+async def get_conformance(
+    run_id: uuid.UUID,
+    me: AnyMember,
+    db: Db,
+    verdict: Annotated[Literal["pass", "fail"] | None, Query(description="pass | fail")] = None,
+) -> ConformanceResponse:
+    run = await _creative_run(db, me, run_id)
+    node = (
+        await db.execute(
+            sa.select(NodeRun)
+            .where(
+                NodeRun.run_id == run.id,
+                NodeRun.node_id == "4.6.1",
+                NodeRun.status == NodeRunStatus.SUCCEEDED,
+            )
+            .order_by(NodeRun.attempt.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if node is None or not node.output:
+        raise problems.not_found(
+            f"Run {run.id} has not checked spec conformance yet: node 4.6.1 runs once every "
+            "asset is written. Look again when the run reaches Stage 4.6.",
+            title="Not checked yet",
+        )
+    found = SpecConformance.model_validate(node.output)
+    return ConformanceResponse(
+        ruleset_version=found.ruleset_version,
+        checks=[c for c in found.checks if verdict is None or c.verdict == verdict],
+        unchecked=list(found.unchecked),
+        failed=found.failed,
+    )
 
 
 # ---------------------------------------------------------------------------

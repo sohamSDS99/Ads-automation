@@ -423,6 +423,35 @@ def unrendered_landing_pages(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 @pytest.fixture(autouse=True)
+def unrendered_serp_previews(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every ad preview comes back unrendered unless a test renders for real.
+
+    Node 4.6.4 renders the top combinations of every RSA in Chromium (Stage 04
+    S4-P15), and the default test image has no browser. An unrendered preview
+    is recorded `unavailable` (or `blocking`, when the spec says so), which is
+    exactly what 4.6.4 records when a real render fails.
+    `tests/integration/test_s4p15_final_lint.py` puts the real renderer back.
+    """
+    from agent.preview import serp
+
+    async def unrendered(ads: Any, *, viewports: Any, version: str) -> list[serp.AdRender]:
+        serp.check_version(version)
+
+        def device(name: Any) -> serp.PreviewRender:
+            return serp.PreviewRender(
+                device=name,
+                template_version=version,
+                rendered=False,
+                error="not rendered: this test does not drive a browser",
+            )
+
+        return [serp.AdRender(ref=ad.ref, mobile=device("mobile"), desktop=device("desktop"))
+                for ad in ads]  # fmt: skip
+
+    monkeypatch.setattr(serp, "render_previews", unrendered)
+
+
+@pytest.fixture(autouse=True)
 def fast_llm_limiter(monkeypatch: pytest.MonkeyPatch) -> None:
     """Take the gateway's real rate limit out of the test clock.
 

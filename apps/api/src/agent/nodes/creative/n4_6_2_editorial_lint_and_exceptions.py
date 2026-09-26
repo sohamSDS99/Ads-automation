@@ -267,7 +267,7 @@ def _target(asset: CreativeAsset, pin: str) -> TargetLint:
 # ---------------------------------------------------------------------------
 
 
-def _locale(
+def locale(
     campaigns: Mapping[str, PlannedCampaign],
     campaign_ref: str,
     ad_group_ref: str | None = None,
@@ -333,7 +333,7 @@ def _withheld(
 
     found: list[Sighting] = []
     for node_id, group in groups:
-        market, language = _locale(
+        market, language = locale(
             campaigns,
             group.campaign_ref,
             group.ad_group_ref,
@@ -360,7 +360,7 @@ def _withheld(
         refs = list(
             dict.fromkeys(ref.campaign_ref for ref in (*offers.promotions, *offers.prices))
         ) or list(campaigns)
-        locales = [_locale(campaigns, ref) for ref in refs]
+        locales = [locale(campaigns, ref) for ref in refs]
         markets = tuple(sorted({m for m, _ in locales})) or (UNKNOWN_MARKET,)
         languages = tuple(sorted({lang for _, lang in locales})) or (DEFAULT_LANGUAGE,)
         fallback = _carried(assets, "4.3.2")
@@ -402,7 +402,7 @@ def _drafts(
         clauses = exceptions.unlicensed_spans(
             own, text=edits.linted_text(asset.surface, asset.text), ruleset=ruleset
         )
-        market, language = _locale(campaigns, asset.campaign_ref, asset.ad_group_ref)
+        market, language = locale(campaigns, asset.campaign_ref, asset.ad_group_ref)
         found.extend(
             Sighting(clause=clause, markets=(market,), languages=(language,), asset_id=asset.id)
             for clause in clauses

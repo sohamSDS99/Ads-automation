@@ -156,9 +156,11 @@ async def h3_run(
     project_id: uuid.UUID,
     actor: uuid.UUID,
     legal_id: uuid.UUID,
+    *,
+    campaign_type: str | None = None,
 ) -> H3Run:
     """A started text-only run parked at H3 with one exception of each kind."""
-    await seed_plan(db, ws, project_id, actor)
+    await seed_plan(db, ws, project_id, actor, campaign_type=campaign_type)
     licence = claim_licence_rule()
     guideline, _ = await seed_published(
         db,
