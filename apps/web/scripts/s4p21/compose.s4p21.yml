@@ -15,6 +15,9 @@
 # because the web tier here is a host `next start`, and `/files/*` is its
 # rewrite to the file server (in Railway, over the private network). The
 # image is `s4p12-wtest` re-tagged: ffmpeg + libass, exiftool, tesseract, Inter.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p21-wtest:latest
@@ -23,10 +26,10 @@ services:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p21-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3421
-      CORS_ORIGINS: http://localhost:3421
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3421}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3421}
     ports: !override
-      - "127.0.0.1:8421:8000"
+      - "127.0.0.1:${S4_API_PORT:-8421}:8000"
     volumes:
       - ./apps/web/scripts/s4p21:/app/s4p21
     depends_on:
@@ -40,12 +43,12 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p21-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3421
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3421}
     volumes:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p21:/app/s4p21
     ports:
-      - "127.0.0.1:8423:8081"
+      - "127.0.0.1:${S4_FILES_PORT:-8423}:8081"
 
   catalogue:
     image: s4p21-wtest:latest
@@ -55,7 +58,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p3:/app/s4p3
     ports:
-      - "127.0.0.1:8422:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8422}:8099"
     networks: [internal]
 
   test:
@@ -69,5 +72,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.221.0/24
-        - subnet: fd00:ada:221::/64
+        - subnet: ${S4_SUBNET:-172.31.221.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:221::/64}

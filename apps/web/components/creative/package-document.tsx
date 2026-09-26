@@ -145,6 +145,9 @@ export function PackageDocument({ projectId, packageId }: { projectId: string; p
           ) : null}
         </div>
 
+        {/* The links in these notes are underlined, not colour alone: accent
+            on the note's fg-muted is under 3:1 in both themes (axe
+            link-in-text-block, serious). */}
         {isRecord ? (
           <p className="flex items-center gap-2 text-sm text-fg" data-testid="immutable-note">
             <Lock className="size-4 shrink-0 text-fg-subtle" aria-hidden />
@@ -154,7 +157,7 @@ export function PackageDocument({ projectId, packageId }: { projectId: string; p
         ) : (
           <Alert tone="info" title="Not released">
             This package has not been released, so it is not a record yet. It is released from its run’s{" "}
-            <Link href={`/projects/${projectId}/creative/runs/${pkg.creative_run_id}/package`} className="text-accent hover:underline">
+            <Link href={`/projects/${projectId}/creative/runs/${pkg.creative_run_id}/package`} className="text-accent underline underline-offset-2">
               Package screen
             </Link>
             .
@@ -163,11 +166,11 @@ export function PackageDocument({ projectId, packageId }: { projectId: string; p
         {pkg.status === "superseded" && current ? (
           <Alert tone="info" title={`Superseded by v${current.version}`}>
             Stage 05 now loads{" "}
-            <Link href={packageHref(projectId, current.package_id)} className="text-accent hover:underline">
+            <Link href={packageHref(projectId, current.package_id)} className="text-accent underline underline-offset-2">
               v{current.version}
             </Link>
             .{" "}
-            <Link href={compareHref(projectId, pkg.package_id, current.package_id)} className="text-accent hover:underline">
+            <Link href={compareHref(projectId, pkg.package_id, current.package_id)} className="text-accent underline underline-offset-2">
               See what changed
             </Link>
             .

@@ -75,7 +75,7 @@ export function StageRail({
                       >
                         {node.id}
                       </span>
-                      <NodeStatusLabel status={node.status} />
+                      <NodeStatusLabel status={node.status} onTint={node.id === selected} />
                     </span>
                   </span>
                 </button>

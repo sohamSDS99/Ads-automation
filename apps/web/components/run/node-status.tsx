@@ -14,6 +14,9 @@ export const NODE_STATE: Record<NodeStatus | "pending", { label: string; dot: st
   queued: { label: "Queued", dot: "bg-border-strong", text: "text-fg-muted" },
   running: { label: "Running", dot: "bg-status-running", text: "text-fg" },
   awaiting_approval: { label: "Needs approval", dot: "bg-status-gate", text: "text-fg" },
+  // A creative run halts here at H3 (4.6.3); without it the console crashed on
+  // the missing entry the moment such a run was opened.
+  awaiting_human_task: { label: "Needs a person", dot: "bg-status-gate", text: "text-fg" },
   succeeded: { label: "Done", dot: "bg-status-success", text: "text-fg-muted" },
   failed: { label: "Failed", dot: "bg-status-failed", text: "text-fg" },
   skipped: { label: "Skipped", dot: "bg-status-skipped", text: "text-fg-subtle" },
@@ -38,7 +41,13 @@ export function NodeDot({ status, className }: { status: NodeStatus | null; clas
   );
 }
 
-export function NodeStatusLabel({ status }: { status: NodeStatus | null }) {
+/**
+ * `onTint`: the label sits on the selected row's `accent-soft` tint, where
+ * `fg-subtle` is under 4.5:1 in both themes — it is raised to `fg-muted` there,
+ * as the row's node id already is.
+ */
+export function NodeStatusLabel({ status, onTint = false }: { status: NodeStatus | null; onTint?: boolean }) {
   const state = stateOf(status);
-  return <span className={cn("text-xs", state.text)}>{state.label}</span>;
+  const ink = onTint && state.text === "text-fg-subtle" ? "text-fg-muted" : state.text;
+  return <span className={cn("text-xs", ink)}>{state.label}</span>;
 }

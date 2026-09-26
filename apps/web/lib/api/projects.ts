@@ -46,6 +46,8 @@ export type RunStatus =
   | "queued"
   | "running"
   | "awaiting_approval"
+  // The run-level twin of the node status: halted for one named person.
+  | "awaiting_human_task"
   | "succeeded"
   | "failed"
   | "cancelled";

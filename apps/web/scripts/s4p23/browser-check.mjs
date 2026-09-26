@@ -19,6 +19,10 @@
  * critical violation; nothing scrolls sideways at 390; no console error;
  * visual baselines for light and dark at 1280 and 390 (recorded into
  * tests/visual/s4p23 when absent). Exit code 1 on any failed check.
+ *
+ * S4-P24 (Copy & Creative PRD §17 CC14): QA, the package screen, the canonical
+ * page and the diff each get axe and a baseline in dark at 390 too, and axe in
+ * dark at 1280 — every one of the four cells, both themes.
  */
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -388,15 +392,14 @@ try {
     check("QA: no console errors", problems.length === 0, problems.slice(0, 5).join("\n      "));
     await context.close();
 
-    for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"]]) {
+    for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"], ["dark", "mobile"]]) {
       const run = await open(browser, { email: APPROVER, theme, size });
       await run.page.goto(runUrl(SEED.run_a, "qa"));
       await qaReady(run.page);
-      if (size === "mobile") {
-        check("QA at 390: nothing scrolls sideways", (await scrollsSideways(run.page)) === 0);
-        const mobileAxe = await axe(run.page);
-        check("QA at 390: axe has no serious or critical violation", mobileAxe.length === 0, mobileAxe.join("\n      "));
-      }
+      const where = `${theme === "dark" ? " dark" : ""}${size === "mobile" ? " at 390" : " at 1280"}`;
+      if (size === "mobile") check(`QA${where}: nothing scrolls sideways`, (await scrollsSideways(run.page)) === 0);
+      const cellAxe = await axe(run.page);
+      check(`QA${where}: axe has no serious or critical violation`, cellAxe.length === 0, cellAxe.join("\n      "));
       await visual(browser, run.page, `qa-${size === "mobile" ? 390 : 1280}-${theme}`);
       check(`QA ${theme} ${size}: no console errors`, run.problems.length === 0, run.problems.slice(0, 5).join("\n      "));
       await run.context.close();
@@ -517,14 +520,15 @@ try {
     check(`${email}: canonical page has no console errors`, problems.length === 0, problems.slice(0, 5).join("\n      "));
     await context.close();
   }
-  {
-    const run = await open(browser, { email: VIEWER, size: "mobile" });
+  for (const theme of ["light", "dark"]) {
+    const run = await open(browser, { email: VIEWER, theme, size: "mobile" });
     await run.page.goto(packageUrl(SEED.package_a));
     await documentReady(run.page);
-    check("canonical at 390: nothing scrolls sideways", (await scrollsSideways(run.page)) === 0);
+    const where = `${theme === "dark" ? " dark" : ""} at 390`;
+    check(`canonical${where}: nothing scrolls sideways`, (await scrollsSideways(run.page)) === 0);
     const found = await axe(run.page);
-    check("canonical at 390: axe has no serious or critical violation", found.length === 0, found.join("\n      "));
-    await visual(browser, run.page, "canonical-390-light");
+    check(`canonical${where}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
+    await visual(browser, run.page, `canonical-390-${theme}`);
     await run.context.close();
   }
 
@@ -620,15 +624,14 @@ try {
     check("diff: no console errors", problems.length === 0, problems.slice(0, 5).join("\n      "));
     await context.close();
 
-    for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"]]) {
+    for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"], ["dark", "mobile"]]) {
       const run = await open(browser, { email: OPS, theme, size });
       await run.page.goto(`${BASE}${comparePath(SEED.package_c, SEED.package_d)}`);
       await diffReady(run.page);
-      if (size === "mobile") {
-        check("diff at 390: nothing scrolls sideways", (await scrollsSideways(run.page)) === 0);
-        const mobileAxe = await axe(run.page);
-        check("diff at 390: axe has no serious or critical violation", mobileAxe.length === 0, mobileAxe.join("\n      "));
-      }
+      const where = `${theme === "dark" ? " dark" : ""}${size === "mobile" ? " at 390" : " at 1280"}`;
+      if (size === "mobile") check(`diff${where}: nothing scrolls sideways`, (await scrollsSideways(run.page)) === 0);
+      const cellAxe = await axe(run.page);
+      check(`diff${where}: axe has no serious or critical violation`, cellAxe.length === 0, cellAxe.join("\n      "));
       await visual(browser, run.page, `compare-${size === "mobile" ? 390 : 1280}-${theme}`);
       await run.context.close();
     }
@@ -653,16 +656,15 @@ try {
   }
 
   // Package screen in dark and at 390, after release (the released state).
-  for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"]]) {
+  for (const [theme, size] of [["dark", "desktop"], ["light", "mobile"], ["dark", "mobile"]]) {
     const run = await open(browser, { email: APPROVER, theme, size });
     await packageScreen(run.page, SEED.run_a);
     const open1 = await run.page.getByTestId("open-released").count();
     check(`package ${theme} ${size}: a released package links to its canonical page, no release control`, open1 === 1 && (await releaseControls(run.page)).trigger === 0);
-    if (size === "mobile") {
-      check("package at 390: nothing scrolls sideways", (await scrollsSideways(run.page)) === 0);
-      const found = await axe(run.page);
-      check("package at 390: axe has no serious or critical violation", found.length === 0, found.join("\n      "));
-    }
+    const where = `${theme === "dark" ? " dark" : ""}${size === "mobile" ? " at 390" : " at 1280"}`;
+    if (size === "mobile") check(`package${where}: nothing scrolls sideways`, (await scrollsSideways(run.page)) === 0);
+    const found = await axe(run.page);
+    check(`package${where}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
     await visual(browser, run.page, `package-released-${size === "mobile" ? 390 : 1280}-${theme}`);
     check(`package ${theme} ${size}: no console errors`, run.problems.length === 0, run.problems.slice(0, 5).join("\n      "));
     await run.context.close();
@@ -671,6 +673,8 @@ try {
     const run = await open(browser, { email: APPROVER, theme: "dark" });
     await run.page.goto(packageUrl(SEED.package_a));
     await documentReady(run.page);
+    const found = await axe(run.page);
+    check("canonical dark at 1280: axe has no serious or critical violation", found.length === 0, found.join("\n      "));
     await visual(browser, run.page, "canonical-1280-dark");
     await run.context.close();
   }

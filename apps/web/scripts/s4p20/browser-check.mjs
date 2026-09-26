@@ -51,7 +51,9 @@ const VR_TOLERANCE = 0.002;
 const ALIGN_PX = 1.5;
 const ADMIN = { email: "admin@example.com", password: "change-me-at-least-12-chars" };
 const PASSWORD = "s4p20-check-password-1";
-const COMPOSE = ["compose", "-p", "s4p20", "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p20/compose.s4p20.yml"];
+/** `run.sh` exports S4_PROJECT (and the ports and subnet the compose file reads). */
+const PROJECT = process.env.S4_PROJECT ?? "s4p20";
+const COMPOSE = ["compose", "-p", PROJECT, "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p20/compose.s4p20.yml"];
 const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, height: 844 } };
 const TEXT_ONLY = { images: false, video: false, concepts_per_campaign: 2 };
 const URL_A = "http://sdsmanager.com/sds-software";

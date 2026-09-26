@@ -21,6 +21,12 @@
  * re-hashed; a rejection keeps its note; reactflow loads on the console route
  * only; axe has no serious or critical violation; nothing scrolls sideways at
  * 390; no console error. Exit code 1 on any failed check.
+ *
+ * S4-P24 (Copy & Creative PRD §17 CC14): the console's Largest Contentful
+ * Paint on a cold navigation (a fresh context with no cache, signed in by
+ * cookie, straight to the console URL on this production build) is read from
+ * a buffered PerformanceObserver and held to ≤ 2.5 s; and the brief being
+ * edited is captured and axe-checked in both themes at both widths.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -42,7 +48,9 @@ const UPDATE = Boolean(process.env.UPDATE_BASELINES);
 const VR_TOLERANCE = 0.002;
 const ADMIN = { email: "admin@example.com", password: "change-me-at-least-12-chars" };
 const PASSWORD = "s4p18-check-password-1";
-const COMPOSE = ["compose", "-p", "s4p18", "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p18/compose.s4p18.yml"];
+/** `run.sh` exports S4_PROJECT (and the ports and subnet the compose file reads). */
+const PROJECT = process.env.S4_PROJECT ?? "s4p18";
+const COMPOSE = ["compose", "-p", PROJECT, "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p18/compose.s4p18.yml"];
 const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, height: 844 } };
 const THEMES = ["light", "dark"];
 
@@ -347,6 +355,48 @@ async function visual(browser, page, name, { whole = true } = {}) {
   check(`${name}: matches its visual baseline`, diff.ratio <= VR_TOLERANCE, `${(diff.ratio * 100).toFixed(3)}% differ (${diff.detail}); now at ${SHOTS}/${name}.png`);
 }
 
+/** CC14: "Console LCP ≤ 2.5 s". */
+const LCP_BUDGET_MS = 2500;
+
+/**
+ * One cold navigation to the console: a fresh context (empty cache, nothing
+ * prefetched by a login page) carrying the api's session cookies, sent
+ * straight to the console URL. LCP is read once the console has drawn what
+ * `consoleAt` waits for, from a buffered observer — every candidate the page
+ * produced, the last one being the LCP (no input has stopped the recording).
+ */
+async function coldConsoleLcp(browser, email, password, projectId, runId) {
+  const client = await signIn(email, password);
+  const context = await browser.newContext({ viewport: WIDTHS.desktop, colorScheme: "light", reducedMotion: "reduce" });
+  await context.addInitScript(() => window.localStorage.setItem("theme", "light"));
+  await context.addCookies([...client.jar].map(([name, value]) => ({ name, value, url: BASE })));
+  const page = await context.newPage();
+  await consoleAt(page, projectId, runId);
+  const entry = await page.evaluate(
+    () =>
+      new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(null), 3000);
+        new PerformanceObserver((list, observer) => {
+          const last = list.getEntries().at(-1);
+          if (!last) return;
+          clearTimeout(timer);
+          observer.disconnect();
+          const element = last.element;
+          const what = element
+            ? `${element.tagName.toLowerCase()}${element.getAttribute("aria-label") ? `[${element.getAttribute("aria-label")}]` : ""} "${(element.textContent ?? "").trim().slice(0, 40)}"`
+            : last.url || "(removed element)";
+          resolve({ startTime: last.startTime, size: last.size, what });
+        }).observe({ type: "largest-contentful-paint", buffered: true });
+      }),
+  );
+  const navigation = await page.evaluate(() => {
+    const nav = performance.getEntriesByType("navigation")[0];
+    return nav ? { ttfb: nav.responseStart, domContentLoaded: nav.domContentLoadedEventEnd } : null;
+  });
+  await context.close();
+  return { entry, navigation };
+}
+
 /** Does any script this page loaded carry reactflow? */
 async function loadsReactflow(scripts) {
   for (const response of scripts) {
@@ -499,6 +549,19 @@ try {
   );
   const extras = seed("extras", A.runId);
 
+  /* CC14 — the console's LCP on a cold navigation, three times over; every one within budget. */
+  {
+    const samples = [];
+    for (let i = 0; i < 3; i += 1) samples.push(await coldConsoleLcp(browser, viewer, PASSWORD, A.projectId, A.runId));
+    const times = samples.map((sample) => sample.entry?.startTime ?? Number.POSITIVE_INFINITY);
+    const worst = Math.max(...times);
+    const detail = samples
+      .map((sample, i) => `#${i + 1}: LCP ${sample.entry ? `${sample.entry.startTime.toFixed(0)} ms (${sample.entry.what}, ${sample.entry.size} px²)` : "none reported"}; TTFB ${sample.navigation?.ttfb.toFixed(0)} ms, DCL ${sample.navigation?.domContentLoaded.toFixed(0)} ms`)
+      .join("\n      ");
+    check(`CC14: console LCP on a cold navigation ≤ ${LCP_BUDGET_MS} ms (worst of 3: ${worst.toFixed(0)} ms)`, worst <= LCP_BUDGET_MS, detail);
+    console.log(`      ${detail}`);
+  }
+
   /* The console: rail, lane, meters, Jobs, Assets, Check again. */
   {
     const { context, page, problems, scripts } = await open(browser, { email: operator, theme: "light", size: "desktop" });
@@ -644,6 +707,26 @@ try {
     }
   }
 
+  /* The brief being edited, in both themes at both widths (S4-P24): axe and a
+     baseline each. Nothing is saved: Edit and the typed line are the card's
+     own state, and the context closes on them. Light 1280 is captured below,
+     in the flow that also asserts the refusal. */
+  for (const theme of THEMES) {
+    for (const size of Object.keys(WIDTHS)) {
+      if (theme === "light" && size === "desktop") continue;
+      const editing = await open(browser, { email: owner, theme, size });
+      await brief(editing.page, B.projectId, B.runId);
+      await card(editing.page).getByRole("button", { name: "Edit" }).click();
+      await editing.page.getByRole("textbox", { name: "Edit objective" }).fill("Win audit-ready SDS teams across every site they run.");
+      const violations = await axe(editing.page);
+      check(`brief (editing) ${theme} ${size}: axe clean`, violations.length === 0, violations.join("\n      "));
+      check(`brief (editing) ${theme} ${size}: nothing scrolls sideways`, (await scrollsSideways(editing.page)) === 0);
+      await visual(browser, editing.page, `brief-editing-${theme}-${WIDTHS[size].width}`);
+      check(`brief (editing) ${theme} ${size}: no console errors`, editing.problems.length === 0, editing.problems.join("\n      "));
+      await editing.context.close();
+    }
+  }
+
   /* An edit: refused in the server's words, then re-hashed on approval. */
   {
     const { context, page, problems } = await open(browser, { email: owner, theme: "light", size: "desktop" });
@@ -659,6 +742,8 @@ try {
     check("the refused edit decided nothing", (await g7(admin, B.runId)).status === "pending");
     await objective.fill("Win audit-ready SDS teams across every site they run.");
     check("the refusal clears once the line is edited again", (await card(page).getByRole("alert").count()) === 0);
+    const editingViolations = await axe(page);
+    check("brief (editing) light desktop: axe clean", editingViolations.length === 0, editingViolations.join("\n      "));
     await visual(browser, page, "brief-editing-light-1280");
     await card(page).getByRole("button", { name: "Approve edited brief" }).click();
     await page.getByText("Brief approved").first().waitFor({ timeout: 20_000 });

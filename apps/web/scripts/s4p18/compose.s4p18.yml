@@ -6,7 +6,9 @@
 #     up -d postgres redis openrouter api
 #
 # Subnet 172.31.218.0/24 and ports 8218 (api) / 8219 (openrouter) / 3218 (web)
-# are this phase's alone (`!override`: compose merges lists otherwise). The
+# are this phase's alone (`!override`: compose merges lists otherwise); each is
+# read from the environment (S4_SUBNET/S4_SUBNET6, S4_API_PORT, S4_AUX_PORT,
+# WEB_PORT — `run.sh` exports them) so a second copy can run beside this one. The
 # web tier is a production `next start` on the host, so `web` is profiled
 # out. The worker is started by `run.sh` only after the seed has taken the
 # run to G7, so it re-parks that run instead of racing the seed for it; from
@@ -18,10 +20,10 @@ services:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p18-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3218
-      CORS_ORIGINS: http://localhost:3218
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3218}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3218}
     ports: !override
-      - "127.0.0.1:8218:8000"
+      - "127.0.0.1:${S4_API_PORT:-8218}:8000"
     volumes:
       - ./apps/web/scripts/s4p18:/app/s4p18
     depends_on:
@@ -33,7 +35,7 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p18-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3218
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3218}
 
   openrouter:
     image: s4p18-api:latest
@@ -43,7 +45,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p18:/app/s4p18
     ports:
-      - "127.0.0.1:8219:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8219}:8099"
     networks: [internal]
 
   test:
@@ -57,5 +59,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.218.0/24
-        - subnet: fd00:ada:18::/64
+        - subnet: ${S4_SUBNET:-172.31.218.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:18::/64}

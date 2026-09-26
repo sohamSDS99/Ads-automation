@@ -6,8 +6,9 @@
 #
 # The rewrite target is baked into the build (output: standalone), so the
 # build and the server both get API_INTERNAL_URL; server-session.ts reads it
-# again at runtime. Uses the full Chromium build already on disk
-# (channel: "chromium") rather than downloading a headless shell.
+# again at runtime. Uses the installed Chrome for Testing (`chromiumPath()`)
+# rather than downloading a headless shell. STUB_PORT and WEB_PORT are
+# overridable (S4-P24's `make browser-stage-04` passes its own).
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -21,9 +22,10 @@ if [[ -z "${SKIP_BUILD:-}" ]]; then pnpm build; fi
 
 STUB_PORT="$STUB_PORT" node scripts/s4p2/stub-api.mjs &
 stub=$!
-pnpm exec next start -p "$WEB_PORT" -H 127.0.0.1 >/tmp/s4p2-web.log 2>&1 &
+pnpm exec next start -p "$WEB_PORT" -H 127.0.0.1 >"/tmp/s4p2-web-${WEB_PORT}.log" 2>&1 &
 web=$!
-trap 'kill $stub $web 2>/dev/null || true' EXIT
+# `pnpm exec` does not pass the signal on: its `next start` child goes too.
+trap 'pkill -TERM -P $web 2>/dev/null || true; kill $stub $web 2>/dev/null || true' EXIT
 
 for _ in $(seq 1 60); do
   curl -fsS "http://127.0.0.1:${WEB_PORT}/login" >/dev/null 2>&1 && break

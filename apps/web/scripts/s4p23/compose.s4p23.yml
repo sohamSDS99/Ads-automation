@@ -16,6 +16,9 @@
 # the queue it filled is emptied — release's `write_package_files` needs it.
 # The image is `s4p16-wtest` re-tagged: Playwright + Chromium + DejaVu Sans
 # Mono (4.6.4's real preview render), ffmpeg, exiftool, tesseract, Inter.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p23-wtest:latest
@@ -24,10 +27,10 @@ services:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p23-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3623
-      CORS_ORIGINS: http://localhost:3623
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3623}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3623}
     ports: !override
-      - "127.0.0.1:8623:8000"
+      - "127.0.0.1:${S4_API_PORT:-8623}:8000"
     volumes:
       - ./apps/web/scripts/s4p23:/app/s4p23
     depends_on:
@@ -41,12 +44,12 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p23-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3623
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3623}
     volumes:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p23:/app/s4p23
     ports:
-      - "127.0.0.1:8624:8081"
+      - "127.0.0.1:${S4_FILES_PORT:-8624}:8081"
 
   catalogue:
     image: s4p23-wtest:latest
@@ -56,7 +59,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p3:/app/s4p3
     ports:
-      - "127.0.0.1:8625:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8625}:8099"
     networks: [internal]
 
   test:
@@ -70,5 +73,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.223.0/24
-        - subnet: fd00:ada:223::/64
+        - subnet: ${S4_SUBNET:-172.31.223.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:223::/64}
