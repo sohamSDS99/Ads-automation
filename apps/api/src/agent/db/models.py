@@ -2576,7 +2576,16 @@ class CreativePackage(Base):
 
     __tablename__ = "creative_package"
     __table_args__ = (
-        sa.UniqueConstraint("project_id", "version", name="uq_creative_package_project_version"),
+        # `version` is 0 until release mints `max(version) + 1` (§12.4), so
+        # uniqueness holds over minted versions only — migration 0022, the
+        # same shape 0014 gave `campaign_plan`.
+        sa.Index(
+            "uq_creative_package_project_version_minted",
+            "project_id",
+            "version",
+            unique=True,
+            postgresql_where=sa.text("version > 0"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -2584,6 +2593,7 @@ class CreativePackage(Base):
     project_id: Mapped[uuid.UUID] = _project_fk()
     creative_run_id: Mapped[uuid.UUID] = _creative_run_fk(unique=True)
     schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: 0 until released; release mints `max(version) + 1` for the project.
     version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     status: Mapped[CreativePackageStatus] = mapped_column(
         _enum(CreativePackageStatus, "creative_package_status"),
