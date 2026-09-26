@@ -70,6 +70,26 @@ GOLDEN = BY_NAME["full_slate_video"]
 
 
 @pytest.fixture
+def rendered_logs(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Every line structlog writes, as written. The app renders through
+    `PrintLoggerFactory` with `cache_logger_on_first_use=True`, so once a logger
+    has been used `structlog.testing.capture_logs()` never sees it again — in a
+    full suite, it saw nothing. Every cached logger still calls these methods."""
+    lines: list[str] = []
+    original = structlog.PrintLogger.msg
+
+    def record(self: structlog.PrintLogger, message: str) -> None:
+        lines.append(message)
+        original(self, message)
+
+    for name in ("msg", "log", "debug", "info", "warn", "warning", "error", "err",
+                 "fatal", "exception", "critical", "failure"):  # fmt: skip
+        if hasattr(structlog.PrintLogger, name):
+            monkeypatch.setattr(structlog.PrintLogger, name, record)
+    return lines
+
+
+@pytest.fixture
 def storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStorage:
     from agent.config import get_settings
 
@@ -195,6 +215,7 @@ async def test_no_canary_reaches_a_prompt_a_provider_request_a_payload_or_a_log(
     storage: LocalStorage,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
+    rendered_logs: list[str],
 ) -> None:
     from agent.config import get_settings
 
@@ -202,10 +223,7 @@ async def test_no_canary_reaches_a_prompt_a_provider_request_a_payload_or_a_log(
     get_settings.cache_clear()
     caplog.set_level(logging.DEBUG)
 
-    with (
-        structlog.testing.capture_logs() as events,
-        respx.mock(assert_all_mocked=True, assert_all_called=False) as router,
-    ):
+    with respx.mock(assert_all_mocked=True, assert_all_called=False) as router:
         world = World(GOLDEN, router)
         run_id, stops = await run_golden(
             admin,
@@ -268,8 +286,10 @@ async def test_no_canary_reaches_a_prompt_a_provider_request_a_payload_or_a_log(
         assert not found(canary, reads), f"{canary!r} is served by a read: {_near(canary, reads)}"
 
     # -- logs ----------------------------------------------------------------
-    logged = caplog.text + "\n" + "\n".join(json.dumps(e, default=str) for e in events)
-    assert events, "structlog captured nothing: the log check would be vacuous"
+    logged = caplog.text + "\n" + "\n".join(rendered_logs)
+    # The capture works, or the check below is vacuous: the run's own events are in it.
+    assert any("run.paused" in line for line in rendered_logs), "structlog output was not captured"
+    assert any("media.job_status" in line for line in rendered_logs)
     for canary in canaries:
         assert not found(canary, logged), f"{canary!r} was logged: {_near(canary, logged)}"
 

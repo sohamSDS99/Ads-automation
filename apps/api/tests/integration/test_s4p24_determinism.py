@@ -139,10 +139,14 @@ async def _golden_in_a_fresh_process(
         "S4P24_PACKAGE_OUT": str(out),
     }
     env.pop("GOLDEN_RECORD", None)
+    # Its own basetemp: pytest prunes all but the newest three numbered ones,
+    # and the parent plus three children are four — a child's storage (and the
+    # files A and B name identically, their ids being pinned) must not be
+    # another process's to delete or overwrite.
     process = await asyncio.create_subprocess_exec(
         sys.executable, "-m", "pytest", "-p", "tests.integration.s4p24_pinned_inputs",
         "tests/integration/test_s4p24_golden.py", "-k", golden.name, "-q",
-        "-p", "no:cacheprovider", "-p", "no:randomly",
+        "-p", "no:cacheprovider", "-p", "no:randomly", f"--basetemp={out.parent / out.stem}",
         env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )  # fmt: skip
     output, _ = await process.communicate()
@@ -162,10 +166,13 @@ async def test_one_creative_input_and_its_cassette_give_one_package_hash_in_two_
     4.3.3 and the package's asset order used to differ run to run)."""
     epoch = datetime.now(UTC).replace(microsecond=0).isoformat()
     database = os.environ["DATABASE_URL"].rsplit("/", 1)[1]
+    # Redis indices next to the parent's (the suite flushes its own between
+    # tests; a child must not share one with it or with its siblings).
+    parent_redis = int(os.environ["REDIS_URL"].rsplit("/", 1)[1])
     runs = [
-        ("a", 24, 1, 11),
-        ("b", 24, 2, 10),
-        ("c", 25, 3, 9),
+        ("a", 24, 1, (parent_redis - 1) % 16),
+        ("b", 24, 2, (parent_redis - 2) % 16),
+        ("c", 25, 3, (parent_redis - 3) % 16),
     ]
     a, b, c = await asyncio.gather(
         *(
