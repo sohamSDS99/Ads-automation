@@ -28,6 +28,7 @@ from agent.db.models import (
     AuditLog,
     CampaignPlan,
     CampaignPlanStatus,
+    CreativePackage,
     Export,
     ExportArtifactType,
     ExportFormat,
@@ -646,9 +647,19 @@ class ExportRepo:
             )
             .exists()
         )
+        package = (
+            sa.select(sa.literal(1))
+            .select_from(CreativePackage)
+            .where(
+                CreativePackage.id == Export.artifact_id,
+                CreativePackage.workspace_id == self.workspace_id,
+            )
+            .exists()
+        )
         return sa.or_(
             sa.and_(Export.artifact_type == ExportArtifactType.RESEARCH_REPORT, research),
             sa.and_(Export.artifact_type == ExportArtifactType.CAMPAIGN_PLAN, plan),
+            sa.and_(Export.artifact_type == ExportArtifactType.CREATIVE_PACKAGE, package),
         )
 
     def _scoped(self) -> sa.Select[tuple[Export]]:
@@ -671,8 +682,9 @@ class ExportRepo:
         return list(result.scalars().all())
 
     async def run_for(self, export_id: uuid.UUID) -> Run | None:
-        """The research run behind a report export. `None` for a plan export."""
-        result = await self.session.execute(
+        """The run behind an export: a report's research run, or a creative
+        package's creative run. `None` for a plan export."""
+        report = (
             sa.select(Run)
             .join(Report, Report.run_id == Run.id)
             .join(
@@ -684,7 +696,23 @@ class ExportRepo:
             )
             .where(Export.id == export_id, Run.workspace_id == self.workspace_id)
         )
-        return result.scalar_one_or_none()
+        package = (
+            sa.select(Run)
+            .join(CreativePackage, CreativePackage.creative_run_id == Run.id)
+            .join(
+                Export,
+                sa.and_(
+                    Export.artifact_id == CreativePackage.id,
+                    Export.artifact_type == ExportArtifactType.CREATIVE_PACKAGE,
+                ),
+            )
+            .where(Export.id == export_id, Run.workspace_id == self.workspace_id)
+        )
+        for statement in (report, package):
+            run = (await self.session.execute(statement)).scalar_one_or_none()
+            if run is not None:
+                return run
+        return None
 
     def add(
         self,

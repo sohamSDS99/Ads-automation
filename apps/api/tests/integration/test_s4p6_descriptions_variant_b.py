@@ -276,6 +276,9 @@ class _Script:
             user = next(m["content"] for m in body["messages"] if m["role"] == "user")
             pairs = json.loads(user.split("PAIRS:\n", 1)[1])
             return completion({key: "reads_well" for key in pairs})
+        if name == "CreativeCritiqueDraft":
+            # 4.7.2's reader (S4-P16): it may only warn or note, and here it has nothing.
+            return completion({"issues": []}, model=body["model"])
         raise AssertionError(f"no scripted answer for {name}")
 
 

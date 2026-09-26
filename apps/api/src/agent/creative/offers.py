@@ -67,7 +67,7 @@ class Usable:
     not_live: list[OfferRecord] = field(default_factory=list)
 
 
-def _live(record: OfferRecord, now: datetime) -> bool:
+def live(record: OfferRecord, now: datetime) -> bool:
     start, stop, ends = (
         _aware(value) for value in (record.effective_from, record.effective_to, record.ends_at)
     )
@@ -92,7 +92,7 @@ def usable(records: Iterable[OfferRecord], *, now: datetime, max_age_days: int) 
         observed = _aware(record.observed_at)
         if observed is None or observed < horizon:
             found.stale.append(record)
-        elif not _live(record, now):
+        elif not live(record, now):
             found.not_live.append(record)
         else:
             found.usable.append(record)

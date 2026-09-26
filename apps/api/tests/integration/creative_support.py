@@ -263,6 +263,7 @@ async def seed_published(
     logo_rules: dict[str, Any] | None = None,
     detectors: tuple[Any, ...] = (),
     payload_rules: tuple[Any, ...] = (),
+    claim_expires_at: datetime | None = None,
 ) -> tuple[ContentGuideline, RuleSet]:
     """A published guideline and the ruleset publish would have minted with it.
 
@@ -308,6 +309,7 @@ async def seed_published(
             extra_rules=extra_rules,
             logo_templates=logo_templates,
             detectors=detectors,
+            claim_expires_at=claim_expires_at,
         ),
         compiler_version="test",
         constants_version="test",
@@ -341,6 +343,7 @@ def compiled_ruleset(
     extra_rules: tuple[Any, ...] = (),
     logo_templates: tuple[dict[str, Any], ...] = (),
     detectors: tuple[Any, ...] = (),
+    claim_expires_at: datetime | None = None,
 ) -> dict[str, Any]:
     """A `RuleSet` the pinned linter can load (Stage 04's `lint_adapter`).
 
@@ -370,6 +373,7 @@ def compiled_ruleset(
             surface_forms=("SDS updates within 24 hours",),
             status="approved",
             signature_id=uuid.UUID("5f2504e0-4f89-11d3-9a0c-0305e82c3403"),
+            expires_at=claim_expires_at,
         ),
         ClaimRef(claim_id=DRAFT_CLAIM_ID, normalized_text="the fastest sds tool", status="draft"),
     ]

@@ -2576,7 +2576,16 @@ class CreativePackage(Base):
 
     __tablename__ = "creative_package"
     __table_args__ = (
-        sa.UniqueConstraint("project_id", "version", name="uq_creative_package_project_version"),
+        # `version` is 0 until release mints `max(version) + 1` (§12.4), so
+        # uniqueness holds over minted versions only — migration 0022, the
+        # same shape 0014 gave `campaign_plan`.
+        sa.Index(
+            "uq_creative_package_project_version_minted",
+            "project_id",
+            "version",
+            unique=True,
+            postgresql_where=sa.text("version > 0"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = _pk()
@@ -2584,6 +2593,7 @@ class CreativePackage(Base):
     project_id: Mapped[uuid.UUID] = _project_fk()
     creative_run_id: Mapped[uuid.UUID] = _creative_run_fk(unique=True)
     schema_version: Mapped[str] = mapped_column(sa.Text, nullable=False)
+    #: 0 until released; release mints `max(version) + 1` for the project.
     version: Mapped[int] = mapped_column(sa.Integer, nullable=False)
     status: Mapped[CreativePackageStatus] = mapped_column(
         _enum(CreativePackageStatus, "creative_package_status"),
@@ -2602,7 +2612,8 @@ class CreativePackage(Base):
     brief_hash: Mapped[str | None] = mapped_column(sa.Text)
     payload: Mapped[dict[str, Any]] = _jsonb_object()
     #: Both written at release, which is what hashes the manifest.
-    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    #: `ManifestEntry` rows, sorted by path — written by release with the files.
+    manifest: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
     package_hash: Mapped[str | None] = mapped_column(sa.Text)
     released_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     released_by: Mapped[uuid.UUID | None] = mapped_column(

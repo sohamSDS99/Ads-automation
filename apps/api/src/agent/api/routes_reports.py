@@ -25,6 +25,7 @@ import uuid
 from typing import Annotated
 from urllib.parse import quote
 
+import sqlalchemy as sa
 import structlog
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -41,6 +42,7 @@ from agent.auth.ratelimit import EXPORT_QUOTA
 from agent.auth.rbac import Permission
 from agent.config import Settings, get_settings
 from agent.db.models import (
+    CreativePackage,
     Export,
     ExportArtifactType,
     ExportFormat,
@@ -52,7 +54,12 @@ from agent.db.models import (
 from agent.db.repos import ExportRepo, ProjectRepo, ReportRepo, RunRepo
 from agent.db.session import get_session
 from agent.export.contract import ResearchReport
-from agent.export.jobs import MEDIA_TYPES, RESEARCH_REPORT_FORMATS, filename_for
+from agent.export.jobs import (
+    MEDIA_TYPES,
+    RESEARCH_REPORT_FORMATS,
+    filename_for,
+    package_filename_for,
+)
 from agent.queue import enqueue_export
 
 log = structlog.get_logger(__name__)
@@ -67,7 +74,24 @@ AnyMember = Annotated[Principal, Depends(require(Permission.READ))]
 # ---------------------------------------------------------------------------
 
 
-def _to_job(export: Export, run: Run, *, project_name: str | None) -> ExportJob:
+async def _filename(db: AsyncSession, export: Export, *, project_name: str | None) -> str:
+    """The download name: a research report's, or a creative package's with its version."""
+    if export.artifact_type is ExportArtifactType.CREATIVE_PACKAGE:
+        version = await db.scalar(
+            sa.select(CreativePackage.version).where(CreativePackage.id == export.artifact_id)
+        )
+        return package_filename_for(
+            export.format,
+            project_name=project_name,
+            version=int(version or 0),
+            generated_at=export.created_at,
+        )
+    return filename_for(export.format, project_name=project_name, generated_at=export.created_at)
+
+
+def _to_job(
+    export: Export, run: Run, *, project_name: str | None, filename: str | None = None
+) -> ExportJob:
     """One export row as the API describes it.
 
     `filename` is recomputed rather than parsed back out of `path`: the path is
@@ -82,7 +106,8 @@ def _to_job(export: Export, run: Run, *, project_name: str | None) -> ExportJob:
         format=export.format,
         status=export.status,
         bytes=export.bytes,
-        filename=filename_for(export.format, project_name=project_name, generated_at=generated_at),
+        filename=filename
+        or filename_for(export.format, project_name=project_name, generated_at=generated_at),
         error=export.error,
         created_at=export.created_at,
         ready_at=export.ready_at,
@@ -205,7 +230,10 @@ async def get_export(export_id: uuid.UUID, me: AnyMember, db: Db) -> ExportJob:
     if export is None or run is None:
         raise problems.not_found(f"No export {export_id}.")
     project = await ProjectRepo(db, me.workspace_id).get(run.project_id)
-    return _to_job(export, run, project_name=project.name if project else None)
+    name = project.name if project else None
+    return _to_job(
+        export, run, project_name=name, filename=await _filename(db, export, project_name=name)
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -258,11 +286,7 @@ async def download_export(
         )
 
     project: Project | None = await ProjectRepo(db, me.workspace_id).get(run.project_id)
-    filename = filename_for(
-        export.format,
-        project_name=project.name if project else None,
-        generated_at=export.created_at,
-    )
+    filename = await _filename(db, export, project_name=project.name if project else None)
 
     url = signed_url(export.path, settings=settings)
     upstream = await open_upstream(client, url, subject="export", export_id=str(export_id))

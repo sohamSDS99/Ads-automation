@@ -625,7 +625,7 @@ def check_no_personal_data(guideline: ContentGuideline) -> list[CritiqueIssue]:
         elif isinstance(node, Sequence) and not isinstance(node, str | bytes):
             for item in node:
                 walk(item)
-        elif isinstance(node, str) and node and not _is_uuid(node) and redact_pii(node) != node:
+        elif isinstance(node, str) and is_personal_data(node):
             found.append(node[:60])
 
     walk(payload)
@@ -690,6 +690,12 @@ def _names(values: Sequence[str], *, limit: int = MAX_NAMED) -> str:
     rest = len(values) - len(shown)
     joined = ", ".join(shown)
     return f"{joined} and {rest} more" if rest > 0 else joined
+
+
+def is_personal_data(value: str) -> bool:
+    """Would the redaction pass change `value`? The one definition check 10 uses,
+    shared with Stage 04's 4.7.2 (check 13), which walks a package the same way."""
+    return bool(value) and not _is_uuid(value) and redact_pii(value) != value
 
 
 def _is_uuid(value: str) -> bool:

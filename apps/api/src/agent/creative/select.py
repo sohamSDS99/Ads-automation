@@ -133,7 +133,7 @@ def headlines_v1(
     return Selection(
         selected=tuple(item.ref for item in state.selected),
         reserve=state.reserve(),
-        quota_report=_report(quotas, order, state.selected, limit),
+        quota_report=quota_report(quotas, order, state.selected, limit),
         near_duplicates=state.near_duplicates(),
     )
 
@@ -261,7 +261,7 @@ class _State:
         )
 
 
-def _report(
+def quota_report(
     quotas: Mapping[str, int],
     order: Sequence[Candidate],
     selected: Sequence[Candidate],

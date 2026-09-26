@@ -23,6 +23,7 @@ MEASURE_IMAGE = "measure_image"
 STORE_REFERENCE = "store_reference"
 CHECK_GENERATION_JOB = "check_generation_job"
 REGENERATE_ASSET = "regenerate_asset"
+WRITE_PACKAGE_FILES = "write_package_files"
 
 #: How long `POST /lint/image` waits for the worker before giving up. §17 CF5
 #: budgets the measurement itself at 3 s p95; the rest is queue time behind
@@ -34,6 +35,10 @@ IMAGE_RESULT_TIMEOUT_SECONDS = 25.0
 #: the file. A write of at most `media.reference_max_bytes` takes milliseconds;
 #: the rest is queue time behind whatever the worker is already running.
 REFERENCE_STORE_TIMEOUT_SECONDS = 30.0
+#: How long a release waits for the worker to copy a package's files under
+#: `package/` and hash them. Masters and every rendition, videos included: a
+#: copy per file, local to the Volume — seconds, plus queue time.
+PACKAGE_FILES_TIMEOUT_SECONDS = 120.0
 
 
 class WorkerUnavailable(RuntimeError):
@@ -185,4 +190,29 @@ async def store_reference(payload: dict[str, object]) -> dict[str, object]:
         ) from exc
     if not isinstance(result, dict):  # pragma: no cover - the worker returns a dict
         raise WorkerUnavailable("the worker returned no receipt for the file")
+    return result
+
+
+async def write_package_files(payload: dict[str, object]) -> dict[str, object]:
+    """Have the worker write a package's files under `package/` and hash them, and wait.
+
+    Release (Stage 04 PRD §12.4) writes the files inside its one transaction,
+    and the worker owns the Volume; `api` mounts none. As with
+    `store_reference` there is no degraded answer: a released package whose
+    files were never written is a package Stage 05 cannot load, so every
+    failure raises `WorkerUnavailable` and the release rolls back.
+    """
+    pool = await get_arq_pool()
+    job = await pool.enqueue_job(WRITE_PACKAGE_FILES, payload)
+    if job is None:  # pragma: no cover - only on a job-id collision we do not set
+        raise WorkerUnavailable("the worker queue refused the job")
+    try:
+        result = await job.result(timeout=PACKAGE_FILES_TIMEOUT_SECONDS)
+    except Exception as exc:  # noqa: BLE001 - arq raises several unrelated types here
+        log.warning("package_files.unavailable", job_id=str(job.job_id), error=str(exc))
+        raise WorkerUnavailable(
+            f"the worker did not write the package files ({type(exc).__name__})"
+        ) from exc
+    if not isinstance(result, dict):  # pragma: no cover - the worker returns a dict
+        raise WorkerUnavailable("the worker returned no receipt for the package files")
     return result

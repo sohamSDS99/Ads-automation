@@ -724,7 +724,9 @@ async def creative_overview(project_id: uuid.UUID, me: AnyMember, db: Db) -> Cre
                     CreativePackage.workspace_id == me.workspace_id,
                     CreativePackage.project_id == project_id,
                 )
-                .order_by(CreativePackage.version.desc())
+                # Newest first by when it was assembled, not by version: an
+                # unreleased package is version 0 until release mints one.
+                .order_by(CreativePackage.created_at.desc(), CreativePackage.id)
             )
         )
         .scalars()

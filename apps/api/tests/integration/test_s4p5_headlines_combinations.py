@@ -213,6 +213,9 @@ class _Script:
                 return completion({key: "reads_well" for key in pairs})
             self.label_batches.append(pairs)
             return completion({key: self._label(pair) for key, pair in pairs.items()})
+        if name == "CreativeCritiqueDraft":
+            # 4.7.2's reader (S4-P16): it may only warn or note, and here it has nothing.
+            return completion({"issues": []}, model=body["model"])
         raise AssertionError(f"no scripted answer for {name}")
 
     @staticmethod

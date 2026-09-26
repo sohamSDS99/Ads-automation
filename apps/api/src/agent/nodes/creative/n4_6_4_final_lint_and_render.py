@@ -141,7 +141,7 @@ class FinalLintAndRenderNode:
 
     async def reason(self, ctx: RunContext, ev: list[Evidence]) -> BaseModel:
         creative = ctx.require_creative()
-        linter = await _final_linter(ctx, creative.linter)
+        linter = await final_linter(ctx, creative.linter)
         outcomes = await _refused(ctx)
         assets = await _live_assets(ctx)
         storage = ctx.media.storage if ctx.media is not None else get_storage()
@@ -183,7 +183,7 @@ class FinalLintAndRenderNode:
 # ---------------------------------------------------------------------------
 
 
-async def _final_linter(ctx: RunContext, linter: PinnedLinter) -> PinnedLinter:
+async def final_linter(ctx: RunContext, linter: PinnedLinter) -> PinnedLinter:
     await ctx.db.refresh(ctx.run, attribute_names=["pins"])
     final = lint_adapter.current_pin(ctx.run)
     if linter.pin == final:
