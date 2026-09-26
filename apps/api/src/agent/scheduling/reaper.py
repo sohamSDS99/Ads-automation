@@ -50,6 +50,16 @@ log = structlog.get_logger(__name__)
 #: shows up under load.
 QUEUED_GRACE_SECONDS = 2 * 60 * 60
 
+#: The audit action `orchestrator.launch` writes when a run is asked for, per
+#: pipeline. Every one of them counts as "asked for": a creative run whose
+#: enqueue was lost is as stuck as a research one.
+LAUNCH_ACTIONS = (
+    AuditAction.RUN_LAUNCHED.value,
+    AuditAction.PLAN_STARTED.value,
+    AuditAction.GUIDELINE_STARTED.value,
+    AuditAction.CREATIVE_STARTED.value,
+)
+
 REAPED_ERROR = {
     "code": "reaped",
     "message": (
@@ -116,7 +126,7 @@ async def _candidates(
         asked_for = (
             sa.select(AuditLog.target_id)
             .where(
-                AuditLog.action == AuditAction.RUN_LAUNCHED.value,
+                AuditLog.action.in_(LAUNCH_ACTIONS),
                 AuditLog.target_type == AuditTarget.RUN.value,
                 AuditLog.created_at < queued_before,
                 AuditLog.target_id.is_not(None),
@@ -149,6 +159,7 @@ async def _reap(
     # raises `MissingGreenlet`, which nothing here would catch.
     project_id = run.project_id
     workspace_id = run.workspace_id
+    stage = run.stage
 
     # Nodes left `running` belong to the dead process. Closing them is what
     # stops the console showing a node as in-flight for ever, and what lets
@@ -180,7 +191,10 @@ async def _reap(
 
     # Only after the row is durable. Releasing the lock first would let a new
     # run start against a project whose previous run still claims to be running.
-    await RunLock(redis).release(project_id, run_id)
+    # The run's own pipeline's lock: each stage keeps its own key, and a dead
+    # creative run releasing the research key would leave its project locked
+    # for the creative lock's whole TTL.
+    await RunLock(redis, stage).release(project_id, run_id)
     await RunEventStream(redis, run_id).publish(
         EventType.RUN_COMPLETED,
         run_id=str(run_id),

@@ -300,6 +300,7 @@ class MediaJobs:
             row = await self._locked(session, key=key)
             if row.status in TERMINAL or row.openrouter_job_id is not None:
                 await session.commit()
+                await self._settle(row)
                 return row
             if row.status == GenerationStatus.SUBMITTING:
                 row.status = GenerationStatus.UNKNOWN_SUBMIT_STATE
@@ -702,6 +703,24 @@ class MediaJobs:
             defaults=self._defaults or _settings(),
         )
         return caps, text_spend(run.cost_usd, media_spent), media_spent
+
+    async def _settle(self, row: GenerationJob) -> None:
+        """Law 43 across a `kill -9`: a finished job's reservation is reconciled
+        to what it cost, or released when it cost nothing.
+
+        That normally happens just after the row is committed — but the commit
+        (Postgres) and the reconcile (Redis) are two stores, and a worker killed
+        between them left a paid job's estimate reserved for good, eating the
+        run's headroom and double-counting against both caps. The resume that
+        finds the finished row completes it. Both calls are idempotent, so a
+        job settled the first time is unchanged.
+        """
+        if row.status not in FINISHED:
+            return
+        if row.cost_usd is not None:
+            await self._budget.reconcile(row.id, row.cost_usd)
+        else:
+            await self._budget.release(row.id)
 
     async def _finish(
         self, job_id: uuid.UUID, status: GenerationStatus, **fields: Any
