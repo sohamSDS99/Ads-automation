@@ -1,0 +1,111 @@
+/*
+ * The creative book's pages (Stage 04 PRD §14). The Stage 03 book's page
+ * model, one stage later: A4, a running header and footer, page numbers.
+ *
+ * The draft mark is a `position: fixed` element — WeasyPrint paints it on
+ * every page, cover included — and the template adds the same words to the
+ * top margin box, so a page cut out of a draft still says what it is. The
+ * footer's status and creative run id come from the template for the same
+ * reason (§14: "with `status` and `creative_run_id` in the footer").
+ */
+
+@page {
+  size: A4;
+  margin: 18mm 14mm 18mm 14mm;
+
+  @top-left {
+    content: "Creative book — Stage 04";
+    font-size: 7.5pt;
+    color: #71717a;
+  }
+
+  @bottom-left {
+    font-size: 7pt;
+    color: #71717a;
+  }
+
+  @bottom-right {
+    content: counter(page) " / " counter(pages);
+    font-size: 7.5pt;
+    color: #71717a;
+  }
+}
+
+html {
+  font-family: "Inter", "Noto Sans", "DejaVu Sans", sans-serif;
+  font-size: 9pt;
+  line-height: 1.4;
+  color: #18181b;
+}
+
+h1 { font-size: 26pt; margin: 0 0 6mm; }
+h2 { font-size: 16pt; margin: 0 0 4mm; border-bottom: 1px solid #d4d4d8; padding-bottom: 2mm; }
+h3 { font-size: 12pt; margin: 6mm 0 2mm; page-break-after: avoid; }
+h4 { font-size: 10pt; margin: 4mm 0 1.5mm; page-break-after: avoid; }
+h5, h6 { font-size: 9pt; margin: 3mm 0 1mm; }
+
+.mono { font-family: "DejaVu Sans Mono", monospace; font-size: 7.5pt; word-break: break-all; }
+.meta { color: #52525b; font-size: 8pt; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.url { word-break: break-all; }
+
+/* --- the draft watermark -------------------------------------------------- */
+
+.watermark {
+  position: fixed;
+  top: 42%;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 44pt;
+  font-weight: 700;
+  color: rgba(180, 35, 24, 0.14);
+  transform: rotate(-30deg);
+  z-index: -1;
+}
+
+.draft-banner {
+  border: 1.5px solid #b42318;
+  color: #b42318;
+  padding: 3mm;
+  font-weight: 700;
+}
+
+/* --- cover ----------------------------------------------------------------- */
+
+.cover { page-break-after: always; padding-top: 30mm; }
+.cover .project { font-size: 12pt; color: #52525b; margin: 0; }
+.status { display: inline-block; padding: 0.5mm 2mm; border-radius: 3px; border: 1px solid #a1a1aa; }
+.status-released { border-color: #047857; color: #047857; }
+.status-superseded { border-color: #71717a; color: #71717a; }
+.facts { margin-top: 10mm; }
+.facts th { width: 38mm; }
+
+.chapter { page-break-before: always; }
+
+/* --- tables ------------------------------------------------------------------ */
+
+table { width: 100%; border-collapse: collapse; margin: 2mm 0 4mm; }
+th, td { border-bottom: 0.5pt solid #e4e4e7; padding: 1mm 1.5mm; text-align: left; vertical-align: top; }
+th { font-size: 7.5pt; color: #52525b; font-weight: 600; }
+thead { display: table-header-group; }
+tr { page-break-inside: avoid; }
+table.small, table.matrix { font-size: 8pt; }
+
+.chip { display: inline-block; padding: 0 1.5mm; border-radius: 2mm; border: 0.5pt solid #a1a1aa; font-size: 7pt; }
+.chip.claim { border-color: #047857; color: #065f46; }
+
+/* --- pictures ------------------------------------------------------------------ */
+
+.ad, .asset, .landing { margin-bottom: 5mm; }
+.previews, .tiles, .before { display: flex; flex-wrap: wrap; gap: 3mm; align-items: flex-start; }
+figure { margin: 0; page-break-inside: avoid; }
+figcaption { font-size: 7pt; color: #52525b; margin-top: 1mm; }
+/* Side by side: 58 + 3 + 112 mm fits the 182 mm between the margins. */
+.preview img { max-width: 58mm; max-height: 100mm; border: 0.5pt solid #d4d4d8; }
+.preview-desktop img { max-width: 112mm; }
+.tile img { max-width: 40mm; max-height: 40mm; border: 0.5pt solid #d4d4d8; }
+.shot img { max-width: 60mm; max-height: 120mm; border: 0.5pt solid #d4d4d8; }
+.missing { width: 40mm; padding: 6mm 2mm; border: 0.5pt dashed #a1a1aa; color: #71717a; font-size: 7.5pt; text-align: center; }
+.after { font-size: 9pt; }
+.receipt { border-left: 2pt solid #047857; padding-left: 3mm; }

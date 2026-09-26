@@ -81,6 +81,9 @@ from agent.schemas.creative_package import (
     GateDecision,
 )
 
+#: The statuses whose package release minted: the only ones `editor_zip` serves.
+RELEASED = frozenset({CreativePackageStatus.RELEASED, CreativePackageStatus.SUPERSEDED})
+
 log = structlog.get_logger(__name__)
 
 router = APIRouter(tags=["creative"])
@@ -446,6 +449,16 @@ async def request_package_export(
             title="Unsupported export format",
         )
     row = await _package(db, me, package_id)
+    if export_format is ExportFormat.EDITOR_ZIP and row.status not in RELEASED:
+        # §14: a draft that imports into Google Ads Editor is the most
+        # dangerous artifact this stage could produce. Refused before a job.
+        raise problems.conflict(
+            f"Package {row.id} is {row.status.value.replace('_', ' ')}; only a released package "
+            "can be exported for Google Ads Editor. Release it, then export again.",
+            title="Package not released",
+            code="package_not_released",
+            status=row.status.value,
+        )
     project = await ProjectRepo(db, me.workspace_id).get(row.project_id)
     export = ExportRepo(db, me.workspace_id).add(
         row.id,

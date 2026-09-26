@@ -714,9 +714,7 @@ async def test_the_json_export_validates_and_recomputes_to_the_released_hash(
     assert (await _release(admin, row.id, 1)).status_code == 200
     await db.refresh(row)
 
-    unsupported = await admin.post(
-        f"/creative-packages/{row.id}/export", params={"format": "editor_zip"}
-    )
+    unsupported = await admin.post(f"/creative-packages/{row.id}/export", params={"format": "docx"})
     assert unsupported.status_code == 422, unsupported.text
 
     downloads: list[bytes] = []
