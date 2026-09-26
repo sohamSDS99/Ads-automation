@@ -1814,7 +1814,11 @@ canonical page and the package diff. Rulings owed:
    seeds drew different "likely 1" headlines. CC9 speaks of `package_hash`,
    not previews, but the renders are the QA record. Suggest ordering by the
    ad's shipped position (or the text). The S4-P23 harness pins ids to
-   creation order to hold its baselines; the product still varies.
+   creation order to hold its baselines; the product still varies. It is also
+   why `test_s4p15_final_lint::test_a_31_character_headline_overflows_in_the_
+   preview_and_fails_in_conformance` is flaky — on main@8a1d5509 too (1 of 5
+   runs failed there, 2 of 5 on this branch): whether some combination
+   without the long headline is clamped depends on which ones were drawn.
 5. **`package_diff` no longer compares asset-id references** (S4-P16's
    module). Fields that only point at another asset of the run
    (`price_asset_id`, `script_asset_id`, `parent_asset_id`) differ between any
