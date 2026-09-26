@@ -1937,3 +1937,107 @@ canonical page and the package diff. Rulings owed:
     from it too (added here, with this phase's four); arq embeds its own file
     server on 8081, so a stack that runs the standalone file server beside it
     must give arq `FILE_SERVER_PORT` (the S4-P23 harness uses 8082).
+
+## S4-P24
+
+Hardening. Each item below is a ruling owed, not a change made, unless it
+says "fixed". The §18 statuses they refer to are in `docs/stage-04.md`
+§ "Failure modes (§18)". The §17 statuses are in `tests/test_nfr_stage_04.py`
+and `docs/gates/phase-4.md`.
+
+1. **CC9: what "identical CreativeInput" pins.** Every row id is `uuid4` and
+   every decision carries a wall-clock `decided_at`, so no re-run can reproduce
+   a byte-identical `package_hash` unless those are pinned too. The test pins
+   both as inputs (`tests/integration/s4p24_pinned_inputs.py`):
+   - per-task UUID streams, forked by creation index, so ids follow the call
+     tree and not the scheduler;
+   - a decision clock.
+
+   A third process then draws *different* ids and must produce the same package
+   once ids are relabelled. That second check found eight orderings by UUID,
+   all fixed. The alternative is content-derived row ids (uuid5, as S4-P8 did
+   for OfferBinding): a product-wide change. **Ruling: is the pinned-input
+   reading the contract, or should Stage 04 ids become content-derived?**
+2. **CC2: the caps can be exceeded (NOT MET).**
+   - The reservation is the catalogue estimate, and reconcile books the billed
+     cost unconditionally. So every job in flight when a cap fills overshoots
+     by actual − estimate.
+   - Measured with the recorded wan-3.0 job: $40.1125 against the $40 media
+     cap; $85.00 against $40 with 400 concurrent jobs at wan's 2.125× billing.
+   - It never compounds: the next reservation is refused.
+   - Options: reserve a worst case (for example the capability's highest price
+     × the longest duration); hold a per-model billing-ratio margin; or accept
+     a bounded overshoot and restate the threshold. Ties to S4-P1 item 2.
+3. **CC3: estimate accuracy (NOT MET for wan).** alibaba/wan-3.0 is at 1.125
+   (0% of runs within 0.25); flux, veo and grok pass. There is one billed run
+   per model on record. "Tracked in Settings" does not exist: no route, table
+   or page aggregates estimate against actual per model. The per-job data is
+   stored. **Build the Settings view (a phase of its own)?**
+4. **CC1: the copy track waits for video (NOT MET by construction).**
+   `RunExecutor` runs the DAG wave by wave, and wave 2 holds 4.2.3, 4.4.2 and
+   4.4.4. So 4.3.3 finishes after 4.4.4 every time (7/7 runs), although it does
+   not depend on it. A video may run to `video_job_timeout_s` (900 s), which
+   alone is over the 12-minute copy budget. The fix is dependency-driven
+   scheduling in the executor, a shared-orchestrator change.
+   - Offline machine time is well inside both budgets (27.8–55.7 s scaled
+     against 270 s; 20–40 s against 72 s).
+   - At 10 ad groups the copy track makes about 130 sequential model calls, so
+     it breaks even at about 5 s per call.
+5. **An api killed between a gate decision's commit and its enqueue** leaves
+   the run `awaiting_approval` with no pending gate, or `queued` with
+   `started_at` set. The reaper sweeps neither. Cancel + Retry through the API
+   recovers it cleanly (`test_s4p24_kill9.py`), but the UI's Retry button counts
+   failed nodes only, so it stays hidden. A guarded sweep needs a grace period
+   so it does not race the in-request resume and start two executors.
+   **Ruling on the sweep.** The Cancel dialog's "A cancelled run cannot be
+   resumed" is also untrue.
+6. **§18 rows the code does not implement as written** (details and file:line
+   in `docs/stage-04.md`):
+   - no "Submit again (may double-bill ≈ $x)" for a video in
+     `unknown_submit_state`, so its reservation stays held;
+   - no catalogue refresh or capability re-validation after a provider 400,
+     and the Jobs list never shows the provider's error text (`error.detail`
+     is never written);
+   - no runtime degrade ladder for images, nothing renders `degraded`, and no
+     Console header step;
+   - an all-lint-fail gap does not name the rule, and QA does not show it;
+   - `composited_real` is resolved but nothing composites the product photo;
+   - CR-E13 warns at 30 days while 4.3.2 drops offers at 7, and nothing can
+     refresh offer data;
+   - **no per-ad-group `blocked: no_licensed_claim`**: 4.2.2 fails the whole
+     node (the one NOT IMPLEMENTED row);
+   - no reminder cadence for H3 (reminders read Approval rows only);
+   - `ruleset_superseded` and `plan_superseded` are never set on a package, so
+     both banners are dead UI;
+   - `reuse_cache` reuses nothing past 4.1.1, so a re-run re-bills media;
+   - after a reserve swap, release is `package_stale` and nothing re-runs
+     4.6/4.7;
+   - no `storage_full` code, no CR-E11 at Start, and the
+     `storage_insufficient` gap says "retry this node" when Retry cannot re-run
+     a succeeded node;
+   - no Playwright retry, and a dead browser fails all of 4.5.1;
+   - when G8 rejects every asset and a campaign type in scope needs media, the
+     text package is blocked, not releasable;
+   - `serp_template_version` is not shown on any web preview;
+   - no `auth` failure code, CR-E7 does not test the key, and a 401 while
+     polling is not caught.
+7. **§16 routes that do not exist:** `POST /creative-assets/{id}/drop` and
+   `POST /generation-jobs/{id}/cancel`. A creative run's cancel and retry
+   declare `RUN_EXECUTE` where §16 names `CREATIVE_EXECUTE`. Today both mean
+   admin + operator, so no cell of the matrix differs.
+8. **Fixed on the way (product):**
+   - Determinism: 4.3.1 and 4.3.3 evidence order; the package's asset, media,
+     file, job, audit and exception order.
+   - `AssetDecision.decided_at` now comes from the gate's clock.
+   - Crash recovery: a stuck budget reservation after a kill; 4.4.2 could not
+     resume past a chosen master (`_preview.webp`); a reaped run kept its lock
+     for 3 h; runs that never started were never reaped.
+   - Web: the selected run-list row's contrast (4.44:1); the console crashed on
+     any run halted at H3 (`awaiting_human_task`), which failed s4p20 on main;
+     colour-only links on the canonical package.
+   - The authz-matrix coverage test, red on main for 22 routes, is green.
+9. **Still open from S4-P23 item 4:** 4.6.4's preview tie-break orders by
+   `(node_id, created_at, id)`. The CC9 package comparison does not cover it,
+   because previews are not in the package payload.
+   `test_s4p15_final_lint::test_a_31_character…` remains flaky on main for
+   that reason.
