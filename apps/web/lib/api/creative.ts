@@ -109,6 +109,15 @@ export type CreativePackageSummary = {
   ruleset_superseded: boolean;
 };
 
+/**
+ * A package by its version, in running text: `package v3`, or `the unreleased
+ * package` — an unreleased package is version 0 until release mints one
+ * (migration 0022), and "v0" is not a version anyone released.
+ */
+export function packageName(version: number): string {
+  return version > 0 ? `package v${version}` : "the unreleased package";
+}
+
 /** `GET /projects/{id}/creative` — runs and package history, newest first. */
 export type CreativeOverview = {
   runs: CreativeRunSummary[];
@@ -232,9 +241,10 @@ export function creativeBadges(
 
   const newest = overview?.packages[0];
   const amber: string[] = [];
-  if (newest?.plan_superseded) amber.push(`the plan behind package v${newest.version} was superseded`);
+  const name = newest ? packageName(newest.version) : "";
+  if (newest?.plan_superseded) amber.push(`the plan behind ${name} was superseded`);
   if (newest?.ruleset_superseded) {
-    amber.push(`a newer ruleset is available than package v${newest.version} was built on`);
+    amber.push(`a newer ruleset is available than ${name} was built on`);
   }
   if (amber.length > 0) {
     const sentence = amber.join(", and ");

@@ -23,8 +23,9 @@
  * 390; no console error. Exit code 1 on any failed check.
  */
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 
 import { chromium } from "playwright";
 
@@ -387,7 +388,21 @@ const view = (await admin.call("GET", `/creative-runs/${A.runId}/brief`)).body;
 const expected = sentence(view.authorises, "Authorises");
 check(`A's brief authorises RSAs, images and video (${expected})`, view.authorises.rsas === 6 && view.authorises.images > 0 && view.authorises.videos > 0);
 
-const browser = await chromium.launch({ channel: "chromium" });
+/** The installed Chrome for Testing, as the later harnesses find it: the
+ *  bundled `channel: "chromium"` build this pinned (1187) is no longer on disk. */
+function chromiumPath() {
+  const root = `${homedir()}/Library/Caches/ms-playwright`;
+  const builds = readdirSync(root)
+    .filter((name) => /^chromium-\d+$/.test(name))
+    .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]));
+  for (const build of builds) {
+    const path = `${root}/${build}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+    if (existsSync(path)) return path;
+  }
+  return undefined;
+}
+
+const browser = await chromium.launch({ executablePath: chromiumPath() });
 try {
   /* 2 — no decide control for anyone who cannot decide; the card still says what approving authorises. */
   for (const [who, email] of [["viewer", viewer], ["operator", operator], ["another approver", other]]) {

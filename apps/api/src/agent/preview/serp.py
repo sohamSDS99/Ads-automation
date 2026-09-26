@@ -41,7 +41,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from agent.connectors.browser import LAUNCH_ARGS, USER_AGENT, BrowserUnavailable
 from agent.preview.landing import DEVICES, MOBILE_USER_AGENT, Viewport, one_at_a_time
-from agent.schemas.landing import Device
+from agent.schemas.landing import Box, Device
 
 if TYPE_CHECKING:
     from playwright.async_api import Browser, Route
@@ -61,19 +61,24 @@ ElementRole = Literal["headline", "description", "path"]
 
 _MEASURE = """
 () => {
-  const out = [];
+  const at = (r) => ({x: r.left + window.scrollX, y: r.top + window.scrollY,
+                      width: r.width, height: r.height});
+  const elements = [];
   for (const el of document.querySelectorAll('[data-el]')) {
     const box = el.getBoundingClientRect();
     const clip = el.parentElement ? el.parentElement.closest('[data-clip]') : null;
     let clipped = false;
+    let clipBox = null;
     if (clip) {
       const c = clip.getBoundingClientRect();
       clipped = box.bottom > c.bottom + 0.5 || box.right > c.right + 0.5;
+      clipBox = at(c);
     }
-    out.push({key: el.dataset.el, scroll_width: el.scrollWidth,
-              client_width: el.clientWidth, clipped});
+    elements.push({key: el.dataset.el, scroll_width: el.scrollWidth,
+                   client_width: el.clientWidth, clipped, box: at(box), clip_box: clipBox});
   }
-  return out;
+  const ad = document.querySelector('.ad');
+  return {elements, frame: ad ? at(ad.getBoundingClientRect()) : null};
 }
 """
 
@@ -116,6 +121,14 @@ class ElementMetrics(_Model):
     overflow_px: int = Field(ge=0)
     #: The device layout hides some of it: past the block's line clamp or edge.
     clipped: bool
+    #: Where the element sits in the screenshot, in CSS px at scale 1 — what
+    #: lets a reader mark the truncation on the picture itself (S4-P23).
+    #: None on a preview measured before boxes were recorded.
+    box: Box | None = None
+    #: The box of the block that clips it (its `[data-clip]` ancestor): where
+    #: a clipped element is cut off, which its own box — the space the hidden
+    #: text would take — does not show.
+    clip_box: Box | None = None
 
     @property
     def truncated(self) -> bool:
@@ -130,6 +143,9 @@ class PreviewRender(_Model):
     elements: list[ElementMetrics] = Field(default_factory=list)
     #: Requests the page tried to make. Every one was aborted.
     requests: int = 0
+    #: The ad block's box in the screenshot: the part of a full-page capture
+    #: that is the ad, so it can be shown at true scale without the margin.
+    frame: Box | None = None
     screenshot: bytes | None = None
 
     def dom(self) -> dict[str, Any]:
@@ -146,6 +162,7 @@ class PreviewRender(_Model):
                 if m.overflow_px > 0
             ],
             "elements": [m.model_dump(mode="json") for m in self.elements],
+            "frame": self.frame.model_dump(mode="json") if self.frame is not None else None,
             "requests": self.requests,
             **({"error": self.error} if self.error else {}),
         }
@@ -305,8 +322,10 @@ async def _render(
                 client_width=int(item["client_width"]),
                 overflow_px=max(0, int(item["scroll_width"]) - int(item["client_width"])),
                 clipped=bool(item["clipped"]),
+                box=Box.model_validate(item["box"]),
+                clip_box=Box.model_validate(item["clip_box"]) if item["clip_box"] else None,
             )
-            for item in facts
+            for item in facts["elements"]
         ]
         return PreviewRender(
             device=device,
@@ -314,6 +333,7 @@ async def _render(
             rendered=True,
             elements=elements,
             requests=requests,
+            frame=Box.model_validate(facts["frame"]) if facts["frame"] else None,
             screenshot=screenshot,
         )
     finally:

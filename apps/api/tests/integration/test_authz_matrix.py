@@ -571,6 +571,65 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # S4-P23: one preview's capture, for the QA screen's grid — every role's.
+    (
+        "GET",
+        "/render-previews/{preview_id}/screenshot",
+        "/render-previews/00000000-0000-4000-8000-000000000000/screenshot",
+        Permission.READ,
+        None,
+    ),
+    # S4-P16: release (approver, admin) and the Stage 05 read, the diff and the
+    # export (every role). S4-P23: the package reads and its file redirect.
+    (
+        "POST",
+        "/creative-packages/{package_id}/release",
+        "/creative-packages/00000000-0000-4000-8000-000000000000/release",
+        Permission.CREATIVE_RELEASE,
+        {"confirm_version": 1},
+    ),
+    (
+        "GET",
+        "/packages/released",
+        "/packages/released?project_id=00000000-0000-4000-8000-000000000000",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-packages/{package_id}/diff",
+        "/creative-packages/00000000-0000-4000-8000-000000000000/diff?against=00000000-0000-4000-8000-000000000000",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/creative-packages/{package_id}/export",
+        "/creative-packages/00000000-0000-4000-8000-000000000000/export?format=json",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-runs/{run_id}/package",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/package",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-packages/{package_id}",
+        "/creative-packages/00000000-0000-4000-8000-000000000000",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-packages/{package_id}/files/{path:path}",
+        "/creative-packages/00000000-0000-4000-8000-000000000000/files/landing/patch.json",
+        Permission.READ,
+        None,
+    ),
     # S4-P21: the Media Library's file redirect and the regeneration price —
     # both reads, for every role (the regeneration itself is CREATIVE_EXECUTE).
     (

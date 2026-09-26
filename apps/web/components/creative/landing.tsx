@@ -29,15 +29,21 @@ import {
   blockerLabel,
   destinationLabel,
   isLiveCreativeRun,
+  packageName,
   type CreativeEligibility,
   type CreativeOverview,
   type CreativePackageStatus,
   type CreativePackageSummary,
 } from "@/lib/api/creative";
+import { compareHref, packageHref } from "@/lib/api/creative-packages";
 import type { HumanTask } from "@/lib/api/tasks";
 import { absoluteTime, relativeTime, usd } from "@/lib/format";
 import { errorMessage, useCreativeStatus, useProject } from "@/lib/queries";
 import { Can, useSession } from "@/lib/session";
+
+function sentenceCase(text: string): string {
+  return `${text.charAt(0).toUpperCase()}${text.slice(1)}`;
+}
 
 /**
  * `/projects/[id]/creative` — the Stage 04 landing (PRD §15.4 A).
@@ -115,6 +121,7 @@ export function CreativeLanding({ projectId }: { projectId: string }) {
       />
 
       <HistoryBlock
+        projectId={projectId}
         overview={overview.data}
         pending={overview.isPending}
         compare={compare}
@@ -221,7 +228,9 @@ function StatusBlock({
           {newest ? (
             <div className="flex flex-col gap-2">
               <div className="flex flex-wrap items-center gap-2">
-                <span className="font-medium text-fg">Package v{newest.version}</span>
+                <Link href={packageHref(projectId, newest.package_id)} className="font-medium text-fg hover:text-accent hover:underline">
+                  {newest.version > 0 ? `Package v${newest.version}` : "Unreleased package"}
+                </Link>
                 <Badge tone={PACKAGE_STATUS[newest.status].tone}>
                   {PACKAGE_STATUS[newest.status].label}
                 </Badge>
@@ -523,10 +532,10 @@ function AttentionBlock({
             <AttentionRow
               icon={FileWarning}
               tone="warning"
-              title={`The plan behind package v${newest.version} was superseded`}
+              title={`The plan behind ${packageName(newest.version)} was superseded`}
               chip="plan_superseded"
             >
-              Package v{newest.version} still carries plan v{newest.plan_version}. A new run pins
+              {sentenceCase(packageName(newest.version))} still carries plan v{newest.plan_version}. A new run pins
               the plan that is frozen now.
             </AttentionRow>
           ) : null}
@@ -538,7 +547,7 @@ function AttentionBlock({
               title="A newer ruleset is available"
               chip="newer_ruleset_available"
             >
-              Package v{newest.version} was checked against ruleset{" "}
+              {sentenceCase(packageName(newest.version))} was checked against ruleset{" "}
               <span className="font-mono text-xs">{newest.ruleset_version}</span>. It is not
               re-checked on its own; a new run pins the newest published ruleset.
             </AttentionRow>
@@ -601,12 +610,22 @@ function AttentionRow({
 
 /* 4. History --------------------------------------------------------------- */
 
+/** The diff of two ticked packages: the one lower in the newest-first history is the earlier side. */
+function compareOf(projectId: string, packages: CreativePackageSummary[], ticked: string[]): string {
+  const [first, second] = [...ticked].sort(
+    (x, y) => packages.findIndex((p) => p.package_id === y) - packages.findIndex((p) => p.package_id === x),
+  );
+  return compareHref(projectId, first!, second!);
+}
+
 function HistoryBlock({
+  projectId,
   overview,
   pending,
   compare,
   onToggle,
 }: {
+  projectId: string;
   overview?: CreativeOverview;
   pending: boolean;
   compare: string[];
@@ -618,11 +637,16 @@ function HistoryBlock({
       id="creative-history"
       title="Packages"
       actions={
-        // The ticks are this page's; the diff they open is S4-P23's, so the
-        // page says what it cannot do yet instead of linking to a route that
-        // does not exist (Next would prefetch it and 404).
+        // Two ticks open the diff: the older of the two (by the history's
+        // newest-first order) is the earlier side.
         compare.length === 2 ? (
-          <span className="text-sm text-fg-subtle">2 selected. Package comparison is not available yet.</span>
+          <Link
+            href={compareOf(projectId, packages, compare)}
+            className="text-sm text-accent hover:underline"
+            data-testid="compare-selected"
+          >
+            Compare the 2 selected
+          </Link>
         ) : compare.length === 1 ? (
           <span className="text-sm text-fg-subtle">Pick one more to compare</span>
         ) : null
@@ -658,7 +682,9 @@ function HistoryBlock({
               {packages.map((pkg) => (
                 <Tr key={pkg.package_id}>
                   <Td className="font-medium tabular-nums">
-                    v{pkg.version}
+                    <Link href={packageHref(projectId, pkg.package_id)} className="text-accent hover:underline">
+                      {pkg.version > 0 ? `v${pkg.version}` : "Unreleased"}
+                    </Link>
                     {/* Below `sm` the cost rides under the version, as Stage
                         03's history carries its date: four columns clipped
                         the compare tick at 390px. */}
@@ -696,7 +722,9 @@ function HistoryBlock({
                         onChange={() => onToggle(pkg.package_id)}
                         className="size-4 accent-accent"
                       />
-                      <span className="sr-only">Compare package v{pkg.version}</span>
+                      <span className="sr-only">
+                        Compare {pkg.version > 0 ? `package v${pkg.version}` : `the unreleased package of run ${pkg.creative_run_id.slice(-8)}`}
+                      </span>
                     </label>
                   </Td>
                 </Tr>

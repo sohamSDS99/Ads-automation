@@ -1,0 +1,74 @@
+# S4-P23's isolated stack: the REAL api, the REAL file server, the REAL arq
+# worker (release writes the package files through it) and S4-P1's recorded
+# OpenRouter catalogue, for the QA screen, the Package screen, the released
+# package's canonical page and the package diff.
+#
+#   docker compose -p s4p23 -f docker-compose.yml -f apps/web/scripts/s4p23/compose.s4p23.yml \
+#     up -d postgres redis catalogue api worker
+#
+# Subnet 172.31.223.0/24 and ports 8623 (api) / 8624 (file server) / 8625
+# (catalogue) / 3623 (web) are this phase's alone (`!override`: compose merges
+# lists otherwise); S4-P17 runs beside it.
+#
+# `worker` starts as the file server only: `seed.py` runs the pipeline
+# in-process, and a queue consumer would race it. `run.sh` starts the arq
+# consumer inside the same container (same Volume) once seeding is done and
+# the queue it filled is emptied — release's `write_package_files` needs it.
+# The image is `s4p16-wtest` re-tagged: Playwright + Chromium + DejaVu Sans
+# Mono (4.6.4's real preview render), ffmpeg, exiftool, tesseract, Inter.
+services:
+  api:
+    image: s4p23-wtest:latest
+    command: ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p23-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3623
+      CORS_ORIGINS: http://localhost:3623
+    ports: !override
+      - "127.0.0.1:8623:8000"
+    volumes:
+      - ./apps/web/scripts/s4p23:/app/s4p23
+    depends_on:
+      catalogue:
+        condition: service_started
+
+  worker:
+    image: s4p23-wtest:latest
+    command:
+      ["uvicorn", "--factory", "agent.fileserver:create_file_server", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p23-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3623
+    volumes:
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p23:/app/s4p23
+    ports:
+      - "127.0.0.1:8624:8081"
+
+  catalogue:
+    image: s4p23-wtest:latest
+    command: ["python", "/app/s4p3/catalogue_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p3:/app/s4p3
+    ports:
+      - "127.0.0.1:8625:8099"
+    networks: [internal]
+
+  test:
+    image: s4p23-wtest:latest
+
+  web:
+    profiles: ["s4p23-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.223.0/24
+        - subnet: fd00:ada:223::/64

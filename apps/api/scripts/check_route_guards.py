@@ -22,6 +22,7 @@ from __future__ import annotations
 import importlib
 import os
 import pkgutil
+import re
 import sys
 from pathlib import Path
 
@@ -119,7 +120,8 @@ def main() -> int:
         for path, operations in create_app().openapi()["paths"].items()
         for method in (m.upper() for m in operations)
     }
-    for key in sorted(seen - mounted):
+    # OpenAPI prints a converter-typed parameter bare: `{path:path}` is `{path}`.
+    for key in sorted(k for k in seen if (k[0], re.sub(r":\w+}", "}", k[1])) not in mounted):
         failures.append(f"{key[0]} {key[1]} is defined but never included by create_app().")
 
     if failures:

@@ -37,6 +37,15 @@ import {
   startCreativeRun,
   type CreativeRequest,
 } from "@/lib/api/creative";
+import {
+  getConformance,
+  getPackage,
+  getPackageDiff,
+  getRunPackage,
+  listRenderPreviews,
+  releasePackage,
+  type ConformanceFilter,
+} from "@/lib/api/creative-packages";
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
   estimateRegeneration,
@@ -164,6 +173,15 @@ export const keys = {
   // S4-P22.
   mediaReferences: (projectId: string) => ["projects", projectId, "media-references"] as const,
   creativeExceptions: (runId: string) => ["runs", runId, "creative", "exceptions"] as const,
+  // S4-P23. The run's package is under `run(runId)` with its other reads; a
+  // package by id is under `packages`, which a release invalidates whole.
+  renderPreviews: (runId: string) => ["runs", runId, "creative", "previews"] as const,
+  conformance: (runId: string, verdict: ConformanceFilter) =>
+    ["runs", runId, "creative", "conformance", verdict] as const,
+  runPackage: (runId: string) => ["runs", runId, "creative", "package"] as const,
+  packages: ["packages"] as const,
+  package: (packageId: string) => ["packages", packageId] as const,
+  packageDiff: (before: string, after: string) => ["packages", after, "diff", before] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -1018,5 +1036,60 @@ export function useAmendments(filters: { status?: string; project_id?: string } 
   return useQuery({
     queryKey: keys.amendments(filters),
     queryFn: () => listAmendments(filters),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// S4-P23 — QA, package, release, compare
+// ---------------------------------------------------------------------------
+
+/** 4.6.4's previews for a run: every RSA combination on each device (PRD §15.4 K). */
+export function useRenderPreviews(runId: string) {
+  return useQuery({ queryKey: keys.renderPreviews(runId), queryFn: () => listRenderPreviews(runId), retry: false });
+}
+
+/** 4.6.1's checks, filtered by the server (`?verdict=`); a 404 means 4.6.1 has not run. */
+export function useConformance(runId: string, verdict: ConformanceFilter) {
+  return useQuery({
+    queryKey: keys.conformance(runId, verdict),
+    queryFn: () => getConformance(runId, verdict),
+    retry: false,
+    placeholderData: (previous) => previous,
+  });
+}
+
+/** The run's package with 4.7.2's checklist and the release preview; 404 before 4.7.1. */
+export function useRunPackage(runId: string) {
+  return useQuery({ queryKey: keys.runPackage(runId), queryFn: () => getRunPackage(runId), retry: false });
+}
+
+/** One package by id — the canonical released page reads this. */
+export function usePackage(packageId: string) {
+  return useQuery({ queryKey: keys.package(packageId), queryFn: () => getPackage(packageId), retry: false });
+}
+
+export function usePackageDiff(before: string | null, after: string | null) {
+  return useQuery({
+    queryKey: keys.packageDiff(before ?? "", after ?? ""),
+    queryFn: () => getPackageDiff(before as string, after as string),
+    enabled: Boolean(before && after && before !== after),
+    retry: false,
+  });
+}
+
+/**
+ * `POST /creative-packages/{id}/release`. On success every package read is
+ * stale — the released one, the one it superseded, the project's history.
+ */
+export function useReleasePackage(projectId: string, runId: string) {
+  const client = useQueryClient();
+  return useMutation({
+    mutationFn: ({ packageId, version }: { packageId: string; version: number }) =>
+      releasePackage(packageId, version),
+    onSettled: () => {
+      void client.invalidateQueries({ queryKey: keys.runPackage(runId) });
+      void client.invalidateQueries({ queryKey: keys.packages });
+      void client.invalidateQueries({ queryKey: keys.creative(projectId) });
+    },
   });
 }

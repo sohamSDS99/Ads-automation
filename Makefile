@@ -6,7 +6,7 @@
 .PHONY: help up down restart logs ps migrate revision psql redis test test-api \
         test-integration guards verify verify-p2 verify-p3 verify-p4 verify-p5a verify-p5b \
         verify-p6 verify-p7 verify-p8 verify-s2p1 verify-s3p3 verify-s3p5 verify-s3p6 eval coverage coverage-calc \
-        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-s4p18 browser-s4p19 browser-s4p20 browser-s4p21 browser-s4p22 browser-documents browser-connections browser-workspaces \
+        browser browser-p6 browser-p7 browser-p8 browser-nav browser-s2p0 browser-s2p6a browser-s2p6b browser-s2p6c browser-s3p8 browser-s4p2 browser-s4p3 browser-s4p18 browser-s4p19 browser-s4p20 browser-s4p21 browser-s4p22 browser-s4p23 browser-documents browser-connections browser-workspaces \
         typecheck lint fmt contracts health clean
 
 API := apps/api
@@ -196,6 +196,9 @@ browser-s4p21: ## Drive the Media Library against the REAL api + file server on 
 
 browser-s4p22: ## Drive the G8/G8b review workspace and H3 against the REAL api + file server on the isolated s4p22 stack: a keyboard-only review of 20 assets, Approve gated on four ticks, the legal owner's clear with step-up and receipt, absent controls for everyone else, withdraw counts before confirm, axe, visual baselines at 1280/390 light/dark
 	cd $(WEB) && scripts/s4p22/run.sh
+
+browser-s4p23: ## Drive QA, Package + release, the canonical released page and the package diff against the REAL api + file server + arq worker on the isolated s4p23 stack: previews at true scale with the server's truncations marked, virtualised server-filtered conformance, an approver releasing v1 by typing it, absent release controls for everyone else, a read-only canonical URL, text + side-by-side media diff, axe, visual baselines at 1280/390 light/dark
+	cd $(WEB) && scripts/s4p23/run.sh
 
 browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py

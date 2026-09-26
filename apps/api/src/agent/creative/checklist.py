@@ -756,6 +756,26 @@ CHECKS: Final[tuple[Check, ...]] = (
 )
 
 
+#: What each of the thirteen checks, in `CHECKS` order, asks — the rows of the
+#: blocking checklist the package screen and the release dialog render. The
+#: screen shows these and the server's findings; it never re-derives either.
+TITLES: Final[Mapping[str, str]] = {
+    "check_1": "G7 approved the brief this package was written from",
+    "check_2": "Every asset lints pass at the final pin",
+    "check_3": "Each RSA meets its counts, quotas and pair checks",
+    "check_4": "Every claim is licensed at the pin",
+    "check_5": "Variant B is distinct from A and states a hypothesis",
+    "check_6": "Offer values match the live offer records",
+    "check_7": "Sitelinks resolve on the project's domain and are unique",
+    "check_8": "AI media is approved at G8 and G8b and carries its disclosure",
+    "check_9": "Every rendition is measured, unstretched and within spec",
+    "check_10": "Every video meets its duration, brand timing and captions",
+    "check_11": "Every campaign meets its launch minimums",
+    "check_12": "H3 is completed or not required",
+    "check_13": "The payload holds no personal data, key or binary",
+}
+
+
 def run_checks(context: CheckContext) -> list[CritiqueIssue]:
     """All thirteen, in §11's order."""
     return [issue for check in CHECKS for issue in check(context)]
