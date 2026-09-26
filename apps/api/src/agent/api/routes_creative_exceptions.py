@@ -2,6 +2,7 @@
 
     GET  /creative-runs/{id}/exceptions            READ
     POST /creative-runs/{id}/exceptions/clear      CLAIM_SIGN   the named legal owner only
+    POST /creative-runs/{id}/exceptions/withdraw-preview   CREATIVE_EXECUTE   S4-P22, no write
     POST /creative-runs/{id}/exceptions/withdraw   CREATIVE_EXECUTE
 
 `clear` is ONE transaction (§8.6 steps 1–5), and the order of its checks is the
@@ -53,6 +54,7 @@ from agent.api.schemas_creative_exceptions import (
     ExceptionSet,
     H3TaskRef,
     Swapped,
+    WithdrawPreview,
     WithdrawRequest,
     WithdrawResponse,
 )
@@ -116,10 +118,16 @@ async def list_exceptions(run_id: uuid.UUID, me: AnyMember, db: Db) -> Exception
     card = await _card(db, run.id)
     task = await _task(db, run.id)
     in_set = _in_set(rows, card)
+    open_rows = [row for row in rows if row.status is CreativeExceptionStatus.OPEN]
+    assets = await clearance.load_tied_assets(db, run.id, open_rows)
+    if_rejected = {
+        row.id: [Swapped(out=s.out, into=s.into) for s in clearance.plan_swaps([row], assets)]
+        for row in open_rows
+    }
     return ExceptionSet(
         run_id=run.id,
         set_hash=clearance.register_hash([clearance.view(r) for r in in_set]) if in_set else None,
-        exceptions=[_out(row) for row in rows],
+        exceptions=[_out(row, if_rejected.get(row.id)) for row in rows],
         task=(
             H3TaskRef(task_id=task.id, status=task.status.value, assignee_id=task.assignee_id)
             if task is not None
@@ -375,29 +383,9 @@ async def withdraw_exceptions(
     run = await _creative_run(db, me, run_id)
     task = await _task(db, run.id, lock=True)
     rows = await _rows(db, run.id, lock=True)
-    by_id = {row.id: row for row in rows}
-    wanted = list(dict.fromkeys(body.exception_ids))
-    unknown = [str(key) for key in wanted if key not in by_id]
-    if unknown:
-        raise problems.unprocessable(
-            f"Exception(s) {', '.join(unknown)} are not exceptions of this run.",
-            title="Unknown exceptions",
-            code="not_in_run",
-        )
-    closed = [
-        f"{key} ({by_id[key].status.value})"
-        for key in wanted
-        if by_id[key].status is not CreativeExceptionStatus.OPEN
-    ]
-    if closed:
-        raise problems.conflict(
-            f"Only open exceptions can be withdrawn; {', '.join(closed)} are not.",
-            title="Exception already decided",
-            code="exception_not_open",
-        )
+    wanted, chosen = _withdrawable(rows, body.exception_ids)
 
     now = datetime.now(UTC)
-    chosen = [by_id[key] for key in wanted]
     for row in chosen:
         row.status = CreativeExceptionStatus.WITHDRAWN
         row.decided_by = me.user.id
@@ -446,9 +434,78 @@ async def withdraw_exceptions(
     )
 
 
+@router.post(
+    "/creative-runs/{run_id}/exceptions/withdraw-preview",
+    response_model=WithdrawPreview,
+    summary="What withdrawing these exceptions would swap and drop. No writes",
+)
+async def preview_withdraw(
+    run_id: uuid.UUID, body: WithdrawRequest, me: CreativeOperator, db: Db
+) -> WithdrawPreview:
+    """§15.4 I and §15.2 rule 8: the withdraw confirmation states its
+    consequence in numbers — "swaps 7 assets to fallbacks and drops 1" —
+    before anyone confirms. The numbers are the withdrawal's own planner run
+    over the same rows (`clearance.plan_swaps`), refused exactly as the
+    withdrawal would refuse, so they cannot disagree with what it then does."""
+    run = await _creative_run(db, me, run_id)
+    task = await _task(db, run.id)
+    rows = await _rows(db, run.id)
+    wanted, chosen = _withdrawable(rows, body.exception_ids)
+    assets = await clearance.load_tied_assets(db, run.id, chosen)
+    try:
+        clearance.refuse_frozen(assets)
+    except ClearanceError as exc:
+        raise problems.conflict(exc.detail, title="Cannot withdraw", code=exc.code) from exc
+    swaps = clearance.plan_swaps(chosen, assets)
+    card = await _card(db, run.id)
+    left = [row for row in _in_set(rows, card) if row.id not in set(wanted)]
+    return WithdrawPreview(
+        run_id=run.id,
+        exception_ids=wanted,
+        swapped=[Swapped(out=s.out, into=s.into) for s in swaps],
+        swaps=sum(1 for s in swaps if s.into is not None),
+        drops=sum(1 for s in swaps if s.into is None),
+        h3_ends=(
+            task is not None
+            and task.status in task_service.OUTSTANDING
+            and card is not None
+            and not left
+        ),
+    )
+
+
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
+
+def _withdrawable(
+    rows: Sequence[CreativeException], given: Sequence[uuid.UUID]
+) -> tuple[list[uuid.UUID], list[CreativeException]]:
+    """The exceptions a withdrawal names, in the order named — every one of
+    this run and still open, or the refusal the withdrawal and its preview
+    both give."""
+    by_id = {row.id: row for row in rows}
+    wanted = list(dict.fromkeys(given))
+    unknown = [str(key) for key in wanted if key not in by_id]
+    if unknown:
+        raise problems.unprocessable(
+            f"Exception(s) {', '.join(unknown)} are not exceptions of this run.",
+            title="Unknown exceptions",
+            code="not_in_run",
+        )
+    closed = [
+        f"{key} ({by_id[key].status.value})"
+        for key in wanted
+        if by_id[key].status is not CreativeExceptionStatus.OPEN
+    ]
+    if closed:
+        raise problems.conflict(
+            f"Only open exceptions can be withdrawn; {', '.join(closed)} are not.",
+            title="Exception already decided",
+            code="exception_not_open",
+        )
+    return wanted, [by_id[key] for key in wanted]
 
 
 async def _creative_run(db: AsyncSession, me: Principal, run_id: uuid.UUID) -> Run:
@@ -651,7 +708,7 @@ def _swap_json(swap: Swap) -> dict[str, str | None]:
     return {"out": str(swap.out), "into": str(swap.into) if swap.into is not None else None}
 
 
-def _out(row: CreativeException) -> ExceptionOut:
+def _out(row: CreativeException, if_rejected: list[Swapped] | None = None) -> ExceptionOut:
     return ExceptionOut(
         exception_id=row.id,
         kind=row.kind.value,
@@ -667,4 +724,5 @@ def _out(row: CreativeException) -> ExceptionOut:
         decision_note=row.decision_note,
         claim_record_id=row.claim_record_id,
         signature_id=row.signature_id,
+        if_rejected=if_rejected,
     )

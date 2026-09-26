@@ -636,6 +636,22 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.CREATIVE_EXECUTE,
         {"exception_ids": ["00000000-0000-4000-8000-000000000001"]},
     ),
+    # S4-P22: the withdraw dialog's counts (its operator's alone, like the
+    # withdrawal) and the product reference G8's ReferenceCompare shows (a read).
+    (
+        "POST",
+        "/creative-runs/{run_id}/exceptions/withdraw-preview",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/exceptions/withdraw-preview",
+        Permission.CREATIVE_EXECUTE,
+        {"exception_ids": ["00000000-0000-4000-8000-000000000001"]},
+    ),
+    (
+        "GET",
+        "/media-references/{reference_id}/content",
+        "/media-references/00000000-0000-4000-8000-000000000000/content",
+        Permission.READ,
+        None,
+    ),
     (
         "POST",
         "/creative-assets/{asset_id}/regenerate",

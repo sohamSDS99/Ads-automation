@@ -19,6 +19,8 @@ clear route and the withdraw route must agree on all three:
   assets it ties up (§8.6 step 5, withdraw): they drop, and each one that was
   being carried is replaced by its precomputed fallback when 4.6.2 found one.
   A "no" never licenses anything and never leaves a slot silently short.
+  `plan_swaps` is the same outcome without the write, for the two screens that
+  must state it before anyone commits (§15.4 I).
 """
 
 from __future__ import annotations
@@ -164,26 +166,47 @@ async def swap_to_fallbacks(
     skipped: a released package that still shows the refused copy would be a
     lie about what was decided.
     """
+    assets = await load_tied_assets(db, run_id, rows, lock=True)
+    if not assets:
+        return []
+    refuse_frozen(assets)
+    swaps = plan_swaps(rows, assets)
+    for swap in swaps:
+        out = assets[swap.out]
+        out.status = CreativeAssetStatus.DROPPED
+        out.pin_position = None
+        if swap.into is not None:
+            into = assets[swap.into]
+            into.status = CreativeAssetStatus.LINTED
+            into.lineage = edits.swap_lineage(into, out, by_user)
+    await db.flush()
+    return swaps
+
+
+async def load_tied_assets(
+    db: AsyncSession,
+    run_id: uuid.UUID,
+    rows: Sequence[CreativeException],
+    *,
+    lock: bool = False,
+) -> dict[uuid.UUID, CreativeAsset]:
+    """Every asset `rows` tie up or offer as a fallback, by id. `lock` takes
+    them FOR UPDATE, as a write must; a preview reads them plainly."""
     tied = [asset for row in rows for asset in (row.asset_ids or ())]
     offered = [asset for row in rows for asset in (row.fallback_asset_ids or ())]
     if not tied:
-        return []
-    assets = {
-        asset.id: asset
-        for asset in (
-            await db.execute(
-                sa.select(CreativeAsset)
-                .where(
-                    CreativeAsset.creative_run_id == run_id,
-                    CreativeAsset.id.in_({*tied, *offered}),
-                )
-                .with_for_update()
-                .execution_options(populate_existing=True)
-            )
-        )
-        .scalars()
-        .all()
-    }
+        return {}
+    statement = sa.select(CreativeAsset).where(
+        CreativeAsset.creative_run_id == run_id,
+        CreativeAsset.id.in_({*tied, *offered}),
+    )
+    if lock:
+        statement = statement.with_for_update()
+    result = await db.execute(statement.execution_options(populate_existing=True))
+    return {asset.id: asset for asset in result.scalars().all()}
+
+
+def refuse_frozen(assets: Mapping[uuid.UUID, CreativeAsset]) -> None:
     frozen = sorted(str(a.id) for a in assets.values() if a.frozen_at is not None)
     if frozen:
         raise ClearanceError(
@@ -192,23 +215,34 @@ async def swap_to_fallbacks(
             "be dropped or swapped. Nothing was written.",
         )
 
+
+def plan_swaps(
+    rows: Sequence[CreativeException], assets: Mapping[uuid.UUID, CreativeAsset]
+) -> list[Swap]:
+    """What refusing `rows` together would do, without doing it.
+
+    The one planner behind the write (`swap_to_fallbacks`) and both previews —
+    H3's "what ships if rejected" and the withdraw confirmation's swap/drop
+    counts — so a number shown before a decision is the number the decision
+    then produces. Statuses move in a local overlay exactly as the write moves
+    them: an asset tied twice drops once, a used fallback cannot be used again
+    and, once carried, drops like any carried asset if it is itself tied.
+    """
+    status = {asset_id: asset.status for asset_id, asset in assets.items()}
     used: set[uuid.UUID] = set()
     swaps: list[Swap] = []
     for row in rows:
         for asset_id in row.asset_ids or ():
             out = assets.get(asset_id)
-            if out is None or out.status is CreativeAssetStatus.DROPPED:
+            if out is None or status[out.id] is CreativeAssetStatus.DROPPED:
                 continue
-            carried = out.status in CARRIED
-            out.status = CreativeAssetStatus.DROPPED
-            out.pin_position = None
-            into = _fallback(out, row, assets, used) if carried else None
+            carried = status[out.id] in CARRIED
+            status[out.id] = CreativeAssetStatus.DROPPED
+            into = _fallback(out, row, assets, used, status) if carried else None
             if into is not None:
                 used.add(into.id)
-                into.status = CreativeAssetStatus.LINTED
-                into.lineage = edits.swap_lineage(into, out, by_user)
+                status[into.id] = CreativeAssetStatus.LINTED
             swaps.append(Swap(out=out.id, into=into.id if into is not None else None))
-    await db.flush()
     return swaps
 
 
@@ -217,13 +251,14 @@ def _fallback(
     row: CreativeException,
     assets: Mapping[uuid.UUID, CreativeAsset],
     used: set[uuid.UUID],
+    status: Mapping[uuid.UUID, CreativeAssetStatus],
 ) -> CreativeAsset | None:
     for candidate_id in row.fallback_asset_ids or ():
         candidate = assets.get(candidate_id)
         if (
             candidate is not None
             and candidate.id not in used
-            and candidate.status is CreativeAssetStatus.RESERVE
+            and status[candidate.id] is CreativeAssetStatus.RESERVE
             and edits.same_slot(candidate, out)
         ):
             return candidate

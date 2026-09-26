@@ -69,6 +69,24 @@ class WithdrawResponse(BaseModel):
     resumed: bool
 
 
+class WithdrawPreview(BaseModel):
+    """What `withdraw` would do to these exceptions, stated before it does it
+    (§15.4 I: the confirmation "states the swap/drop counts"). Computed by the
+    same planner the withdrawal runs (`clearance.plan_swaps`); nothing is
+    written or locked."""
+
+    run_id: uuid.UUID
+    exception_ids: list[uuid.UUID]
+    swapped: list[Swapped]
+    #: Assets that would drop and be replaced by a fallback.
+    swaps: int
+    #: Assets that would drop with nothing in their place.
+    drops: int
+    #: True when nothing would be left for the legal owner, so H3 would end
+    #: `not_required` and the run resume.
+    h3_ends: bool
+
+
 class ExceptionOut(BaseModel):
     exception_id: uuid.UUID
     kind: ExceptionKind
@@ -84,6 +102,11 @@ class ExceptionOut(BaseModel):
     decision_note: str | None
     claim_record_id: uuid.UUID | None
     signature_id: uuid.UUID | None
+    #: An open exception only: what rejecting it on its own would do to the
+    #: assets it ties up — each drops, into its fallback or into nothing
+    #: (§15.4 I "what ships if rejected"). `clearance.plan_swaps`, the planner
+    #: the rejection itself runs. None once the exception is decided.
+    if_rejected: list[Swapped] | None = None
 
 
 class H3TaskRef(BaseModel):
