@@ -84,6 +84,10 @@ async def test_4_3_3_reads_evidence_written_together_in_content_order_not_uuid_o
 # CC9: one CreativeInput + its cassette ⇒ one package_hash, in two processes
 # ---------------------------------------------------------------------------
 
+#: A golden run in a fresh process takes 30–120 s here; a child that has not
+#: finished in this long is hung, and must not hang the suite with it.
+CHILD_TIMEOUT_S = 900
+
 UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 #: Digests over content that carries ids — the brief hash, asset content
 #: hashes, a ruleset version's `+<hash8>` (its logo templates name evidence
@@ -149,7 +153,14 @@ async def _golden_in_a_fresh_process(
         "-p", "no:cacheprovider", "-p", "no:randomly", f"--basetemp={out.parent / out.stem}",
         env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )  # fmt: skip
-    output, _ = await process.communicate()
+    try:
+        output, _ = await asyncio.wait_for(process.communicate(), CHILD_TIMEOUT_S)
+    except TimeoutError:
+        process.kill()
+        await process.wait()
+        raise AssertionError(
+            f"the {golden.name} child ran past {CHILD_TIMEOUT_S} s and was killed"
+        ) from None
     assert process.returncode == 0, output.decode()[-4000:]
     return dict(json.loads(await asyncio.to_thread(out.read_text)))
 

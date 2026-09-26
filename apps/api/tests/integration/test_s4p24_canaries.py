@@ -16,8 +16,8 @@ planted where each really lives:
 
 Then everything the run could have leaked into is read back: every request that
 reached the provider (URL, body — and headers, where only `Authorization` may
-carry a key), every row of every table except `evidence` (where two canaries
-were planted on purpose), every read route a client would call for the run,
+carry a key), every row of every table except the evidence rows the two
+canaries were planted in (Stage 04's own evidence rows are scanned), every read route a client would call for the run,
 and every log record, stdlib and structlog. Each canary is proven present where
 it belongs first — a canary that never entered the system proves nothing
 (S3-P2's brand-book test built a PDF and never uploaded it).
@@ -140,12 +140,28 @@ async def _plant(db: AsyncSession, project_id: uuid.UUID) -> None:
     await db.commit()
 
 
-async def _every_row_outside_evidence(db: AsyncSession) -> str:
+async def _planted(db: AsyncSession, project_id: uuid.UUID) -> list[uuid.UUID]:
+    """The evidence rows the canaries were planted in: the brand-book spans and
+    the CRM deals. Every OTHER evidence row is scanned — Stage 04 writes its own
+    (4.3.3's calc evidence is computed from those very CRM rows)."""
+    rows = await db.execute(
+        sa.select(Evidence.id).where(
+            Evidence.project_id == project_id,
+            Evidence.kind.in_(("brand_book_span", "crm_won", "crm_lost")),
+        )
+    )
+    return list(rows.scalars().all())
+
+
+async def _every_row_but(db: AsyncSession, planted: list[uuid.UUID]) -> str:
     chunks = []
     for table in Base.metadata.sorted_tables:
+        query = f'SELECT CAST(t AS text) FROM "{table.name}" t'
+        params: dict[str, Any] = {}
         if table.name == "evidence":
-            continue
-        rows = await db.execute(sa.text(f'SELECT CAST(t AS text) FROM "{table.name}" t'))
+            query += " WHERE NOT (t.id = ANY(:planted))"
+            params["planted"] = planted
+        rows = await db.execute(sa.text(query), params)
         chunks.extend(f"{table.name}: {row}" for (row,) in rows)
     return "\n".join(chunks)
 
@@ -277,9 +293,12 @@ async def test_no_canary_reaches_a_prompt_a_provider_request_a_payload_or_a_log(
                 continue  # the download is what an unsigned_url is for
             assert not found(canary, str(request.url)), f"{canary!r} in the URL {where}"
 
-    # -- payloads: every row outside the evidence the canaries were planted in,
-    # and every read route a client calls --------------------------------------
-    rows = await _every_row_outside_evidence(db)
+    # -- payloads: every row of every table but the evidence rows the canaries
+    # were planted in, and every read route a client calls ----------------------
+    planted_rows = await _planted(db, project_id)
+    assert len(planted_rows) >= 102, len(planted_rows)  # 2 spans + the seed's 100 deals
+    rows = await _every_row_but(db, planted_rows)
+    assert "evidence: " in rows, "no Stage 04 evidence row was scanned: the check would be vacuous"
     reads = await _reads(admin, db, run_id, project_id)
     for canary in canaries:
         assert not found(canary, rows), f"{canary!r} is stored in a row: {_near(canary, rows)}"

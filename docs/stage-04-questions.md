@@ -1973,9 +1973,10 @@ and `docs/gates/phase-4.md`.
    per model on record. "Tracked in Settings" does not exist: no route, table
    or page aggregates estimate against actual per model. The per-job data is
    stored. **Build the Settings view (a phase of its own)?**
-4. **CC1: the copy track waits for video (NOT MET by construction).**
-   `RunExecutor` runs the DAG wave by wave, and wave 2 holds 4.2.3, 4.4.2 and
-   4.4.4. So 4.3.3 finishes after 4.4.4 every time (7/7 runs), although it does
+4. **CC1: the copy track waits for video and for G8 (NOT MET by construction).**
+   `RunExecutor` runs the DAG wave by wave. Wave 2 holds 4.2.3, 4.4.2 and
+   4.4.4, and wave 4 holds 4.4.5 (G8, a human stop), both before 4.3.3's
+   wave 5, so the copy track also waits for the G8 decision. So 4.3.3 finishes after 4.4.4 every time (7/7 runs), although it does
    not depend on it. A video may run to `video_job_timeout_s` (900 s), which
    alone is over the 12-minute copy budget. The fix is dependency-driven
    scheduling in the executor, a shared-orchestrator change.

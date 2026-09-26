@@ -12,7 +12,9 @@ not a pass. The index is checked from three sides:
   threshold's coverage with it, and this is what notices.
 - **A threshold that is NOT MET says so, with its number.** Its holder is a
   strict xfail whose reason carries the measured value. It fails the day the
-  threshold starts passing, and it can never be read as a pass.
+  threshold starts passing, and it can never be read as a pass. Beside it
+  stands a ratchet that pins the measured value, which fails the day it gets
+  worse. A strict xfail alone cannot see that.
 
 `docs/stage-04.md` § "Thresholds (§17)" is the human-readable copy of this
 table. `docs/gates/phase-4.md` is the verdict built on it.
@@ -40,6 +42,8 @@ NFRS: dict[str, tuple[str, tuple[str, ...]]] = {
             "tests.integration.test_s4p24_cost_and_time::test_cc1_zero_latency_copy_track_scaled_to_10_ad_groups_is_under_a_tenth_of_12_min",
             "tests.integration.test_s4p24_cost_and_time::test_cc1_45_and_12_minutes_are_reachable_at_the_prd_minimum_video_latency",
             "tests.integration.test_s4p24_cost_and_time::test_cc1_copy_track_does_not_wait_for_video_latency",
+            "tests.creative.test_cc1_copy_track_structure::test_nothing_on_the_copy_track_depends_on_a_media_node",
+            "tests.creative.test_cc1_copy_track_structure::test_ratchet_the_copy_track_waits_for_no_more_media_than_s4_p24_measured",
         ),
     ),
     "CC2": (
@@ -56,6 +60,8 @@ NFRS: dict[str, tuple[str, tuple[str, ...]]] = {
             "tests.integration.test_s4p24_cc2_media_caps::test_cc2_creative_cap_holds_when_a_job_bills_more_than_its_estimate",
             "tests.integration.test_s4p24_cc2_media_caps::test_cc2_worst_case_media_overshoot_at_the_recorded_wan_billing_ratio",
             "tests.integration.test_s4p24_cc2_media_caps::test_cc2_after_an_overshoot_the_next_job_is_blocked_before_any_http",
+            "tests.integration.test_s4p24_cc2_media_caps::test_cc2_ratchet_the_creative_cap_overshoot_stays_at_its_measured_0_1125",
+            "tests.integration.test_s4p24_cc2_media_caps::test_cc2_ratchet_the_worst_case_media_overshoot_stays_at_its_measured_45_00",
         ),
     ),
     "CC3": (
@@ -64,6 +70,7 @@ NFRS: dict[str, tuple[str, tuple[str, ...]]] = {
         (
             "tests.test_s4p24_estimate_accuracy::test_cc3_estimate_is_within_25_percent_for_80_percent_of_billed_runs_per_model",
             "tests.test_s4p24_estimate_accuracy::test_every_billed_fixture_in_the_repository_is_measured",
+            "tests.test_s4p24_estimate_accuracy::test_the_measured_ratios_per_model",
             "tests.integration.test_s4p24_cc2_media_caps::test_cc3_each_job_row_keeps_the_estimate_and_the_actual_per_model",
         ),
     ),
@@ -263,6 +270,20 @@ def test_every_named_holder_exists(key: str, holder: str) -> None:
         return
     module = importlib.import_module(location)
     assert callable(getattr(module, name, None)), f"{key}: {holder} does not exist"
+
+
+#: A NOT MET threshold's ratchet: the passing test that pins its measured value.
+RATCHETS: dict[str, str] = {
+    "CC1": "tests.creative.test_cc1_copy_track_structure::test_ratchet_the_copy_track_waits_for_no_more_media_than_s4_p24_measured",
+    "CC2": "tests.integration.test_s4p24_cc2_media_caps::test_cc2_ratchet_the_worst_case_media_overshoot_stays_at_its_measured_45_00",
+    "CC3": "tests.test_s4p24_estimate_accuracy::test_the_measured_ratios_per_model",
+}
+
+
+@pytest.mark.parametrize("key", sorted(NOT_MET))
+def test_a_threshold_that_is_not_met_has_a_ratchet_in_the_index(key: str) -> None:
+    assert key in RATCHETS, f"{key} is NOT MET with nothing to stop it getting worse"
+    assert RATCHETS[key] in NFRS[key][1]
 
 
 @pytest.mark.parametrize("key", sorted(NOT_MET))

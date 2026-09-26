@@ -215,16 +215,9 @@ async def test_cc2_media_cap_holds_when_a_job_bills_more_than_its_estimate(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason="CC2 NOT MET: measured text $10.20 + media $39.9125 = $50.1125 against "
-    "max_creative_cost_usd $50.00 (overshoot $0.1125), media itself under its $40 cap: the "
-    "same under-estimated wan-3.0 job, this time filling the creative cap's headroom.",
-)
-async def test_cc2_creative_cap_holds_when_a_job_bills_more_than_its_estimate(
-    router: respx.Router, world: World
-) -> None:
+async def _creative_cap_scenario(router: respx.Router, world: World) -> Decimal:
+    """Text $10.20 + media filling the rest of the $50 creative cap with the
+    recorded wan-3.0 job, media itself under its $40 cap; returns text + media."""
     mock_wan(router)
     text = Decimal("10.20")
     await set_text_spend(world.run_id, text)
@@ -237,23 +230,30 @@ async def test_cc2_creative_cap_holds_when_a_job_bills_more_than_its_estimate(
     require(job.status == GenerationStatus.COMPLETED, f"job ended {job.status}")
     state = await MediaBudget(get_redis()).state(world.run_id)
     require(state.spent_usd <= CAPS.max_media_cost_usd, "the media cap bound first")
-    total = text + state.spent_usd
-    assert total <= CAPS.max_creative_cost_usd, (
-        f"text ${text} + media ${state.spent_usd} = ${total} > cap "
-        f"${CAPS.max_creative_cost_usd} (overshoot ${total - CAPS.max_creative_cost_usd})"
-    )
+    return text + state.spent_usd
 
 
 @pytest.mark.xfail(
     strict=True,
     raises=AssertionError,
-    reason="CC2 NOT MET: measured worst case $85.00 committed against max_media_cost_usd "
-    "$40.00 (overshoot $45.00 = 112.5% of the cap): 400 concurrent jobs of the recorded "
-    "wan-3.0 shape all fit at their $0.10 estimate ($40.00 reserved, the cap exactly) and each "
-    "reconciled at the $0.2125 it billed. The bound is (actual/estimate - 1) x cap for the "
-    "worst-billing model in flight.",
+    reason="CC2 NOT MET: measured text $10.20 + media $39.9125 = $50.1125 against "
+    "max_creative_cost_usd $50.00 (overshoot $0.1125), media itself under its $40 cap: the "
+    "same under-estimated wan-3.0 job, this time filling the creative cap's headroom.",
 )
-async def test_cc2_worst_case_media_overshoot_at_the_recorded_wan_billing_ratio() -> None:
+async def test_cc2_creative_cap_holds_when_a_job_bills_more_than_its_estimate(
+    router: respx.Router, world: World
+) -> None:
+    total = await _creative_cap_scenario(router, world)
+    assert total <= CAPS.max_creative_cost_usd, (
+        f"text + media = ${total} > cap "
+        f"${CAPS.max_creative_cost_usd} (overshoot ${total - CAPS.max_creative_cost_usd})"
+    )
+
+
+async def _worst_case_committed() -> Decimal:
+    """450 concurrent jobs of the recorded wan-3.0 shape against the $40 media
+    cap: 400 fit at their $0.10 estimate and each reconciles at the $0.2125 it
+    billed. Returns what is committed."""
     run_id = uuid.uuid4()
     ledger = MediaBudget(get_redis())
     estimate = wan_estimate()
@@ -271,10 +271,41 @@ async def test_cc2_worst_case_media_overshoot_at_the_recorded_wan_billing_ratio(
 
     state = await ledger.state(run_id)
     require(state.reserved_usd == 0, f"{state}")
-    assert state.spent_usd <= CAPS.max_media_cost_usd, (
-        f"committed ${state.spent_usd} > cap ${CAPS.max_media_cost_usd} "
-        f"(overshoot ${state.spent_usd - CAPS.max_media_cost_usd})"
+    return state.spent_usd
+
+
+@pytest.mark.xfail(
+    strict=True,
+    raises=AssertionError,
+    reason="CC2 NOT MET: measured worst case $85.00 committed against max_media_cost_usd "
+    "$40.00 (overshoot $45.00 = 112.5% of the cap): 400 concurrent jobs of the recorded "
+    "wan-3.0 shape all fit at their $0.10 estimate ($40.00 reserved, the cap exactly) and each "
+    "reconciled at the $0.2125 it billed. The bound is (actual/estimate - 1) x cap for the "
+    "worst-billing model in flight.",
+)
+async def test_cc2_worst_case_media_overshoot_at_the_recorded_wan_billing_ratio() -> None:
+    committed = await _worst_case_committed()
+    assert committed <= CAPS.max_media_cost_usd, (
+        f"committed ${committed} > cap ${CAPS.max_media_cost_usd} "
+        f"(overshoot ${committed - CAPS.max_media_cost_usd})"
     )
+
+
+# ---------------------------------------------------------------------------
+# ratchets: while CC2 is NOT MET, the overshoot may not grow past what S4-P24
+# measured. The strict xfails above fail the day the caps hold; these fail the
+# day the overshoot gets worse — a strict xfail alone cannot see that.
+# ---------------------------------------------------------------------------
+
+
+async def test_cc2_ratchet_the_creative_cap_overshoot_stays_at_its_measured_0_1125(
+    router: respx.Router, world: World
+) -> None:
+    assert await _creative_cap_scenario(router, world) == Decimal("50.1125")
+
+
+async def test_cc2_ratchet_the_worst_case_media_overshoot_stays_at_its_measured_45_00() -> None:
+    assert await _worst_case_committed() == Decimal("85.00")
 
 
 # ---------------------------------------------------------------------------
