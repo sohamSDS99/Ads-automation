@@ -16,9 +16,12 @@ const STATE_ICON: Record<ReviewDecision | "none", typeof Check> = {
   none: Circle,
 };
 
+/** The icon's colour. The word beside it stays neutral: status colours are
+ * UI colours, not text colours (success on white is 2.5:1), and the word —
+ * not the hue — is what says the state (§15.2 rule 14). */
 const STATE_TONE: Record<ReviewDecision | "none", string> = {
   approve: "text-status-success",
-  reject: "text-status-failed",
+  reject: "text-status-failed-ink",
   regenerate: "text-status-gate-ink",
   none: "text-fg-subtle",
 };
@@ -77,7 +80,7 @@ export function ReviewFilmstrip({
   };
 
   return (
-    <nav aria-label="Review queue" className="min-h-0 min-w-0">
+    <nav aria-label="Review queue" className="min-h-0 min-w-0 lg:flex-1">
       <ol
         ref={list}
         onKeyDown={onKeyDown}
@@ -123,7 +126,7 @@ export function ReviewFilmstrip({
                     <span className="truncate capitalize">{item.kind}</span>
                   </span>
                   <span className="block truncate text-xs text-fg">{label(item)}</span>
-                  <span className={cn("mt-0.5 flex items-center gap-1 text-xs", current ? "text-fg" : STATE_TONE[key])}>
+                  <span className={cn("mt-0.5 flex items-center gap-1 text-xs", current || decision ? "text-fg" : "text-fg-muted")}>
                     <Icon aria-hidden className={cn("size-3.5 shrink-0", STATE_TONE[key])} />
                     {decision ? DECISION_LABEL[decision] : "Undecided"}
                   </span>

@@ -291,7 +291,15 @@ function assetPreview(asset: CreativeAssetItem | undefined, subject: string | nu
       />
     );
   }
-  const text = asset.text ?? `${asset.kind} ${asset.surface}`;
+  if (asset.text === null) {
+    return (
+      <span className={cn("text-sm text-fg-muted", struck && "line-through")}>
+        {asset.kind === "image" ? "Image" : asset.kind} with no stored preview
+        <span className="ml-1.5 font-mono text-xs text-fg-subtle">{asset.surface}</span>
+      </span>
+    );
+  }
+  const text = asset.text;
   const at = subject ? text.toLowerCase().indexOf(subject.toLowerCase()) : -1;
   return (
     <span className={cn("text-sm text-fg", struck && "text-fg-muted line-through")}>
@@ -395,15 +403,16 @@ function ExceptionRow({
             value={decision.decision}
             onChange={(value) => onDecide({ ...decision, decision: value })}
           />
-          <label className="flex flex-col gap-1 text-xs text-fg-subtle">
-            Note, kept with the decision (optional)
+          <details className="group text-sm" open={decision.note.length > 0}>
+            <summary className="w-fit cursor-pointer text-fg-muted hover:text-fg">Add a note, kept with the decision</summary>
             <Textarea
+              aria-label={`Note on exception ${index + 1}`}
               value={decision.note}
               maxLength={2000}
-              className="min-h-16"
+              className="mt-1.5 min-h-16"
               onChange={(event) => onDecide({ ...decision, note: event.target.value })}
             />
-          </label>
+          </details>
         </div>
       ) : null}
     </section>
@@ -681,7 +690,8 @@ function WithdrawDialog({
           <Button
             onClick={() => void confirm()}
             disabled={busy || !preview.isSuccess}
-            className="bg-status-failed hover:bg-status-failed/90"
+            // The ink shade: white on `status-failed` is 3.4:1 (axe, measured).
+            className="bg-status-failed-ink hover:bg-status-failed-ink/90"
           >
             {busy ? <Spinner label="Withdrawing" /> : null}
             Withdraw {ids.length} {ids.length === 1 ? "exception" : "exceptions"}

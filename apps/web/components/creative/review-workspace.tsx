@@ -93,6 +93,11 @@ function ratioOfPx(px: string): number {
   return w && h ? w / h : 1;
 }
 
+/** "c-sds-us:c1" already names its campaign; anything else is prefixed with it. */
+function itemLabel(item: ReviewItem): string {
+  return item.concept_id.startsWith(`${item.campaign_ref}:`) ? item.concept_id : `${item.campaign_ref} · ${item.concept_id}`;
+}
+
 function kindNoun(item: ReviewItem): string {
   return item.kind === "video" ? "video" : "image";
 }
@@ -421,27 +426,22 @@ export function ReviewWorkspace({
   const noun = kindNoun(item);
   const stageSrc = shown ? mediaContentUrl(shown.media_id, item.kind === "video" ? "preview" : "master") : null;
   const stageRatio = shown ? ratioOfPx(shown.px) : 1;
-  const assetLabel = `${item.campaign_ref} · ${item.concept_id}`;
+  const assetLabel = itemLabel(item);
   const allDecided = counts.undecided === 0;
   const awaiting = approval.assignee_email ?? "the brand owner";
   const remainingAfter = media && regenerateUsd !== null ? Number(media.remaining_usd) - regenerateUsd : null;
 
   return (
-    <div className="flex flex-col gap-3 lg:h-full lg:min-h-0">
+    <div className="flex flex-col gap-3 lg:min-h-0 lg:flex-1">
       <CheckerDefs />
       <p aria-live="polite" className="sr-only">
         {announcement}
       </p>
 
       <div className="flex min-h-0 flex-col gap-3 lg:flex-1 lg:flex-row">
-        <div className="lg:w-52 lg:shrink-0">
-          <ReviewFilmstrip
-            items={items}
-            state={state}
-            cursor={cursor}
-            onSelect={go}
-            label={(it) => `${it.campaign_ref} · ${it.concept_id}`}
-          />
+        {/* A flex row, so the strip stretches to the row and scrolls inside it. */}
+        <div className="lg:flex lg:min-h-0 lg:w-52 lg:shrink-0">
+          <ReviewFilmstrip items={items} state={state} cursor={cursor} onSelect={go} label={itemLabel} />
         </div>
 
         {/* The stage: the asset, full-bleed, at its true ratio. */}
@@ -471,7 +471,8 @@ export function ReviewWorkspace({
                 trigger={
                   <Button variant="ghost" size="sm" aria-keyshortcuts="?">
                     <Keyboard aria-hidden />
-                    Keyboard shortcuts
+                    {/* Icon-only on a phone, where the row has no room; still named. */}
+                    <span className="max-sm:sr-only">Keyboard shortcuts</span>
                   </Button>
                 }
               >
@@ -524,7 +525,7 @@ export function ReviewWorkspace({
                       setRendition(index);
                       setZoom(FIT);
                     }}
-                    className="tabular-nums"
+                    className="h-auto min-h-8 flex-wrap justify-start gap-x-2 gap-y-0 whitespace-normal py-1 text-left tabular-nums"
                   >
                     <span className="font-mono text-xs">{option.surface}</span>
                     {option.ratio} · {option.px.replace("x", "×")}
@@ -638,9 +639,7 @@ export function ReviewWorkspace({
           >
             Review {items.length} decisions
           </Button>
-        ) : approval.status === "pending" ? (
-          <span className="text-sm text-fg-muted">Awaiting {awaiting}</span>
-        ) : (
+        ) : approval.status === "pending" ? null : (
           <span className="text-sm text-fg-muted">
             Recorded {approval.decided_at ? absoluteTime(approval.decided_at) : ""}
           </span>
