@@ -504,7 +504,7 @@ async def _evidence(
                     Evidence.source == source,
                     Evidence.kind.in_(kinds),
                 )
-                .order_by(Evidence.fetched_at, Evidence.id)
+                .order_by(Evidence.fetched_at, Evidence.hash, Evidence.id)
             )
         )
         .scalars()

@@ -227,10 +227,21 @@ class Snapshot:
         return self.input.project_id
 
     def included(self) -> list[CreativeAsset]:
-        """Every asset that ships, by id."""
+        """Every asset that ships, by what it is — node, campaign, ad group,
+        surface, text, content hash — and only then by id. Two runs of one input write the
+        same assets under fresh UUIDs; an id order listed them differently each
+        time, and 4.7.2's reader then read a different prompt (§17 CC9)."""
         return sorted(
             (asset for asset in self.assets if asset.status in clearance.CARRIED),
-            key=lambda asset: str(asset.id),
+            key=lambda asset: (
+                asset.node_id,
+                asset.campaign_ref,
+                asset.ad_group_ref or "",
+                asset.surface,
+                asset.text or "",
+                asset.content_hash,
+                str(asset.id),
+            ),
         )
 
 
