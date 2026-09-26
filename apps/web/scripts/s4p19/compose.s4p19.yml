@@ -10,6 +10,9 @@
 # are this phase's alone (`!override`: compose merges lists otherwise); S4-P7
 # and S4-P11 run beside it. The web tier is a production `next start` on the
 # host, so `web` is profiled out.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p19-api:latest
@@ -17,10 +20,10 @@ services:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p19-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3419
-      CORS_ORIGINS: http://localhost:3419
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3419}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3419}
     ports: !override
-      - "127.0.0.1:8419:8000"
+      - "127.0.0.1:${S4_API_PORT:-8419}:8000"
     volumes:
       - ./apps/web/scripts/s4p19:/app/s4p19
     depends_on:
@@ -32,7 +35,7 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p19-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3419
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3419}
 
   openrouter:
     image: s4p19-api:latest
@@ -42,7 +45,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p19:/app/s4p19
     ports:
-      - "127.0.0.1:8420:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8420}:8099"
     networks: [internal]
 
   test:
@@ -56,5 +59,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.119.0/24
-        - subnet: fd00:ada:119::/64
+        - subnet: ${S4_SUBNET:-172.31.119.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:119::/64}

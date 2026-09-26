@@ -11,10 +11,12 @@
  * Plus what the screens promise beyond the exit list: the halted and ready
  * states of the landing, the badges, the absent (not disabled) editor for an
  * operator, no console 404 from a prefetched link, and no horizontal page
- * scroll at 390px. Every screen is screenshotted at 390 and 1280 in both
- * themes into $SHOTS. Exit code 1 on any failed check.
+ * scroll at 390px. Every screen is captured at 390 and 1280 in both themes and
+ * held to its visual baseline in tests/visual/s4p2 (S4-P24: recorded when
+ * absent or with UPDATE_BASELINES, compared when present), a copy in $SHOTS.
+ * Exit code 1 on any failed check.
  */
-import { existsSync, mkdirSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { homedir } from "node:os";
 
@@ -26,6 +28,11 @@ const AXE = readFileSync(require.resolve("axe-core/axe.min.js"), "utf8");
 const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3410";
 const STUB = process.env.STUB_URL ?? "http://127.0.0.1:18410";
 const SHOTS = process.env.SHOTS ?? "/tmp/s4p2-shots";
+const REPO = process.env.REPO ?? new URL("../../../../", import.meta.url).pathname;
+const BASELINES = `${REPO}/apps/web/tests/visual/s4p2`;
+const UPDATE = Boolean(process.env.UPDATE_BASELINES);
+/** Share of pixels allowed to differ from a baseline: antialiasing, not layout. */
+const VR_TOLERANCE = 0.002;
 const P = "p-4f1c2a90-0000-4000-8000-000000000001";
 // The catalogue the stub serves: S4-P1's recorded bodies, normalised by the api.
 const catalogue = (modality) =>
@@ -36,6 +43,7 @@ const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, he
 const THEMES = ["light", "dark"];
 
 mkdirSync(SHOTS, { recursive: true });
+mkdirSync(BASELINES, { recursive: true });
 
 const results = [];
 function check(name, ok, detail = "") {
@@ -121,7 +129,80 @@ async function shoot(page, path) {
   await page.setViewportSize(viewport);
 }
 
-/** One screen in all four combinations: axe, console, overflow and a screenshot each. */
+/** What changes run to run and says nothing about layout: clocks and toasts. */
+function masks(page) {
+  return [page.locator("time"), page.locator("[data-sonner-toaster]")];
+}
+
+/** Compare two PNGs pixel by pixel inside Chromium; no image library needed. */
+async function difference(browser, expected, actual) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const result = await page.evaluate(
+    async ([a, b]) => {
+      const load = (src) =>
+        new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = `data:image/png;base64,${src}`;
+        });
+      const [one, two] = await Promise.all([load(a), load(b)]);
+      if (one.width !== two.width || one.height !== two.height) {
+        return { ratio: 1, detail: `size ${one.width}×${one.height} → ${two.width}×${two.height}` };
+      }
+      const pixels = (image) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height).data;
+      };
+      const [p, q] = [pixels(one), pixels(two)];
+      let differ = 0;
+      for (let i = 0; i < p.length; i += 4) {
+        if (Math.abs(p[i] - q[i]) > 24 || Math.abs(p[i + 1] - q[i + 1]) > 24 || Math.abs(p[i + 2] - q[i + 2]) > 24) differ += 1;
+      }
+      return { ratio: differ / (p.length / 4), detail: `${differ} of ${p.length / 4} pixels` };
+    },
+    [expected.toString("base64"), actual.toString("base64")],
+  );
+  await context.close();
+  return result;
+}
+
+/**
+ * The whole screen (grown as `shoot` grows it) against its baseline. A
+ * relative time's WIDTH moves what sits beside it ("2 hours ago" vs "in 2
+ * days" drifts with the stub's clock), which a mask cannot cover: the words
+ * are frozen first, after every assertion and axe have read the real ones.
+ */
+async function visual(browser, page, name) {
+  const viewport = page.viewportSize();
+  const height = await page.evaluate(() => {
+    const main = document.querySelector("main");
+    return main ? main.getBoundingClientRect().top + main.scrollHeight : document.documentElement.scrollHeight;
+  });
+  await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.ceil(height)) });
+  await page.waitForTimeout(150);
+  await page.evaluate(() => {
+    for (const time of document.querySelectorAll("time")) time.textContent = "at a fixed time";
+  });
+  const shot = await page.screenshot({ mask: masks(page), animations: "disabled", caret: "hide" });
+  await page.setViewportSize(viewport);
+  writeFileSync(`${SHOTS}/${name}.png`, shot);
+  const file = `${BASELINES}/${name}.png`;
+  if (UPDATE || !existsSync(file)) {
+    writeFileSync(file, shot);
+    check(`${name}: visual baseline recorded`, true);
+    return;
+  }
+  const diff = await difference(browser, readFileSync(file), shot);
+  check(`${name}: matches its visual baseline`, diff.ratio <= VR_TOLERANCE, `${(diff.ratio * 100).toFixed(3)}% differ (${diff.detail}); now at ${SHOTS}/${name}.png`);
+}
+
+/** One screen in all four combinations: axe, console, overflow and a visual baseline each. */
 async function everyView(browser, label, target, heading, opts, extra) {
   for (const theme of THEMES) {
     for (const size of Object.keys(WIDTHS)) {
@@ -146,8 +227,9 @@ async function everyView(browser, label, target, heading, opts, extra) {
         const x = await scrollsSideways(page);
         check(`${label} [${theme} ${size}] no sideways page scroll`, x === 0, `scrolled ${x}px`);
       }
-      await shoot(page, `${SHOTS}/${label}-${size}-${theme}.png`);
+      // Console first: the capture rewrites the page's clocks.
       check(`${label} [${theme} ${size}] no console errors or failed requests`, problems.length === 0, problems.join("\n      "));
+      await visual(browser, page, `${label}-${theme}-${WIDTHS[size].width}`);
       await context.close();
     }
   }

@@ -529,11 +529,20 @@ function NodeTable({
                 >
                   <NodeDot status={node.status} />
                   <span className="truncate text-fg">{nodeLabel(node.name)}</span>
-                  <span className="font-mono text-[0.6875rem] text-fg-subtle">{node.id}</span>
+                  {/* Muted, not subtle, on the selected row: fg-subtle on
+                      the accent tint is under 4.5:1 in both themes. */}
+                  <span
+                    className={cn(
+                      "font-mono text-[0.6875rem]",
+                      node.id === selected ? "text-fg-muted" : "text-fg-subtle",
+                    )}
+                  >
+                    {node.id}
+                  </span>
                 </button>
               </Td>
               <Td className="whitespace-nowrap">
-                <NodeStatusLabel status={node.status} />
+                <NodeStatusLabel status={node.status} onTint={node.id === selected} />
               </Td>
               <Td className="max-w-48 truncate font-mono text-xs text-fg-muted">
                 {node.model ?? "—"}

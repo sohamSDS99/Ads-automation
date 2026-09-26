@@ -19,6 +19,7 @@ body verbatim, nothing of the request (the key never reached a file).
 | `grok__video_*.json` | grok-imagine-video, 1 s, 480p: `usage.cost` 0.05 = SKU `cents_per_video_output_second_480p` 5¢ × 1 s | $0.05 |
 | `video_poll_unknown_job.json` | `GET /api/v1/videos/{id}` for a job id that does not exist — 404 | free |
 | `wan__video_*.json` | wan-3.0, 2 s, 480p: `usage.cost` **0.2125** for a 2.02 s 854x480 clip whose SKU `duration_seconds_480p` 0.05 prices at $0.10 | $0.2125 |
+| `text_models_pricing.json` | `GET /api/v1/models` (public, no key), recorded **2026-09-27** for S4-P24's CC2 text check: only the four seed-routing text models (`router.SEED_MODELS`), `id` + `pricing` verbatim, the rest of the 458-model body dropped | free |
 
 ## Four DERIVED files
 

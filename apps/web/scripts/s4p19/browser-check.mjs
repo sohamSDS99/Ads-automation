@@ -20,6 +20,14 @@
  * 390; no console error; visual baselines for light and dark at 390 and 1280
  * (recorded into tests/visual/s4p19 when absent, compared when present).
  * Exit code 1 on any failed check.
+ *
+ * S4-P24 (Copy & Creative PRD §17 CC14, "lint preview for one RSA ≤ 400 ms p95
+ * round trip"): 24 timed edits across one RSA's 15 headlines and 4
+ * descriptions — a real keystroke each, timed inside the page from its
+ * keydown to the frame where the chip, having shown `Checking`, shows the
+ * api's verdict for the new text (250 ms debounce + request + render). p95
+ * must be ≤ 400 ms; p50 and p95 are reported. Every edit is reverted with
+ * Escape, and the api is asserted to hold no human edit afterwards.
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -41,9 +49,16 @@ const UPDATE = Boolean(process.env.UPDATE_BASELINES);
 const VR_TOLERANCE = 0.002;
 const ADMIN = { email: "admin@example.com", password: "change-me-at-least-12-chars" };
 const PASSWORD = "s4p19-check-password-1";
-const COMPOSE = ["compose", "-p", "s4p19", "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p19/compose.s4p19.yml"];
+/** `run.sh` exports S4_PROJECT (and the ports and subnet the compose file reads). */
+const PROJECT = process.env.S4_PROJECT ?? "s4p19";
+const COMPOSE = ["compose", "-p", PROJECT, "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p19/compose.s4p19.yml"];
 const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, height: 844 } };
 const TEXT_ONLY = { images: false, video: false, concepts_per_campaign: 2 };
+/** CC14: timed edits for the lint preview's p95, and its budget. */
+const LINT_EDITS = 24;
+const LINT_P95_BUDGET_MS = 400;
+/** Nearest-rank percentile of an ascending list. */
+const percentile = (sorted, p) => sorted[Math.max(0, Math.ceil(p * sorted.length) - 1)];
 /** 31 characters: one over the shipped sheet's Search headline limit. */
 const THIRTY_ONE = "Audit-Ready Records, Every Week";
 /** What the refused save must say: the linter's own finding. */
@@ -364,6 +379,65 @@ try {
       check(`${tag}: no console errors`, problems.length === 0, problems.join("\n      "));
       await context.close();
     }
+  }
+
+  /* CC14 — the lint preview for one RSA, p95 over 24 keystrokes (every one reverted). */
+  {
+    const { context, page, problems } = await open(browser, { email: operatorEmail, theme: "light", size: "desktop" });
+    await studio(page, projectId, runId);
+    const fields = page.locator('[data-testid^="headline-"] input, [data-testid^="description-"] textarea');
+    const count = await fields.count();
+    check(`the RSA's 15 headlines and 4 descriptions are editable fields (${count})`, count === 19);
+    const samples = [];
+    let reverted = true;
+    for (let i = 0; i < LINT_EDITS; i += 1) {
+      const field = fields.nth(i % count);
+      const stored = await field.inputValue();
+      await field.focus();
+      await page.keyboard.press("End");
+      // Armed before the key: the keydown's own timestamp is t0; the chip must
+      // be seen `pending` (the new text asked about) and then settle on a verdict.
+      await field.evaluate((element) => {
+        const row = element.closest("tr");
+        window.__lintSample = new Promise((resolve) => {
+          element.addEventListener(
+            "keydown",
+            (event) => {
+              const t0 = event.timeStamp;
+              let asked = false;
+              const tick = () => {
+                const chip = row.querySelector("[data-verdict]")?.getAttribute("data-verdict");
+                if (chip === "pending") asked = true;
+                else if (asked && chip) return resolve({ ms: performance.now() - t0, verdict: chip });
+                if (performance.now() - t0 > 5000) return resolve({ ms: Number.POSITIVE_INFINITY, verdict: chip ?? null });
+                requestAnimationFrame(tick);
+              };
+              requestAnimationFrame(tick);
+            },
+            { once: true },
+          );
+        });
+      });
+      await page.keyboard.press(i % 2 === 0 ? "s" : "x");
+      samples.push(await page.evaluate(() => window.__lintSample));
+      await page.keyboard.press("Escape");
+      if ((await field.inputValue()) !== stored) reverted = false;
+    }
+    const sorted = samples.map((sample) => sample.ms).sort((a, b) => a - b);
+    const p50 = percentile(sorted, 0.5);
+    const p95 = percentile(sorted, 0.95);
+    check(
+      `CC14: lint preview for one RSA p95 ≤ ${LINT_P95_BUDGET_MS} ms over ${samples.length} keystrokes (p50 ${p50.toFixed(0)} ms, p95 ${p95.toFixed(0)} ms, max ${sorted.at(-1).toFixed(0)} ms)`,
+      samples.length >= 20 && p95 <= LINT_P95_BUDGET_MS,
+      samples.map((sample) => `${sample.ms.toFixed(0)}:${sample.verdict}`).join(" "),
+    );
+    console.log(`      lint preview samples (ms:verdict): ${samples.map((sample) => `${sample.ms.toFixed(0)}:${sample.verdict}`).join(" ")}`);
+    check("every timed edit was put back with Escape", reverted);
+    await page.evaluate(() => document.activeElement instanceof HTMLElement && document.activeElement.blur());
+    const untouched = await assets(admin, runId);
+    check("the timed edits saved nothing (no human_edit in the api)", untouched.every((asset) => asset.lineage?.origin !== "human_edit"));
+    check("lint p95: no console errors", problems.length === 0, problems.join("\n      "));
+    await context.close();
   }
 
   /* The console links here, for every role. */

@@ -221,7 +221,9 @@ class SitelinksCalloutsSnippetsNode:
     )
 
     async def gather(self, ctx: RunContext) -> list[Evidence]:
-        # The project's crawled pages: what a sitelink may point at.
+        # The project's crawled pages: what a sitelink may point at. Pages crawled
+        # in one transaction share `fetched_at`; their content hash (unique per
+        # project) breaks the tie, so the prompt follows the rows, not their UUIDs.
         return list(
             (
                 await ctx.db.execute(
@@ -231,7 +233,7 @@ class SitelinksCalloutsSnippetsNode:
                         Evidence.source == EvidenceSource.WEB,
                         Evidence.kind == WEB_PAGE_KIND,
                     )
-                    .order_by(Evidence.fetched_at, Evidence.id)
+                    .order_by(Evidence.fetched_at, Evidence.hash, Evidence.id)
                 )
             )
             .scalars()

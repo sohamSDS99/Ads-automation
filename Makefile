@@ -200,6 +200,34 @@ browser-s4p22: ## Drive the G8/G8b review workspace and H3 against the REAL api 
 browser-s4p23: ## Drive QA, Package + release, the canonical released page and the package diff against the REAL api + file server + arq worker on the isolated s4p23 stack: previews at true scale with the server's truncations marked, virtualised server-filtered conformance, an approver releasing v1 by typing it, absent release controls for everyone else, a read-only canonical URL, text + side-by-side media diff, axe, visual baselines at 1280/390 light/dark
 	cd $(WEB) && scripts/s4p23/run.sh
 
+# S4-P24 — every Stage 04 harness in sequence (Copy & Creative PRD §17 CC14:
+# axe and baselines over the 12 §15.4 screens x light/dark x 390/1280, console
+# LCP, lint-preview p95, 500 tiles <= 16 ms/frame, the keyboard-only G8). Each
+# stack runs under its own name (s4p24-NN) and subnet (172.31.181-187.0/24),
+# never the s4pNN names a live session may hold, and is taken down (`down -v`)
+# when its harness ends. The rewrite targets are baked into the build, so ONE
+# build serves all eight and every stack publishes the same host ports
+# (api 8781, file server 8782, catalogue/openrouter 8783, web 3781) — one at a
+# time. Every harness runs; the target fails if any one failed.
+S4_STAGE04_ENV := SKIP_BUILD=1 S4_TEARDOWN=1 WEB_PORT=3781 S4_API_PORT=8781 S4_FILES_PORT=8782 \
+	S4_AUX_PORT=8783 WORKER_INTERNAL_URL=http://127.0.0.1:8782
+.PHONY: browser-stage-04
+browser-stage-04: ## Run every Stage 04 browser harness (s4p2, s4p3, s4p18-s4p23) in sequence on isolated s4p24-NN stacks; fails if any fails
+	cd $(WEB) && API_INTERNAL_URL=http://127.0.0.1:8781 WORKER_INTERNAL_URL=http://127.0.0.1:8782 NEXT_TELEMETRY_DISABLED=1 pnpm build
+	@cd $(WEB) && failed=""; \
+	run() { name=$$1; shift; echo "=== browser-stage-04: $$name"; \
+	  env $(S4_STAGE04_ENV) SHOTS=/tmp/s4p24-$$name-shots "$$@" || failed="$$failed $$name"; }; \
+	run s4p2 env STUB_PORT=8781 scripts/s4p2/run.sh; \
+	run s4p3 env S4_PROJECT=s4p24-03 S4_SUBNET=172.31.181.0/24 S4_SUBNET6=fd00:ada:181::/64 scripts/s4p3/run.sh; \
+	run s4p18 env S4_PROJECT=s4p24-18 S4_SUBNET=172.31.182.0/24 S4_SUBNET6=fd00:ada:182::/64 scripts/s4p18/run.sh; \
+	run s4p19 env S4_PROJECT=s4p24-19 S4_SUBNET=172.31.183.0/24 S4_SUBNET6=fd00:ada:183::/64 scripts/s4p19/run.sh; \
+	run s4p20 env S4_PROJECT=s4p24-20 S4_SUBNET=172.31.184.0/24 S4_SUBNET6=fd00:ada:184::/64 scripts/s4p20/run.sh; \
+	run s4p21 env S4_PROJECT=s4p24-21 S4_SUBNET=172.31.185.0/24 S4_SUBNET6=fd00:ada:185::/64 scripts/s4p21/run.sh; \
+	run s4p22 env S4_PROJECT=s4p24-22 S4_SUBNET=172.31.186.0/24 S4_SUBNET6=fd00:ada:186::/64 scripts/s4p22/run.sh; \
+	run s4p23 env S4_PROJECT=s4p24-23 S4_SUBNET=172.31.187.0/24 S4_SUBNET6=fd00:ada:187::/64 scripts/s4p23/run.sh; \
+	if [ -n "$$failed" ]; then echo "browser-stage-04: FAILED:$$failed"; exit 1; fi; \
+	echo "browser-stage-04: all 8 harnesses passed"
+
 browser-google-connect: ## Drive Connect with Google as an operator, at 1440 and 390
 	@docker compose cp scripts/browser-check-google-connect.py worker:/tmp/browser-check-google-connect.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
@@ -238,6 +266,43 @@ coverage-plan: ## Stage 02 PQ2: >= 80% on nodes/plan, planning/ and export/, eac
 			--cov=$$pkg --cov-report=term-missing:skip-covered \
 			--cov-fail-under=80) || exit 1; \
 	done
+
+.PHONY: coverage-creative
+coverage-creative: ## Stage 04 CC15: creative/ pure modules and media/ >= 85%; nodes/creative, preview/, export/ >= 80% — each on its own, over unit + integration
+	# §17 CC15 names five floors, not one, and one blended number lets a
+	# well-covered package carry a bare one — so ONE pytest run records the
+	# lines, then one `coverage report` per package holds its own floor. Stage
+	# 04's nodes are exercised mostly by the integration suite (a database,
+	# Redis, ffmpeg, exiftool, tesseract), so a unit-only figure would misstate
+	# them: the run is unit + integration, inside the `test` image, the only
+	# place those hostnames and binaries exist. The pure modules are read from
+	# check_creative_purity.PURE_MODULES, never copied here. A failing test does
+	# not void the figure (the lines it ran still ran; `make test` is the gate
+	# on passing), but pytest stopping for any other reason (exit > 1) does.
+	# `--continue-on-collection-errors`: two host-only files read the repo root.
+	@docker compose ps --status running --format '{{.Service}}' | grep -qx postgres \
+		|| { echo "postgres is not running — run 'make up' first"; exit 1; }
+	docker compose run --rm test sh -c ' \
+		pure=$$(PYTHONPATH=scripts python -c "from check_creative_purity import PURE_MODULES as m; print(*m)"); \
+		[ -n "$$pure" ] || { echo "check_creative_purity.PURE_MODULES is empty"; exit 1; }; \
+		covs=""; inc=""; \
+		for m in $$pure; do covs="$$covs --cov=agent.creative.$${m%.py}"; inc="$$inc,*/agent/creative/$$m"; done; \
+		python -m pytest tests -q -p no:cacheprovider --continue-on-collection-errors $$covs \
+			--cov=agent.media --cov=agent.nodes.creative --cov=agent.preview --cov=agent.export \
+			--cov-report=; \
+		rc=$$?; [ $$rc -le 1 ] || { echo "pytest stopped (exit $$rc): nothing measured"; exit $$rc; }; \
+		failed=""; \
+		measure() { echo "== $$1 (floor $$3%)"; \
+			python -m coverage report --include="$$2" --fail-under=$$3 --sort=-miss \
+				--skip-covered --show-missing || failed="$$failed $$1"; }; \
+		measure creative-pure "$${inc#,}" 85; \
+		measure agent.media "*/agent/media/*" 85; \
+		measure agent.nodes.creative "*/agent/nodes/creative/*" 80; \
+		measure agent.preview "*/agent/preview/*" 80; \
+		measure agent.export "*/agent/export/*" 80; \
+		[ $$rc -eq 0 ] || echo "note: some tests failed (pytest exit 1); coverage is still what they ran"; \
+		[ -z "$$failed" ] || { echo "coverage-creative: under the floor:$$failed"; exit 1; }; \
+		echo "coverage-creative: all five floors met"'
 
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py

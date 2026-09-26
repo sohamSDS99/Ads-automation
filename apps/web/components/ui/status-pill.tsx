@@ -11,6 +11,7 @@ const STATES: Record<RunStatus, { label: string; dot: string }> = {
   queued: { label: "Queued", dot: "bg-status-skipped" },
   running: { label: "Running", dot: "bg-status-running" },
   awaiting_approval: { label: "Awaiting approval", dot: "bg-status-gate" },
+  awaiting_human_task: { label: "Awaiting a person", dot: "bg-status-gate" },
   succeeded: { label: "Succeeded", dot: "bg-status-success" },
   failed: { label: "Failed", dot: "bg-status-failed" },
   cancelled: { label: "Cancelled", dot: "bg-status-skipped" },

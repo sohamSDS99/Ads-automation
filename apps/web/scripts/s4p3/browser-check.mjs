@@ -16,12 +16,15 @@
  *
  * Plus: axe (WCAG 2.2 AA) on every sheet state in light and dark, no
  * horizontal scroll at 390, no console error, and the trigger ABSENT for a
- * viewer. Every state is screenshotted at 390 and 1280 in both themes into
- * $SHOTS. Exit code 1 on any failed check.
+ * viewer. Every sheet state (over the cap, fitting, refused) is held to its
+ * visual baseline at 390 and 1280 in both themes in tests/visual/s4p3 (S4-P24:
+ * recorded when absent or with UPDATE_BASELINES, compared when present), a
+ * copy in $SHOTS. Exit code 1 on any failed check.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import { homedir } from "node:os";
 
 import { chromium } from "playwright";
 
@@ -33,9 +36,15 @@ const API = process.env.API_URL ?? "http://127.0.0.1:8133/api/v1";
 const CATALOGUE = process.env.CATALOGUE_URL ?? "http://127.0.0.1:8134";
 const REPO = process.env.REPO ?? new URL("../../../../", import.meta.url).pathname;
 const SHOTS = process.env.SHOTS ?? "/tmp/s4p3-shots";
+const BASELINES = `${REPO}/apps/web/tests/visual/s4p3`;
+const UPDATE = Boolean(process.env.UPDATE_BASELINES);
+/** Share of pixels allowed to differ from a baseline: antialiasing, not layout. */
+const VR_TOLERANCE = 0.002;
 const ADMIN = { email: "admin@example.com", password: "change-me-at-least-12-chars" };
 const PASSWORD = "s4p3-check-password-1";
-const COMPOSE = ["compose", "-p", "s4p3", "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p3/compose.s4p3.yml"];
+/** `run.sh` exports S4_PROJECT (and the ports and subnet the compose file reads). */
+const PROJECT = process.env.S4_PROJECT ?? "s4p3";
+const COMPOSE = ["compose", "-p", PROJECT, "-f", "docker-compose.yml", "-f", "apps/web/scripts/s4p3/compose.s4p3.yml"];
 const WIDTHS = { desktop: { width: 1280, height: 900 }, mobile: { width: 390, height: 844 } };
 const THEMES = ["light", "dark"];
 
@@ -53,6 +62,7 @@ const ALLOWLIST = {
 };
 
 mkdirSync(SHOTS, { recursive: true });
+mkdirSync(BASELINES, { recursive: true });
 
 const results = [];
 function check(name, ok, detail = "") {
@@ -249,6 +259,111 @@ async function shoot(page, path) {
   await page.setViewportSize(viewport);
 }
 
+/** What changes run to run and says nothing about layout: ids, hashes, clocks, toasts. */
+function masks(page) {
+  return [page.locator("time"), page.locator('button[aria-label^="Copy "]'), page.locator("[data-sonner-toaster]")];
+}
+
+/** Compare two PNGs pixel by pixel inside Chromium; no image library needed. */
+async function difference(browser, expected, actual) {
+  const context = await browser.newContext();
+  const page = await context.newPage();
+  const result = await page.evaluate(
+    async ([a, b]) => {
+      const load = (src) =>
+        new Promise((resolve, reject) => {
+          const image = new Image();
+          image.onload = () => resolve(image);
+          image.onerror = reject;
+          image.src = `data:image/png;base64,${src}`;
+        });
+      const [one, two] = await Promise.all([load(a), load(b)]);
+      if (one.width !== two.width || one.height !== two.height) {
+        return { ratio: 1, detail: `size ${one.width}×${one.height} → ${two.width}×${two.height}` };
+      }
+      const pixels = (image) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = image.width;
+        canvas.height = image.height;
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0);
+        return context.getImageData(0, 0, image.width, image.height).data;
+      };
+      const [p, q] = [pixels(one), pixels(two)];
+      let differ = 0;
+      for (let i = 0; i < p.length; i += 4) {
+        if (Math.abs(p[i] - q[i]) > 24 || Math.abs(p[i + 1] - q[i + 1]) > 24 || Math.abs(p[i + 2] - q[i + 2]) > 24) differ += 1;
+      }
+      return { ratio: differ / (p.length / 4), detail: `${differ} of ${p.length / 4} pixels` };
+    },
+    [expected.toString("base64"), actual.toString("base64")],
+  );
+  await context.close();
+  return result;
+}
+
+/**
+ * The sheet against its baseline, grown as `shoot` grows it. A relative
+ * time's and an id's words are frozen first (their width moves what sits
+ * beside them, which a mask cannot cover), after axe has read the real ones.
+ */
+async function visual(browser, page, name) {
+  const viewport = page.viewportSize();
+  const height = await page.evaluate(() => {
+    const dialog = document.querySelector('[role="dialog"]');
+    if (dialog) {
+      const body = dialog.querySelector(".overflow-y-auto");
+      const chrome = dialog.getBoundingClientRect().height - (body?.clientHeight ?? 0);
+      return chrome + (body?.scrollHeight ?? 0);
+    }
+    const main = document.querySelector("main");
+    return main ? main.getBoundingClientRect().top + main.scrollHeight : document.documentElement.scrollHeight;
+  });
+  await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.ceil(height)) });
+  await page.waitForTimeout(200);
+  await page.evaluate(() => {
+    for (const time of document.querySelectorAll("time")) time.textContent = "at a fixed time";
+    for (const id of document.querySelectorAll('button[aria-label^="Copy "]')) id.textContent = "0000…0000";
+    // A pinned ruleset is named `1.0+<content hash>`, and the seeded ruleset's
+    // hash differs stack to stack: same width, different glyphs.
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      node.nodeValue = node.nodeValue.replace(/\b(\d+\.\d+)\+[0-9a-f]{8}\b/g, "$1+00000000");
+    }
+  });
+  const shot = await page.screenshot({ mask: masks(page), animations: "disabled", caret: "hide" });
+  await page.setViewportSize(viewport);
+  writeFileSync(`${SHOTS}/${name}.png`, shot);
+  const file = `${BASELINES}/${name}.png`;
+  if (UPDATE || !existsSync(file)) {
+    writeFileSync(file, shot);
+    check(`${name}: visual baseline recorded`, true);
+    return;
+  }
+  const diff = await difference(browser, readFileSync(file), shot);
+  check(`${name}: matches its visual baseline`, diff.ratio <= VR_TOLERANCE, `${(diff.ratio * 100).toFixed(3)}% differ (${diff.detail}); now at ${SHOTS}/${name}.png`);
+}
+
+/**
+ * The installed Chrome for Testing, as S4-P18…P23 find it: the bundled
+ * `channel: "chromium"` build this harness pinned (1187) is no longer on disk.
+ * CHROMIUM_PATH wins.
+ */
+function chromiumPath() {
+  if (process.env.CHROMIUM_PATH) return process.env.CHROMIUM_PATH;
+  const root = `${homedir()}/Library/Caches/ms-playwright`;
+  const builds = existsSync(root)
+    ? readdirSync(root)
+        .filter((name) => /^chromium-\d+$/.test(name))
+        .sort((a, b) => Number(b.split("-")[1]) - Number(a.split("-")[1]))
+    : [];
+  for (const build of builds) {
+    const path = `${root}/${build}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`;
+    if (existsSync(path)) return path;
+  }
+  return undefined;
+}
+
 /** Tab until the focused element is `role` named like `name`. Keyboard only. */
 async function tabTo(page, role, name, limit = 120) {
   for (let i = 0; i < limit; i += 1) {
@@ -283,7 +398,7 @@ const operator = await member(admin, "operator");
 const viewer = await member(admin, "viewer");
 await drift(null); // a clean catalogue, whatever a previous run left
 
-const browser = await chromium.launch({ channel: "chromium" });
+const browser = await chromium.launch({ executablePath: chromiumPath() });
 try {
   /* 1 + 5 — an operator starts a run choosing both models, keyboard only. */
   {
@@ -430,7 +545,7 @@ try {
       const violations = await axe(page);
       check(`${tag}: axe clean on the over-cap sheet`, violations.length === 0, violations.join("\n      "));
       check(`${tag}: no horizontal scroll`, (await scrollsSideways(page)) === 0);
-      await shoot(page, `${SHOTS}/sheet-over-cap-${tag}.png`);
+      await visual(browser, page, `sheet-over-cap-${theme}-${WIDTHS[size].width}`);
 
       const offered = (await offer.textContent()).match(/\$\d+\.\d{2}/)[0];
       await offer.click();
@@ -439,8 +554,8 @@ try {
       check(`${tag}: …and Start is enabled at the reduced estimate`, !(await start.isDisabled()) && after === `Start run · est. ${offered}`, after);
       const clean = await axe(page);
       check(`${tag}: axe clean on the fitting sheet`, clean.length === 0, clean.join("\n      "));
-      await shoot(page, `${SHOTS}/sheet-fits-${tag}.png`);
       check(`${tag}: no console error`, problems.length === 0, problems.join("\n      "));
+      await visual(browser, page, `sheet-fits-${theme}-${WIDTHS[size].width}`);
       await context.close();
     }
   }
@@ -470,10 +585,14 @@ try {
       check(`${tag}: the dialog renders the field and the value refused`, /resolution/.test(text) && /2K/.test(text), text);
       check(`${tag}: …and every supported value, as a one-click fix`, (await alert.getByRole("button", { name: "Use 1K" }).count()) === 1 && /accepts 1K/.test(text), text);
       check(`${tag}: Start is disabled while a setting is refused`, await startButton(page).isDisabled());
+      // The refusal re-reads the model list (the catalogue moved): the sheet is
+      // measured once its controls have caught up, not halfway (S4-P24: a
+      // capture raced the refetch and still drew the refused Resolution group).
+      await page.waitForLoadState("networkidle");
       const violations = await axe(page);
       check(`${tag}: axe clean with the refusal shown`, violations.length === 0, violations.join("\n      "));
       check(`${tag}: no horizontal scroll with the refusal shown`, (await scrollsSideways(page)) === 0);
-      await shoot(page, `${SHOTS}/sheet-422-${tag}.png`);
+      await visual(browser, page, `sheet-422-${theme}-${WIDTHS[size].width}`);
 
       await alert.getByRole("button", { name: "Use 1K" }).click();
       const after = await estimated(page);

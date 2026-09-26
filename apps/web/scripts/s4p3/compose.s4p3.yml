@@ -10,6 +10,9 @@
 # browser check drives a production `next start` on the host against api's
 # published port, so `web` and `worker` are profiled out. Without a worker a
 # started run stays `queued` — the dialog's job ends at the 202.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p3-api:latest
@@ -18,10 +21,10 @@ services:
       # CR-E7 needs *a* key to resolve; nothing in this stack calls OpenRouter
       # with it (the catalogue reads are public and served by `catalogue`).
       OPENROUTER_API_KEY: sk-or-s4p3-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3133
-      CORS_ORIGINS: http://localhost:3133
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3133}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3133}
     ports: !override
-      - "127.0.0.1:8133:8000"
+      - "127.0.0.1:${S4_API_PORT:-8133}:8000"
     volumes:
       # Added to the base file's mounts: the seed script.
       - ./apps/web/scripts/s4p3:/app/s4p3
@@ -37,7 +40,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p3:/app/s4p3
     ports:
-      - "127.0.0.1:8134:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8134}:8099"
     networks: [internal]
 
   test:
@@ -54,5 +57,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.233.0/24
-        - subnet: fd00:ada:33::/64
+        - subnet: ${S4_SUBNET:-172.31.233.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:33::/64}

@@ -39,6 +39,7 @@ from agent.db.models import (
 )
 from agent.media.catalogue import MediaCatalogue
 from agent.media.types import CapabilityRecord
+from agent.orchestrator import approvals
 from agent.orchestrator.creative_input import (
     CreativeInputError,
     resolve_choice,
@@ -300,6 +301,9 @@ async def record(
                 model_override=decision.model_override,
                 params_override=decision.params_override,
                 decided_by=decided_by,
+                # The gate's own clock, not the database's: one decision, one
+                # time source for the gate row and every item row it writes.
+                decided_at=approvals.utcnow(),
             )
         )
         await db.execute(

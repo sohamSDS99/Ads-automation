@@ -12,6 +12,9 @@ export type NodeStatus =
   | "queued"
   | "running"
   | "awaiting_approval"
+  // Halted for one named person (Stage 03 PRD §8.4; Stage 04's H3 at 4.6.3),
+  // not for any holder of a role — the api's `NodeStatus.AWAITING_HUMAN_TASK`.
+  | "awaiting_human_task"
   | "succeeded"
   | "failed"
   | "skipped";

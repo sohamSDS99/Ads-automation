@@ -13,6 +13,9 @@
 # in-process, and a queue consumer would race it (and would resume the runs
 # the browser check records, moving them past the states it asserts). The
 # image is `s4p12-wtest` re-tagged: ffmpeg, exiftool, tesseract, Inter.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p22-wtest:latest
@@ -21,10 +24,10 @@ services:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p22-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3522
-      CORS_ORIGINS: http://localhost:3522
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3522}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3522}
     ports: !override
-      - "127.0.0.1:8522:8000"
+      - "127.0.0.1:${S4_API_PORT:-8522}:8000"
     volumes:
       - ./apps/web/scripts/s4p22:/app/s4p22
     depends_on:
@@ -38,12 +41,12 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p22-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3522
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3522}
     volumes:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p22:/app/s4p22
     ports:
-      - "127.0.0.1:8523:8081"
+      - "127.0.0.1:${S4_FILES_PORT:-8523}:8081"
 
   catalogue:
     image: s4p22-wtest:latest
@@ -53,7 +56,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p3:/app/s4p3
     ports:
-      - "127.0.0.1:8524:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8524}:8099"
     networks: [internal]
 
   test:
@@ -67,5 +70,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.222.0/24
-        - subnet: fd00:ada:222::/64
+        - subnet: ${S4_SUBNET:-172.31.222.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:222::/64}

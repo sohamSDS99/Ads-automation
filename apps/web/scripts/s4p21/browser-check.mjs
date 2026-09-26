@@ -561,6 +561,9 @@ try {
             check(`${tab} ${theme}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
           } else {
             check(`${tab} ${theme} 390: nothing scrolls sideways`, (await scrollsSideways(page)) === 0);
+            // S4-P24: CC14's axe at both widths, not only 1280.
+            const found = await axe(page);
+            check(`${tab} ${theme} 390: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
           }
           await visual(browser, page, `${tab}-${theme}-${size === "desktop" ? 1280 : 390}`);
         }
@@ -568,6 +571,8 @@ try {
         await page.getByTestId("concept-board").locator("button").first().click();
         await page.getByTestId("media-detail-drawer").waitFor({ timeout: 10_000 });
         await loaded(page);
+        const drawerFound = await axe(page);
+        check(`drawer ${theme} ${size === "desktop" ? 1280 : 390}: axe has no serious or critical violation`, drawerFound.length === 0, drawerFound.join("\n      "));
         await visual(browser, page, `drawer-${theme}-${size === "desktop" ? 1280 : 390}`);
         check(`${theme} ${size}: no console errors`, problems.length === 0, problems.slice(0, 5).join("\n      "));
         await context.close();

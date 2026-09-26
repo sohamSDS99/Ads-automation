@@ -168,7 +168,7 @@ function ResearchNode({ data }: NodeProps<FlowNode>) {
         "w-[200px] rounded-[var(--radius)] border bg-surface-raised px-3 py-2 text-left transition-colors",
         node.status === "running" && "border-status-running",
         node.status === "failed" && "border-status-failed",
-        node.status === "awaiting_approval" && "border-status-gate",
+        (node.status === "awaiting_approval" || node.status === "awaiting_human_task") && "border-status-gate",
         selected && "ring-2 ring-accent",
         !selected && "hover:bg-surface-hover",
       )}

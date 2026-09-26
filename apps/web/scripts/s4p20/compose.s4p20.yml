@@ -17,6 +17,9 @@
 # is profiled out. `worker` is the worker test image (Chromium + the suite's
 # helpers): `run.sh` uses it for the seed as a one-off (`run --rm`) and only
 # then starts it, so its file server can hand `api` the stored screenshots.
+# Ports and subnets are read from the environment, this phase's values the
+# defaults (S4_API_PORT, S4_FILES_PORT, S4_AUX_PORT, S4_SUBNET, S4_SUBNET6,
+# WEB_PORT; `run.sh` exports them), so a copy can run beside a live stack.
 services:
   api:
     image: s4p20-api:latest
@@ -24,10 +27,10 @@ services:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
       OPENROUTER_API_KEY: sk-or-s4p20-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3502
-      CORS_ORIGINS: http://localhost:3502
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3502}
+      CORS_ORIGINS: http://localhost:${WEB_PORT:-3502}
     ports: !override
-      - "127.0.0.1:8502:8000"
+      - "127.0.0.1:${S4_API_PORT:-8502}:8000"
     depends_on:
       openrouter:
         condition: service_started
@@ -37,7 +40,7 @@ services:
     environment:
       OPENROUTER_BASE_URL: http://openrouter:8099/api/v1
       OPENROUTER_API_KEY: sk-or-s4p20-fixture-not-a-key
-      APP_BASE_URL: http://localhost:3502
+      APP_BASE_URL: http://localhost:${WEB_PORT:-3502}
     volumes:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p20:/app/s4p20
@@ -50,7 +53,7 @@ services:
       - ./apps/api/tests:/app/tests
       - ./apps/web/scripts/s4p20:/app/s4p20
     ports:
-      - "127.0.0.1:8503:8099"
+      - "127.0.0.1:${S4_AUX_PORT:-8503}:8099"
     networks: [internal]
 
   test:
@@ -64,5 +67,5 @@ networks:
     ipam: !override
       driver: default
       config:
-        - subnet: 172.31.202.0/24
-        - subnet: fd00:ada:202::/64
+        - subnet: ${S4_SUBNET:-172.31.202.0/24}
+        - subnet: ${S4_SUBNET6:-fd00:ada:202::/64}

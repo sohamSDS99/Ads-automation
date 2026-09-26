@@ -26,6 +26,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import io
+import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -411,15 +412,17 @@ class _Mastering:
         storage = self.media.storage
         # No trailing slash: the local backend resolves a prefix as a path.
         folder = f"creative/{job.creative_run_id}/media/{asset.id}"
-        stem = f"{job.id}-"
-        keys = sorted(
-            (
-                info.key
-                for info in await asyncio.to_thread(lambda: list(storage.iter_objects(folder)))
-                if info.key.rsplit("/", 1)[-1].startswith(stem)
-            ),
-            key=lambda key: int(key.rsplit("-", 1)[-1].split(".", 1)[0]),
-        )
+        # The job's own outputs only. The chosen master's Media Library preview
+        # (`{job}-{i}_preview.webp`) is written beside it, and a resume after a
+        # kill that read an index out of that name, or took it for a candidate,
+        # could never finish the node.
+        output = re.compile(rf"{re.escape(str(job.id))}-(\d+)\.[A-Za-z0-9]+")
+        found = [
+            (int(match[1]), info.key)
+            for info in await asyncio.to_thread(lambda: list(storage.iter_objects(folder)))
+            if (match := output.fullmatch(info.key.rsplit("/", 1)[-1]))
+        ]
+        keys = [key for _, key in sorted(found)]
         stored: list[tuple[MediaArtifact, bytes]] = []
         for key in keys:
             content = await asyncio.to_thread(storage.get, key)

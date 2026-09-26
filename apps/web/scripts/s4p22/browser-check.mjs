@@ -20,6 +20,15 @@
  * or critical violation; nothing scrolls sideways at 390; no console error;
  * visual baselines for light and dark at 1280 and 390 (recorded into
  * tests/visual/s4p22 when absent). Exit code 1 on any failed check.
+ *
+ * S4-P24 (Copy & Creative PRD §17 CC14): axe and a baseline in both themes at
+ * both widths for every H/I state this harness shows — the viewer's and the
+ * decider's G8, the record dialog, G8b and the legal owner's Signatures tab.
+ * And the keyboard-only G8 review is now enforced, not assumed: its page is
+ * signed in by cookie (no login form, so no pointer ever touches it) and
+ * carries a guard that records every trusted pointer, mouse, touch or wheel
+ * event; one firing fails the check. A self-test click after the section
+ * proves the guard sees pointer input.
  */
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
@@ -241,17 +250,20 @@ async function difference(browser, expected, actual) {
   return result;
 }
 
-async function visual(browser, page, name) {
+async function visual(browser, page, name, { full = true } = {}) {
   // The shell scrolls inside <main>: grow the viewport to the content first.
+  // A modal is captured as it is seen instead (`full: false`).
   const height = await page.evaluate(() => {
     const main = document.querySelector("main");
     return main ? Math.ceil(main.getBoundingClientRect().top + main.scrollHeight) : document.body.scrollHeight;
   });
   const viewport = page.viewportSize();
-  await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.min(height, 4000)) });
-  await page.waitForTimeout(200);
+  if (full) {
+    await page.setViewportSize({ width: viewport.width, height: Math.max(viewport.height, Math.min(height, 4000)) });
+    await page.waitForTimeout(200);
+  }
   const shot = await page.screenshot({ mask: masks(page), animations: "disabled", caret: "hide" });
-  await page.setViewportSize(viewport);
+  if (full) await page.setViewportSize(viewport);
   writeFileSync(`${SHOTS}/${name}.png`, shot);
   const file = `${BASELINES}/${name}.png`;
   if (UPDATE || !existsSync(file)) {
@@ -261,6 +273,58 @@ async function visual(browser, page, name) {
   }
   const diff = await difference(browser, readFileSync(file), shot);
   check(`${name}: matches its visual baseline`, diff.ratio <= VR_TOLERANCE, diff.ratio <= VR_TOLERANCE ? "" : `${(diff.ratio * 100).toFixed(3)}% differ (${diff.detail}); now at ${SHOTS}/${name}.png`);
+}
+
+/**
+ * The keyboard-only page (S4-P24): signed in by the api's session cookies, so
+ * no login form is ever clicked, and guarded — every trusted pointer, mouse,
+ * touch, wheel or drag event that reaches the document is recorded in
+ * `pointer`. Enter or Space on a control also dispatches a trusted `click`;
+ * that one has no pointer behind it (`detail` 0, `pointerType` ""), is the
+ * keyboard, and is not counted.
+ */
+const POINTER_TYPES = [
+  "pointerdown", "pointerup", "pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave", "pointercancel",
+  "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave",
+  "click", "dblclick", "auxclick", "contextmenu", "wheel", "touchstart", "touchmove", "touchend", "touchcancel", "dragstart", "drop",
+];
+async function openKeyboardOnly(browser, email) {
+  const client = await signIn(email);
+  const context = await browser.newContext({ viewport: WIDTHS.desktop, colorScheme: "light", reducedMotion: "reduce", bypassCSP: true });
+  await context.addInitScript(() => window.localStorage.setItem("theme", "light"));
+  await context.addCookies([...client.jar].map(([name, value]) => ({ name, value, url: BASE })));
+  const pointer = [];
+  await context.exposeBinding("__s4p24Pointer", (_source, event) => {
+    pointer.push(event);
+  });
+  await context.addInitScript((types) => {
+    for (const type of types) {
+      window.addEventListener(
+        type,
+        (event) => {
+          if (!event.isTrusted) return;
+          if (type === "click" && event.detail === 0 && !event.pointerType) return;
+          const target = event.target instanceof Element ? `${event.target.tagName.toLowerCase()}${event.target.id ? `#${event.target.id}` : ""}` : String(event.target);
+          window.__s4p24Pointer({ type, target, x: event.clientX ?? null, y: event.clientY ?? null, pointerType: event.pointerType ?? null });
+        },
+        { capture: true, passive: true },
+      );
+    }
+  }, POINTER_TYPES);
+  const page = await context.newPage();
+  const problems = [];
+  page.on("console", (message) => {
+    if (message.type() !== "error") return;
+    const where = message.location().url ?? "";
+    if (where.endsWith("/favicon.ico")) return;
+    problems.push(`${message.text()} @ ${where}`);
+  });
+  page.on("response", (response) => {
+    const url = response.url();
+    if (response.status() < 400 || url.endsWith("/favicon.ico")) return;
+    problems.push(`${response.status()} ${url}`);
+  });
+  return { context, page, problems, pointer };
 }
 
 /* ------------------------------------------------------------ helpers --- */
@@ -333,6 +397,8 @@ try {
             check(`review (viewer) ${theme}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
           } else {
             check(`review (viewer) ${theme} 390: nothing scrolls sideways`, (await scrollsSideways(view.page)) === 0);
+            const found = await axe(view.page);
+            check(`review (viewer) ${theme} 390: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
           }
           await visual(browser, view.page, `review-viewer-${theme}-${size === "desktop" ? 1280 : 390}`);
           check(`review (viewer) ${theme} ${size}: no console errors`, view.problems.length === 0, view.problems.slice(0, 5).join("\n      "));
@@ -345,10 +411,31 @@ try {
   }
 
   // ---------------------------------------------------------------------
-  // 1 + 2. The brand owner reviews all 20 by keyboard alone.
+  // The decider's view before anything is decided, both themes, both widths
+  // (S4-P24): axe and a baseline each. Nothing is pressed, so nothing saves.
+  // ---------------------------------------------------------------------
+  for (const theme of ["light", "dark"]) {
+    for (const size of ["desktop", "mobile"]) {
+      const width = size === "desktop" ? 1280 : 390;
+      const view = await open(browser, { email: BRAND, theme, size });
+      await view.page.goto(reviewUrl(reviewProject, reviewRun));
+      await tiles(view.page).first().waitFor({ timeout: 30_000 });
+      await loaded(view.page);
+      const found = await axe(view.page);
+      check(`review (decider) ${theme} ${width}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
+      if (size === "mobile") check(`review (decider) ${theme} 390: nothing scrolls sideways`, (await scrollsSideways(view.page)) === 0);
+      await visual(browser, view.page, `review-decider-${theme}-${width}`);
+      check(`review (decider) ${theme} ${width}: no console errors`, view.problems.length === 0, view.problems.slice(0, 5).join("\n      "));
+      await view.context.close();
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // 1 + 2. The brand owner reviews all 20 by keyboard alone — enforced: the
+  // page is signed in by cookie and every pointer event on it is recorded.
   // ---------------------------------------------------------------------
   {
-    const { context, page, problems } = await open(browser, { email: BRAND });
+    const { context, page, problems, pointer } = await openKeyboardOnly(browser, BRAND);
     await page.goto(reviewUrl(reviewProject, reviewRun));
     await tiles(page).first().waitFor({ timeout: 30_000 });
     await loaded(page);
@@ -436,6 +523,29 @@ try {
     const cents = priced.reduce((sum, r) => sum + Math.round(Number(r.body.estimate_usd) * 100), 0);
     const expected = `Approve 15 · Reject 2 · Regenerate 3 (≈ $${(cents / 100).toFixed(2)})`;
 
+    // The record dialog in both themes at both widths (S4-P24), each in its
+    // own context on the autosaved draft: opened, checked, closed with
+    // Escape. Opening it changes nothing, so nothing autosaves.
+    for (const theme of ["light", "dark"]) {
+      for (const size of ["desktop", "mobile"]) {
+        const width = size === "desktop" ? 1280 : 390;
+        const view = await open(browser, { email: BRAND, theme, size });
+        await view.page.goto(reviewUrl(reviewProject, reviewRun));
+        await tiles(view.page).first().waitFor({ timeout: 30_000 });
+        await loaded(view.page);
+        await view.page.getByTestId("review-tally").filter({ hasText: "≈" }).waitFor({ timeout: 10_000 });
+        await press(view.page, "Control+Enter");
+        await view.page.getByRole("dialog").waitFor({ timeout: 5_000 });
+        await view.page.getByTestId("review-submit-tally").waitFor({ timeout: 5_000 });
+        const found = await axe(view.page);
+        check(`record dialog ${theme} ${width}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
+        await visual(browser, view.page, `record-dialog-${theme}-${width}`, { full: false });
+        await press(view.page, "Escape");
+        check(`record dialog ${theme} ${width}: no console errors`, view.problems.length === 0, view.problems.slice(0, 5).join("\n      "));
+        await view.context.close();
+      }
+    }
+
     // Record: Mod+Enter, then Enter on the focused Record button.
     await page.getByTestId("review-tally").filter({ hasText: "≈" }).waitFor({ timeout: 10_000 });
     await press(page, "Control+Enter");
@@ -458,7 +568,38 @@ try {
     const after = await decideControls(page);
     check("once recorded, the decide controls are gone", Object.values(after).every((n) => n === 0), JSON.stringify(after));
     check("keyboard review: no console errors", problems.length === 0, problems.slice(0, 5).join("\n      "));
+
+    // The section ends here: not one pointer event may have reached the page.
+    await page.waitForTimeout(200);
+    const during = pointer.length;
+    const kinds = [...new Set(pointer.map((event) => event.type))].join(", ");
+    check(`keyboard review: no pointer, mouse or touch event fired (${during})`, during === 0, `${kinds}: ${JSON.stringify(pointer.slice(0, 5))}`);
+    // …and the guard is live: one real click, on the inert heading, is caught.
+    await page.locator("h1").first().click();
+    await page.waitForTimeout(200);
+    const caught = pointer.slice(during).map((event) => event.type);
+    check("the pointer guard catches a real click (self-test)", caught.includes("pointerdown") && caught.includes("mousedown") && caught.includes("click"), caught.join(", "));
     await context.close();
+  }
+
+  // ---------------------------------------------------------------------
+  // G8b, before anything is decided, both themes, both widths (S4-P24): axe
+  // and a baseline each. Nothing is pressed.
+  // ---------------------------------------------------------------------
+  for (const theme of ["light", "dark"]) {
+    for (const size of ["desktop", "mobile"]) {
+      const width = size === "desktop" ? 1280 : 390;
+      const view = await open(browser, { email: BRAND, theme, size });
+      await view.page.goto(reviewUrl(SEED.rereview_project_id, SEED.rereview_run_id));
+      await tiles(view.page).first().waitFor({ timeout: 30_000 });
+      await loaded(view.page);
+      const found = await axe(view.page);
+      check(`review (G8b) ${theme} ${width}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
+      if (size === "mobile") check(`review (G8b) ${theme} 390: nothing scrolls sideways`, (await scrollsSideways(view.page)) === 0);
+      await visual(browser, view.page, `review-g8b-${theme}-${width}`);
+      check(`review (G8b) ${theme} ${width}: no console errors`, view.problems.length === 0, view.problems.slice(0, 5).join("\n      "));
+      await view.context.close();
+    }
   }
 
   // ---------------------------------------------------------------------
@@ -530,6 +671,8 @@ try {
           check(`signatures (legal) ${theme}: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
         } else {
           check(`signatures (legal) ${theme} 390: nothing scrolls sideways`, (await scrollsSideways(view.page)) === 0);
+          const found = await axe(view.page);
+          check(`signatures (legal) ${theme} 390: axe has no serious or critical violation`, found.length === 0, found.join("\n      "));
         }
         await visual(browser, view.page, `signatures-legal-${theme}-${size === "desktop" ? 1280 : 390}`);
         await view.context.close();

@@ -123,3 +123,13 @@ pythonpath = ["src"]
 # a loop that has already closed.
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
+
+[tool.coverage.run]
+# SQLAlchemy's asyncio layer runs ORM work inside greenlets, and the tracer
+# loses its place across a greenlet switch unless it is told to follow them.
+# Stage 04's nodes are measured over the integration suite (`make
+# coverage-creative`), which is where those switches happen. Subprocesses are
+# not followed: the few tests that spawn one (select's and the package's
+# two-process determinism, CC9's golden run) re-run code the same suite already
+# executes in-process, so following them would add runtime and no lines.
+concurrency = ["greenlet", "thread"]
