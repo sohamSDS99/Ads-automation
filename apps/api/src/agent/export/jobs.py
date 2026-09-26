@@ -145,10 +145,16 @@ CONTENT_GUIDELINE_FORMATS: frozenset[ExportFormat] = frozenset(
 #: Which formats each artifact supports, so a route can answer "not that one"
 #: from one place. A queued job that can never succeed is a worse answer than
 #: a 422 naming the formats that work.
+#: The formats a *creative package* can be rendered as (Stage 04 PRD §14): the
+#: JSON Stage 05 reads, from S4-P16. `editor_zip`, `pdf`, `xlsx` and `md` are
+#: S4-P17's, and until then a request for one is this 422, not a queued job.
+CREATIVE_PACKAGE_FORMATS: frozenset[ExportFormat] = frozenset({ExportFormat.JSON})
+
 FORMATS_FOR: dict[ExportArtifactType, frozenset[ExportFormat]] = {
     ExportArtifactType.RESEARCH_REPORT: RESEARCH_REPORT_FORMATS,
     ExportArtifactType.CAMPAIGN_PLAN: CAMPAIGN_PLAN_FORMATS,
     ExportArtifactType.CONTENT_GUIDELINE: CONTENT_GUIDELINE_FORMATS,
+    ExportArtifactType.CREATIVE_PACKAGE: CREATIVE_PACKAGE_FORMATS,
 }
 
 _UNSAFE = re.compile(r"[^a-z0-9]+")
@@ -219,6 +225,19 @@ def guideline_filename_for(
     if project_name:
         parts.append(slugify(project_name, fallback="guidelines"))
     parts.append(f"v{version}")
+    parts.append(generated_at.date().isoformat())
+    return "-".join(parts) + f".{EXTENSIONS[fmt]}"
+
+
+def package_filename_for(
+    fmt: ExportFormat, *, project_name: str | None, version: int, generated_at: datetime
+) -> str:
+    """`creative-package-northwind-safety-v2-2026-09-26.json` — `draft` until released,
+    for the reason a plan's name carries its version."""
+    parts = ["creative-package"]
+    if project_name:
+        parts.append(slugify(project_name, fallback="package"))
+    parts.append(f"v{version}" if version > 0 else "draft")
     parts.append(generated_at.date().isoformat())
     return "-".join(parts) + f".{EXTENSIONS[fmt]}"
 
@@ -454,6 +473,9 @@ async def generate_export(ctx: dict[str, Any], export_id: str) -> dict[str, Any]
 
         if export.artifact_type is ExportArtifactType.CONTENT_GUIDELINE:
             return await _generate_guideline_export(session, export, storage=storage)
+
+        if export.artifact_type is ExportArtifactType.CREATIVE_PACKAGE:
+            return await _generate_package_export(session, export, storage=storage)
 
         report = await session.get(Report, export.artifact_id)
         if report is None:
@@ -727,4 +749,71 @@ async def _generate_guideline_export(
         "status": ExportStatus.READY.value,
         "path": key,
         "bytes": len(rendered.payload),
+    }
+
+
+async def _generate_package_export(
+    session: AsyncSession, export: Export, *, storage: StorageBackend
+) -> dict[str, Any]:
+    """Render one creative-package export (Stage 04 PRD §14) into
+    `exports/{creative_run_id}/`. Split out for the reason the plan and
+    guideline exports are: a package resolves through its own row."""
+    from agent.db.models import CreativePackage as CreativePackageRow
+    from agent.export.package_json import render_package_json
+
+    row = await session.get(CreativePackageRow, export.artifact_id)
+    if row is None:
+        await _finish(
+            session,
+            export,
+            status=ExportStatus.FAILED,
+            error="The creative package this export belongs to no longer exists.",
+        )
+        return {"export_id": str(export.id), "status": ExportStatus.FAILED.value}
+
+    project = await session.get(Project, row.project_id)
+    export.status = ExportStatus.RUNNING
+    await session.commit()
+    filename = package_filename_for(
+        export.format,
+        project_name=project.name if project else None,
+        version=row.version,
+        generated_at=export.created_at,
+    )
+    try:
+        if export.format is not ExportFormat.JSON:
+            raise ExportError(f"a creative package cannot be exported as {export.format.value} yet")
+        payload = render_package_json(row)
+        key = storage_key(row.creative_run_id, filename)
+        storage.put(key, payload, content_type=MEDIA_TYPES[export.format])
+    except Exception as exc:  # noqa: BLE001 — every failure is recorded, then reported
+        log.exception(
+            "export.package_failed",
+            export_id=str(export.id),
+            format=export.format.value,
+            error=str(exc),
+        )
+        await _finish(
+            session, export, status=ExportStatus.FAILED, error=f"{type(exc).__name__}: {exc}"
+        )
+        return {"export_id": str(export.id), "status": ExportStatus.FAILED.value, "error": str(exc)}
+
+    await _finish(session, export, status=ExportStatus.READY, path=key, size=len(payload))
+    log.info("export.package_ready", export_id=str(export.id), bytes=len(payload), key=key)
+    try:
+        await RunEventStream(get_redis(), row.creative_run_id).publish(
+            EventType.EXPORT_READY,
+            export_id=str(export.id),
+            package_id=str(row.id),
+            format=export.format.value,
+            bytes=len(payload),
+            filename=filename,
+        )
+    except Exception as exc:  # noqa: BLE001 — never fail a finished export on a notification
+        log.warning("export.event_failed", export_id=str(export.id), error=str(exc))
+    return {
+        "export_id": str(export.id),
+        "status": ExportStatus.READY.value,
+        "path": key,
+        "bytes": len(payload),
     }

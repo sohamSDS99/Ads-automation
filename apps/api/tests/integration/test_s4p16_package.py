@@ -11,12 +11,16 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import json
 import uuid
+from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
+import httpx
 import pytest
+import pytest_asyncio
 import sqlalchemy as sa
 from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -560,3 +564,179 @@ async def test_only_a_creative_release_holder_may_release(
         assert (await operator.login(email, password)).status_code == 200
         assert (await _release(operator, row.id)).status_code == 403
     await _unchanged(db, run_id)
+
+
+# ---------------------------------------------------------------------------
+# the Stage 05 contract — GET /packages/released, the diff, the JSON export
+# ---------------------------------------------------------------------------
+
+
+@pytest_asyncio.fixture
+async def worker_files(storage: LocalStorage) -> AsyncIterator[httpx.AsyncClient]:
+    """The worker's file server, reachable the way `api` reaches it — over the
+    same `STORAGE_DIR` the in-process worker jobs write to."""
+    from agent.fileserver import create_file_server
+
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=create_file_server()), base_url="http://worker:8081"
+    ) as client:
+        yield client
+
+
+@pytest.fixture
+def api_dependency_overrides(worker_files: httpx.AsyncClient) -> dict[Any, Any]:
+    from agent.api.worker_files import get_worker_client
+
+    async def override() -> httpx.AsyncClient:
+        return worker_files
+
+    return {get_worker_client: override}
+
+
+async def _released(api: ApiClient, project_id: uuid.UUID, pin: int | None = None) -> Any:
+    params = {"project_id": str(project_id), **({"pin": str(pin)} if pin is not None else {})}
+    return await api.get("/packages/released", params=params)
+
+
+async def _two_releases(
+    admin: ApiClient, db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID
+) -> tuple[CreativePackageRow, CreativePackageRow]:
+    """v1 released; the offer re-observed at a new price; a second run released as v2."""
+    first = await _package_of(db, await golden(admin, db, ws, project_id, actor))
+    assert (await _release(admin, first.id, 1)).status_code == 200
+    db.add(
+        Evidence(
+            project_id=project_id,
+            source=EvidenceSource.CSV,
+            kind="offer_record",
+            payload={**FRESH[0], "current_price": 89.0, "observed_at": _now()},
+            hash="offer-SDS-PRO-reobserved",
+        )
+    )
+    await db.commit()
+    second = await _package_of(db, await run_creative(admin, db, project_id))
+    assert second.status is CreativePackageStatus.READY_TO_RELEASE
+    released = await _release(admin, second.id, 2)
+    assert released.status_code == 200, released.text
+    for row in (first, second):
+        await db.refresh(row)
+    return first, second
+
+
+async def test_released_is_404_before_release_and_the_exact_version_by_pin_after(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    draft = await _package_of(db, run_id)
+    assert draft.status is CreativePackageStatus.READY_TO_RELEASE
+    # A package ready to release is still nothing Stage 05 may load.
+    nothing = await _released(admin, project_id)
+    assert nothing.status_code == 404, nothing.text
+    assert "nothing" in nothing.json()["detail"].lower()
+
+    assert (await _release(admin, draft.id, 1)).status_code == 200
+    await db.refresh(draft)
+    v1 = await _released(admin, project_id)
+    assert v1.status_code == 200, v1.text
+    body = v1.json()
+    assert (body["package_id"], body["version"], body["status"]) == (str(draft.id), 1, "released")
+    assert CreativePackage.model_validate(body).package_hash == draft.package_hash
+    assert package_hash(body) == draft.package_hash
+    assert (await _released(admin, project_id, pin=1)).json() == body
+    assert (await _released(admin, project_id, pin=2)).status_code == 404
+    assert (await _released(admin, project_id, pin=0)).status_code == 422
+    assert (await _released(admin, uuid.uuid4())).status_code == 404
+
+
+async def test_pin_returns_the_exact_version_even_when_superseded_and_diff_names_changes(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    first, second = await _two_releases(admin, db, workspace_id, project_id, admin_user.id)
+    assert first.status is CreativePackageStatus.SUPERSEDED and first.version == 1
+    assert second.status is CreativePackageStatus.RELEASED and second.version == 2
+
+    latest = (await _released(admin, project_id)).json()
+    assert (latest["package_id"], latest["version"], latest["status"]) == (
+        str(second.id), 2, "released",
+    )  # fmt: skip
+    pinned = await _released(admin, project_id, pin=1)
+    assert pinned.status_code == 200, pinned.text
+    old = pinned.json()
+    assert (old["package_id"], old["version"], old["status"]) == (str(first.id), 1, "superseded")
+    # Superseded, and still the exact bytes that were released: the hash holds.
+    assert package_hash(old) == first.package_hash
+
+    # v2 against v1: the offer moved between the runs, so its promotion changed.
+    diffed = await admin.get(
+        f"/creative-packages/{second.id}/diff", params={"against": str(first.id)}
+    )
+    assert diffed.status_code == 200, diffed.text
+    result = diffed.json()
+    assert (result["version"], result["against_version"]) == (2, 1)
+    kinds = {change["kind"] for change in result["changed"]}
+    assert "promotion" in kinds, result
+    promotion = next(c for c in result["changed"] if c["kind"] == "promotion")
+    assert promotion["from"]["fields"]["bound"] != promotion["to"]["fields"]["bound"]
+    assert result["added"] == [] and result["removed"] == []
+    assert (
+        await admin.get(
+            f"/creative-packages/{second.id}/diff", params={"against": str(uuid.uuid4())}
+        )
+    ).status_code == 404
+    assert (await admin.get(f"/creative-packages/{second.id}/diff")).status_code == 422
+
+
+async def test_the_json_export_validates_and_recomputes_to_the_released_hash(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    from agent.export.jobs import generate_export
+
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    assert (await _release(admin, row.id, 1)).status_code == 200
+    await db.refresh(row)
+
+    unsupported = await admin.post(
+        f"/creative-packages/{row.id}/export", params={"format": "editor_zip"}
+    )
+    assert unsupported.status_code == 422, unsupported.text
+
+    downloads: list[bytes] = []
+    for _ in range(2):
+        accepted = await admin.post(
+            f"/creative-packages/{row.id}/export", params={"format": "json"}
+        )
+        assert accepted.status_code == 202, accepted.text
+        job_id = accepted.json()["job_id"]
+        done = await generate_export({}, job_id)
+        assert done["status"] == "ready", done
+        status_now = await admin.get(f"/exports/{job_id}")
+        assert status_now.status_code == 200 and status_now.json()["status"] == "ready"
+        download = await admin.get(f"/exports/{job_id}/download")
+        assert download.status_code == 200, download.text
+        downloads.append(download.content)
+
+    first, second = downloads
+    assert first == second  # two exports of one released package are byte-identical
+    exported = json.loads(first)
+    package = CreativePackage.model_validate(exported)
+    assert package.version == 1 and exported["status"] == "released"
+    assert package_hash(exported) == row.package_hash == exported["package_hash"]

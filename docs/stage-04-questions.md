@@ -1675,3 +1675,105 @@ the `/approvals` Signatures tab; the withdraw dialog. Rulings owed:
 12. **Harness only:** `scripts/s4p22/seed.py` reaches G8 and G8b for real
     (S4-P13's `_to_g8`, 4.4.6 → 4.4.7), then widens the G8 card to 20 items
     (17 painted images, one fixture video) because no fixture model paints 20.
+
+## S4-P16
+
+Package assembly (4.7.1), the blocking checklist and critique (4.7.2),
+transactional release, `GET /packages/released`, the diff and the JSON
+export. Rulings owed:
+
+1. **Drafts are version 0 (migration 0022).** §7.2's table-level
+   `UNIQUE(project_id, version)` cannot hold two unreleased packages in one
+   project, yet every run writes one and `blocked → draft: re-run` is §12.4's
+   own lifecycle — the defect 0014 fixed for `campaign_plan`. Same fix: a
+   partial unique index `WHERE version > 0`; release mints `max(version)+1`.
+   The creative overview now lists packages by `created_at` (newest first);
+   the S4-P2 landing renders `Package v0` for a draft and should say `draft`,
+   as the Plan Viewer renders `—` (S4-P23).
+2. **Three contract additions to §12.2/§12.3** (`schemas/creative_package.py`):
+   `CampaignCreative.text_assets` — §12.3 lists ads, asset groups and
+   extensions by id and holds no text, and Stage 05 never reads a
+   `CreativeAsset` row; `ResponsiveSearchAd.pair_report` is `ShippedPairs`
+   (every pair of the ad *as shipped*, re-flagged by `pair_flags_v1`; 4.2.3's
+   label where 4.2.3/4.2.4 read that pair, `null` where nobody did) because an
+   H3 fallback or reserve swap changes an ad after it was judged and 4.2.3's
+   `PairReport` validator refuses any other combination; `MediaRendition.path`
+   (the manifest file) and per-file `MediaRendition.video` (check 10 is per
+   file; `MediaAsset.video` is the worst of them).
+3. **`package_hash` leaves out `status`**, the one field that moves after
+   release, so a superseded package's export still verifies. It covers
+   `version`, so the draft's hash and the released hash differ; release
+   recomputes it. Release compares content with `content_digest` (also
+   without `version` and `cost` — 4.7.2's own reading adds to the text spend).
+4. **`pins.catalogue_hash`** is `media.catalogue.catalogue_hash` over the
+   capability records the run pinned (`CreativeInput.media_models`); the run
+   pins those, not the live catalogue. A text-only run hashes `[]`.
+5. **Launch minimums come from the final pin's spec sheet**, by 3.4.2's own
+   arithmetic (`min_count > 0` is required): Stage 03 publishes 3.4.2's
+   output only inside the guideline payload, which Stage 04 may not read
+   (law 27). Counted per ad for RSA text, per asset group for asset-group
+   text, per campaign for extras and media; a structured snippet counts its
+   values (S4-P8's rule). Media renditions are matched to a spec asset type by
+   `conformance.media_spec`.
+6. **Check 11 excuses an unmet minimum only with a `blocking_for: launch`
+   dependency that names the campaign.** A project-wide one (an inherited
+   plan dependency such as "Install the conversion tag") does not. Open
+   dependencies 4.7.1 derives: each inherited one (`blocking` ⇒ `launch`),
+   each landing audit that is not `ok` (`blocking_for_launch`/`unreachable` ⇒
+   `launch`, `needs_change` ⇒ `none`), and a `youtube_upload` per video
+   (`launch` — Stage 04 never uploads, law 41).
+7. **A campaign with no ad groups blocks the package.** The integration seed's
+   `c-brand` has none, so Stage 04 writes nothing for it and check 11 finds it
+   short with nothing to blame; the golden run is scoped to `c-sds-us`. If a
+   frozen plan can carry such a campaign, should 4.7.1 leave it out, or should
+   it stay a blocker? (Stage 02's validators may already forbid it.)
+8. **Check 2 blocks `indeterminate` as well as `fail`** (law 31). A media
+   rendition's lint is its asset's (4.6.4 lints an image file by file into one
+   result).
+9. **Check 7 reads the `url_check` 4.3.1 recorded** ("2xx at check time");
+   neither 4.7.2 nor release makes a network call. On-domain and uniqueness
+   are recomputed (`urlcheck.on_domain`, `canonical`).
+10. **Check 9 reads 4.6.1's measurements** for ratio, bytes and format and
+    requires `ratio` and `format` measured and passed on every rendition, plus
+    `sx == sy` from the row. "Format allowed" is 4.6.1's declared-vs-probed
+    check: no allowed-formats list exists anywhere.
+11. **Check 13's detectors:** personal data is Stage 03's `is_personal_data`
+    (extracted from its check 10) after taking UUIDs out (manifest paths embed
+    them and the phone pattern reads their digit groups); a raw CRM value is
+    an exact match of any string of ≥ 4 characters in the project's
+    `crm_won`/`crm_lost` evidence; an OpenRouter URL is `openrouter.ai`
+    anywhere, a key is `sk-or-`; a binary is a `data:` URI, a `%PDF-` or ZIP
+    header, or a 200+ character base64 run.
+12. **Offer figures are re-resolved against the live rows at 4.7.2 too**, not
+    only at release: the "bound OfferRecord" is the latest observation of the
+    binding's identity (`offers.record_id`), and the window must contain `now`.
+13. **A stale package is refused, not re-assembled.** Release assembles again
+    and refuses with `409 package_stale` (naming the assets) when the content
+    moved after 4.7.2 checked it — an asset edited after assembly, say. Nothing
+    re-runs 4.7 on a finished run, so the only way on is a new run. Ruling
+    wanted: a `POST …/package/reassemble`, or accept.
+14. **`confirm_version`** must equal the version release will mint
+    (`409 version_mismatch {expected, submitted}`), as the plan freeze does.
+15. **Problem codes of a refused release:** `package_not_releasable`,
+    `plan_superseded`, `package_stale`, `offer_drift` (check 6 only),
+    `claim_unlicensed` (check 4 only), `release_blocked` (a mixture),
+    `version_mismatch`, `asset_frozen`, `package_file_mismatch`,
+    `version_taken`; every checklist refusal carries `offending[]{check,
+    asset_ids, finding}`. No worker to write the files is `503`.
+16. **Package files are keyed by package, not version**
+    (`package/{package_id}/{path}`), so a file written by a release that then
+    rolled back is overwritten with the same bytes by the retry and read by
+    nobody meanwhile. Retention does not prune `package/` (it prunes
+    `exports/`) — right for released packages; unreleased leftovers stay.
+17. **Not built — no §21.3 row gives them to S4-P16:** `GET
+    /creative-runs/{id}/package`, `GET /creative-packages/{id}` and `GET
+    /creative-packages/{id}/files/{path}`. S4-P23's screens need the first
+    two, and Stage 05 needs the third to fetch the files a released manifest
+    lists.
+18. **Only `format=json` exports** (`422` for the rest until S4-P17). `GET
+    /exports/{id}` and its download now serve creative-package exports;
+    they still do not serve plan or guideline exports (`ExportRepo` scoping and
+    `run_for` were research-only — pre-existing, not changed here).
+19. **The CRITIQUE reader** (`CreativeCritiqueDraft`) may only return
+    `warning`/`note`; its schema has no `blocking`. It reads the brief's
+    markdown and the shipped copy (capped at 6,000 / 12,000 characters).
