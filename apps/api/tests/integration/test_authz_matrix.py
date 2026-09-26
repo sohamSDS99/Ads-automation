@@ -556,6 +556,21 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.READ,
         None,
     ),
+    # S4-P15: the final checks' reads — 4.6.4's previews and 4.6.1's conformance.
+    (
+        "GET",
+        "/creative-runs/{run_id}/previews",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/previews?device=mobile",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/creative-runs/{run_id}/conformance",
+        "/creative-runs/00000000-0000-4000-8000-000000000000/conformance?verdict=fail",
+        Permission.READ,
+        None,
+    ),
     # S4-P21: the Media Library's file redirect and the regeneration price —
     # both reads, for every role (the regeneration itself is CREATIVE_EXECUTE).
     (

@@ -102,7 +102,7 @@ class SpecConformanceNode:
         tolerance = float(creative.constants.media.ratio_tolerance.value)
         fps = int(creative.constants.video.target_fps.value)
         campaigns = _campaigns(creative.input)
-        descriptions = _price_descriptions(ctx.outputs.get(OFFERS_NODE) or {})
+        descriptions = price_descriptions(ctx.outputs.get(OFFERS_NODE) or {})
         assets = await _assets(ctx)
         files = await _renditions(ctx, [a.id for a in assets if a.kind in MEDIA_FAMILIES])
         storage = ctx.media.storage if ctx.media is not None else get_storage()
@@ -124,7 +124,9 @@ class SpecConformanceNode:
                         _missing(asset, None, f"no spec for surface {asset.surface!r}")
                     )
                     continue
-                checks.extend(conformance.text_checks(asset.id, _lines(asset, descriptions), spec))
+                checks.extend(
+                    conformance.text_checks(asset.id, linted_lines(asset, descriptions), spec)
+                )
                 continue
             for artifact in files.get(asset.id, []):
                 found, problem = await _measured(storage, artifact, family)
@@ -181,7 +183,7 @@ def _campaigns(creative_input: CreativeInput) -> dict[str, PlannedCampaign]:
     }
 
 
-def _price_descriptions(output: Mapping[str, Any]) -> dict[uuid.UUID, str]:
+def price_descriptions(output: Mapping[str, Any]) -> dict[uuid.UUID, str]:
     offers = _Offers.model_validate(output)
     return {
         item.asset_id: item.description
@@ -191,7 +193,7 @@ def _price_descriptions(output: Mapping[str, Any]) -> dict[uuid.UUID, str]:
     }
 
 
-def _lines(asset: CreativeAsset, descriptions: Mapping[uuid.UUID, str]) -> list[str]:
+def linted_lines(asset: CreativeAsset, descriptions: Mapping[uuid.UUID, str]) -> list[str]:
     """Every line the asset's node linted, as it linted it."""
     fields = asset.fields or {}
     text = asset.text or ""

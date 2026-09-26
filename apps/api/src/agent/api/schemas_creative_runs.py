@@ -22,8 +22,11 @@ from agent.db.models import (
     GenerationModality,
     GenerationStatus,
     LandingAuditVerdict,
+    PreviewDevice,
+    PreviewVerdict,
 )
 from agent.schemas.creative_brief import CreativeBrief, OfferBinding
+from agent.schemas.creative_qa import ConformanceCheck, Unchecked
 from agent.schemas.guardrails import LintTarget
 from agent.schemas.landing import (
     DeviceFlag,
@@ -237,6 +240,48 @@ class LandingAuditItem(BaseModel):
 
 class LandingAuditListResponse(BaseModel):
     items: list[LandingAuditItem]
+
+
+# ---------------------------------------------------------------------------
+# final checks (4.6.1, 4.6.4) — PRD §16 "Landing and QA"
+# ---------------------------------------------------------------------------
+
+
+class RenderPreviewItem(BaseModel):
+    """One `RenderPreview`: one RSA combination on one device (§11 4.6.4)."""
+
+    id: uuid.UUID
+    creative_run_id: uuid.UUID
+    ad_ref: str
+    device: PreviewDevice
+    #: `{roles[], headlines[], descriptions[], paths[], likelihood, model}`.
+    combination: dict[str, Any]
+    #: False when the render did not happen (`verdict='unavailable'`, or a
+    #: `blocking` spec failure the browser never drew).
+    has_screenshot: bool
+    #: `{truncated[], overflow_px[], elements[], requests}` — advisory (D12).
+    dom_metrics: dict[str, Any]
+    #: `{missing[], extra[], mismatched[], unchecked[]}` — the only source of `blocking`.
+    spec_diff: dict[str, Any]
+    visual_diff: dict[str, Any] | None
+    template_version: str
+    verdict: PreviewVerdict
+    created_at: datetime
+
+
+class RenderPreviewListResponse(BaseModel):
+    items: list[RenderPreviewItem]
+
+
+class ConformanceResponse(BaseModel):
+    """4.6.1's checks as the node recorded them; `verdict` filters `checks`.
+    `unchecked[]` is always returned: an asset nothing could be checked against
+    is neither a pass nor a fail, and must not vanish behind a filter."""
+
+    ruleset_version: str
+    checks: list[ConformanceCheck]
+    unchecked: list[Unchecked]
+    failed: int
 
 
 # ---------------------------------------------------------------------------

@@ -349,9 +349,10 @@ _LOCKS: weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Lock] = (
 
 
 @asynccontextmanager
-async def _one_at_a_time() -> AsyncIterator[None]:
+async def one_at_a_time() -> AsyncIterator[None]:
     """Concurrency 1 per process (§13). One lock per event loop, so a lock is
-    never awaited from a loop it was not created on."""
+    never awaited from a loop it was not created on. Shared with
+    `preview/serp.py`: one Chromium at a time across both renderers."""
     loop = asyncio.get_running_loop()
     lock = _LOCKS.get(loop)
     if lock is None:
@@ -375,7 +376,7 @@ async def render_pages(
     missing = [device for device in DEVICES if device not in viewports]
     if missing:
         raise ValueError(f"no viewport for {', '.join(missing)}")
-    async with _one_at_a_time():
+    async with one_at_a_time():
         try:
             from playwright.async_api import async_playwright
         except ImportError as exc:  # pragma: no cover - dependency is declared

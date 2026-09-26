@@ -1524,6 +1524,94 @@ built something H3 could not use. Items 1, 4 and 5 decide whether H3 is safe.
     list (`seed_published(payload_rules=)`). Without one the seeded payload
     never compiled, so no test could mint a MINOR from it.
 
+## S4-P15
+
+Final lint and previews (`preview/serp.py`, `templates/serp_{mobile,desktop}.html`,
+node 4.6.4, `RenderPreview`, `GET /creative-runs/{id}/previews` and
+`/conformance`). Rulings owed:
+
+1. **`likelihood_v1`**. §11 names "the three highest-likelihood combinations"
+   and defines no likelihood. A run happens before launch, so nothing weights
+   one asset over another. Google rotates evenly among what each position
+   admits: a pinned position takes only its pinned assets, and the free positions
+   share the unpinned ones. So every valid assignment is equally likely,
+   `1 / (headline assignments × description assignments)`, recorded as an
+   exact fraction. The top three are therefore a tie. It is broken by the
+   slate's order and rotated, so that combination k leads with the k-th
+   admissible asset (`creative/preview_combinations.py`).
+2. **Longest-string** = the longest pinned asset in each pinned position, then
+   the longest unpinned assets in position order, counted by the linter's own
+   counter. The candidate sets are disjoint, so this maximises the total.
+   When it equals a likely combination it becomes one preview with both roles.
+   Paths are not chosen: the first two carried paths are shown.
+3. **The template measures a character budget, not Google's pixels.** Each
+   single-line element (a headline, a path) is a box `max_chars` wide in `ch`,
+   set in a monospace face, so `scrollWidth > clientWidth` means "longer than
+   its spec" on every device. Descriptions wrap the way Google wraps them and
+   are measured only for clipping. The clamps are internal values, not
+   Google's: 2 headline lines and 3 description lines on mobile; 1 and 2 in a
+   652px desktop column. D12 makes all of this advisory.
+4. **`dom` is additive to §11.** `truncated[]` lists the elements that overflow
+   their box or are clipped by the clamp. `overflow_px[]` is
+   `{element, asset_id, px}`. `elements[]` holds the raw metrics, and
+   `requests` counts page requests (all aborted).
+5. **`spec_diff.unchecked[]`** (a surface with no spec at the pin) is not in
+   §11. It makes a preview a `warning`, never a `pass` (law 31). `missing` and
+   `extra` are the spec's `min_count` / `max_count` over the RSA's carried
+   assets. `mismatched` lists the character limits.
+6. **Verdict precedence:** `blocking` (spec diff), then `unavailable` (not
+   rendered), then `warning` (truncated or unchecked), then `pass`. A spec
+   failure is `blocking` even when no browser drew it, so it has no screenshot.
+7. **The re-lint records, it does not demote.** A carried asset that fails at
+   the final pin stays carried. The failure is reported in `failed` and in
+   `relinted[].verdict`, and 4.7 acts on it. Law 33 speaks of creation. The
+   exit criterion also requires that a 31-character headline show in a
+   preview, which it could not do if 4.6.4 had already removed it.
+8. **What each kind is re-linted as:**
+   - text: 4.6.1's `linted_lines`;
+   - an image or logo: every rendition file (or the master when it has none),
+     re-measured by Stage 03's precheck against the final pin's logo templates.
+     This runs OCR again, which is slow on big runs;
+   - a video: its script's lines.
+
+   `unlinted` carries a reason (`no_campaign`, `no_text`, `file_missing`,
+   `file_unreadable` or `no_script`) and leaves the stored lint at its old pin,
+   so `ruleset_version ≠ final` stays visible to 4.7.
+9. **Withdrawn exceptions are swapped like rejected ones.** §11 says
+   "rejected"; a withdrawal licenses nothing and its route swaps the same way.
+   The outcome is read back from `lineage` (`reserve_swap`, `parent_id`),
+   whoever made the swap.
+10. **Cleared disclaimers (S4-P14 item 14).** 4.6.4 does not add disclaimer
+    text to any copy, because §11 4.6.4 names no such step. The final re-lint
+    still reports any disclosure finding the pin raises. Whether a cleared
+    disclaimer edits the copy or waives the finding is still unruled.
+11. **`visual_diff_vs_previous` is not computed** (it is optional, `?`, in
+    §11), and `RenderPreview.visual_diff` stays NULL. It needs a definition of
+    "previous" (the last run's preview of the same ad, device and role?) and a
+    metric.
+12. **Screenshot keys.** §7.4's `renders/{ad_ref}_{device}.png` holds one
+    render per ad and device, but there are up to four combinations. The key is
+    `renders/{slug}-{sha8}_{device}_{first role}.png`, because an `ad_ref`
+    contains `/` and spaces.
+13. **No route streams a preview PNG.** §16 names only the list, which says
+    `has_screenshot`. The UI phase will need something like S4-P20's
+    `GET /landing-audits/{id}/screenshot`.
+14. **Concurrency 1 across both renderers.** `landing._one_at_a_time` became
+    `landing.one_at_a_time` and `serp` takes the same lock.
+15. **A template whose `serp-template-version` differs from the pinned
+    constant fails the node** (`SerpTemplateError`). It is a deploy mismatch,
+    not a page failure. A missing browser makes the previews `unavailable`.
+16. **`GET /creative-runs/{id}/conformance`** (S4-P14 item 16) is built here.
+    `verdict=` filters `checks[]`. `unchecked[]` is always returned, and the
+    route is a 404 until 4.6.1 has run.
+17. **Test support:**
+    - the integration conftest's autouse `unrendered_serp_previews` makes
+      every run's previews `unavailable` unless a test restores the real
+      renderer (as S4-P7 did for landing);
+    - `s4p14_support.h3_run` gained `campaign_type=`;
+    - `n4_6_1._lines`, `n4_6_1._price_descriptions` and `n4_6_2._locale` are
+      now public for reuse. Their behaviour is unchanged.
+
 ## S4-P22
 
 FE review & exceptions: `ReviewWorkspace`, `ReviewChecklist`, `ReferenceCompare`,
