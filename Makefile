@@ -267,6 +267,43 @@ coverage-plan: ## Stage 02 PQ2: >= 80% on nodes/plan, planning/ and export/, eac
 			--cov-fail-under=80) || exit 1; \
 	done
 
+.PHONY: coverage-creative
+coverage-creative: ## Stage 04 CC15: creative/ pure modules and media/ >= 85%; nodes/creative, preview/, export/ >= 80% — each on its own, over unit + integration
+	# §17 CC15 names five floors, not one, and one blended number lets a
+	# well-covered package carry a bare one — so ONE pytest run records the
+	# lines, then one `coverage report` per package holds its own floor. Stage
+	# 04's nodes are exercised mostly by the integration suite (a database,
+	# Redis, ffmpeg, exiftool, tesseract), so a unit-only figure would misstate
+	# them: the run is unit + integration, inside the `test` image, the only
+	# place those hostnames and binaries exist. The pure modules are read from
+	# check_creative_purity.PURE_MODULES, never copied here. A failing test does
+	# not void the figure (the lines it ran still ran; `make test` is the gate
+	# on passing), but pytest stopping for any other reason (exit > 1) does.
+	# `--continue-on-collection-errors`: two host-only files read the repo root.
+	@docker compose ps --status running --format '{{.Service}}' | grep -qx postgres \
+		|| { echo "postgres is not running — run 'make up' first"; exit 1; }
+	docker compose run --rm test sh -c ' \
+		pure=$$(PYTHONPATH=scripts python -c "from check_creative_purity import PURE_MODULES as m; print(*m)"); \
+		[ -n "$$pure" ] || { echo "check_creative_purity.PURE_MODULES is empty"; exit 1; }; \
+		covs=""; inc=""; \
+		for m in $$pure; do covs="$$covs --cov=agent.creative.$${m%.py}"; inc="$$inc,*/agent/creative/$$m"; done; \
+		python -m pytest tests -q -p no:cacheprovider --continue-on-collection-errors $$covs \
+			--cov=agent.media --cov=agent.nodes.creative --cov=agent.preview --cov=agent.export \
+			--cov-report=; \
+		rc=$$?; [ $$rc -le 1 ] || { echo "pytest stopped (exit $$rc): nothing measured"; exit $$rc; }; \
+		failed=""; \
+		measure() { echo "== $$1 (floor $$3%)"; \
+			python -m coverage report --include="$$2" --fail-under=$$3 --sort=-miss \
+				--skip-covered --show-missing || failed="$$failed $$1"; }; \
+		measure creative-pure "$${inc#,}" 85; \
+		measure agent.media "*/agent/media/*" 85; \
+		measure agent.nodes.creative "*/agent/nodes/creative/*" 80; \
+		measure agent.preview "*/agent/preview/*" 80; \
+		measure agent.export "*/agent/export/*" 80; \
+		[ $$rc -eq 0 ] || echo "note: some tests failed (pytest exit 1); coverage is still what they ran"; \
+		[ -z "$$failed" ] || { echo "coverage-creative: under the floor:$$failed"; exit 1; }; \
+		echo "coverage-creative: all five floors met"'
+
 browser: ## Render the auth screens in Chromium (desktop + mobile) and assert on them
 	@docker compose cp scripts/browser-check-p0b.py worker:/tmp/browser-check.py
 	@docker compose exec -T worker mkdir -p /tmp/shots
