@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ApprovalCard } from "@/components/approvals/approval-card";
 import { AssetsTab } from "@/components/creative/assets-tab";
 import { BriefGateSummary } from "@/components/creative/brief-gate-summary";
+import { ReviewGateSummary } from "@/components/creative/review-gate-summary";
 import { JobsTab } from "@/components/creative/jobs-tab";
 import { RulesPanel } from "@/components/guidelines/rules-panel";
 import { PlanNodeFigure } from "@/components/plan/node-figure";
@@ -24,6 +25,7 @@ import { nodeLabel, type NodeState, type RunStage } from "@/lib/api/runs";
 import { absoluteTime, usd } from "@/lib/format";
 import { useNodeRun } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { isReviewGate } from "@/lib/api/review";
 
 type TabId = "output" | "evidence" | "prompt" | "metrics" | "calc" | "rules" | "assets" | "jobs";
 
@@ -97,6 +99,8 @@ export function NodePanel({
               authorises; here it only says who it waits on and links there. */}
           {stage === "creative" && approval.gate_key === "G7" ? (
             <BriefGateSummary approval={approval} projectId={projectId} />
+          ) : stage === "creative" && isReviewGate(approval.gate_key) ? (
+            <ReviewGateSummary approval={approval} projectId={projectId} />
           ) : (
             <ApprovalCard approval={approval} onDecided={onDecided} />
           )}
