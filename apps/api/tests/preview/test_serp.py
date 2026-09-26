@@ -125,6 +125,10 @@ async def test_a_headline_the_mobile_layout_cannot_show_is_clipped_not_overflowi
     third = {m.key: m for m in render.mobile.elements}["headline_3"]
     assert third.overflow_px == 0 and third.clipped
     assert "headline_3" in render.mobile.dom()["truncated"]
+    # Its box is the space the hidden text would take; the clip box is where
+    # the headline block ends — the edge the QA grid marks.
+    assert third.box is not None and third.clip_box is not None
+    assert third.box.y + third.box.height > third.clip_box.y + third.clip_box.height
 
 
 async def test_text_is_escaped_and_nothing_leaves_the_page() -> None:

@@ -13,11 +13,18 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ApiError } from "@/lib/api";
 import type { CreativePackageSummary } from "@/lib/api/creative";
 import { compareHref, packageHref } from "@/lib/api/creative-packages";
+import { middle } from "@/lib/creative/package";
 import { shortDate } from "@/lib/format";
 import { useCreativeOverview, usePackageDiff } from "@/lib/queries";
 
+/** A package by the name a person uses: its version, or its run while it has none. */
+function shortName(pkg: CreativePackageSummary | null, fallback: string): string {
+  if (!pkg) return fallback;
+  return pkg.version > 0 ? `v${pkg.version}` : `unreleased, run ${middle(pkg.creative_run_id)}`;
+}
+
 function versionLabel(pkg: CreativePackageSummary): string {
-  const name = pkg.version > 0 ? `v${pkg.version}` : `Unreleased (run ${pkg.creative_run_id.slice(0, 8)})`;
+  const name = pkg.version > 0 ? `v${pkg.version}` : `Unreleased (run ${middle(pkg.creative_run_id)})`;
   return `${name} · ${PACKAGE_STATUS[pkg.status].label.toLowerCase()}${pkg.released_at ? ` · ${shortDate(pkg.released_at)}` : ""}`;
 }
 
@@ -80,10 +87,15 @@ export function CompareScreen({ projectId, before, after }: { projectId: string;
         )}
         {find(before) || find(after) ? (
           <p className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-            {[find(before), find(after)].map((p) =>
+            {(
+              [
+                ["earlier", find(before)],
+                ["later", find(after)],
+              ] as const
+            ).map(([side, p]) =>
               p ? (
-                <Link key={p.package_id} href={packageHref(projectId, p.package_id)} className="text-accent hover:underline">
-                  Open {p.version > 0 ? `v${p.version}` : "the unreleased package"}
+                <Link key={side} href={packageHref(projectId, p.package_id)} className="text-accent hover:underline">
+                  Open the {side} package ({shortName(p, "")})
                 </Link>
               ) : null,
             )}
@@ -108,7 +120,11 @@ export function CompareScreen({ projectId, before, after }: { projectId: string;
           {diff.error instanceof ApiError ? diff.error.message : "Refresh the page to try again."}
         </Alert>
       ) : (
-        <PackageDiff diff={diff.data} />
+        <PackageDiff
+          diff={diff.data}
+          beforeLabel={shortName(find(before), diff.data.against_version > 0 ? `v${diff.data.against_version}` : "the earlier package")}
+          afterLabel={shortName(find(after), diff.data.version > 0 ? `v${diff.data.version}` : "the later package")}
+        />
       )}
     </div>
   );

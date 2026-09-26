@@ -43,16 +43,27 @@ export function LaunchMinimums({ campaigns }: { campaigns: CampaignCreative[] })
                       <Th className="w-full">Asset type</Th>
                       <Th className="text-right">Carries</Th>
                       <Th className="text-right">Requires</Th>
-                      <Th>Status</Th>
+                      <Th className="hidden sm:table-cell">Status</Th>
                     </Tr>
                   </thead>
                   <tbody>
                     {check.required.map((line) => (
                       <Tr key={line.asset_type} data-met={String(line.met)}>
                         <Td>{line.asset_type.replace(/_/g, " ")}</Td>
-                        <Td className={cn("text-right tabular-nums", !line.met && "font-medium")}>{line.present}</Td>
+                        <Td className={cn("whitespace-nowrap text-right tabular-nums", !line.met && "font-medium")}>
+                          {/* Below `sm` the status column drops and its icon rides the count. */}
+                          <span className="inline-flex items-center gap-1.5 sm:hidden">
+                            {line.met ? (
+                              <CircleCheck className="size-3.5 text-status-success" aria-hidden />
+                            ) : (
+                              <CircleMinus className="size-3.5 text-status-failed-ink" aria-hidden />
+                            )}
+                            <span className="sr-only">{line.met ? "met," : "short,"}</span>
+                          </span>{" "}
+                          {line.present}
+                        </Td>
                         <Td className="text-right tabular-nums text-fg-muted">{line.required}</Td>
-                        <Td>
+                        <Td className="hidden whitespace-nowrap sm:table-cell">
                           <span className="inline-flex items-center gap-1">
                             {line.met ? (
                               <CircleCheck className="size-3.5 text-status-success" aria-hidden />

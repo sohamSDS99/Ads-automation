@@ -343,7 +343,7 @@ def _gate_stop(
 
 
 def _h3_stop(package: CreativePackage, names: Mapping[uuid.UUID, str]) -> ReleaseStop:
-    """H3 as 4.6.3 left it, decided by whoever cleared (or rejected) its exceptions."""
+    """H3 as 4.6.3 left it, decided by whoever cleared or rejected its exceptions."""
     task = package.human_tasks[-1] if package.human_tasks else None
     exceptions = package.exceptions
     decided = [
@@ -353,9 +353,10 @@ def _h3_stop(package: CreativePackage, names: Mapping[uuid.UUID, str]) -> Releas
             key=lambda pair: pair[0],
         )
     ]
+    # Only the legal owner's clear or reject is an H3 decision; a withdrawal
+    # licenses nothing and is counted in `detail`, not named as the decider.
     signed: list[ExceptionRef] = [e for e in decided if e.status in ("cleared", "rejected")]
-    chosen = signed or decided
-    last = chosen[-1] if chosen else None
+    last = signed[-1] if signed else None
     counts = {
         state: sum(1 for e in exceptions if e.status == state)
         for state in ("cleared", "rejected", "withdrawn", "open")

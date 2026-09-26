@@ -24,7 +24,7 @@ import {
   adRefParts,
   elementLabel,
   groupPreviews,
-  markIn,
+  markFor,
   rolesLabel,
   truncationText,
   truncations,
@@ -38,6 +38,9 @@ const VERDICT: Record<PreviewVerdict, { label: string; icon: LucideIcon; tone: "
   blocking: { label: "Blocking", icon: CircleX, tone: "danger", ink: "text-status-failed-ink" },
   unavailable: { label: "Not drawn", icon: CircleDashed, tone: "neutral", ink: "text-fg-subtle" },
 };
+
+/** Room left of a cropped capture for the truncation numbers, in CSS px. */
+const GUTTER = 20;
 
 const DEVICE: Record<PreviewDevice, { label: string; icon: LucideIcon; placeholder: string }> = {
   mobile: { label: "Phone", icon: Smartphone, placeholder: "w-serp-mobile" },
@@ -201,11 +204,15 @@ function Shot({ device, item, caption }: { device: PreviewDevice; item: RenderPr
       {drawn ? (
         <ScrollFrame label={`${label} preview of ${caption}, at true scale`}>
           <div
-            className="relative overflow-hidden rounded-token border bg-serp-bg"
-            style={frame ? { width: Math.ceil(frame.width), height: Math.ceil(frame.height) } : undefined}
+            data-testid="preview-frame"
+            className="relative overflow-clip rounded-token border bg-serp-bg"
+            style={frame ? { width: Math.ceil(frame.width) + GUTTER, height: Math.ceil(frame.height) } : undefined}
           >
             {/* One capture pixel to one CSS pixel: `max-w-none` keeps the
-                preflight's `max-width: 100%` from shrinking it. */}
+                preflight's `max-width: 100%` from shrinking it. `overflow-clip`
+                on the frame, not `hidden`: a hidden box can still be scrolled
+                by script, focus or find-in-page, which would slide the capture
+                out from under its marks. */}
             {/* eslint-disable-next-line @next/next/no-img-element -- a stored capture streamed by api, not a Next asset */}
             <img
               src={previewScreenshotUrl(item.id)}
@@ -213,22 +220,36 @@ function Shot({ device, item, caption }: { device: PreviewDevice; item: RenderPr
               loading="lazy"
               decoding="async"
               className={cn("block max-w-none", frame && "absolute")}
-              style={frame ? { left: -frame.x, top: -frame.y } : undefined}
+              style={frame ? { left: GUTTER - frame.x, top: -frame.y } : undefined}
               data-testid="preview-image"
             />
             {marks.map((mark, index) => {
-              const at = mark.box ? markIn(mark.box, frame) : null;
+              const at = markFor(mark, frame);
               if (!at) return null;
+              const { x, y, width, height } = at.rect;
+              // Cropped frames keep a gutter left of the capture for the
+              // numbers, so a mark at the ad's left edge keeps its whole badge.
+              const shift = frame ? GUTTER : 0;
               return (
-                <span
-                  key={mark.key}
-                  aria-hidden
-                  data-testid="truncation-mark"
-                  data-element={mark.key}
-                  className="pointer-events-none absolute rounded-sm outline-2 outline-offset-1 outline-status-failed-ink"
-                  style={{ left: at.x, top: at.y, width: at.width, height: at.height }}
-                >
-                  <span className="absolute -top-2 -left-2 flex size-4 items-center justify-center rounded-full bg-status-failed-ink text-xs font-medium text-bg tabular-nums">
+                <span key={mark.key} aria-hidden>
+                  <span
+                    data-testid="truncation-mark"
+                    data-element={mark.key}
+                    data-kind={at.kind}
+                    className={cn(
+                      "pointer-events-none absolute",
+                      // A box where the text still shows; a cut line where a
+                      // block's clamp or edge hid it.
+                      at.kind === "box"
+                        ? "rounded-sm outline-2 outline-offset-1 outline-status-failed-ink"
+                        : "border-t-2 border-dashed border-status-failed-ink",
+                    )}
+                    style={{ left: x + shift, top: y, width, height }}
+                  />
+                  <span
+                    className="pointer-events-none absolute flex size-4 items-center justify-center rounded-full bg-status-failed-ink text-xs font-medium text-bg tabular-nums"
+                    style={{ left: frame ? 2 : Math.max(0, x - 8), top: Math.max(0, y + Math.min(height, 20) / 2 - 8) }}
+                  >
                     {index + 1}
                   </span>
                 </span>

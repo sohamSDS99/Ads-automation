@@ -122,10 +122,10 @@ export function StopsTable({ stops, compact = false }: { stops: ReleaseStop[]; c
                   <span className="block max-w-xs whitespace-normal text-xs text-fg-muted">{stop.detail}</span>
                 ) : null}
               </Td>
-              <Td className="text-fg-muted" data-testid="stop-decider">
+              <Td className="whitespace-nowrap text-fg-muted" data-testid="stop-decider">
                 {stop.decided_by_name ?? (stop.decided_by ? <MonoId value={stop.decided_by} label="decider id" /> : "—")}
               </Td>
-              <Td className={cn("text-fg-muted", compact && "hidden sm:table-cell")}>
+              <Td className={cn("whitespace-nowrap text-fg-muted", compact && "hidden sm:table-cell")}>
                 <When at={stop.decided_at} />
               </Td>
             </Tr>
@@ -285,8 +285,8 @@ export function DependenciesTable({ dependencies }: { dependencies: PackageDepen
                   <span className="block text-xs text-fg-muted">{dep.campaign_refs.join(", ")}</span>
                 ) : null}
               </Td>
-              <Td className="hidden text-fg-muted sm:table-cell">{dep.owner}</Td>
-              <Td>
+              <Td className="hidden whitespace-nowrap text-fg-muted sm:table-cell">{dep.owner}</Td>
+              <Td className="whitespace-nowrap">
                 {dep.blocking_for === "launch" ? (
                   <Badge tone="danger" data-testid="blocks-launch">
                     <CircleX className="size-3 text-status-failed-ink" aria-hidden />
@@ -392,9 +392,9 @@ export function CostTable({ cost }: { cost: CostSummary }) {
           <Tr>
             <Td>Media (images and video)</Td>
             <Td className="text-right tabular-nums">{usd(cost.media_estimate_usd)}</Td>
-            <Td className="text-right tabular-nums">
+            <Td className="whitespace-nowrap text-right tabular-nums">
               {usd(cost.media_actual_usd)}
-              <span className="block text-xs text-fg-muted" data-testid="media-delta">
+              <span className="block whitespace-nowrap text-xs text-fg-muted" data-testid="media-delta">
                 {sign}
                 {usd(Math.abs(delta.usd))}
                 {delta.pct !== null ? ` (${sign}${Math.abs(delta.pct).toFixed(0)}%)` : ""}
@@ -486,7 +486,7 @@ export function PackageManifest({
                       </span>
                     </span>
                   </Td>
-                  <Td className="text-right tabular-nums text-fg-muted" title={`${node.bytes} bytes`}>
+                  <Td className="whitespace-nowrap text-right tabular-nums text-fg-muted" title={`${node.bytes} bytes`}>
                     {formatBytes(node.bytes)}
                   </Td>
                   <Td />
@@ -516,10 +516,10 @@ export function PackageManifest({
                       <span className="hidden shrink-0 text-xs text-fg-subtle sm:inline">{node.entry.media_type}</span>
                     </span>
                   </Td>
-                  <Td className="text-right tabular-nums" title={`${node.entry.bytes} bytes`}>
+                  <Td className="whitespace-nowrap text-right tabular-nums" title={`${node.entry.bytes} bytes`}>
                     {formatBytes(node.entry.bytes)}
                   </Td>
-                  <Td>
+                  <Td className="whitespace-nowrap">
                     <MonoId value={node.entry.sha256} label={`sha256 of ${node.entry.path}`} />
                   </Td>
                 </Tr>

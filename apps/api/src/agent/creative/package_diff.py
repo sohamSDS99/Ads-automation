@@ -7,8 +7,9 @@ id; an asset is matched by its **slot** —
 * text: campaign, ad group, kind, surface, variant;
 * media: campaign, modality, concept.
 
-Within a slot, copy that reads the same (text and fields; for media the
-renditions' sha256s) is unchanged. What is left on each side is paired in a
+Within a slot, copy that reads the same (text and fields, less the fields
+that only point at another asset of the run; for media the renditions'
+sha256s) is unchanged. What is left on each side is paired in a
 fixed order as `changed` — so the screen can show the old text beside the new
 — and the remainder is `added` or `removed`. Pure: no I/O, no clock.
 """
@@ -72,6 +73,15 @@ class PackageDiff(_Frozen):
     changed: list[DiffChange] = Field(default_factory=list)
 
 
+def _is_reference(key: str) -> bool:
+    """A field naming another asset of the same run (`price_asset_id`,
+    `script_asset_id`, `parent_asset_id`). Two runs never share an asset id, so
+    such a field differs on every pair of packages and says nothing about the
+    copy — compared, it made every price item of two runs read as changed
+    (S4-P23, measured on its seeded diff)."""
+    return key == "asset_id" or key.endswith("_asset_id")
+
+
 def _text(asset: TextAsset) -> tuple[str, DiffAsset, str]:
     slot = "/".join(
         (
@@ -82,7 +92,11 @@ def _text(asset: TextAsset) -> tuple[str, DiffAsset, str]:
             asset.variant or "-",
         )  # fmt: skip
     )
-    shown = {key: value for key, value in asset.fields.items() if key != "url_check"}
+    shown = {
+        key: value
+        for key, value in asset.fields.items()
+        if key != "url_check" and not _is_reference(key)
+    }
     item = DiffAsset(
         asset_id=asset.asset_id, slot=slot, kind=asset.kind, text=asset.text, fields=shown
     )

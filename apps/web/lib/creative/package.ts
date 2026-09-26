@@ -102,6 +102,8 @@ export type Truncation = {
   clipped: boolean;
   /** Where to mark it on the capture; null on a preview measured before boxes. */
   box: PreviewBox | null;
+  /** The block that clips it, when 4.6.4 recorded one. */
+  clip: PreviewBox | null;
 };
 
 /** What 4.6.4 measured as truncated, in its order: overflowing its slot, or clipped. */
@@ -116,6 +118,7 @@ export function truncations(dom: PreviewDom): Truncation[] {
         overflowPx: m.overflow_px,
         clipped: m.clipped,
         box: m.box ?? null,
+        clip: m.clip_box ?? null,
       }));
   }
   const px = new Map((dom.overflow_px ?? []).map((o) => [o.element, o.px]));
@@ -125,6 +128,7 @@ export function truncations(dom: PreviewDom): Truncation[] {
     overflowPx: px.get(key) ?? 0,
     clipped: !px.has(key),
     box: null,
+    clip: null,
   }));
 }
 
@@ -133,6 +137,38 @@ export function truncationText(t: Pick<Truncation, "overflowPx" | "clipped">): s
   if (t.overflowPx > 0 && t.clipped) return `${t.overflowPx} px past its slot and clipped`;
   if (t.overflowPx > 0) return `${t.overflowPx} px past its slot`;
   return "clipped by the layout";
+}
+
+function intersect(a: PreviewBox, b: PreviewBox): PreviewBox | null {
+  const x = Math.max(a.x, b.x);
+  const y = Math.max(a.y, b.y);
+  const right = Math.min(a.x + a.width, b.x + b.width);
+  const bottom = Math.min(a.y + a.height, b.y + b.height);
+  return right - x >= 2 && bottom - y >= 2 ? { x, y, width: right - x, height: bottom - y } : null;
+}
+
+export type Mark = { kind: "box" | "edge"; rect: PreviewBox };
+
+/**
+ * Where to draw a truncation, in the cropped frame's coordinates.
+ *
+ * An element that overflows its slot is outlined where it is. A clipped one
+ * is outlined only where it still shows — its box is the space the hidden
+ * text would take, which lies under the next block — and when nothing of it
+ * shows, the mark is the edge of the block that cut it off. Null when the
+ * mark would fall outside the frame, or 4.6.4 recorded no box.
+ */
+export function markFor(t: Pick<Truncation, "box" | "clip" | "clipped" | "overflowPx">, frame: PreviewBox | null): Mark | null {
+  if (!t.box) return null;
+  let mark: Mark = { kind: "box", rect: t.box };
+  if (t.clipped && t.clip) {
+    const shown = intersect(t.box, t.clip);
+    mark = shown
+      ? { kind: "box", rect: shown }
+      : { kind: "edge", rect: { x: t.clip.x, y: t.clip.y + t.clip.height - 1, width: t.clip.width, height: 2 } };
+  }
+  const at = markIn(mark.rect, frame);
+  return at ? { kind: mark.kind, rect: at } : null;
 }
 
 /** A mark's box in the cropped frame's coordinates, or null when it lies outside it. */
@@ -223,4 +259,44 @@ export function costDelta(estimate: string, actual: string): { usd: number; pct:
   const e = Number(estimate);
   const a = Number(actual);
   return { usd: a - e, pct: e > 0 ? ((a - e) / e) * 100 : null };
+}
+
+// ---------------------------------------------------------------------------
+// the diff's fields
+// ---------------------------------------------------------------------------
+
+export type FieldChangeRow = { field: string; before: string; after: string };
+
+function plain(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** A field value in words: `—` for nothing, JSON for a list or an object. */
+export function fieldText(value: unknown): string {
+  if (value === null || value === undefined) return "—";
+  return typeof value === "object" ? JSON.stringify(value) : String(value);
+}
+
+/**
+ * The fields `package_diff` reported on a changed asset, as rows of what
+ * moved: a field whose value is an object (an offer binding) is opened one
+ * level, so the row reads `bound · percent_off 23 → 31`, not two JSON blobs.
+ * Which asset changed is the server's; this only lays out its two sides.
+ */
+export function changedFields(before: Record<string, unknown>, after: Record<string, unknown>): FieldChangeRow[] {
+  const rows: FieldChangeRow[] = [];
+  for (const key of [...new Set([...Object.keys(before), ...Object.keys(after)])]) {
+    const a = before[key];
+    const b = after[key];
+    if (plain(a) && plain(b)) {
+      for (const sub of [...new Set([...Object.keys(a), ...Object.keys(b)])]) {
+        if (fieldText(a[sub]) !== fieldText(b[sub])) {
+          rows.push({ field: `${key.replace(/_/g, " ")} · ${sub.replace(/_/g, " ")}`, before: fieldText(a[sub]), after: fieldText(b[sub]) });
+        }
+      }
+    } else if (fieldText(a) !== fieldText(b)) {
+      rows.push({ field: key.replace(/_/g, " "), before: fieldText(a), after: fieldText(b) });
+    }
+  }
+  return rows;
 }

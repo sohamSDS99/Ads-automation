@@ -68,12 +68,14 @@ _MEASURE = """
     const box = el.getBoundingClientRect();
     const clip = el.parentElement ? el.parentElement.closest('[data-clip]') : null;
     let clipped = false;
+    let clipBox = null;
     if (clip) {
       const c = clip.getBoundingClientRect();
       clipped = box.bottom > c.bottom + 0.5 || box.right > c.right + 0.5;
+      clipBox = at(c);
     }
     elements.push({key: el.dataset.el, scroll_width: el.scrollWidth,
-                   client_width: el.clientWidth, clipped, box: at(box)});
+                   client_width: el.clientWidth, clipped, box: at(box), clip_box: clipBox});
   }
   const ad = document.querySelector('.ad');
   return {elements, frame: ad ? at(ad.getBoundingClientRect()) : null};
@@ -123,6 +125,10 @@ class ElementMetrics(_Model):
     #: lets a reader mark the truncation on the picture itself (S4-P23).
     #: None on a preview measured before boxes were recorded.
     box: Box | None = None
+    #: The box of the block that clips it (its `[data-clip]` ancestor): where
+    #: a clipped element is cut off, which its own box — the space the hidden
+    #: text would take — does not show.
+    clip_box: Box | None = None
 
     @property
     def truncated(self) -> bool:
@@ -317,6 +323,7 @@ async def _render(
                 overflow_px=max(0, int(item["scroll_width"]) - int(item["client_width"])),
                 clipped=bool(item["clipped"]),
                 box=Box.model_validate(item["box"]),
+                clip_box=Box.model_validate(item["clip_box"]) if item["clip_box"] else None,
             )
             for item in facts["elements"]
         ]

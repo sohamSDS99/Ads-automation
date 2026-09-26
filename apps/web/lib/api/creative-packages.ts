@@ -31,6 +31,8 @@ export type PreviewElementMetrics = {
   clipped: boolean;
   /** Absent on a preview measured before S4-P23 recorded boxes. */
   box?: PreviewBox | null;
+  /** The block that clips it — where a clipped element is cut off. */
+  clip_box?: PreviewBox | null;
 };
 
 /** `serp.PreviewRender.dom()` — advisory pixel facts (D12). */

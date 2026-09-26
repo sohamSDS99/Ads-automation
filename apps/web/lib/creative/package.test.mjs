@@ -6,12 +6,14 @@ import { test } from "node:test";
 
 import {
   adRefParts,
+  changedFields,
   confirmsVersion,
   costDelta,
   elementLabel,
   formatBytes,
   groupPreviews,
   manifestTree,
+  markFor,
   markIn,
   middle,
   rolesLabel,
@@ -150,4 +152,49 @@ test("cost delta is actual against estimate, with no percentage on a zero estima
   assert.ok(Math.abs(delta.usd - 0.4) < 1e-9);
   assert.ok(Math.abs(delta.pct - 20) < 1e-9);
   assert.deepEqual(costDelta("0", "0"), { usd: 0, pct: null });
+});
+
+test("an overflowing element is outlined where it is", () => {
+  const frame = { x: 16, y: 0, width: 358, height: 179 };
+  const mark = markFor({ box: { x: 16, y: 54, width: 260, height: 22 }, clip: null, clipped: false, overflowPx: 9 }, frame);
+  assert.deepEqual(mark, { kind: "box", rect: { x: 0, y: 54, width: 260, height: 22 } });
+});
+
+test("a clipped element is outlined only where it still shows", () => {
+  const frame = { x: 16, y: 0, width: 358, height: 179 };
+  // Description 2: the block clamps at y=170; the element runs to 182.
+  const mark = markFor(
+    { box: { x: 16, y: 142, width: 358, height: 40 }, clip: { x: 16, y: 102, width: 358, height: 68 }, clipped: true, overflowPx: 0 },
+    frame,
+  );
+  assert.deepEqual(mark, { kind: "box", rect: { x: 0, y: 142, width: 358, height: 28 } });
+});
+
+test("a clipped element nothing of which shows is marked at the edge that cut it", () => {
+  const frame = { x: 16, y: 0, width: 358, height: 179 };
+  // Headline 3 on a phone: the headline block ends at y=98, the headline starts there.
+  const mark = markFor(
+    { box: { x: 16, y: 98, width: 221, height: 22 }, clip: { x: 16, y: 54, width: 358, height: 44 }, clipped: true, overflowPx: 0 },
+    frame,
+  );
+  assert.deepEqual(mark, { kind: "edge", rect: { x: 0, y: 97, width: 358, height: 2 } });
+});
+
+test("no box, no mark; a mark outside the frame is dropped", () => {
+  assert.equal(markFor({ box: null, clip: null, clipped: true, overflowPx: 0 }, null), null);
+  const frame = { x: 180, y: 0, width: 600, height: 150 };
+  assert.equal(markFor({ box: { x: 0, y: 0, width: 50, height: 10 }, clip: null, clipped: false, overflowPx: 3 }, frame), null);
+});
+
+test("changed fields open an object one level and list only what moved", () => {
+  const rows = changedFields(
+    { bound: { currency: "USD", percent_off: "23" }, header: "SDS software", terms: ["a"] },
+    { bound: { currency: "USD", percent_off: "31" }, header: "SDS software", terms: ["a", "b"], ends: "2026-10-01" },
+  );
+  assert.deepEqual(rows, [
+    { field: "bound · percent off", before: "23", after: "31" },
+    { field: "terms", before: '["a"]', after: '["a","b"]' },
+    { field: "ends", before: "—", after: "2026-10-01" },
+  ]);
+  assert.deepEqual(changedFields({ a: 1 }, { a: 1 }), []);
 });

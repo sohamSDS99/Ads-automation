@@ -112,14 +112,19 @@ export function PackageDocument({ projectId, packageId }: { projectId: string; p
                   · hash <MonoId value={data.package_hash ?? pkg.package_hash} label="package hash" />
                 </>
               ) : (
-                <>Package {pkg.package_id.slice(0, 8)} of run {pkg.creative_run_id.slice(0, 8)}</>
+                <>
+                  Package <MonoId value={pkg.package_id} label="package id" /> of run{" "}
+                  <MonoId value={pkg.creative_run_id} label="run id" />
+                </>
               )}
             </p>
           </div>
           {others.length > 0 ? (
-            <label className="flex items-center gap-2 text-sm text-fg-muted">
-              <GitCompareArrows className="size-4" aria-hidden />
-              <span>Compare with</span>
+            <label className="flex w-full flex-col gap-1.5 text-sm text-fg-muted sm:w-auto sm:flex-row sm:items-center sm:gap-2">
+              <span className="inline-flex items-center gap-2 whitespace-nowrap">
+                <GitCompareArrows className="size-4" aria-hidden />
+                Compare with
+              </span>
               <Select
                 value=""
                 onChange={(event) => {

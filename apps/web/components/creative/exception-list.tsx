@@ -67,14 +67,14 @@ export function ExceptionList({ set, nameOf }: { set: ExceptionSet; nameOf: (use
                       </span>
                     </span>
                   </Td>
-                  <Td>
+                  <Td className="whitespace-nowrap">
                     <Badge tone={status.tone} data-status={row.status}>
                       <Icon className={cn("size-3", status.ink)} aria-hidden />
                       {status.label}
                     </Badge>
                   </Td>
                   <Td className="text-right tabular-nums">{row.asset_ids.length}</Td>
-                  <Td className="hidden text-fg-muted sm:table-cell">
+                  <Td className="hidden whitespace-nowrap text-fg-muted sm:table-cell">
                     {row.decided_at ? (
                       <>
                         {who ?? "Someone"} ·{" "}

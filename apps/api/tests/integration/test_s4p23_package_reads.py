@@ -129,6 +129,11 @@ async def test_a_ready_package_carries_the_thirteen_checks_and_what_release_woul
     assert stops["H3"]["status"] == (tasks[-1]["status"] if tasks else "not_required")
     exceptions = body["package"]["exceptions"]
     assert stops["H3"]["detail"].startswith(f"{len(exceptions)} exception") or not exceptions
+    # The golden run withdraws its exceptions: counted, and nobody named as
+    # H3's decider — a withdrawal licenses nothing.
+    assert exceptions and all(e["status"] == "withdrawn" for e in exceptions)
+    assert stops["H3"]["detail"] == f"{len(exceptions)} exceptions: {len(exceptions)} withdrawn"
+    assert stops["H3"]["decided_by"] is None and stops["H3"]["decided_by_name"] is None
 
     # By id, the same view; any member may read it.
     by_id = await admin.get(f"/creative-packages/{row.id}")

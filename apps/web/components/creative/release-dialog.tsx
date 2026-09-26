@@ -2,7 +2,7 @@
 
 import { Lock } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PinsList, StopsTable } from "@/components/creative/package-sections";
 import { Alert } from "@/components/ui/alert";
@@ -49,6 +49,12 @@ export function ReleaseDialog({
   const router = useRouter();
   const release = useReleasePackage(projectId, runId);
   const [typed, setTyped] = useState("");
+  const errorRef = useRef<HTMLDivElement>(null);
+  // The body scrolls inside a height-capped dialog: bring a refusal into view,
+  // as well as announcing it (the alert's role).
+  useEffect(() => {
+    if (release.error) errorRef.current?.scrollIntoView({ block: "nearest" });
+  }, [release.error]);
   const version = view.release.version_to_mint;
   if (version === null) return null;
 
@@ -90,16 +96,17 @@ export function ReleaseDialog({
       <DialogContent
         title={`Release package v${version}`}
         description="Stage 05 loads the released version and nothing else. Check what it records, then type the version to confirm."
-        className="max-w-2xl"
+        className="flex max-h-main max-w-2xl flex-col"
         data-testid="release-dialog"
       >
         <form
+          className="flex min-h-0 flex-1 flex-col"
           onSubmit={(event) => {
             event.preventDefault();
             submit();
           }}
         >
-          <DialogBody className="max-h-main overflow-y-auto">
+          <DialogBody className="min-h-0 flex-1 overflow-y-auto">
             <div className="flex flex-col gap-2">
               <h3 className="text-sm font-medium text-fg">Stops</h3>
               <StopsTable stops={view.release.stops} compact />
@@ -141,17 +148,19 @@ export function ReleaseDialog({
               data-testid="release-confirm"
               hint={`Exactly v${version}. The server checks it is still the version it will mint.`}
             />
-            {failure ? (
-              <Alert tone="error" title={failure.problem?.title ?? "Release refused"}>
-                <span data-testid="release-error">{failure.message}</span>
-              </Alert>
-            ) : release.error ? (
-              <Alert tone="error" title="Release did not reach the server">
-                Check your connection, then try again. Nothing was released.
-              </Alert>
-            ) : null}
+            <div ref={errorRef}>
+              {failure ? (
+                <Alert tone="error" title={failure.problem?.title ?? "Release refused"}>
+                  <span data-testid="release-error">{failure.message}</span> Nothing was released.
+                </Alert>
+              ) : release.error ? (
+                <Alert tone="error" title="Release did not reach the server">
+                  Check your connection, then try again. Nothing was released.
+                </Alert>
+              ) : null}
+            </div>
           </DialogBody>
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <DialogClose asChild>
               <Button type="button" variant="ghost" disabled={release.isPending}>
                 Cancel

@@ -102,3 +102,40 @@ def test_moved_pins_are_listed() -> None:
     assert [(p.field, p.before, p.after) for p in result.pins] == [
         ("ruleset_version", "1.0+aa", "1.1+bb")
     ]
+
+
+def test_a_field_pointing_at_another_asset_of_the_run_is_not_a_change() -> None:
+    """A price item carries its price asset's id; two runs never share one."""
+    old = golden_package()
+    new = _rekeyed(old)
+
+    def pointing(package: CreativePackage, parent: uuid.UUID) -> CreativePackage:
+        campaign = package.campaigns[0]
+        texts = [
+            a.model_copy(update={"fields": {**a.fields, "price_asset_id": str(parent)}})
+            if a.kind == "sitelink"
+            else a
+            for a in campaign.text_assets
+        ]
+        return package.model_copy(
+            update={"campaigns": [campaign.model_copy(update={"text_assets": texts})]}
+        )
+
+    result = diff(pointing(new, uuid.uuid4()), pointing(old, uuid.uuid4()))
+    assert (result.added, result.removed, result.changed) == ([], [], [])
+
+    # A real change beside the reference is still one, and the reference is not shown.
+    moved = pointing(new, uuid.uuid4())
+    campaign = moved.campaigns[0]
+    texts = [
+        a.model_copy(update={"fields": {**a.fields, "line1": "Moved"}})
+        if a.asset_id == uuid.UUID(int=SITELINK_1.int + 50_000)
+        else a
+        for a in campaign.text_assets
+    ]
+    moved = moved.model_copy(
+        update={"campaigns": [campaign.model_copy(update={"text_assets": texts})]}
+    )
+    (change,) = diff(moved, pointing(old, uuid.uuid4())).changed
+    assert change.to.fields["line1"] == "Moved"
+    assert "price_asset_id" not in change.to.fields and "price_asset_id" not in change.from_.fields

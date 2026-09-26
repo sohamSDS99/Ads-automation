@@ -8,6 +8,7 @@ import { PackageSection } from "@/components/creative/package-sections";
 import { Table, Td, Th, Tr } from "@/components/ui/table";
 import type { DiffAsset, DiffChange, PackageDiff as Diff, PackageMediaRendition } from "@/lib/api/creative-packages";
 import { mediaContentUrl } from "@/lib/api/media-library";
+import { changedFields, fieldText } from "@/lib/creative/package";
 import { wordDiff, type DiffToken } from "@/lib/creative/word-diff";
 import { cn } from "@/lib/utils";
 
@@ -27,11 +28,6 @@ function slotLabel(slot: string, kind: string): string {
 
 function isMedia(asset: DiffAsset): boolean {
   return asset.renditions.length > 0 || asset.kind === "image" || asset.kind === "video" || asset.kind === "logo";
-}
-
-function show(value: unknown): string {
-  if (value === null || value === undefined) return "—";
-  return typeof value === "object" ? JSON.stringify(value) : String(value);
 }
 
 /** Tokens only one side has are struck (before) or underlined (after) — and named for a screen reader. */
@@ -64,9 +60,7 @@ function TextChange({ change }: { change: DiffChange }) {
   const before = change.from.text ?? "";
   const after = change.to.text ?? "";
   const words = wordDiff(before, after);
-  const keys = [...new Set([...Object.keys(change.from.fields), ...Object.keys(change.to.fields)])].filter(
-    (key) => show(change.from.fields[key]) !== show(change.to.fields[key]),
-  );
+  const rows = changedFields(change.from.fields, change.to.fields);
   return (
     <div className="flex flex-col gap-2">
       {before || after ? (
@@ -81,29 +75,21 @@ function TextChange({ change }: { change: DiffChange }) {
           </p>
         </div>
       ) : null}
-      {keys.length > 0 ? (
-        <div className="rounded-token border" data-testid="field-diff">
-          <Table label={`Changed fields of ${slotLabel(change.slot, change.kind)}`} className="min-w-0">
-            <thead>
-              <Tr>
-                <Th>Field</Th>
-                <Th className="w-1/2">Before</Th>
-                <Th className="w-1/2">After</Th>
-              </Tr>
-            </thead>
-            <tbody>
-              {keys.map((key) => (
-                <Tr key={key}>
-                  <Td className="text-fg-muted">{key.replace(/_/g, " ")}</Td>
-                  <Td className="max-w-0 whitespace-normal break-words font-mono text-xs line-through decoration-status-failed-ink">
-                    {show(change.from.fields[key])}
-                  </Td>
-                  <Td className="max-w-0 whitespace-normal break-words font-mono text-xs font-medium">{show(change.to.fields[key])}</Td>
-                </Tr>
-              ))}
-            </tbody>
-          </Table>
-        </div>
+      {rows.length > 0 ? (
+        <ul className="flex flex-col divide-y rounded-token border text-sm" data-testid="field-diff">
+          {rows.map((row) => (
+            <li key={row.field} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-3 py-2" data-testid="field-change">
+              <span className="min-w-32 text-fg-muted">{row.field}</span>
+              <span className="inline-flex min-w-0 flex-wrap items-baseline gap-x-2 tabular-nums">
+                <del className="break-all decoration-status-failed-ink decoration-2">{row.before}</del>
+                <ArrowRight className="size-3.5 shrink-0 translate-y-0.5 text-fg-subtle" aria-label="changed to" />
+                <ins className="break-all font-medium underline decoration-status-success decoration-2 underline-offset-4">
+                  {row.after}
+                </ins>
+              </span>
+            </li>
+          ))}
+        </ul>
       ) : null}
     </div>
   );
@@ -167,7 +153,7 @@ function AssetOnly({ asset, kind }: { asset: DiffAsset; kind: "added" | "removed
       {kind === "removed" ? <del className="decoration-status-failed-ink decoration-2">{asset.text ?? "—"}</del> : asset.text ?? "—"}
       {fields.length > 0 && !asset.text ? (
         <span className="block font-mono text-xs text-fg-muted">
-          {fields.map(([key, value]) => `${key}: ${show(value)}`).join(" · ")}
+          {fields.map(([key, value]) => `${key.replace(/_/g, " ")}: ${fieldText(value)}`).join(" · ")}
         </span>
       ) : null}
     </p>
@@ -182,9 +168,7 @@ function AssetOnly({ asset, kind }: { asset: DiffAsset; kind: "added" | "removed
  * by side, each aspect ratio against its counterpart. The pins that moved are
  * listed first. Nothing is matched here.
  */
-export function PackageDiff({ diff }: { diff: Diff }) {
-  const beforeLabel = diff.against_version > 0 ? `v${diff.against_version}` : "the unreleased package";
-  const afterLabel = diff.version > 0 ? `v${diff.version}` : "the unreleased package";
+export function PackageDiff({ diff, beforeLabel, afterLabel }: { diff: Diff; beforeLabel: string; afterLabel: string }) {
   const empty = diff.changed.length === 0 && diff.added.length === 0 && diff.removed.length === 0 && diff.pins.length === 0;
   return (
     <div className="flex flex-col gap-8" data-testid="package-diff">
@@ -263,7 +247,7 @@ export function PackageDiff({ diff }: { diff: Diff }) {
           >
             <ul className="flex flex-col gap-4">
               {items.map((asset) => (
-                <li key={asset.asset_id} className="flex flex-col gap-2" data-testid={`diff-${kind}`}>
+                <li key={asset.asset_id} className="flex flex-col gap-2" data-testid={`diff-${kind}-item`}>
                   <p className="flex items-center gap-1.5 text-sm">
                     <Icon className="size-3.5 text-fg-subtle" aria-hidden />
                     <span className="font-medium text-fg">{asset.kind.replace(/_/g, " ")}</span>
