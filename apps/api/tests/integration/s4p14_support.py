@@ -14,6 +14,7 @@ identity, and a suite with one approver could not tell the two checks apart.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -355,3 +356,29 @@ async def snapshot(db: AsyncSession, h3: H3Run) -> dict[str, Any]:
         "task": (task.status, task.completed_by, task.submitted_payload),
         "node": (node.status, node.output),
     }
+
+
+async def withdraw_open(api: ApiClient, run_id: uuid.UUID) -> list[str]:
+    """Withdraw every open exception of the run — H3 ends `not_required`."""
+    listed = await api.get(f"/creative-runs/{run_id}/exceptions")
+    assert listed.status_code == 200, listed.text
+    ids = [e["exception_id"] for e in listed.json()["exceptions"] if e["status"] == "open"]
+    response = await api.post(
+        f"/creative-runs/{run_id}/exceptions/withdraw", json={"exception_ids": ids}
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["h3_status"] == "not_required", response.text
+    return ids
+
+
+async def past_h3(
+    api: ApiClient, run_id: uuid.UUID, result: Any, again: Callable[[], Awaitable[Any]]
+) -> Any:
+    """A whole-DAG run parked on H3 by its scripted copy's unlicensed claims
+    (S4-P14), carried past it as an operator would: withdraw them — which
+    licenses nothing — and resume. Any other outcome is returned untouched."""
+    if result.status is not RunStatus.AWAITING_HUMAN_TASK:
+        return result
+    assert result.awaiting == ("4.6.3",), result
+    await withdraw_open(api, run_id)
+    return await again()

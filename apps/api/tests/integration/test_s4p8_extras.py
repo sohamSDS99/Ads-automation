@@ -52,6 +52,7 @@ from agent.schemas.landing import Box
 from tests.integration.conftest import ApiClient
 from tests.integration.creative_support import TEXT_ONLY
 from tests.integration.runs_support import execute
+from tests.integration.s4p14_support import past_h3
 from tests.integration.test_s4p4_brief_g7 import _g7
 from tests.integration.test_s4p5_headlines_combinations import _assets, _output
 from tests.integration.test_s4p6_descriptions_variant_b import _registry, _seed
@@ -354,6 +355,14 @@ async def _run(
     assert decided.status_code == 200, decided.text
     result = await execute(
         run_id, script.fake, registry=registry, dag=Dag.from_registry(registry), max_attempts=1
+    )
+    result = await past_h3(
+        admin,
+        run_id,
+        result,
+        lambda: execute(
+            run_id, script.fake, registry=registry, dag=Dag.from_registry(registry), max_attempts=1
+        ),
     )
     assert result.status is RunStatus.SUCCEEDED, result.error
     return run_id, script, result.status
