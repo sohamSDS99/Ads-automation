@@ -2612,7 +2612,8 @@ class CreativePackage(Base):
     brief_hash: Mapped[str | None] = mapped_column(sa.Text)
     payload: Mapped[dict[str, Any]] = _jsonb_object()
     #: Both written at release, which is what hashes the manifest.
-    manifest: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    #: `ManifestEntry` rows, sorted by path — written by release with the files.
+    manifest: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB(none_as_null=True))
     package_hash: Mapped[str | None] = mapped_column(sa.Text)
     released_at: Mapped[datetime | None] = mapped_column(sa.DateTime(timezone=True))
     released_by: Mapped[uuid.UUID | None] = mapped_column(

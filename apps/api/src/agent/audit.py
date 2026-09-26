@@ -110,6 +110,9 @@ class AuditAction(StrEnum):
     # `claim.signed` row as well, so the claims register's trail stays whole.
     CREATIVE_EXCEPTIONS_CLEARED = "creative_exception.cleared"
     CREATIVE_EXCEPTIONS_WITHDRAWN = "creative_exception.withdrawn"
+    # S4-P16 — a release is the recorded act: the version it minted, the hash
+    # it froze and the package it superseded (§12.4).
+    CREATIVE_PACKAGE_RELEASED = "creative_package.released"
     #: The sign-off matrix changed outside a gate decision. The only path that
     #: can displace a legal owner, so it carries the outgoing owner, the
     #: incoming one, the mandatory reason and the signatures it voided.
@@ -197,6 +200,7 @@ class AuditTarget(StrEnum):
     CONTENT_GUIDELINE = "content_guideline"
     SIGNOFF_MATRIX = "signoff_matrix"
     POLICY_AMENDMENT = "policy_amendment"
+    CREATIVE_PACKAGE = "creative_package"
 
 
 def write_audit(

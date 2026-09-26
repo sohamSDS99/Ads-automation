@@ -283,6 +283,59 @@ async def shutdown(ctx: dict[str, Any]) -> None:
     log.info("worker.shutdown")
 
 
+#: A package file's path inside `package/{package_id}/` — what
+#: `creative/package.assemble` names: media under `media/`, patches under
+#: `landing/`, never a `..` segment.
+_PACKAGE_PATH = re.compile(r"(?:media|landing)/(?:[A-Za-z0-9_.-]+/)*[A-Za-z0-9_-][A-Za-z0-9_.-]*")
+#: Where a copied package file may come from: the creative run's own files.
+_PACKAGE_SOURCE = "creative/"
+
+
+async def write_package_files(ctx: dict[str, Any], payload: dict[str, Any]) -> dict[str, Any]:
+    """Write a package's files under `package/{package_id}/` (Stage 04 PRD §12.4).
+
+    Each file is either copied from the creative run's own storage
+    (`source_key`) or written from the bytes release sends (`content` — a
+    landing patch rendered from its row). Every file is **read back and
+    hashed after it lands**, so the receipt release checks against the
+    manifest is of the bytes on the Volume, not of the bytes it meant to
+    write. A path outside `media/` or `landing/`, or a source outside the
+    run's `creative/` files, is refused before anything is written.
+    """
+    package_id = uuid.UUID(str(payload["package_id"]))
+    files = list(payload["files"])
+    for item in files:
+        path, source = str(item["path"]), item.get("source_key")
+        if not _PACKAGE_PATH.fullmatch(path) or ".." in path.split("/"):
+            raise ValueError(f"refusing to write a package file at {path!r}")
+        if source is not None and not str(source).startswith(_PACKAGE_SOURCE):
+            raise ValueError(f"refusing to copy {source!r} into a package")
+        if source is None and not isinstance(item.get("content"), bytes | bytearray):
+            raise ValueError(f"{path} carries neither a source key nor its bytes")
+    storage = get_storage()
+    written: list[dict[str, Any]] = []
+    for item in files:
+        path, source = str(item["path"]), item.get("source_key")
+        data = (
+            await asyncio.to_thread(storage.get, str(source))
+            if source is not None
+            else bytes(item["content"])
+        )
+        key = f"package/{package_id}/{path}"
+        await asyncio.to_thread(storage.put, key, data, content_type=item.get("media_type"))
+        landed = await asyncio.to_thread(storage.get, key)
+        written.append(
+            {
+                "path": path,
+                "key": key,
+                "sha256": hashlib.sha256(landed).hexdigest(),
+                "bytes": len(landed),
+            }
+        )
+    log.info("package_files.written", package_id=str(package_id), files=len(written))
+    return {"files": written}
+
+
 class WorkerSettings:
     functions = [
         execute_run,
@@ -291,6 +344,7 @@ class WorkerSettings:
         check_generation_job,
         regenerate_asset,
         store_reference,
+        write_package_files,
     ]
     # Everything unattended. `run_at_startup` is off for all of them: startup
     # already reaps explicitly above, and firing a nightly backup on every

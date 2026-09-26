@@ -9,22 +9,40 @@ the event stream.
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import uuid
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import DBAPIError, IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agent.creative import checklist
-from agent.creative.package import package_hash, package_row
+from agent import queue, worker
+from agent.audit import AuditAction
+from agent.creative import checklist, offers, release
+from agent.creative.package import package_hash, package_row, sha256
+from agent.db.models import (
+    AuditLog,
+    CampaignPlan,
+    CampaignPlanStatus,
+    CreativeAsset,
+    CreativePackageStatus,
+    Evidence,
+    EvidenceSource,
+    RunStatus,
+)
 from agent.db.models import CreativePackage as CreativePackageRow
-from agent.db.models import CreativePackageStatus, RunStatus
 from agent.orchestrator.dag import Dag
 from agent.schemas.creative_package import CreativeCritique, CreativePackage, PackageAssembly
-from tests.integration.conftest import ApiClient
-from tests.integration.creative_support import TEXT_ONLY
+from agent.schemas.guardrails import OfferRecord
+from agent.storage.local import LocalStorage
+from tests.integration import test_s4p6_descriptions_variant_b as s4p6
+from tests.integration.conftest import ApiClient, build_client, make_member
+from tests.integration.creative_support import TEXT_ONLY, seed_published
 from tests.integration.runs_support import execute
 from tests.integration.s4p14_support import past_h3
 from tests.integration.test_s4p4_brief_g7 import _g7
@@ -32,21 +50,28 @@ from tests.integration.test_s4p5_headlines_combinations import _output
 from tests.integration.test_s4p6_descriptions_variant_b import _registry, _seed
 from tests.integration.test_s4p8_extras import (
     CRAWLED,
+    DISQUALIFIERS,
     EXTRA_SPECS,
     FRESH,
     OFFER_SPECS,
+    REQUIRED,
     _crawl,
     _offers,
     _run,
     _Script,
     _Web,
+    rendered_form,
     web,
 )
 from tests.integration.test_stage04_schema import _creative_run, _package
 
 pytestmark = pytest.mark.asyncio
 
-__all__ = ["web"]
+__all__ = ["rendered_form", "web"]
+
+
+def _now() -> str:
+    return datetime.now(UTC).isoformat()
 
 
 #: The seeded plan's second campaign, `c-brand`, has no ad groups — nothing for
@@ -84,10 +109,23 @@ async def run_creative(admin: ApiClient, db: AsyncSession, project_id: uuid.UUID
 async def golden(
     admin: ApiClient, db: AsyncSession, ws: uuid.UUID, project_id: uuid.UUID, actor: uuid.UUID
 ) -> uuid.UUID:
-    """S4-P8's run with every extra specified, the offers fresh and the site crawled."""
+    """S4-P8's run with every extra specified, the offers fresh and the site crawled.
+
+    With `rendered_form` requested, the landing page renders with its seven
+    field form; the plan then carries S4-P8's qualified lead (the signals its
+    scripted field labels answer), 4.5.2 trims the form and writes a patch —
+    so the package ships landing-patch files for release to write.
+    """
     await _offers(db, project_id, FRESH)
     await _crawl(db, project_id, CRAWLED)
-    await _seed(db, ws, project_id, actor, extra_specs={"search": {**EXTRA_SPECS, **OFFER_SPECS}})
+    await _seed(
+        db,
+        ws,
+        project_id,
+        actor,
+        extra_specs={"search": {**EXTRA_SPECS, **OFFER_SPECS}},
+        plan={"required_signals": REQUIRED, "disqualifiers": DISQUALIFIERS},
+    )
     return await run_creative(admin, db, project_id)
 
 
@@ -211,3 +249,314 @@ async def test_a_package_whose_checks_fail_is_blocked_and_the_run_still_succeeds
         )
         == 1
     )
+
+
+# ---------------------------------------------------------------------------
+# release (§12.4) — one transaction
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def storage(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> LocalStorage:
+    from agent.config import get_settings
+
+    monkeypatch.setenv("STORAGE_DIR", str(tmp_path))
+    get_settings.cache_clear()
+    return LocalStorage(str(tmp_path))
+
+
+@pytest.fixture
+def worker_writes(monkeypatch: pytest.MonkeyPatch, storage: LocalStorage) -> list[dict[str, Any]]:
+    """`queue.write_package_files` answered by the real worker job, in process."""
+    calls: list[dict[str, Any]] = []
+
+    async def write(payload: dict[str, Any]) -> dict[str, Any]:
+        calls.append(payload)
+        return await worker.write_package_files({}, payload)
+
+    monkeypatch.setattr(release.queue, "write_package_files", write)
+    return calls
+
+
+async def _release(api: ApiClient, package_id: uuid.UUID, version: int = 1) -> Any:
+    return await api.post(
+        f"/creative-packages/{package_id}/release", json={"confirm_version": version}
+    )
+
+
+def _shipped(package: CreativePackage) -> set[uuid.UUID]:
+    return {
+        *(a.asset_id for c in package.campaigns for a in c.text_assets),
+        *(m.asset_id for c in package.campaigns for m in (*c.media, *c.logos)),
+    }
+
+
+async def _frozen(db: AsyncSession, run_id: uuid.UUID) -> dict[uuid.UUID, Any]:
+    rows = (
+        await db.execute(
+            sa.select(CreativeAsset.id, CreativeAsset.frozen_at)
+            .where(CreativeAsset.creative_run_id == run_id)
+            .execution_options(populate_existing=True)
+        )
+    ).all()
+    return {row.id: row.frozen_at for row in rows}
+
+
+async def _audits(db: AsyncSession, package_id: uuid.UUID) -> list[AuditLog]:
+    return list(
+        (
+            await db.execute(
+                sa.select(AuditLog).where(
+                    AuditLog.action == AuditAction.CREATIVE_PACKAGE_RELEASED,
+                    AuditLog.target_id == package_id,
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+async def _unchanged(db: AsyncSession, run_id: uuid.UUID) -> None:
+    """Nothing a refused or failed release touched survived it."""
+    row = await _package_of(db, run_id)
+    await db.refresh(row)
+    assert row.status is CreativePackageStatus.READY_TO_RELEASE and row.version == 0
+    assert row.manifest is None and row.package_hash is None and row.released_at is None
+    assert all(frozen is None for frozen in (await _frozen(db, run_id)).values())
+    assert await _audits(db, row.id) == []
+
+
+async def test_release_mints_v1_freezes_every_shipped_asset_and_writes_verified_files(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    rendered_form: None,
+    storage: LocalStorage,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    draft = CreativePackage.model_validate(row.payload)
+    assert draft.manifest, "the golden run ships landing patches, so release writes files"
+
+    released = await _release(admin, row.id)
+    assert released.status_code == 200, released.text
+    body = released.json()
+    assert (body["version"], body["status"]) == (1, "released")
+
+    await db.refresh(row)
+    assert row.status is CreativePackageStatus.RELEASED and row.version == 1
+    assert row.released_by == admin_user.id and row.released_at is not None
+    package = CreativePackage.model_validate(row.payload)
+    assert (package.version, package.status) == (1, "released")
+    assert row.package_hash == package.package_hash == package_hash(row.payload)
+    assert row.package_hash == body["package_hash"] != draft.package_hash  # the version moved
+    assert row.manifest == [entry.model_dump(mode="json") for entry in package.manifest]
+    assert row.released_approval_ids and set(row.released_approval_ids) >= {
+        d.approval_id for d in package.decisions if d.gate_key == "G7"
+    }
+
+    # Every shipped asset frozen at release; nothing that did not ship.
+    frozen = await _frozen(db, run_id)
+    shipped = _shipped(package)
+    # Captured before the rollback below: a row read after it is a lazy load.
+    package_id, released_hash, actor_id = row.id, row.package_hash, admin_user.id
+    assert shipped and all(frozen[asset] == row.released_at for asset in shipped)
+    assert all(frozen[asset] is None for asset in set(frozen) - shipped)
+    with pytest.raises(DBAPIError, match="frozen at release"):
+        await db.execute(
+            sa.update(CreativeAsset).where(CreativeAsset.id == next(iter(shipped))).values(text="x")
+        )
+    await db.rollback()
+
+    # The files are under package/, and each hashes to its manifest entry.
+    (call,) = worker_writes
+    assert {f["path"] for f in call["files"]} == {e.path for e in package.manifest}
+    for entry in package.manifest:
+        data = storage.get(f"package/{package_id}/{entry.path}")
+        assert (sha256(data), len(data)) == (entry.sha256, entry.bytes)
+
+    (audit,) = await _audits(db, package_id)
+    assert audit.actor_id == actor_id
+    assert audit.meta["version"] == 1 and audit.meta["package_hash"] == released_hash
+
+
+async def test_release_is_one_transaction_so_a_failed_step_changes_nothing(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    rendered_form: None,
+    storage: LocalStorage,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+
+    # The worker never writes the files — after the assets were frozen in the
+    # transaction: the freeze must not survive.
+    async def dead(payload: dict[str, Any]) -> dict[str, Any]:
+        raise queue.WorkerUnavailable("no worker")
+
+    monkeypatch.setattr(release.queue, "write_package_files", dead)
+    refused = await _release(admin, row.id)
+    assert refused.status_code == 503, refused.text
+    await _unchanged(db, run_id)
+
+    # A file the worker wrote that does not hash to its manifest entry.
+    async def corrupt(payload: dict[str, Any]) -> dict[str, Any]:
+        receipt = await worker.write_package_files({}, payload)
+        receipt["files"][0]["sha256"] = "0" * 64
+        return receipt
+
+    monkeypatch.setattr(release.queue, "write_package_files", corrupt)
+    mismatch = await _release(admin, row.id)
+    assert mismatch.status_code == 409 and mismatch.json()["code"] == "package_file_mismatch"
+    await _unchanged(db, run_id)
+
+    # The dialog confirmed a version other than the one release would mint.
+    wrong = await _release(admin, row.id, version=2)
+    assert wrong.status_code == 409, wrong.text
+    assert (wrong.json()["code"], wrong.json()["expected"]) == ("version_mismatch", 1)
+    await _unchanged(db, run_id)
+
+
+async def test_a_mutated_offer_makes_release_409_naming_the_asset(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    package = CreativePackage.model_validate(row.payload)
+    pro = offers.record_id(OfferRecord.model_validate(FRESH[0]))
+    bound = sorted(
+        str(a.asset_id)
+        for c in package.campaigns
+        for a in c.text_assets
+        if a.offer_binding is not None and a.offer_binding.offer_record_id == pro
+    )
+    assert bound, "the golden run binds a promotion or price to SDS-PRO"
+
+    # The offer data moved on after assembly: a newer observation, a new price.
+    db.add(
+        Evidence(
+            project_id=project_id,
+            source=EvidenceSource.CSV,
+            kind="offer_record",
+            payload={**FRESH[0], "current_price": 89.0, "observed_at": _now()},
+            hash="offer-SDS-PRO-reobserved",
+        )
+    )
+    await db.commit()
+    refused = await _release(admin, row.id)
+    assert refused.status_code == 409, refused.text
+    problem = refused.json()
+    assert problem["code"] == "offer_drift"
+    named = sorted({a for item in problem["offending"] for a in item["asset_ids"]})
+    assert named == bound
+    assert all(asset in problem["detail"] for asset in bound)
+    assert worker_writes == []
+    await _unchanged(db, run_id)
+
+
+async def test_an_expired_claim_makes_release_409_naming_the_asset(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    expires = datetime.now(UTC) + timedelta(days=2)
+    monkeypatch.setattr(
+        s4p6, "seed_published", functools.partial(seed_published, claim_expires_at=expires)
+    )
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    package = CreativePackage.model_validate(row.payload)
+    descriptions = sorted(
+        str(a.asset_id) for c in package.campaigns for a in c.text_assets if a.kind == "description"
+    )
+
+    # Released three days on: the claim every description stands on has expired.
+    monkeypatch.setattr(release, "clock", lambda: expires + timedelta(days=1))
+    refused = await _release(admin, row.id)
+    assert refused.status_code == 409, refused.text
+    problem = refused.json()
+    assert problem["code"] == "claim_unlicensed"
+    assert sorted({a for item in problem["offending"] for a in item["asset_ids"]}) == descriptions
+    await _unchanged(db, run_id)
+
+
+async def test_a_superseded_plan_makes_release_409(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    await db.execute(
+        sa.update(CampaignPlan)
+        .where(CampaignPlan.id == row.plan_id)
+        .values(status=CampaignPlanStatus.SUPERSEDED)
+    )
+    await db.commit()
+    refused = await _release(admin, row.id)
+    assert refused.status_code == 409 and refused.json()["code"] == "plan_superseded"
+    await _unchanged(db, run_id)
+
+
+async def test_concurrent_releases_yield_exactly_one_200_and_one_409(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    first, second = await asyncio.gather(_release(admin, row.id), _release(admin, row.id))
+    assert sorted([first.status_code, second.status_code]) == [200, 409], (first.text, second.text)
+    loser = first if first.status_code == 409 else second
+    assert loser.json()["code"] == "package_not_releasable"
+    await db.refresh(row)
+    assert row.status is CreativePackageStatus.RELEASED and row.version == 1
+    assert len(await _audits(db, row.id)) == 1
+
+
+async def test_only_a_creative_release_holder_may_release(
+    admin: ApiClient,
+    db: AsyncSession,
+    workspace_id: uuid.UUID,
+    project_id: uuid.UUID,
+    admin_user: Any,
+    web: _Web,
+    worker_writes: list[dict[str, Any]],
+) -> None:
+    run_id = await golden(admin, db, workspace_id, project_id, admin_user.id)
+    row = await _package_of(db, run_id)
+    email, password = await make_member(admin, "operator")
+    operator = build_client()
+    async with operator.raw:
+        assert (await operator.login(email, password)).status_code == 200
+        assert (await _release(operator, row.id)).status_code == 403
+    await _unchanged(db, run_id)
