@@ -227,22 +227,31 @@ class Snapshot:
         return self.input.project_id
 
     def included(self) -> list[CreativeAsset]:
-        """Every asset that ships, by what it is — node, campaign, ad group,
-        surface, text, content hash — and only then by id. Two runs of one input write the
-        same assets under fresh UUIDs; an id order listed them differently each
-        time, and 4.7.2's reader then read a different prompt (§17 CC9)."""
+        """Every asset that ships, in `shipping_order` (§17 CC9)."""
         return sorted(
             (asset for asset in self.assets if asset.status in clearance.CARRIED),
-            key=lambda asset: (
-                asset.node_id,
-                asset.campaign_ref,
-                asset.ad_group_ref or "",
-                asset.surface,
-                asset.text or "",
-                asset.content_hash,
-                str(asset.id),
-            ),
+            key=shipping_order,
         )
+
+
+def shipping_order(asset: CreativeAsset) -> tuple[str, ...]:
+    """What an asset is — node, campaign, ad group, surface, text, concept,
+    content hash — and only then its id. Two runs of one input write the same assets under
+    fresh UUIDs; an id order listed them differently each time, and 4.7.2's
+    reader then read a different prompt (§17 CC9). Every list of run-written
+    rows in the package is ordered by content for the same reason."""
+    return (
+        asset.node_id,
+        asset.campaign_ref,
+        asset.ad_group_ref or "",
+        asset.surface,
+        asset.text or "",
+        # A media asset has no text; its concept is what it is (its content
+        # hash covers the ids of the files it points at).
+        str((asset.fields or {}).get("concept_id") or ""),
+        asset.content_hash,
+        str(asset.id),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,7 +717,8 @@ def _asset_groups(
                 long_headlines=[r.id for r in rows if r.kind is CreativeAssetKind.LONG_HEADLINE],
                 descriptions=[r.id for r in rows if r.kind is CreativeAssetKind.DESCRIPTION],
                 business_name=names[0] if names else None,
-                media=sorted((m.asset_id for m in media), key=str),
+                # The campaign's media, in its (content) order — never by id (§17 CC9).
+                media=[m.asset_id for m in media],
             )
         )
     return out
@@ -756,7 +766,10 @@ def _media_assets(
     for asset in included:
         if asset.kind not in MEDIA_KINDS:
             continue
-        artifacts = sorted(by_asset.get(asset.id, []), key=lambda a: str(a.id))
+        artifacts = sorted(
+            by_asset.get(asset.id, []),
+            key=lambda a: (a.role.value, a.aspect_ratio, a.width, a.height, a.sha256, str(a.id)),
+        )
         lint = lint_ref(asset)
         renditions: list[MediaRendition] = []
         for artifact in artifacts:
@@ -938,7 +951,10 @@ def provenance(
     asset: CreativeAsset, jobs: Sequence[GenerationJob], references: Sequence[str]
 ) -> Provenance:
     """Model, provider, seed, prompt, jobs and cost of what made the asset."""
-    ours = sorted((job for job in jobs if job.asset_id == asset.id), key=lambda job: str(job.id))
+    ours = sorted(
+        (job for job in jobs if job.asset_id == asset.id),
+        key=lambda job: (job.round, canonical_json(job.request), str(job.id)),
+    )
     done = [job for job in ours if job.status is GenerationStatus.COMPLETED]
     if not done:
         return Provenance(reference_sha256s=list(references))
@@ -1059,7 +1075,7 @@ def _media_type(
 
 def _landing(snap: Snapshot, files: _Files) -> list[LandingPatchRef]:
     refs: list[LandingPatchRef] = []
-    for audit in sorted(snap.landing, key=lambda row: str(row.id)):
+    for audit in sorted(snap.landing, key=lambda row: (row.url, str(row.id))):
         if not audit.patch:
             continue
         body = canonical_json(audit.patch)
@@ -1137,17 +1153,20 @@ def _human_tasks(snap: Snapshot) -> list[HumanTaskRef]:
 
 
 def _exceptions(snap: Snapshot) -> list[ExceptionRef]:
+    order = {asset.id: shipping_order(asset) for asset in snap.assets}
     return [
         ExceptionRef(
             exception_id=row.id,
             kind=row.kind.value,
             status=row.status.value,
             subject=row.subject_text,
-            asset_ids=sorted(row.asset_ids or [], key=str),
+            asset_ids=sorted(row.asset_ids or [], key=lambda a: order.get(a, ("~", str(a)))),
             decided_by=row.decided_by,
             decided_at=row.decided_at,
         )
-        for row in sorted(snap.exceptions, key=lambda row: str(row.id))
+        for row in sorted(
+            snap.exceptions, key=lambda row: (row.kind.value, row.subject_text or "", str(row.id))
+        )
     ]
 
 

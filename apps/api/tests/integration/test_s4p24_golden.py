@@ -14,6 +14,9 @@ Runs in the worker image (`ffmpeg`, `exiftool`, `tesseract`).
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
 import uuid
 from pathlib import Path
 from typing import Any
@@ -84,6 +87,9 @@ async def test_a_golden_creative_input_produces_a_package_passing_every_blocking
 
     row = await package_row(db, run_id)
     assert row is not None and row.status is CreativePackageStatus.READY_TO_RELEASE
+    if out := os.environ.get("S4P24_PACKAGE_OUT"):  # CC9 reads it back from another process
+        dumped = json.dumps({"package_hash": row.payload["package_hash"], "payload": row.payload})
+        await asyncio.to_thread(Path(out).write_text, dumped)
     package = CreativePackage.model_validate(row.payload)
     assert package.package_hash == package_hash(row.payload)
     by_ref = {campaign.campaign_ref: campaign for campaign in package.campaigns}

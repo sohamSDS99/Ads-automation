@@ -33,7 +33,7 @@ import re
 import uuid
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -252,6 +252,32 @@ def published_rules(specs: dict[str, dict[str, Any]]) -> tuple[Any, ...]:
     )
 
 
+def seed_now() -> datetime:
+    """When the fixture's offers were observed: now, so they are fresh when the
+    run reads them — unless `S4P24_EPOCH` pins it, so that two processes seed
+    byte-identical inputs (CC9)."""
+    epoch = os.environ.get("S4P24_EPOCH")
+    return datetime.fromisoformat(epoch) if epoch else datetime.now(UTC)
+
+
+def fresh_offers(now: datetime) -> list[dict[str, Any]]:
+    """S4-P8's three fresh offers, their windows re-anchored at `now` (its rows
+    are stamped when that module is imported, an hour after observation)."""
+    rows = []
+    for row in FRESH:
+        shift = now - (datetime.fromisoformat(row["observed_at"]) + timedelta(hours=1))
+        rows.append(
+            {
+                **row,
+                **{
+                    key: (datetime.fromisoformat(row[key]) + shift).isoformat()
+                    for key in ("effective_from", "ends_at", "observed_at")
+                },
+            }
+        )
+    return rows
+
+
 async def seed(
     db: AsyncSession,
     golden: Golden,
@@ -263,7 +289,7 @@ async def seed(
     await _crawl(db, project_id, CRAWLED)
     await _crm(db, project_id)
     if golden.offers:
-        await _offers(db, project_id, FRESH)
+        await _offers(db, project_id, fresh_offers(seed_now()))
     specs = spec_sheet(golden)
     # A slate with video needs a registered logo: without one the brand cannot
     # be seen in 0–5 s and every master fails verification (S4-P12).
@@ -487,10 +513,13 @@ async def run_golden(
     world: World,
     *,
     on_stop: Callable[[str], Awaitable[None]] | None = None,
+    after_seed: Callable[[], Awaitable[None]] | None = None,
 ) -> tuple[uuid.UUID, list[str]]:
     """Seed, start, and drive the run to its end; returns the run and the stops it made."""
     workspace_id, project_id, actor = ids
     await seed(db, golden, workspace_id, project_id, actor)
+    if after_seed is not None:
+        await after_seed()
     run_id = await start(admin, golden, project_id)
     stops: list[str] = []
     for _ in range(8):

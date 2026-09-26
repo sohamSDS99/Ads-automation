@@ -11,8 +11,14 @@ content hash, unique per project.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import re
+import sys
 import uuid
 from datetime import UTC, datetime
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -22,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from agent.db.models import Evidence, EvidenceSource
 from agent.nodes.creative import n4_3_3_lead_form_asset
 from agent.nodes.creative.n4_3_1_sitelinks_callouts_snippets import SITELINKS_CALLOUTS_SNIPPETS
+from tests.integration.golden_creative import GOLDENS, Golden
 
 pytestmark = pytest.mark.asyncio
 
@@ -71,3 +78,113 @@ async def test_4_3_3_reads_evidence_written_together_in_content_order_not_uuid_o
         _ctx(db, project_id), ["crm_won"], EvidenceSource.CSV
     )
     assert [row.hash for row in rows] == expected
+
+
+# ---------------------------------------------------------------------------
+# CC9: one CreativeInput + its cassette ⇒ one package_hash, in two processes
+# ---------------------------------------------------------------------------
+
+UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+#: Digests over content that carries ids — the brief hash, asset content
+#: hashes, a ruleset version's `+<hash8>` (its logo templates name evidence
+#: ids) — differ whenever the ids do; they say nothing about order.
+DIGEST = re.compile(r"\b[0-9a-f]{64}\b|(?<=\d\+)[0-9a-f]{8}\b")
+
+
+def _relabelled(payload: dict[str, Any]) -> str:
+    """The package with every UUID replaced by its order of first appearance
+    and every id-covering digest masked: equal for two runs exactly when
+    nothing in it is ordered by a UUID. The file manifest is compared as a set:
+    it is listed by path, and a path names its asset's and file's ids by design
+    (`media/<asset>/<file>.jpg`), so its order follows the ids and nothing else."""
+    body = {key: value for key, value in payload.items() if key not in ("package_hash", "manifest")}
+    seen: dict[str, str] = {}
+
+    def relabel(value: Any) -> str:
+        text = DIGEST.sub("<sha256>", json.dumps(value, sort_keys=True))
+        return UUID.sub(lambda m: seen.setdefault(m.group(0), f"id-{len(seen)}"), text)
+
+    text = relabel(body)  # first: the body's order is what assigns the labels
+
+    def relabel_file(entry: Any) -> str:
+        # A file id the body never names (a master's) has no order to keep.
+        text = DIGEST.sub("<sha256>", json.dumps(entry, sort_keys=True))
+        return UUID.sub(lambda m: seen.get(m.group(0), "<file>"), text)
+
+    manifest = sorted(relabel_file(entry) for entry in payload.get("manifest") or [])
+    return text + "\nmanifest: " + json.dumps(manifest)
+
+
+def _first_difference(a: str, b: str) -> str:
+    at = next((i for i, (x, y) in enumerate(zip(a, b, strict=False)) if x != y), len(a))
+    return f"at char {at}: …{a[max(0, at - 160) : at + 80]!r} vs …{b[max(0, at - 160) : at + 80]!r}"
+
+
+async def _golden_in_a_fresh_process(
+    golden: Golden, *, database: str, redis_db: int, uuid_seed: int, hash_seed: int, epoch: str,
+    out: Path,
+) -> dict[str, Any]:  # fmt: skip
+    """Run one golden fixture from an empty database in a separate Python
+    process (its own PYTHONHASHSEED), with the row-id stream and the decision
+    clock pinned (`s4p24_pinned_inputs`), and read back the package it wrote."""
+    base, _ = os.environ["DATABASE_URL"].rsplit("/", 1)
+    redis_base, _ = os.environ["REDIS_URL"].rsplit("/", 1)
+    env = {
+        **os.environ,
+        "DATABASE_URL": f"{base}/{database}",
+        "REDIS_URL": f"{redis_base}/{redis_db}",
+        "PYTHONHASHSEED": str(hash_seed),
+        "S4P24_UUID_SEED": str(uuid_seed),
+        "S4P24_EPOCH": epoch,
+        "S4P24_PACKAGE_OUT": str(out),
+    }
+    env.pop("GOLDEN_RECORD", None)
+    process = await asyncio.create_subprocess_exec(
+        sys.executable, "-m", "pytest", "-p", "tests.integration.s4p24_pinned_inputs",
+        "tests/integration/test_s4p24_golden.py", "-k", golden.name, "-q",
+        "-p", "no:cacheprovider", "-p", "no:randomly",
+        env=env, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+    )  # fmt: skip
+    output, _ = await process.communicate()
+    assert process.returncode == 0, output.decode()[-4000:]
+    return dict(json.loads(await asyncio.to_thread(out.read_text)))
+
+
+@pytest.mark.parametrize("golden", GOLDENS, ids=[g.name for g in GOLDENS])
+async def test_one_creative_input_and_its_cassette_give_one_package_hash_in_two_processes(
+    golden: Golden, tmp_path: Path
+) -> None:
+    """PRD §17 CC9. Processes A and B take the same inputs — the fixture, its
+    cassette, the pinned row ids and decision clock — under different
+    PYTHONHASHSEEDs: their `package_hash` must be byte-identical. Process C
+    draws DIFFERENT row ids: its package must be the same once ids are
+    relabelled, i.e. no list in it is ordered by a UUID (that is how 4.3.1,
+    4.3.3 and the package's asset order used to differ run to run)."""
+    epoch = datetime.now(UTC).replace(microsecond=0).isoformat()
+    database = os.environ["DATABASE_URL"].rsplit("/", 1)[1]
+    runs = [
+        ("a", 24, 1, 11),
+        ("b", 24, 2, 10),
+        ("c", 25, 3, 9),
+    ]
+    a, b, c = await asyncio.gather(
+        *(
+            _golden_in_a_fresh_process(
+                golden,
+                database=f"{database}_cc9{name}",
+                redis_db=redis_db,
+                uuid_seed=uuid_seed,
+                hash_seed=hash_seed,
+                epoch=epoch,
+                out=tmp_path / f"{name}.json",
+            )  # fmt: skip
+            for name, uuid_seed, hash_seed, redis_db in runs
+        )
+    )
+    assert a["package_hash"] == b["package_hash"], _first_difference(
+        json.dumps(a["payload"], sort_keys=True), json.dumps(b["payload"], sort_keys=True)
+    )
+    assert a["package_hash"] != c["package_hash"]  # C's ids differ, so the hash must too
+    assert _relabelled(a["payload"]) == _relabelled(c["payload"]), _first_difference(
+        _relabelled(a["payload"]), _relabelled(c["payload"])
+    )
