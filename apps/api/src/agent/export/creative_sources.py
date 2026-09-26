@@ -22,11 +22,12 @@ from __future__ import annotations
 
 import hashlib
 import uuid
-from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Final
+from typing import Any, Final
 
+from agent.creative.conformance import media_spec
 from agent.export.plan_contract import PlannedCampaign
 from agent.guardrails.matchers.assets import measure
 from agent.schemas.creative_package import CampaignCreative, CreativePackage
@@ -46,6 +47,38 @@ class CreativeExportError(ValueError):
 
 
 @dataclass(frozen=True)
+class PreviewShot:
+    """One 4.6.4 SERP preview render (`render_preview`)."""
+
+    ad_ref: str
+    device: str
+    verdict: str
+    #: The stored PNG; None when the render did not happen (`unavailable`).
+    key: str | None
+    template_version: str
+
+
+@dataclass(frozen=True)
+class LandingShot:
+    """One 4.5.1/4.5.2 landing audit (`landing_page_audit`): the page as it is,
+    and the patch that would change it."""
+
+    audit_id: uuid.UUID
+    url: str
+    verdict: str
+    ad_group_refs: tuple[str, ...]
+    #: 4.5.1's measured H1, per device — the "before".
+    h1_before: Mapping[str, str | None]
+    #: The `LandingPagePatch` — the "after"; None when nothing needs changing.
+    patch: Mapping[str, Any] | None
+    #: Device -> the stored screenshot.
+    screenshots: Mapping[str, str | None]
+    fold_px: Mapping[str, int | None]
+    #: The package file the patch ships as; empty when there is no patch.
+    patch_path: str
+
+
+@dataclass(frozen=True)
 class CreativeExportSources:
     package: CreativePackage
     project_name: str | None
@@ -61,7 +94,23 @@ class CreativeExportSources:
     media_keys: Mapping[uuid.UUID, str]
     #: Video rendition `media_id` -> the storage key of its poster frame.
     posters: Mapping[uuid.UUID, str]
+    #: Storage key -> bytes. Raises `KeyError` for a key that holds nothing.
     read: Callable[[str], bytes]
+    #: `media.ratio_tolerance`, for matching a rendition to its spec.
+    ratio_tolerance: float = 0.005
+    # -- what only the creative book reads --------------------------------
+    #: The brief G7 approved, as stored (`creative_brief.markdown`).
+    brief_markdown: str = ""
+    #: Claim id -> its normalised text in the final pin's claims index.
+    claims: Mapping[uuid.UUID, str] = field(default_factory=dict)
+    #: User id -> name, for every decider the package names.
+    people: Mapping[uuid.UUID, str] = field(default_factory=dict)
+    #: Approval id -> the role it required.
+    approval_roles: Mapping[uuid.UUID, str] = field(default_factory=dict)
+    previews: Sequence[PreviewShot] = ()
+    landing: Sequence[LandingShot] = ()
+    #: H3's stored decision (`human_task.submitted_payload`) — the receipt.
+    h3: Mapping[str, Any] | None = None
 
     @property
     def released(self) -> bool:
@@ -122,11 +171,21 @@ class CreativeExportSources:
         spec = self.specs.specs.get(campaign_type, {}).get(asset_type)
         return spec.max_chars if spec is not None else None
 
-    def max_bytes(self, campaign_type: str, asset_type: str | None) -> int | None:
+    def media_asset_type(self, campaign_type: str, modality: str, ratio: str) -> str | None:
+        """The spec a file of this ratio was made for, as 4.7.1 resolves it."""
+        found = media_spec(
+            self.specs.specs.get(campaign_type, {}),
+            ratio,
+            kind=modality,
+            tolerance=self.ratio_tolerance,
+        )
+        return found[0] if found is not None else None
+
+    def max_bytes(self, campaign_type: str, modality: str, ratio: str) -> int | None:
+        asset_type = self.media_asset_type(campaign_type, modality, ratio)
         if asset_type is None:
             return None
-        spec = self.specs.specs.get(campaign_type, {}).get(asset_type)
-        return spec.max_bytes if spec is not None else None
+        return self.specs.specs[campaign_type][asset_type].max_bytes
 
     def checked(self, campaign: CampaignCreative, surface: str, text: str, what: str) -> str:
         """`text`, after asserting it is within its limit. Over the limit is a
@@ -149,13 +208,33 @@ class CreativeExportSources:
         key = self.media_keys.get(media_id)
         if key is None:
             raise CreativeExportError(f"Media {media_id} has no stored file to export.")
-        data = self.read(key)
+        try:
+            data = self.read(key)
+        except KeyError as exc:
+            raise CreativeExportError(f"Media {media_id} is missing from storage ({key}).") from exc
         if sha256 is not None and hashlib.sha256(data).hexdigest() != sha256:
             raise CreativeExportError(
                 f"Media {media_id} at {key} does not hash to the sha256 the package records "
                 f"({sha256[:12]}…). The file changed after assembly; nothing was exported."
             )
         return data
+
+    def try_read(self, key: str | None) -> bytes | None:
+        if key is None:
+            return None
+        try:
+            return self.read(key)
+        except KeyError:
+            return None
+
+    def name(self, user_id: uuid.UUID | str | None) -> str | None:
+        if user_id is None:
+            return None
+        try:
+            identifier = uuid.UUID(str(user_id))
+        except ValueError:
+            return str(user_id)
+        return self.people.get(identifier) or f"user {str(identifier)[:8]}"
 
 
 def chars(text: str) -> int:

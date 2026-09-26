@@ -1,0 +1,268 @@
+{#
+  The creative book, printed (Stage 04 PRD §14). Same context, same sections in
+  the same order as `creative_book.md.jinja` — the markdown is the source of
+  truth and `test_creative_book` compares the two documents' headings.
+
+  Everything about pages lives in `creative_book.css`; the two rules here that
+  depend on the package — the draft mark in the top margin and the status and
+  run id in the footer — are the only page CSS a template may write.
+#}
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Creative book — {{ project_name }} — {{ version }}</title>
+<meta name="generator" content="ads-research-agent Stage 04">
+<meta name="dcterms.created" content="{{ stamped_iso }}">
+<meta name="dcterms.modified" content="{{ stamped_iso }}">
+<style>
+@page {
+  @bottom-left { content: "Status {{ status }} · creative run {{ run_id }}"; }
+{% if watermark %}
+  @top-center { content: "{{ watermark }}"; color: #b42318; font-weight: 700; }
+{% endif %}
+}
+</style>
+</head>
+<body>
+{% if watermark %}
+<div class="watermark">{{ watermark }}</div>
+{% endif %}
+
+<section class="cover">
+  <p class="project">{{ project_name }}</p>
+  <h1>Creative book</h1>
+  <p><span class="status status-{{ status }}">{{ status_label }}</span> {{ version }}</p>
+  {% if watermark %}
+  <p class="draft-banner">{{ watermark }} — nothing in this book has been released; it is not what Stage 05 loads.</p>
+  {% endif %}
+  <table class="facts">
+    <tr><th>Released</th><td>{{ released_at }}</td></tr>
+    <tr><th>Creative run</th><td class="mono">{{ run_id }}</td></tr>
+    <tr><th>Package</th><td class="mono">{{ package_id }}</td></tr>
+    <tr><th>package_hash</th><td class="mono">{{ package_hash }}</td></tr>
+    <tr><th>Brief hash</th><td class="mono">{{ brief_hash }}</td></tr>
+    {% for label, value in pins %}
+    <tr><th>Pin: {{ label }}</th><td class="mono">{{ value }}</td></tr>
+    {% endfor %}
+  </table>
+</section>
+
+<section class="chapter">
+<h2>1. Brief</h2>
+{% if brief_html %}
+<div class="brief">{{ brief_html|safe }}</div>
+{% else %}
+<p>No brief was written for this run.</p>
+{% endif %}
+</section>
+
+<section class="chapter">
+<h2>2. Ads by ad group</h2>
+{% for group in groups %}
+<h3>{{ group.title }}</h3>
+{% for ad in group.ads %}
+<div class="ad">
+<h4>Variant {{ ad.variant }} — {{ ad.angle }}</h4>
+{% if ad.hypothesis %}
+<p><strong>Hypothesis.</strong> {{ ad.hypothesis }}{% if ad.distinctness %} Distinctness from A: {{ ad.distinctness }}.{% endif %}</p>
+{% endif %}
+<p class="meta">Final URL {{ ad.final_url }} · paths {{ ad.paths }} · {{ ad.unresolved_pairs }} unresolved pair flags</p>
+<div class="previews">
+{% for shot in ad.previews %}
+  <figure class="preview preview-{{ shot.device }}">
+    {% if shot.src %}<img src="{{ shot.src }}" alt="SERP preview, {{ shot.device }}">{% else %}<div class="missing">Preview {{ shot.note }}</div>{% endif %}
+    <figcaption>{{ shot.device }} · {{ shot.verdict }} · template v{{ shot.template }}</figcaption>
+  </figure>
+{% endfor %}
+</div>
+<table class="matrix">
+  <thead><tr><th>#</th><th>Headline</th><th>Category</th><th>Chars</th><th>Pin</th><th>Lint</th></tr></thead>
+  <tbody>
+  {% for row in ad.headlines %}
+  <tr><td>{{ row.n }}</td><td>{{ row.text }}</td><td><span class="chip cat-{{ row.category }}">{{ row.category }}</span></td><td class="num">{{ row.chars }}</td><td>{{ row.pin }}</td><td>{{ row.lint }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<table class="matrix">
+  <thead><tr><th>#</th><th>Description</th><th>Chars</th><th>Claims</th><th>Lint</th></tr></thead>
+  <tbody>
+  {% for row in ad.descriptions %}
+  <tr><td>{{ row.n }}</td><td>{{ row.text }}</td><td class="num">{{ row.chars }}</td><td>{% for claim in row.claims %}<span class="chip claim">{{ claim }}</span> {% else %}{{ EMPTY }}{% endfor %}</td><td>{{ row.lint }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endfor %}
+{% if group.asset_group %}
+{% set ag = group.asset_group %}
+<div class="ad">
+<h4>Asset group ({{ ag.type }})</h4>
+<p class="meta">Business name: {{ ag.business_name }} · {{ ag.media }} media assets</p>
+<table class="matrix">
+  <thead><tr><th>#</th><th>Headline</th><th>Category</th><th>Chars</th><th>Pin</th><th>Lint</th></tr></thead>
+  <tbody>
+  {% for row in ag.headlines %}
+  <tr><td>{{ row.n }}</td><td>{{ row.text }}</td><td>{{ row.category }}</td><td class="num">{{ row.chars }}</td><td>{{ row.pin }}</td><td>{{ row.lint }}</td></tr>
+  {% endfor %}
+  {% for row in ag.long_headlines %}
+  <tr><td>L{{ row.n }}</td><td>{{ row.text }}</td><td>{{ row.category }}</td><td class="num">{{ row.chars }}</td><td>{{ row.pin }}</td><td>{{ row.lint }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<table class="matrix">
+  <thead><tr><th>#</th><th>Description</th><th>Chars</th><th>Claims</th><th>Lint</th></tr></thead>
+  <tbody>
+  {% for row in ag.descriptions %}
+  <tr><td>{{ row.n }}</td><td>{{ row.text }}</td><td class="num">{{ row.chars }}</td><td>{% for claim in row.claims %}<span class="chip claim">{{ claim }}</span> {% else %}{{ EMPTY }}{% endfor %}</td><td>{{ row.lint }}</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% endif %}
+{% else %}
+<p>No ads.</p>
+{% endfor %}
+</section>
+
+<section class="chapter">
+<h2>3. Extras</h2>
+{% for campaign in extras %}
+<h3>{{ campaign.title }}</h3>
+{% if campaign.sitelinks %}
+<table><thead><tr><th>Sitelink</th><th>Line 1</th><th>Line 2</th><th>Final URL</th><th>Lint</th></tr></thead><tbody>
+{% for row in campaign.sitelinks %}<tr><td>{{ row.text }}</td><td>{{ row.line1 }}</td><td>{{ row.line2 }}</td><td class="url">{{ row.url }}</td><td>{{ row.lint }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if campaign.callouts %}
+<table><thead><tr><th>Callout</th><th>Chars</th><th>Lint</th></tr></thead><tbody>
+{% for row in campaign.callouts %}<tr><td>{{ row.text }}</td><td class="num">{{ row.chars }}</td><td>{{ row.lint }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if campaign.snippets %}
+<table><thead><tr><th>Snippet header</th><th>Values</th><th>Lint</th></tr></thead><tbody>
+{% for row in campaign.snippets %}<tr><td>{{ row.header }}</td><td>{{ row.values }}</td><td>{{ row.lint }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if campaign.promotions %}
+<table><thead><tr><th>Promotion</th><th>Discount</th><th>Window</th><th>Final URL</th><th>Bound to offer</th></tr></thead><tbody>
+{% for row in campaign.promotions %}<tr><td>{{ row.text }}</td><td>{{ row.discount }}</td><td>{{ row.window }}</td><td class="url">{{ row.url }}</td><td>{{ row.bound }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if campaign.prices %}
+<table><thead><tr><th>Price type</th><th>Header</th><th>Description</th><th>Price</th><th>Final URL</th></tr></thead><tbody>
+{% for row in campaign.prices %}<tr><td>{{ row.type }}</td><td>{{ row.header }}</td><td>{{ row.description }}</td><td class="num">{{ row.price }}</td><td class="url">{{ row.url }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+{% if campaign.lead_form %}
+{% set form = campaign.lead_form %}
+<p>Lead form: <strong>{{ form.headline }}</strong> — {{ form.description }} · CTA {{ form.cta }} · questions {{ form.questions }} · privacy {{ form.privacy }}</p>
+{% endif %}
+{% else %}
+<p>No extras.</p>
+{% endfor %}
+</section>
+
+<section class="chapter">
+<h2>4. Media contact sheet</h2>
+{% for campaign in media %}
+<h3>{{ campaign.title }}</h3>
+{% for asset in campaign.assets %}
+<div class="asset">
+<h4>{{ asset.title }}</h4>
+<p class="meta">{{ asset.generated_by_ai }} · product {{ asset.product_depiction }} · model {{ asset.model }} ({{ asset.provider }}) · seed {{ asset.seed }} · prompt {{ asset.prompt_hash }} · {{ asset.references }} references · jobs {{ asset.jobs }} · cost {{ asset.cost }} · {{ asset.review }}</p>
+<div class="tiles">
+{% for r in asset.renditions %}
+  <figure class="tile">
+    {% if r.src %}<img src="{{ r.src }}" alt="{{ r.ratio }} rendition">{% else %}<div class="missing">{{ r.note or "not shown" }}</div>{% endif %}
+    <figcaption>{{ r.ratio }} · {{ r.px }}{% if r.duration %} · {{ r.duration }}{% endif %}</figcaption>
+  </figure>
+{% endfor %}
+</div>
+<table class="small"><thead><tr><th>File</th><th>Ratio</th><th>Pixels</th><th>Bytes / limit</th><th>Derivation</th><th>sx × sy</th><th>Disclosure</th><th>Lint</th></tr></thead><tbody>
+{% for r in asset.renditions %}<tr><td class="mono">{{ r.path }}</td><td>{{ r.ratio }}</td><td>{{ r.px }}{% if r.duration %}, {{ r.duration }}{% endif %}</td><td class="num">{{ r.bytes }}</td><td>{{ r.derivation }}</td><td>{{ r.scale }}</td><td>{{ r.disclosure }}</td><td>{{ r.lint }}</td></tr>{% endfor %}
+</tbody></table>
+</div>
+{% endfor %}
+{% else %}
+<p>No media.</p>
+{% endfor %}
+</section>
+
+<section class="chapter">
+<h2>5. Landing audits</h2>
+{% for page in landing %}
+<div class="landing">
+<h3>{{ page.url }}</h3>
+<p class="meta">Verdict {{ page.verdict }} · ad groups {{ page.ad_groups }} · patch <span class="mono">{{ page.patch_path }}</span></p>
+<div class="before">
+{% for shot in page.before %}
+  <figure class="shot">
+    {% if shot.src %}<img src="{{ shot.src }}" alt="{{ shot.device }} screenshot">{% else %}<div class="missing">Screenshot {{ shot.note }}</div>{% endif %}
+    <figcaption>Before, {{ shot.device }}: H1 “{{ shot.h1 }}”{% if shot.fold is not none %} · fold {{ shot.fold }} px{% endif %}</figcaption>
+  </figure>
+{% endfor %}
+</div>
+{% if page.after %}
+<p class="after">After: H1 <strong>{{ page.after.h1 }}</strong> · offer {{ page.after.offer }} · remove fields: {{ page.after.remove_fields }}</p>
+{% else %}
+<p class="after">After: nothing to change.</p>
+{% endif %}
+</div>
+{% else %}
+<p>No landing audits.</p>
+{% endfor %}
+</section>
+
+<section class="chapter">
+<h2>6. Exceptions and H3</h2>
+{% if exceptions %}
+<table><thead><tr><th>Exception</th><th>Kind</th><th>Status</th><th>Subject</th><th>Assets</th><th>Decided by</th><th>Decided at</th></tr></thead><tbody>
+{% for row in exceptions %}<tr><td class="mono">{{ row.id }}</td><td>{{ row.kind }}</td><td>{{ row.status }}</td><td>{{ row.subject }}</td><td class="num">{{ row.assets }}</td><td>{{ row.decided_by }}</td><td>{{ row.decided_at }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}
+<p>No exceptions.</p>
+{% endif %}
+{% if h3 %}
+<div class="receipt">
+<p><strong>H3 receipt.</strong> {{ h3.decided_by }}, {{ h3.decided_at }}: “{{ h3.statement }}”</p>
+<p class="meta">Signature <span class="mono">{{ h3.signature_id }}</span> · ruleset {{ h3.ruleset_version }} · {{ h3.cleared }} cleared, {{ h3.rejected }} rejected</p>
+<p class="meta">Set hash <span class="mono">{{ h3.set_hash }}</span> · register hash <span class="mono">{{ h3.register_hash }}</span></p>
+</div>
+{% else %}
+<p>H3 was not required.</p>
+{% endif %}
+</section>
+
+<section class="chapter">
+<h2>7. Package summary</h2>
+<p>Lint at ruleset {{ summary.ruleset_version }}:
+{% for verdict, count in summary.by_verdict %}{{ verdict }} {{ count }}{% if not loop.last %} · {% endif %}{% else %}no lint results recorded{% endfor %}</p>
+{% if summary.by_rule %}
+<table class="small"><thead><tr><th>Rule</th><th>Findings</th></tr></thead><tbody>
+{% for rule, count in summary.by_rule %}<tr><td class="mono">{{ rule }}</td><td class="num">{{ count }}</td></tr>{% endfor %}
+</tbody></table>
+{% endif %}
+<table class="small"><thead><tr><th>Cost</th><th>USD</th></tr></thead><tbody>
+{% for label, value in summary.cost %}<tr><td>{{ label }}</td><td class="num">{{ value }}</td></tr>{% endfor %}
+</tbody></table>
+<ul>
+{% for name, met in summary.minimums %}<li>Launch minimums, {{ name }}: {{ met }}</li>{% endfor %}
+</ul>
+{% if summary.dependencies %}
+<table><thead><tr><th>Open dependency</th><th>Task</th><th>Owner</th><th>Blocks</th><th>Campaigns</th></tr></thead><tbody>
+{% for dep in summary.dependencies %}<tr><td>{{ dep.kind }}</td><td>{{ dep.task }}</td><td>{{ dep.owner }}</td><td>{{ dep.blocking }}</td><td>{{ dep.campaigns }}</td></tr>{% endfor %}
+</tbody></table>
+{% else %}
+<p>No open dependencies.</p>
+{% endif %}
+</section>
+
+<section class="chapter signoff">
+<h2>8. Sign-off</h2>
+<table><thead><tr><th>Stop</th><th>Status</th><th>Decider</th><th>Method</th><th>Timestamp</th></tr></thead><tbody>
+{% for row in signoff %}<tr><td>{{ row.gate }}</td><td>{{ row.status }}</td><td>{{ row.decider }}</td><td>{{ row.method }}</td><td>{{ row.at }}</td></tr>{% endfor %}
+</tbody></table>
+</section>
+</body>
+</html>

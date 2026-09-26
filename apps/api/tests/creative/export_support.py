@@ -21,7 +21,7 @@ from typing import Any
 from PIL import Image
 
 from agent.creative.package import hashed
-from agent.export.creative_sources import CreativeExportSources
+from agent.export.creative_sources import CreativeExportSources, LandingShot, PreviewShot
 from agent.export.plan_contract import PlannedAdGroup, PlannedCampaign
 from agent.schemas.creative_package import (
     AssetGroupCreative,
@@ -37,6 +37,7 @@ from agent.schemas.creative_package import (
 )
 from agent.schemas.guardrails import AssetSpecSheet
 from tests.creative import package_support as golden
+from tests.creative.helpers import LICENSED
 from tests.creative.package_rows import REVIEWED
 
 RELEASED_AT = datetime(2026, 9, 26, 15, 30, tzinfo=UTC)
@@ -284,6 +285,18 @@ def sources(
     blobs = dict(blobs or {})
     video = golden.VIDEO_MEDIA
     blobs[f"creative/poster/{POSTER}.jpg"] = jpeg(480, 270, (200, 60, 60))
+    previews = []
+    for ad in package.campaigns[0].ads:
+        for device, size in (("mobile", (824, 1100)), ("desktop", (1300, 480))):
+            key = f"creative/previews/{ad.variant}-{device}.png"
+            blobs[key] = png(*size)
+            previews.append(
+                PreviewShot(
+                    ad_ref=ad.ad_ref, device=device, verdict="pass", key=key, template_version="1"
+                )
+            )
+    for device, size in (("mobile", (780, 3000)), ("desktop", (1280, 2400))):
+        blobs[f"creative/landing/{device}.png"] = png(*size, colour=(230, 236, 240))
     fields: dict[str, Any] = {
         "package": package,
         "project_name": "Northwind Safety",
@@ -294,9 +307,71 @@ def sources(
         "media_keys": media_keys(package),
         "posters": {video: f"creative/poster/{POSTER}.jpg"},
         "read": blobs.__getitem__,
+        "brief_markdown": BRIEF,
+        "claims": {LICENSED: "sds updates within 24 hours"},
+        "people": {uid(9): "Bea Brand", uid(11): "Pat Performance", uid(12): "Lee Legal"},
+        "approval_roles": {golden.G7_ID: "approver", golden.G8_ID: "approver"},
+        "previews": tuple(previews),
+        "landing": (landing_shot(),),
+        "h3": h3_receipt(),
     }
     fields.update(changes)
     return CreativeExportSources(**fields)
+
+
+BRIEF = """# Creative brief
+
+**Objective.** Book demos from EHS managers.
+
+**Angle.** Every sheet current, audit-ready.
+
+## Audience
+- EHS managers at mid-size manufacturers
+
+## Ad groups
+
+### c-sds / sds software
+- Theme: SDS software
+- Landing: https://sdsmanager.com/sds
+"""
+AUDIT = uid(3700)
+SIGNATURE = uid(3701)
+
+
+def landing_shot() -> LandingShot:
+    return LandingShot(
+        audit_id=AUDIT,
+        url=f"https://{golden.DOMAIN}/sds",
+        verdict="needs_change",
+        ad_group_refs=(golden.AD_GROUP,),
+        h1_before={"mobile": "Welcome", "desktop": "Welcome to SDS Manager"},
+        patch={
+            "h1": "Keep every SDS current",
+            "offer_block": {"phrase": "23% off SDS Pro", "devices": ["mobile"]},
+            "remove_fields": ["fax"],
+            "html_snippet": "<h1>Keep every SDS current</h1>",
+        },
+        screenshots={
+            "mobile": "creative/landing/mobile.png",
+            "desktop": "creative/landing/desktop.png",
+        },
+        fold_px={"mobile": 780, "desktop": 800},
+        patch_path=f"landing/{AUDIT}/patch.json",
+    )
+
+
+def h3_receipt() -> dict[str, Any]:
+    return {
+        "decided_by": str(uid(12)),
+        "decided_at": golden.NOW.isoformat(),
+        "statement": "I license claim #1 for this creative run.",
+        "signature_id": str(SIGNATURE),
+        "ruleset_version": "1.1+bb",
+        "decided_hash": "e" * 64,
+        "register_hash": "f" * 64,
+        "cleared": [str(uid(9701))],
+        "rejected": [],
+    }
 
 
 def draft_sources(**changes: Any) -> CreativeExportSources:
