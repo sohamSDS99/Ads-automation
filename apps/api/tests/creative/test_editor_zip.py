@@ -301,6 +301,24 @@ def test_callouts_snippets_prices_and_lead_forms_fill_their_csvs() -> None:
     assert form["Questions"] == "FULL_NAME;Sites you run?"
 
 
+def test_a_list_value_holding_the_separator_refuses_rather_than_splitting() -> None:
+    package, blobs = support.released_package()
+    search = package.campaigns[0]
+    texts = [
+        t.model_copy(update={"fields": {**t.fields, "questions": [{"type": "custom",
+                                                                    "text": "Sites; or plants?"}]}})
+        if t.asset_id == support.LEAD_FORM else t
+        for t in search.text_assets
+    ]  # fmt: skip
+    package = package.model_copy(
+        update={
+            "campaigns": [search.model_copy(update={"text_assets": texts}), package.campaigns[1]]
+        }
+    )
+    with pytest.raises(CreativeExportError, match="split"):
+        render_editor_zip(support.sources(package, blobs))
+
+
 def test_files_are_encoded_as_the_yaml_says() -> None:
     columns = load_editor_columns()
     with _open(render_editor_zip(support.sources())) as archive:

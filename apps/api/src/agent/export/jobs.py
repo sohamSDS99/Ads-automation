@@ -21,7 +21,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import structlog
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -60,6 +60,9 @@ from agent.export.tabular import render_csv, render_json_from_payload
 from agent.orchestrator.events import EventType, RunEventStream
 from agent.redis_client import get_redis
 from agent.storage.backend import StorageBackend, StorageError, get_storage
+
+if TYPE_CHECKING:  # the renderers load Pillow and the creative modules; `api` imports this
+    from agent.export.creative_sources import CreativeExportSources
 
 log = structlog.get_logger(__name__)
 
@@ -759,9 +762,8 @@ async def _generate_guideline_export(
     }
 
 
-def render_package(fmt: ExportFormat, sources: Any) -> bytes:
-    """One of S4-P17's four renderings of a package (`sources` is a
-    `creative_sources.CreativeExportSources`)."""
+def render_package(fmt: ExportFormat, sources: CreativeExportSources) -> bytes:
+    """One of S4-P17's four renderings of a package."""
     from agent.export.asset_inventory_xlsx import render_asset_inventory_xlsx
     from agent.export.creative_book_pdf import render_creative_book_pdf
     from agent.export.creative_markdown import render_creative_markdown

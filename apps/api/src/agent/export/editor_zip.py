@@ -357,12 +357,14 @@ class _Writer:
                     "Headline": self.text(campaign, asset),
                     "Description": self.text(campaign, asset, _field(asset, "description")),
                     "Call to action": _field(asset, "cta"),
-                    "Questions": self.columns.list_separator.join(questions),
+                    "Questions": self._listed(asset, questions),
                     "Privacy policy URL": _field(asset, "privacy_policy_url"),
                 }
             )
 
-    def _joined(self, campaign: CampaignCreative, asset: TextAsset, values: Sequence[str]) -> str:
+    def _listed(self, asset: TextAsset, values: Sequence[str]) -> str:
+        """`values` in one cell. A value holding the separator is refused:
+        Editor would split it into two."""
         separator = self.columns.list_separator
         for value in values:
             if separator in value:
@@ -370,7 +372,11 @@ class _Writer:
                     f"{asset.kind} {asset.asset_id} has a value containing {separator!r}, which "
                     "Editor would split into two values."
                 )
-        return separator.join(self.text(campaign, asset, value) for value in values)
+        return separator.join(values)
+
+    def _joined(self, campaign: CampaignCreative, asset: TextAsset, values: Sequence[str]) -> str:
+        """`_listed`, each value first measured against its limit."""
+        return self._listed(asset, [self.text(campaign, asset, value) for value in values])
 
     def _prices(self, campaign: CampaignCreative, items: Sequence[TextAsset]) -> None:
         grouped: dict[str, list[TextAsset]] = {}
