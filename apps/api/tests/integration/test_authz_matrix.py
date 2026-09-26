@@ -11,6 +11,7 @@ until it is.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 import pytest
 import sqlalchemy as sa
@@ -18,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.auth.rbac import Permission, has_permission
 from agent.db.models import AuditLog, Invite, Membership, User, UserRole, Workspace
+from tests.integration.authz_support import STAGE04_TABLES, table_fingerprints
 from tests.integration.conftest import ApiClient
 
 ROLES = ("admin", "operator", "approver", "viewer")
@@ -833,17 +835,179 @@ GUARDED_ROUTES: tuple[tuple[str, str, str, Permission, dict[str, object] | None]
         Permission.PLAN_FREEZE,
         {"confirm_version": 1},
     ),
+    # -- the 22 routes S4-P24 found with no row --------------------------------
+    #
+    # Stage 03 (S3-P4..S3-P8) and Stage 04 (S4-P20) shipped these guarded, but
+    # this table never learned of them, so the coverage test below was red on
+    # main. Each permission is the one the route declares today; the 403 test
+    # then proves every role without it is refused and writes nothing.
+    #
+    # Stage 03's rulebook: reading, linting and exporting are every role's (the
+    # playground is a viewer's tool); publishing is GUIDELINE_PUBLISH.
+    (
+        "GET",
+        "/projects/{project_id}/guidelines/attention",
+        "/projects/{project}/guidelines/attention",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/guidelines/published/ruleset",
+        "/guidelines/published/ruleset?project_id={project}",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/rulesets/{ruleset_version}",
+        "/rulesets/1.0+deadbeef",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/guidelines/{guideline_id}/lint",
+        "/guidelines/{run}/lint",
+        Permission.READ,
+        {"targets": []},
+    ),
+    (
+        "POST",
+        "/guidelines/{guideline_id}/lint/image",
+        "/guidelines/{run}/lint/image",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/guidelines/{guideline_id}/export",
+        "/guidelines/{run}/export?format=json",
+        Permission.READ,
+        None,
+    ),
+    (
+        "POST",
+        "/guidelines/{guideline_id}/publish",
+        "/guidelines/{run}/publish",
+        Permission.GUIDELINE_PUBLISH,
+        {"confirm_version": 1},
+    ),
+    # Policy amendments: listed for everyone, applied or dismissed by whoever may
+    # publish — an amendment is a change to the published rulebook.
+    ("GET", "/policy-amendments", "/policy-amendments", Permission.READ, None),
+    (
+        "POST",
+        "/policy-amendments/{amendment_id}/apply",
+        "/policy-amendments/{run}/apply",
+        Permission.GUIDELINE_PUBLISH,
+        None,
+    ),
+    (
+        "POST",
+        "/policy-amendments/{amendment_id}/dismiss",
+        "/policy-amendments/{run}/dismiss",
+        Permission.GUIDELINE_PUBLISH,
+        {"reason": "not applicable"},
+    ),
+    # Governance: the sign-off matrix is SETTINGS_WRITE to change (and to price a
+    # change), every role's to read; naming G5/G6's approvers is PROJECT_WRITE.
+    (
+        "GET",
+        "/projects/{project_id}/signoff-matrix",
+        "/projects/{project}/signoff-matrix",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/projects/{project_id}/signoff-matrix/preview",
+        "/projects/{project}/signoff-matrix/preview?legal_owner_id={target}",
+        Permission.SETTINGS_WRITE,
+        None,
+    ),
+    (
+        "PUT",
+        "/projects/{project_id}/signoff-matrix",
+        "/projects/{project}/signoff-matrix",
+        Permission.SETTINGS_WRITE,
+        {
+            "brand_owner_id": "00000000-0000-4000-8000-000000000001",
+            "legal_owner_id": "00000000-0000-4000-8000-000000000001",
+            "performance_owner_id": "00000000-0000-4000-8000-000000000001",
+        },
+    ),
+    (
+        "PATCH",
+        "/projects/{project_id}/guideline-approvers",
+        "/projects/{project}/guideline-approvers",
+        Permission.PROJECT_WRITE,
+        {"G5": None},
+    ),
+    # Person-tasks (H1/H2/H3). Every role sees the queue; submitting and
+    # attaching are ATTEST_SUBMIT — non-delegable, so `admin` is refused too
+    # (Law 23) — and handing a task to someone else is USER_MANAGE.
+    ("GET", "/human-tasks", "/human-tasks", Permission.READ, None),
+    ("GET", "/human-tasks/{task_id}", "/human-tasks/{run}", Permission.READ, None),
+    (
+        "POST",
+        "/human-tasks/{task_id}/submit",
+        "/human-tasks/{run}/submit",
+        Permission.ATTEST_SUBMIT,
+        {"payload": {}, "artifacts_confirmed": []},
+    ),
+    (
+        "POST",
+        "/human-tasks/{task_id}/attachments",
+        "/human-tasks/{run}/attachments",
+        Permission.ATTEST_SUBMIT,
+        None,
+    ),
+    (
+        "GET",
+        "/human-tasks/{task_id}/reassign-preview",
+        "/human-tasks/{run}/reassign-preview?to_user_id={target}",
+        Permission.USER_MANAGE,
+        None,
+    ),
+    (
+        "POST",
+        "/human-tasks/{task_id}/reassign",
+        "/human-tasks/{run}/reassign",
+        Permission.USER_MANAGE,
+        {"to_user_id": "00000000-0000-4000-8000-000000000001", "reason": "on leave"},
+    ),
+    # Stage 04 (S4-P20): the Landing audit's list and its patch — every role's.
+    (
+        "GET",
+        "/creative-runs/{run_id}/landing-audits",
+        "/creative-runs/{run}/landing-audits",
+        Permission.READ,
+        None,
+    ),
+    (
+        "GET",
+        "/landing-audits/{audit_id}/patch",
+        "/landing-audits/{run}/patch",
+        Permission.READ,
+        None,
+    ),
 )
 
 MUTATING = tuple(row for row in GUARDED_ROUTES if row[0] != "GET")
 
 
-async def snapshot(db: AsyncSession) -> tuple[object, ...]:
+async def snapshot(db: AsyncSession) -> dict[str, object]:
     """Everything a forbidden call must leave untouched.
 
     Memberships are in the snapshot as well as accounts: the routes under test
     can now change a role, revoke access, archive a workspace or promote a
     system administrator, and three of those four leave `user` alone.
+
+    `tables` is every table in the schema, row by row (S4-P24). The named reads
+    above it watched five tables; Stage 04 alone added ten a forbidden call
+    could write to — a released package, a cleared exception, a saved G8
+    draft — and an UPDATE there changes no count.
     """
     rows = []
     for model in (User, Invite, Workspace, AuditLog, Membership):
@@ -858,7 +1022,65 @@ async def snapshot(db: AsyncSession) -> tuple[object, ...]:
         ).order_by(Membership.user_id, Membership.workspace_id)
     )
     spaces = await db.execute(sa.select(Workspace.name, Workspace.archived_at))
-    return (*rows, tuple(accounts.all()), tuple(members.all()), tuple(spaces.all()))
+    return {
+        "counts": tuple(rows),
+        "accounts": tuple(accounts.all()),
+        "members": tuple(members.all()),
+        "workspaces": tuple(spaces.all()),
+        "tables": await table_fingerprints(db),
+    }
+
+
+async def test_the_write_snapshot_watches_every_stage04_table_row_by_row(
+    db: AsyncSession, project: Any, admin_user: Any
+) -> None:
+    """The snapshot above is what "writes nothing" means; prove it can see one.
+
+    Every table Stage 04's migrations created is in it, and an UPDATE that
+    leaves every count alone — retiring a media reference — still changes it.
+    """
+    from datetime import UTC, datetime
+
+    from agent.db.models import MediaReference, MediaReferenceKind, MediaReferenceOrigin
+
+    assert STAGE04_TABLES, "no Stage 04 migration found to derive the tables from"
+    before = await snapshot(db)
+    tables = before["tables"]
+    assert isinstance(tables, dict)
+    assert set(STAGE04_TABLES) <= set(tables), set(STAGE04_TABLES) - set(tables)
+
+    reference = MediaReference(
+        workspace_id=project.workspace_id,
+        project_id=project.id,
+        kind=MediaReferenceKind.PRODUCT_REFERENCE,
+        storage_path="references/probe.png",
+        media_type="image/png",
+        width=16,
+        height=9,
+        bytes=100,
+        sha256="0" * 64,
+        origin=MediaReferenceOrigin.OWN,
+        rights_statement="Ours.",
+        attested_by=admin_user.id,
+        attested_at=datetime.now(UTC),
+    )
+    db.add(reference)
+    await db.commit()
+    inserted = await snapshot(db)
+    assert inserted != before
+
+    await db.execute(
+        sa.update(MediaReference)
+        .where(MediaReference.id == reference.id)
+        .values(retired_at=datetime.now(UTC))
+    )
+    await db.commit()
+    retired = await snapshot(db)
+    assert retired["counts"] == inserted["counts"]
+    counted = retired["tables"], inserted["tables"]
+    assert isinstance(counted[0], dict) and isinstance(counted[1], dict)
+    assert counted[0]["media_reference"][0] == counted[1]["media_reference"][0] == 1
+    assert retired != inserted, "an UPDATE to a Stage 04 row went unseen"
 
 
 @pytest.mark.parametrize(("method", "router_path", "path", "permission", "body"), MUTATING)
