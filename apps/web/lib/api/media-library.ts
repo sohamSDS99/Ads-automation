@@ -26,6 +26,35 @@ export function mediaContentUrl(mediaId: string, variant: MediaVariant): string 
   return `${API_BASE}/media/${mediaId}/content?variant=${variant}`;
 }
 
+/** `MediaReferenceOut` — a product or style reference and its rights attestation. */
+export type MediaReference = {
+  id: string;
+  project_id: string;
+  kind: "product_reference" | "style_reference";
+  origin: "own" | "licensed" | "third_party";
+  product_ref: string | null;
+  rights_statement: string;
+  attested_by: string;
+  attested_at: string;
+  retired_at: string | null;
+  media_type: string;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+  created_at: string;
+};
+
+/** Every reference of the project, retired ones included (§16). */
+export function listMediaReferences(projectId: string): Promise<MediaReference[]> {
+  return apiFetch(`/projects/${projectId}/media-references`);
+}
+
+/** Where an `<img>` loads a reference from: a 302 to the file server (S4-P22). */
+export function mediaReferenceContentUrl(referenceId: string): string {
+  return `${API_BASE}/media-references/${referenceId}/content`;
+}
+
 // ---------------------------------------------------------------------------
 // 4.4.1 creative_concepts
 // ---------------------------------------------------------------------------

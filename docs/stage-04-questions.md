@@ -1611,3 +1611,67 @@ node 4.6.4, `RenderPreview`, `GET /creative-runs/{id}/previews` and
     - `s4p14_support.h3_run` gained `campaign_type=`;
     - `n4_6_1._lines`, `n4_6_1._price_descriptions` and `n4_6_2._locale` are
       now public for reuse. Their behaviour is unchanged.
+
+## S4-P22
+
+FE review & exceptions: `ReviewWorkspace`, `ReviewChecklist`, `ReferenceCompare`,
+`ReviewFilmstrip` at `…/runs/[runId]/review`; H3 rows, step-up and receipt in
+the `/approvals` Signatures tab; the withdraw dialog. Rulings owed:
+
+1. **Three reads beyond §16, added because the exit criteria need them and no
+   phase owned them.** (a) `GET /media-references/{id}/content` (READ, 302 to
+   the signed file, as `/media/{id}/content`): §16 lists and uploads
+   references but gives a browser nothing to load one from, so
+   `ReferenceCompare` could not show the product. (b) `ExceptionOut.if_rejected`
+   on `GET /creative-runs/{id}/exceptions`: §15.4 I's "what ships if rejected
+   (the fallback, rendered)" is the outcome of `swap_to_fallbacks` (same-slot,
+   reserve-only, one fallback per slot, carried-only), which the UI must not
+   re-derive (§15.5 item 1). (c) `POST /creative-runs/{id}/exceptions/withdraw-preview`
+   (CREATIVE_EXECUTE, no write): the withdraw confirmation's swap/drop counts.
+   All three read `clearance.plan_swaps`, now the one planner the write runs
+   too, so a number shown before a decision is the number it produces
+   (asserted against the write's own `swapped` in `test_s4p22_review_reads.py`).
+2. **§16 says `POST /approvals/{id}/decide` for G8/G8b; the built route is
+   `POST /approvals/{id}`** (S4-P13's, `edited_proposal.items[]`). The UI uses
+   the built one. Rename the §16 line, or add the alias.
+3. **`ReferenceCompare` pairs by name.** The G8 card carries
+   `product_refs[]` (product_ref strings), not reference ids, so the workspace
+   shows every product reference of the project with that `product_ref`
+   uploaded before the gate opened. Two references of one product both show
+   (a picker). Proposed: `ReviewItem.reference_ids[]` from 4.4.5 (it has the
+   sha256s), then the compare shows exactly what the model was given.
+4. **The tally's cost** ("Regenerate 3 (≈ $1.80)") is the sum of S4-P21's
+   per-asset `regeneration-estimate` at the run's pinned model — the price
+   S4-P13 unified on (its ruling 9: an image counts as one request).
+5. **`G` regenerate takes a note only.** `ItemDecision` also takes
+   `model_override` / `params_override`; §15.4 H says only "opens note", so
+   the workspace does not offer a model switch (the Media Library's
+   `GenerationPanel` does, before G8).
+6. **Interaction choices, flagged:** a decision auto-advances to the next
+   undecided asset; `N` jumps to the next undecided, `Backspace` clears a
+   decision, `[` `]` change rendition, `=` `-` `0` zoom (every view at once);
+   unticking an approved asset withdraws the approval (an approval is the
+   four ticks). Recording the card is `⌘/Ctrl Enter`, then `Enter` on the
+   focused `Record 20 decisions` — the record dialog states the tally, its
+   cost and the media budget left.
+7. **Who sees H3 outside the legal owner:** the Signatures tab lists every
+   open H3 in the workspace under "Legal exceptions waiting on someone else"
+   (`GET /human-tasks?status=open`, READ) with `Awaiting {legal owner}` and no
+   decide control. The PRD says "everyone else sees" it; it does not say
+   where. An admin sees `Withdraw exceptions` (admin holds CREATIVE_EXECUTE)
+   but never a clear control (Law 40).
+8. **Withdraw withdraws every open exception.** The route takes a subset; §15.4 I
+   names one action, so the UI offers all.
+9. **The H3 statement is client-owned** (`H3_STATEMENT`, like Stage 03's
+   `ATTESTATION`); `exceptions/clear` accepts any 1–2000 characters. Should
+   the server own the wording it records?
+10. **`proposed.substantiation` is always null.** 4.6.2 writes `None` for every
+    `new_claim` and nothing fills it later, so the row reads "None proposed".
+    §15.4 I lists "proposed substantiation" as if something proposes one.
+11. **`StepUpDialog` became `StepUpCeremony`** (title, statement, summary,
+    confirm label and the `sign` call are props; the four password rules stay
+    in the one component). Stage 03's claim signing renders unchanged through
+    a thin wrapper.
+12. **Harness only:** `scripts/s4p22/seed.py` reaches G8 and G8b for real
+    (S4-P13's `_to_g8`, 4.4.6 → 4.4.7), then widens the G8 card to 20 items
+    (17 painted images, one fixture video) because no fixture model paints 20.

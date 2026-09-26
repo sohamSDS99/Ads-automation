@@ -10,6 +10,7 @@ import {
   keepPreviousData,
   useInfiniteQuery,
   useMutation,
+  useQueries,
   useQuery,
   useQueryClient,
   type UseQueryResult,
@@ -39,9 +40,11 @@ import {
 import { listEvidence, type EvidenceQuery } from "@/lib/api/evidence";
 import {
   estimateRegeneration,
+  listMediaReferences,
   regenerateAsset,
   type RegenerationRequest,
 } from "@/lib/api/media-library";
+import { listCreativeExceptions } from "@/lib/api/exceptions";
 import {
   getGuideline,
   getGuidelineAttention,
@@ -158,6 +161,9 @@ export const keys = {
   generationJobs: (runId: string) => ["runs", runId, "creative", "generation-jobs"] as const,
   regenerationEstimate: (assetId: string, request: string) =>
     ["creative-assets", assetId, "regeneration-estimate", request] as const,
+  // S4-P22.
+  mediaReferences: (projectId: string) => ["projects", projectId, "media-references"] as const,
+  creativeExceptions: (runId: string) => ["runs", runId, "creative", "exceptions"] as const,
 };
 
 /** How often the approvals badge asks again when no run is streaming (PRD §13.4 F). */
@@ -735,6 +741,42 @@ export function useRegenerationEstimate(assetId: string, request: RegenerationRe
     retry: false,
     staleTime: 15_000,
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * The price of regenerating each asset as the run's own model would (§15.4 H:
+ * the G8 submit line "Regenerate 3 (≈ $1.80)"). One question per asset,
+ * cached by asset, so ticking a fourth regeneration asks only about the fourth.
+ */
+export function useRegenerationEstimates(assetIds: readonly string[]) {
+  return useQueries({
+    queries: assetIds.map((assetId) => ({
+      queryKey: keys.regenerationEstimate(assetId, "{}"),
+      queryFn: ({ signal }: { signal: AbortSignal }) => estimateRegeneration(assetId, {}, signal),
+      retry: false,
+      staleTime: 15_000,
+    })),
+  });
+}
+
+/** The project's product and style references, retired ones included. */
+export function useMediaReferences(projectId: string, enabled = true) {
+  return useQuery({
+    queryKey: keys.mediaReferences(projectId),
+    queryFn: () => listMediaReferences(projectId),
+    enabled: enabled && Boolean(projectId),
+    staleTime: 60_000,
+  });
+}
+
+/** H3's exception set for one creative run, with its `set_hash`. */
+export function useCreativeExceptions(runId: string | null, enabled = true) {
+  return useQuery({
+    queryKey: keys.creativeExceptions(runId ?? ""),
+    queryFn: () => listCreativeExceptions(runId as string),
+    enabled: enabled && Boolean(runId),
+    staleTime: 0,
   });
 }
 

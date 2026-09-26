@@ -8,6 +8,12 @@
   (`206`). `preview` and `poster` resolve through `derived_from`; a variant
   that was never made is a 404 — never the master in its place, because the
   grid must never load one (§15.5 items 2–3).
+- `GET /media-references/{reference_id}/content` (S4-P22) — the same `302` for
+  a product or style reference, so G8's `ReferenceCompare` can put the real
+  product beside the generated asset (§15.4 H). §16 lists and uploads
+  references but gave nothing a browser could load one from. Retired
+  references are served too: a gate opened before the retirement still
+  compares against what the model was given.
 - `POST /creative-assets/{id}/regeneration-estimate` — what regenerating a
   media asset would cost and what would remain of the media cap, before
   anything is submitted (§15.2 rule 8). The model and parameters are resolved
@@ -45,6 +51,7 @@ from agent.db.models import (
     CreativeAssetKind,
     MediaArtifact,
     MediaArtifactRole,
+    MediaReference,
     NodeRun,
     Project,
     Run,
@@ -147,6 +154,32 @@ async def media_content(
         headers={
             # Quoted as `worker_files.signed_url` quotes it: the key's `/`s stay,
             # and the file server's one `{key:path}` parameter takes them all.
+            "Location": f"{FILES_PATH}/{quote(key)}?token={token}",
+            "Cache-Control": f"private, max-age={REDIRECT_MAX_AGE_SECONDS}",
+        },
+    )
+
+
+@router.get(
+    "/media-references/{reference_id}/content",
+    status_code=status.HTTP_302_FOUND,
+    summary="Redirect to one product or style reference, signed for 300 s",
+    responses={302: {"description": "`Location` is the signed file-server URL."}},
+)
+async def media_reference_content(reference_id: uuid.UUID, me: AnyMember, db: Db) -> Response:
+    row = await db.scalar(
+        sa.select(MediaReference).where(
+            MediaReference.id == reference_id, MediaReference.workspace_id == me.workspace_id
+        )
+    )
+    if row is None:
+        raise problems.not_found(f"No media reference {reference_id}.")
+    key = row.storage_path
+    token = sign(key, ttl_seconds=CONTENT_TTL_SECONDS)
+    log.info("media_reference_content.signed", reference_id=str(reference_id))
+    return Response(
+        status_code=status.HTTP_302_FOUND,
+        headers={
             "Location": f"{FILES_PATH}/{quote(key)}?token={token}",
             "Cache-Control": f"private, max-age={REDIRECT_MAX_AGE_SECONDS}",
         },

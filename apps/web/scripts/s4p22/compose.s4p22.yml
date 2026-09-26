@@ -1,0 +1,71 @@
+# S4-P22's isolated stack: the REAL api, the REAL file server and S4-P1's
+# recorded OpenRouter catalogue (S4-P3's `catalogue_server.py`, mounted), for
+# the G8/G8b review workspace and the H3 rows.
+#
+#   docker compose -p s4p22 -f docker-compose.yml -f apps/web/scripts/s4p22/compose.s4p22.yml \
+#     up -d postgres redis catalogue api worker
+#
+# Subnet 172.31.222.0/24 and ports 8522 (api) / 8523 (file server) / 8524
+# (catalogue) / 3522 (web) are this phase's alone (`!override`: compose merges
+# lists otherwise); S4-P15 and S4-P21 run beside it.
+#
+# `worker` is the file server ONLY — no arq: `seed.py` runs the pipeline
+# in-process, and a queue consumer would race it (and would resume the runs
+# the browser check records, moving them past the states it asserts). The
+# image is `s4p12-wtest` re-tagged: ffmpeg, exiftool, tesseract, Inter.
+services:
+  api:
+    image: s4p22-wtest:latest
+    command: ["uvicorn", "agent.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      # CR-E7 needs *a* key to resolve; nothing in this stack reaches OpenRouter.
+      OPENROUTER_API_KEY: sk-or-s4p22-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3522
+      CORS_ORIGINS: http://localhost:3522
+    ports: !override
+      - "127.0.0.1:8522:8000"
+    volumes:
+      - ./apps/web/scripts/s4p22:/app/s4p22
+    depends_on:
+      catalogue:
+        condition: service_started
+
+  worker:
+    image: s4p22-wtest:latest
+    command:
+      ["uvicorn", "--factory", "agent.fileserver:create_file_server", "--host", "0.0.0.0", "--port", "8081"]
+    environment:
+      OPENROUTER_BASE_URL: http://catalogue:8099/api/v1
+      OPENROUTER_API_KEY: sk-or-s4p22-fixture-not-a-key
+      APP_BASE_URL: http://localhost:3522
+    volumes:
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p22:/app/s4p22
+    ports:
+      - "127.0.0.1:8523:8081"
+
+  catalogue:
+    image: s4p22-wtest:latest
+    command: ["python", "/app/s4p3/catalogue_server.py"]
+    volumes:
+      - ./apps/api/src:/app/src
+      - ./apps/api/tests:/app/tests
+      - ./apps/web/scripts/s4p3:/app/s4p3
+    ports:
+      - "127.0.0.1:8524:8099"
+    networks: [internal]
+
+  test:
+    image: s4p22-wtest:latest
+
+  web:
+    profiles: ["s4p22-off"]
+
+networks:
+  internal:
+    ipam: !override
+      driver: default
+      config:
+        - subnet: 172.31.222.0/24
+        - subnet: fd00:ada:222::/64

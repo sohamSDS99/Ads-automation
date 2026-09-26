@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, Loader2 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Alert } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -52,13 +52,74 @@ export function StepUpDialog({
   /** The 409. Handled by the drawer as an interstitial, never as a toast. */
   onRegisterMoved: (detail: string) => void;
 }) {
+  const approved = decisions.filter((item) => item.decision === "approved").length;
+  const rejected = decisions.length - approved;
+  return (
+    <StepUpCeremony
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Sign this claim set"
+      statement={ATTESTATION}
+      summary={
+        <>
+          <strong className="font-medium">{approved}</strong> approved
+          {" · "}
+          <strong className="font-medium">{rejected}</strong> rejected
+        </>
+      }
+      setHash={setHash}
+      confirmLabel={`Sign ${decisions.length} claims`}
+      sign={(token) =>
+        signClaims(guidelineId, {
+          decisions,
+          statement: ATTESTATION,
+          set_hash: setHash,
+          reauth_token: token,
+        })
+      }
+      onSigned={onSigned}
+      onSetMoved={onRegisterMoved}
+    />
+  );
+}
+
+/**
+ * The ceremony itself, for any set a named person signs with a step-up: Stage
+ * 03's claim set above, Stage 04's H3 exceptions (§15.4 I: "Submit opens the
+ * Stage 03 step-up dialog with `set_hash` in mono"). The four password rules
+ * hold for every caller, because they live here and nowhere else; `sign` gets
+ * the freshly minted token and nothing else ever sees it.
+ */
+export function StepUpCeremony<R>({
+  open,
+  onOpenChange,
+  title,
+  statement,
+  summary,
+  setHash,
+  confirmLabel,
+  sign,
+  onSigned,
+  onSetMoved,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  title: string;
+  statement: string;
+  /** What is being signed, in numbers ("2 cleared · 1 rejected"). */
+  summary: ReactNode;
+  setHash: string;
+  confirmLabel: string;
+  /** Spend the re-auth token. Called once per attempt, token never stored. */
+  sign: (reauthToken: string) => Promise<R>;
+  onSigned: (result: R) => void;
+  /** The 409: the set moved under the signer. An interstitial, never a toast. */
+  onSetMoved: (detail: string) => void;
+}) {
   const password = useRef("");
   const field = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-
-  const approved = decisions.filter((item) => item.decision === "approved").length;
-  const rejected = decisions.length - approved;
 
   const clear = () => {
     password.current = "";
@@ -88,20 +149,15 @@ export function StepUpDialog({
       // Minted and spent inside one function body. There is no assignment of
       // this value to anything that outlives the call.
       const { token } = await reauth(password.current);
-      const receipt = await signClaims(guidelineId, {
-        decisions,
-        statement: ATTESTATION,
-        set_hash: setHash,
-        reauth_token: token,
-      });
+      const result = await sign(token);
       clear();
-      onSigned(receipt);
+      onSigned(result);
     } catch (caught) {
       const problem = caught instanceof ApiError ? caught : null;
       if (problem?.status === 409) {
         clear();
         onOpenChange(false);
-        onRegisterMoved(problem.detail);
+        onSetMoved(problem.detail);
         return;
       }
       setError(problem?.detail ?? "That did not go through. Nothing was signed.");
@@ -116,7 +172,7 @@ export function StepUpDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        title="Sign this claim set"
+        title={title}
         description="Your password proves you are here now. A session alone does not."
         className="max-w-xl"
         onOpenAutoFocus={(event) => {
@@ -126,16 +182,14 @@ export function StepUpDialog({
       >
         <DialogBody>
           <div className="rounded-[var(--radius)] border bg-surface p-4">
-            <p className="text-sm leading-relaxed text-fg">{ATTESTATION}</p>
+            <p className="text-sm leading-relaxed text-fg">{statement}</p>
           </div>
 
           <dl className="grid gap-3 sm:grid-cols-2">
             <div>
               <dt className="text-xs text-fg-subtle">You are signing</dt>
               <dd data-numeric className="mt-0.5 text-sm text-fg">
-                <strong className="font-medium">{approved}</strong> approved
-                {" · "}
-                <strong className="font-medium">{rejected}</strong> rejected
+                {summary}
               </dd>
             </div>
             <div className="min-w-0">
@@ -197,7 +251,7 @@ export function StepUpDialog({
           </Button>
           <Button onClick={() => void submit()} disabled={busy}>
             {busy ? <Loader2 aria-hidden className="size-4 animate-spin" /> : null}
-            {busy ? "Signing…" : `Sign ${decisions.length} claims`}
+            {busy ? "Signing…" : confirmLabel}
           </Button>
         </DialogFooter>
       </DialogContent>

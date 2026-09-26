@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { ApprovalCard } from "@/components/approvals/approval-card";
 import { BriefGateSummary } from "@/components/creative/brief-gate-summary";
+import { ReviewGateSummary } from "@/components/creative/review-gate-summary";
 import { Alert } from "@/components/ui/alert";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -15,6 +16,7 @@ import { nodeLabel } from "@/lib/api/runs";
 import { absoluteTime, relativeTime } from "@/lib/format";
 import { APPROVAL_POLL_MS, errorMessage, useApprovals } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { isReviewGate } from "@/lib/api/review";
 
 /**
  * Every gate waiting on somebody, across every project (PRD §13.4 F).
@@ -144,6 +146,8 @@ function InboxRow({ approval, onDecided }: { approval: ApprovalItem; onDecided: 
               brief page instead of offering a decision without either. */}
           {approval.gate_key === "G7" ? (
             <BriefGateSummary approval={approval} projectId={approval.project_id} />
+          ) : isReviewGate(approval.gate_key) ? (
+            <ReviewGateSummary approval={approval} projectId={approval.project_id} />
           ) : (
             <ApprovalCard
               approval={approval}

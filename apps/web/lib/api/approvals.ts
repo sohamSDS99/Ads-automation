@@ -32,6 +32,8 @@ export type ApprovalItem = {
    * budget with no account of what it buys.
    */
   recalc_state: Recalc | null;
+  /** G8/G8b only: the decider's autosaved, unsubmitted decisions (`PUT /approvals/{id}/draft`). */
+  draft_state: Record<string, unknown> | null;
   decision_note: string | null;
   decided_by: string | null;
   decided_at: string | null;
