@@ -1,7 +1,20 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { CalendarClock, FileText, Images, LayoutGrid, List, ListPlus, Loader2, PanelsTopLeft, RefreshCw, ScanLine } from "lucide-react";
+import {
+  CalendarClock,
+  FileText,
+  Images,
+  LayoutGrid,
+  List,
+  ListChecks,
+  ListPlus,
+  Loader2,
+  Package,
+  PanelsTopLeft,
+  RefreshCw,
+  ScanLine,
+} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -274,6 +287,24 @@ export function RunConsole({
             >
               <Images className="size-4" aria-hidden />
               Media library
+            </Link>
+          ) : null}
+          {stage === "creative" ? (
+            <Link
+              href={`/projects/${projectId}/creative/runs/${runId}/qa`}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <ListChecks className="size-4" aria-hidden />
+              QA
+            </Link>
+          ) : null}
+          {stage === "creative" ? (
+            <Link
+              href={`/projects/${projectId}/creative/runs/${runId}/package`}
+              className="inline-flex items-center gap-1.5 text-sm text-accent hover:underline"
+            >
+              <Package className="size-4" aria-hidden />
+              Package
             </Link>
           ) : null}
         </div>
