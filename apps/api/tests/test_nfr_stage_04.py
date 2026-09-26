@@ -29,8 +29,20 @@ from pathlib import Path
 
 import pytest
 
-REPO = Path(__file__).resolve().parents[3]
-PRD = REPO / "PRD files" / "prd-copy-creative.md"
+#: The repository root on a host checkout. The worker test image mounts only
+#: `apps/api` (at /app), so there is no root there: the checks that read the
+#: PRD, the Makefile or a browser harness skip in the image, and the Python
+#: holders are still imported and looked up.
+_PARENTS = Path(__file__).resolve().parents
+REPO: Path | None = _PARENTS[3] if len(_PARENTS) > 3 else None
+PRD = REPO / "PRD files" / "prd-copy-creative.md" if REPO is not None else None
+
+
+def _repo() -> Path:
+    if REPO is None or not (REPO / "Makefile").exists():
+        pytest.skip("the repository root is not mounted here; run this index on the host")
+    return REPO
+
 
 #: CC id → (what it requires, the tests that hold it).
 NFRS: dict[str, tuple[str, tuple[str, ...]]] = {
@@ -235,7 +247,8 @@ NOT_MET: dict[str, tuple[str, str]] = {
 
 def section_17() -> tuple[str, ...]:
     """The CC ids of the PRD's §17 table, in order."""
-    if not PRD.exists():
+    _repo()
+    if PRD is None or not PRD.exists():
         pytest.skip(f"{PRD} is not mounted here; this index runs on the host")
     text = PRD.read_text(encoding="utf-8")
     body = text.split("## 17. Non-Functional Requirements", 1)[1].split("\n## ", 1)[0]
@@ -260,11 +273,11 @@ def _holders() -> list[tuple[str, str]]:
 def test_every_named_holder_exists(key: str, holder: str) -> None:
     location, _, name = holder.partition("::")
     if location == "Makefile":
-        makefile = (REPO / "Makefile").read_text(encoding="utf-8")
+        makefile = (_repo() / "Makefile").read_text(encoding="utf-8")
         assert re.search(rf"^{re.escape(name)}:", makefile, flags=re.MULTILINE), holder
         return
     if location.endswith(".mjs"):
-        harness = REPO / location
+        harness = _repo() / location
         assert harness.exists(), holder
         assert name in harness.read_text(encoding="utf-8"), f"{key}: no check {name!r}"
         return
