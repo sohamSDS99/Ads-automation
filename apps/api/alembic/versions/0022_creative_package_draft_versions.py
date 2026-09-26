@@ -40,8 +40,7 @@ def upgrade() -> None:
     # No writer existed before S4-P16 (4.7.1 was a stub); normalise anyway, so
     # a hand-made placeholder cannot block the index.
     op.execute(
-        "UPDATE creative_package SET version = 0 "
-        "WHERE status NOT IN ('released', 'superseded')"
+        "UPDATE creative_package SET version = 0 WHERE status NOT IN ('released', 'superseded')"
     )
     op.drop_constraint(CONSTRAINT_NAME, "creative_package", type_="unique")
     op.execute(
